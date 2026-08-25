@@ -74,6 +74,34 @@ select shop_id, to_char(entry_date, 'YYYY'), count(*) + 1
  group by shop_id, to_char(entry_date, 'YYYY')
 on conflict do nothing;
 
+-- ── How a number becomes a reference ──────────────────────────────────────
+--
+-- One function, because the live path and the historical backfill both build
+-- references and two copies of this is how they come to disagree -- the same
+-- reason account_code_for_payment_method exists rather than a CASE at each call
+-- site.
+--
+-- lpad(n::text, 4, '0') TRUNCATES. lpad's third-and-a-bit trick is that it cuts
+-- a string LONGER than the target width: lpad('10000', 4, '0') is '1000', which
+-- is entry 1000's reference and violates journal_entries_shop_id_reference_key
+-- the moment both exist. Four digits sounded like plenty; a shop with 8,000
+-- sales a year plus its refunds, receipts, counts, expenses and pay runs clears
+-- 9,999 inside one busy year, and the collision costs whoever hits it a sale.
+--
+-- Numbers at or below 9999 keep the zero-padded four-digit form they have
+-- always had, so a shop already holding JE-2026-0001 keeps that reference and
+-- keeps sorting alongside its neighbours. Past that the number simply gets
+-- longer.
+create or replace function public.journal_entry_reference(p_year text, p_number integer)
+returns text
+language sql immutable as $$
+  select 'JE-' || p_year || '-' ||
+         case when p_number > 9999 then p_number::text
+              else lpad(p_number::text, 4, '0') end;
+$$;
+
+grant execute on function public.journal_entry_reference(text, integer) to authenticated;
+
 -- Written only through post_journal_entry, which is security definer. No policy
 -- and no grant, for the same reason journal_entries has no write policy: a
 -- caller who can bump this counter by hand can burn a reference number or hand
@@ -162,7 +190,7 @@ begin
     values (p_shop_id, v_year, 2)
     on conflict (shop_id, year) do update set next_number = public.journal_entry_sequences.next_number + 1
     returning next_number - 1 into v_seq;
-  v_ref := 'JE-' || v_year || '-' || lpad(v_seq::text, 4, '0');
+  v_ref := public.journal_entry_reference(v_year, v_seq);
 
   insert into public.journal_entries
       (shop_id, period_id, entry_date, reference, description, source, status, location_id, created_by)

@@ -18,13 +18,28 @@
 --      entry, and 1100 reads NEGATIVE. That is the transient state the plan
 --      names, it is not a defect, and it resolves the moment the sale is
 --      replayed.
+--  1a/1b. A MISSING OR ARCHIVED ACCOUNT STOPS THE REPLAY, BY NAME. The replay
+--      does not go through post_journal_entry and therefore does not inherit
+--      its 'No such account: 4200'. 1a covers the visible half (one line gone,
+--      the entry no longer balances); 1b covers the half that is not visible at
+--      all (a self-balancing 5000/1200 pair gone, the entry still balancing,
+--      the COGS silently zero).
 --   2. The backfill posts every unposted row and says how many.
---   3. THE ONES THAT MATTER. Revenue, COGS, discounts, receivables and
---      operating expenses each tie to the figures the app reports today.
+--   3. THE ONES THAT MATTER. Revenue, COGS, discounts, receivables, operating
+--      expenses, payables, EVERY TENDER ACCOUNT SEPARATELY, sales returns and
+--      the tax that came back, and inventory and shrinkage -- each tie to the
+--      figures the app reports today.
 --      Revenue is asserted against unit_price_cents * quantity -- LIST price,
 --      an expression the replay does not use -- because asserting it against
 --      sum(line_total_cents) would be the same arithmetic twice and would pass
 --      a replay that credits 4000 net of every promotion the shop ever ran.
+--      Discounts are asserted the same way, as list + tax - what the customer
+--      paid, so that deleting points_redeemed_cents from the replay cannot pass
+--      by shrinking both sides.
+--      The tenders are asserted ONE ACCOUNT AT A TIME because a replay that
+--      lumped every method into 1000 Cash ties on every other total in this
+--      file, and one-line-per-tender is the whole reason the drawer and the
+--      wallet can be reconciled separately.
 --   4. Every entry balances (forced with SET CONSTRAINTS, because the balance
 --      trigger is DEFERRABLE INITIALLY DEFERRED and this script rolls back
 --      rather than commits, so it would otherwise never fire) and the trial
@@ -43,6 +58,11 @@
 --   9. References come from journal_entry_sequences, so a live posting after
 --      the backfill does not collide with it. This is what a parallel numbering
 --      scheme -- a restart at 1, an 'R'/'E' prefix -- would break.
+--  12. And a reference past 9,999 does not truncate back to four digits, on
+--      either path. Check 8 pushes the counter to 9998 before its re-run, so
+--      the backfill writes 'JE-YYYY-10000'; check 12 then posts live from the
+--      same counter. lpad(n::text, 4, '0') cuts a longer string, so entry
+--      10000 used to take entry 1000's reference.
 --  10. THE DOUBLE-COUNTS. A settlement is not re-posted; the expenses row
 --      post_payroll_run writes is not replayed on top of the run's own entry;
 --      the expenses row sync_invoice_expense mirrors from a bill is not
@@ -68,7 +88,10 @@ declare
   v_sale_b    uuid;
   v_sale_c    uuid;
   v_item_c    uuid;
+  v_sale_d    uuid;
+  v_item_d    uuid;
   v_refund_id uuid;
+  v_refund_d  uuid;
   v_receipt   uuid;
   v_count_id  uuid;
   v_invoice   uuid;
@@ -159,13 +182,23 @@ begin
 
   ---------------------------------------------------------------------------
   -- SALE B -- a credit sale, part paid, later SETTLED through the live RPC.
+  --           AND THE ONLY SALE THAT REDEEMS LOYALTY POINTS.
   ---------------------------------------------------------------------------
-  -- 3000 total, 1000 taken at the till, 2000 left on account.
+  -- One line at 3000 LIST, less 500 redeemed in points: total = 3000 - 500 =
+  -- 2500. 1000 taken at the till, 1500 left on account.
+  --
+  -- The 500 of points is the whole point of this sale. `points_redeemed_cents`
+  -- is the third term in the 4200 contra and the second half of the headline
+  -- defect the line-discount add-back is the first half of -- and while it was
+  -- zero on every fixture sale, DELETING it from the replay's 4200 expression
+  -- passed every check in this file. A replay that ignores points understates
+  -- 4200 by every point any customer ever spent AND leaves the entry short on
+  -- the debit side, so it does not even balance -- but nothing here saw it.
   insert into public.sales
       (shop_id, location_id, created_by, payment_method, total_cents, item_count,
-       created_at, discount_cents, tax_cents)
-    values (v_shop_id, v_loc_id, v_user_id, 'cash', 3000, 1,
-            now() - interval '5 days', 0, 0)
+       created_at, discount_cents, tax_cents, points_redeemed_cents)
+    values (v_shop_id, v_loc_id, v_user_id, 'cash', 2500, 1,
+            now() - interval '5 days', 0, 0, 500)
     returning id into v_sale_b;
   insert into public.sale_items
       (sale_id, product_name, unit_price_cents, quantity, line_total_cents, discount_cents, unit_cost_cents)
@@ -194,6 +227,49 @@ begin
     returning id into v_refund_id;
   insert into public.refund_items (refund_id, sale_item_id, quantity, amount_cents)
     values (v_refund_id, v_item_c, 1, 4000);
+
+  ---------------------------------------------------------------------------
+  -- SALE D -- TAXED, SPLIT-TENDER, AND PARTLY REFUNDED. All three at once.
+  ---------------------------------------------------------------------------
+  -- Two lines' worth at 3000 each = 6000 LIST, no discount, plus 300 of tax:
+  -- total = 6300, paid 4300 cash + 2000 zaad, settled at the till.
+  --
+  -- Sale A is taxed but never refunded; sale C is refunded but carries no tax.
+  -- So until this sale existed the refund's `4100 = goods - tax_back` split was
+  -- only ever exercised with tax_back = 0 -- its degenerate form -- and a wrong
+  -- proration basis moved money between 4100 Sales Returns and 2100 Sales Tax
+  -- Payable, BALANCED (the two are on the same side of the same entry and sum
+  -- to goods_cents whatever the split), and was asserted by nothing.
+  --
+  -- EXACTLY HALF the sale comes back, which is what makes the tax assertion
+  -- independent of the replay's arithmetic: half the goods returning must bring
+  -- back half the tax, 150, whatever expression computes it.
+  insert into public.sales
+      (shop_id, location_id, created_by, payment_method, total_cents, item_count,
+       created_at, discount_cents, tax_cents, settled_at)
+    values (v_shop_id, v_loc_id, v_user_id, 'cash', 6300, 2,
+            now() - interval '6 days', 0, 300, now() - interval '6 days')
+    returning id into v_sale_d;
+  insert into public.sale_items
+      (sale_id, product_name, unit_price_cents, quantity, line_total_cents, discount_cents, unit_cost_cents)
+    values (v_sale_d, 'Sugar sack', 3000, 2, 6000, 0, 1000)
+    returning id into v_item_d;
+  -- Two tenders, so the refund's pro-rata credit has something to divide. The
+  -- shares come out exact -- 3150 x 4300/6300 = 2150 and 3150 x 2000/6300 =
+  -- 1000 -- so the assertions below are not hostage to the rounding rule.
+  insert into public.sale_payments (sale_id, method, amount_cents, created_at)
+    values (v_sale_d, 'cash', 4300, now() - interval '6 days'),
+           (v_sale_d, 'zaad', 2000, now() - interval '6 days');
+
+  -- Half the sale back. refund_sale_items would write goods_cents =
+  -- round(6300 x 3000/6000) = 3150 and, the sale being paid in full,
+  -- total_cents = 3150; those two figures are reproduced here rather than
+  -- recomputed, because the replay reads the STORED row and never recomputes.
+  insert into public.refunds (sale_id, refunded_by, goods_cents, total_cents, created_at)
+    values (v_sale_d, v_user_id, 3150, 3150, now() - interval '5 days')
+    returning id into v_refund_d;
+  insert into public.refund_items (refund_id, sale_item_id, quantity, amount_cents)
+    values (v_refund_d, v_item_d, 1, 3150);
 
   ---------------------------------------------------------------------------
   -- A delivery and a stock count.
@@ -226,8 +302,13 @@ begin
             public.shop_local_date() - 10, public.shop_local_date() + 20, 5000, v_user_id)
     returning id into v_invoice;
 
+  -- Paid by eDahab, not cash, so 1021 has something in it. The tender
+  -- assertions below need every wallet the map knows about to be reachable:
+  -- a replay that hardcoded 1000 for the payment side of a bill would tie on
+  -- 2000 Accounts Payable, tie on every expense total, and put the shop's
+  -- eDahab balance in the till.
   insert into public.invoice_payments (invoice_id, amount_cents, paid_on, method, created_by)
-    values (v_invoice, 3000, public.shop_local_date() - 6, 'cash', v_user_id);
+    values (v_invoice, 3000, public.shop_local_date() - 6, 'edahab', v_user_id);
 
   ---------------------------------------------------------------------------
   -- A POSTED PAY RUN and its expenses row. THE FIRST DOUBLE-COUNT TRAP.
@@ -304,14 +385,72 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
+  -- 1a. A MISSING ACCOUNT STOPS THE REPLAY, BY NAME. The unbalancing case.
+  ---------------------------------------------------------------------------
+  -- The replay does not go through post_journal_entry, which raises
+  -- 'No such account: 4200'. It builds its lines by joining the chart of
+  -- accounts, and an INNER join silently DROPS a line whose account is missing
+  -- or archived. That failure then surfaces -- if at all -- at COMMIT, from the
+  -- deferred balance trigger, as "debits and credits differ by 2000": no entry
+  -- named, no account named, and nothing to say an account was the cause.
+  --
+  -- 4200 is archived here, which is the visible half of the defect: one dropped
+  -- line and the entry no longer balances. The backfill must raise NAMING 4200
+  -- rather than write an unbalanced entry and leave the trigger to notice.
+  --
+  -- Both of these run inside their own BEGIN ... EXCEPTION block, whose implicit
+  -- savepoint rolls back the archive AND everything the backfill wrote, so the
+  -- fixture is restored for check 2 without a teardown.
+  begin
+    update public.accounts set archived_at = now()
+     where shop_id = v_shop_id and code = '4200';
+    v_posted := public.backfill_shop_ledger(v_shop_id);
+    raise exception 'FAIL: the backfill wrote % entries with 4200 archived -- the 4200 line was dropped and the entry left unbalanced', v_posted;
+  exception when others then
+    if sqlerrm like 'FAIL:%' then raise; end if;
+    if sqlerrm not like 'No such account: 4200%' then
+      raise exception 'FAIL: archiving 4200 should stop the backfill naming that account, got: %', sqlerrm;
+    end if;
+  end;
+
+  ---------------------------------------------------------------------------
+  -- 1b. THE SAME, FOR A SELF-BALANCING PAIR. The invisible case.
+  ---------------------------------------------------------------------------
+  -- This is the one that matters. 5000 and 1200 are posted as a PAIR -- Dr 5000
+  -- / Cr 1200 on a sale, the reverse on a refund, and 1200/5100 on a count.
+  -- Drop both and the entry still balances, still has more than two lines,
+  -- still passes check 4, still passes the "fewer than two lines" guard, and
+  -- has silently lost every cent of cost of goods sold. A trial balance of zero
+  -- over books with no COGS is exactly the "looks right" failure this whole
+  -- script exists to separate from a correct replay.
+  --
+  -- Asserted on the MESSAGE, not merely on the raise: with both archived the
+  -- old inner-join build did fail, but from the step-7 guard -- because the
+  -- delivery's entry lost its only debit -- with a message that names a receipt
+  -- and no account at all, while the sales quietly lost their COGS. Which of
+  -- the two codes is reported first is not ordered, and either is a correct
+  -- answer to "which account is missing".
+  begin
+    update public.accounts set archived_at = now()
+     where shop_id = v_shop_id and code in ('5000', '1200');
+    v_posted := public.backfill_shop_ledger(v_shop_id);
+    raise exception 'FAIL: the backfill wrote % entries with the 5000/1200 pair archived -- every sale silently lost its COGS and still balanced', v_posted;
+  exception when others then
+    if sqlerrm like 'FAIL:%' then raise; end if;
+    if sqlerrm not like 'No such account: 5000%' and sqlerrm not like 'No such account: 1200%' then
+      raise exception 'FAIL: archiving the 5000/1200 pair should stop the backfill naming one of them, got: %', sqlerrm;
+    end if;
+  end;
+
+  ---------------------------------------------------------------------------
   -- 2. The backfill posts every unposted row and says how many.
   ---------------------------------------------------------------------------
-  -- Nine: three sales, one refund, one receipt, one count, one supplier
+  -- Eleven: four sales, two refunds, one receipt, one count, one supplier
   -- payment, one pay run, one expense. NOT the settlement (already posted),
   -- NOT the payroll expense row, NOT the invoice's mirrored expense row.
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 9 then
-    raise exception 'FAIL: expected 9 entries (3 sales, 1 refund, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 1 expense), got %', v_posted;
+  if v_posted <> 11 then
+    raise exception 'FAIL: expected 11 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 1 expense), got %', v_posted;
   end if;
 
   ---------------------------------------------------------------------------
@@ -341,18 +480,36 @@ begin
   -- 4200 carries all three reductions gross: the order discount, the points
   -- redeemed, and the LINE discounts. A replay that forgets the last one ties
   -- on revenue only if revenue forgot it too.
+  --
+  -- DERIVED FROM THE IDENTITY, NOT FROM THE THREE COLUMNS THE REPLAY ADDS UP.
+  -- complete_sale computes
+  --   total = (lines, already net of item discount) - orderDiscount - points + tax
+  -- and list price is (lines, already net) + itemDiscount. Rearranged:
+  --
+  --   orderDiscount + points + itemDiscount  =  list + tax - total
+  --
+  -- The right-hand side reads unit_price_cents, quantity, sales.tax_cents and
+  -- sales.total_cents, and touches neither discount_cents nor
+  -- points_redeemed_cents -- the two columns the replay's 4200 expression is
+  -- built from. The old assertion added up those same two columns plus the line
+  -- discounts, which is the replay's own arithmetic restated: DELETING
+  -- points_redeemed_cents from the replay passed it, because both sides lost
+  -- the same term. This form cannot, because the total the customer paid
+  -- already has the points taken out of it.
   select coalesce(sum(l.amount_cents), 0) into v_ledger
     from public.journal_lines l
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.code = '4200';
-  select coalesce(sum(s.discount_cents + s.points_redeemed_cents), 0)
-       + coalesce((select sum(si.discount_cents) from public.sale_items si
-                     join public.sales s2 on s2.id = si.sale_id where s2.shop_id = v_shop_id), 0)
+  select coalesce((select sum(si.unit_price_cents::bigint * si.quantity)
+                     from public.sale_items si join public.sales s2 on s2.id = si.sale_id
+                    where s2.shop_id = v_shop_id), 0)
+       + coalesce(sum(s.tax_cents), 0)
+       - coalesce(sum(s.total_cents), 0)
     into v_report
     from public.sales s where s.shop_id = v_shop_id;
   if v_ledger <> v_report then
-    raise exception 'FAIL: 4200 Discounts is % but the sales and their lines say % -- off by %',
+    raise exception 'FAIL: 4200 Discounts is % but list price plus tax less what the customers paid says % -- off by %',
       v_ledger, v_report, v_ledger - v_report;
   end if;
 
@@ -481,9 +638,12 @@ begin
   -- 3f. THE SUPPLIER SIDE. 2000 Accounts Payable.
   ---------------------------------------------------------------------------
   -- The delivery raises 2000 by its costed value and the payment draws it back
-  -- down: 2000 received, 3000 paid, so 2000 nets to -1000 (a debit balance,
-  -- because this fixture pays a bill for goods that arrived on a different
-  -- delivery -- which is exactly what a real shop's two tables look like).
+  -- down: 2000 received, 3000 paid, so 2000 nets to +1000 (a DEBIT balance on a
+  -- liability account, because this fixture pays a bill for goods that arrived
+  -- on a different delivery -- which is exactly what a real shop's two tables
+  -- look like). A credit of 2000 and a debit of 3000 sum to +1000, which is
+  -- what the assertion below requires and what the report side computes as
+  -- payments less receipts.
   select coalesce(sum(l.amount_cents), 0) into v_ledger
     from public.journal_lines l
     join public.accounts a on a.id = l.account_id
@@ -499,6 +659,163 @@ begin
   if v_ledger <> v_report then
     raise exception 'FAIL: 2000 Accounts Payable is % but the receipts and payments say % -- off by %',
       v_ledger, v_report, v_ledger - v_report;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 3g. THE TENDERS, ONE ACCOUNT AT A TIME.
+  ---------------------------------------------------------------------------
+  -- THE WHOLE POINT OF ONE LINE PER TENDER is that the drawer and the wallet
+  -- reconcile separately. Until this check existed nothing in this script read
+  -- 1000, 1010, 1020 or 1021 as a total -- so a replay that ignored
+  -- account_code_for_payment_method entirely and lumped every tender into 1000
+  -- Cash would balance, and would tie on revenue, COGS, discounts, receivables,
+  -- payables and every expense account. Sale A alone is 6400 cash and 2000
+  -- zaad; a shop counting its till against that ledger would be 2000 over,
+  -- every day, with nothing anywhere to explain it.
+  --
+  -- Constants rather than a re-derivation, because every plausible derivation
+  -- of "how much cash" restates either the payment map or the refund's
+  -- pro-rata split, which are the two things being checked. The arithmetic:
+  --
+  --   1000 Cash   +6400 (sale A) +1000 (sale B till) +500 (sale B settlement)
+  --               +8000 (sale C) +4300 (sale D)
+  --               -4000 (refund C) -2150 (refund D's cash share)
+  --               -7000 (pay run) -2500 (rent)                  =  4550
+  --   1020 Zaad   +2000 (sale A) +2000 (sale D) -1000 (refund D) =  3000
+  --   1021 eDahab -3000 (the supplier paid by eDahab)            = -3000
+  --   1010 Bank    nothing in this fixture uses the 'other'
+  --                method, which is the only thing mapped here,
+  --                so anything landing in it is a mis-mapped
+  --                tender                                        =      0
+  --
+  -- The settlement's 500 is included because it is already in the ledger -- it
+  -- was posted live by settle_sale_balance before the backfill ran.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_ledger <> 4550 then
+    raise exception 'FAIL: 1000 Cash is %, expected 4550 -- the till and the ledger disagree by %', v_ledger, v_ledger - 4550;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  if v_ledger <> 3000 then
+    raise exception 'FAIL: 1020 Zaad is %, expected 3000 -- zaad money was posted somewhere else, most likely lumped into 1000 Cash', v_ledger;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1021';
+  if v_ledger <> -3000 then
+    raise exception 'FAIL: 1021 eDahab is %, expected -3000 -- the bill paid by eDahab was posted against another wallet', v_ledger;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1010';
+  if v_ledger <> 0 then
+    raise exception 'FAIL: 1010 Bank is %, expected 0 -- nothing in this fixture is paid by the "other" method, so a tender was mis-mapped', v_ledger;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 3h. SALES RETURNS AND THE TAX THAT CAME BACK WITH THEM.
+  ---------------------------------------------------------------------------
+  -- The refund splits goods_cents into 4100 Sales Returns and 2100 Sales Tax
+  -- Payable, and BOTH LINES ARE DEBITS ON THE SAME ENTRY that sum to
+  -- goods_cents whatever the split is. So a wrong proration basis moves money
+  -- between them, balances perfectly, ties on every other account, and was
+  -- asserted by nothing at all -- neither account was read anywhere in this
+  -- script before this check.
+  --
+  --   4100 = 4000 (refund C, a sale with no tax: the whole of goods_cents)
+  --        + 3000 (refund D: 3150 of goods less the 150 of tax)  = 7000
+  --   2100 = -400 (sale A's tax) -300 (sale D's tax)
+  --        +150 (refund D's share coming back)                   = -550
+  --
+  -- The 150 is not this script quoting the replay's formula back at itself:
+  -- refund D returns EXACTLY HALF of sale D (3150 of a 6300 total), so exactly
+  -- half of the 300 of tax has to come back, on any correct basis. A refund
+  -- prorated on the pre-tax figure instead gives 158 and this reddens.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '4100';
+  if v_ledger <> 7000 then
+    raise exception 'FAIL: 4100 Sales Returns is %, expected 7000 (4000 untaxed + 3150 less 150 of tax) -- off by %', v_ledger, v_ledger - 7000;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2100';
+  if v_ledger <> -550 then
+    raise exception 'FAIL: 2100 Sales Tax Payable is %, expected -550 (700 charged, 150 given back on half of sale D) -- off by %', v_ledger, v_ledger + 550;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 3i. INVENTORY AND SHRINKAGE.
+  ---------------------------------------------------------------------------
+  -- The stock count posts 1200 and 5100 as a self-balancing pair, and so does
+  -- the receipt's 1200 against 2000. Both were unasserted, and both are
+  -- therefore places where the WRONG ACCOUNT passes every other check in this
+  -- file: a count that wrote its variance to 6900 Other still balances, still
+  -- zeroes the trial balance, and moves a stock loss out of cost of sales and
+  -- into operating expenses -- the exact presentation error 20260908000000
+  -- exists to prevent.
+  --
+  --   1200 = +2000 (delivery) -400 (count, 2 sacks short at 200)
+  --          -12000 (the cost of everything sold: 6000 + 1000 + 3000 + 2000)
+  --          +2500 (the cost of what came back: 1500 + 1000)     = -7900
+  --   5100 = +400 (the count's other half)                       =    400
+  --
+  -- 1200 is derived from the four source tables rather than pinned to -7900,
+  -- because each of the four terms is written by a different lines statement
+  -- and the total is what proves they agree.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  select coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
+                     from public.stock_receipt_items ri
+                     join public.stock_receipts r on r.id = ri.receipt_id
+                    where r.shop_id = v_shop_id and ri.unit_cost_cents is not null), 0)
+       + coalesce((select sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity))
+                     from public.stock_count_items ci
+                     join public.stock_counts c on c.id = ci.count_id
+                    where c.shop_id = v_shop_id and ci.unit_cost_cents is not null), 0)
+       - coalesce((select sum(si.unit_cost_cents::bigint * si.quantity)
+                     from public.sale_items si join public.sales s on s.id = si.sale_id
+                    where s.shop_id = v_shop_id and si.unit_cost_cents is not null), 0)
+       + coalesce((select sum(si.unit_cost_cents::bigint * ri2.quantity)
+                     from public.refund_items ri2
+                     join public.sale_items si on si.id = ri2.sale_item_id
+                     join public.sales s on s.id = si.sale_id
+                    where s.shop_id = v_shop_id and si.unit_cost_cents is not null), 0)
+    into v_report;
+  if v_ledger <> v_report then
+    raise exception 'FAIL: 1200 Inventory is % but the deliveries, count, sales and returns say % -- off by %',
+      v_ledger, v_report, v_ledger - v_report;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '5100';
+  if v_ledger <> 400 then
+    raise exception 'FAIL: 5100 Inventory Shrinkage is %, expected 400 (two sacks short at 200) -- the count''s cost side went to another account', v_ledger;
   end if;
 
   ---------------------------------------------------------------------------
@@ -586,12 +903,12 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.code = '4000';
-  if v_ledger <> 21000 then
-    raise exception 'FAIL: revenue is % after a second run, expected 21000', v_ledger;
+  if v_ledger <> 27000 then
+    raise exception 'FAIL: revenue is % after a second run, expected 27000', v_ledger;
   end if;
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
-  if v_rows <> 10 then
-    raise exception 'FAIL: a second run left % entries, expected 10', v_rows;
+  if v_rows <> 12 then
+    raise exception 'FAIL: a second run left % entries, expected 12', v_rows;
   end if;
 
   ---------------------------------------------------------------------------
@@ -672,6 +989,9 @@ begin
     raise exception 'FAIL: the entry posted after the backfill took reference %, expected the counter''s next number %',
       v_text, 'JE-' || to_char(public.shop_local_date(), 'YYYY') || '-' || lpad(v_seq::text, 4, '0');
   end if;
+  -- Kept out of check 8's teardown along with the settlement's entry: it was
+  -- posted live, not backfilled, and deleting it would test a different shop.
+  v_pre := v_pre || v_entry;
 
   ---------------------------------------------------------------------------
   -- 10. THE SETTLEMENT WAS NOT RE-POSTED.
@@ -724,7 +1044,7 @@ begin
   update public.expenses set journal_entry_id = null
    where shop_id = v_shop_id and not (journal_entry_id = any(v_pre));
   delete from public.journal_entries
-   where shop_id = v_shop_id and not (id = any(v_pre)) and id <> v_entry;
+   where shop_id = v_shop_id and not (id = any(v_pre));
 
   update public.accounting_periods set status = 'closed'
    where shop_id = v_shop_id and starts_on = date_trunc('month', v_old_local)::date;
@@ -738,9 +1058,43 @@ begin
     if sqlerrm like 'FIXTURE:%' then raise; end if;
   end;
 
+  -- AND THE RE-RUN IS PUSHED PAST 9,999, which is the second thing this block
+  -- now proves. lpad(n::text, 4, '0') TRUNCATES a longer string:
+  -- lpad('10000', 4, '0') is '1000', entry 1000's reference, and the pair
+  -- violates journal_entries_shop_id_reference_key. Four digits sounded like
+  -- plenty until you notice that a backfill writes a shop's whole year in one
+  -- statement -- 8,000 sales plus their refunds, receipts, counts, expenses and
+  -- pay runs clears 9,999 inside a busy year, and this is exactly where a shop
+  -- crosses it for the first time.
+  --
+  -- Set to 9998, so the eleven entries this run writes span 9998, 9999 and then
+  -- five digits. The assertion is on the reference TEXT, not on the unique
+  -- index: 'JE-YYYY-1000' does not collide with anything in this fixture, so a
+  -- truncating build would write it, look fine, and collide only on the shop
+  -- whose thousandth entry already exists.
+  update public.journal_entry_sequences set next_number = 9998
+   where shop_id = v_shop_id and year = to_char(public.shop_local_date(), 'YYYY');
+
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 9 then
-    raise exception 'FAIL: a closed period stopped the backfill, only % of 9 entries written', v_posted;
+  if v_posted <> 11 then
+    raise exception 'FAIL: a closed period stopped the backfill, only % of 11 entries written', v_posted;
+  end if;
+
+  if not exists (select 1 from public.journal_entries
+                  where shop_id = v_shop_id
+                    and reference = 'JE-' || to_char(public.shop_local_date(), 'YYYY') || '-10000') then
+    select string_agg(reference, ', ' order by reference) into v_text
+      from public.journal_entries
+     where shop_id = v_shop_id and reference like 'JE-' || to_char(public.shop_local_date(), 'YYYY') || '-1%';
+    raise exception 'FAIL: entry 10000 was not referenced JE-%-10000 -- lpad truncated it. The references starting 1 are: %',
+      to_char(public.shop_local_date(), 'YYYY'), v_text;
+  end if;
+
+  select count(*) into v_rows from (
+    select reference from public.journal_entries
+     where shop_id = v_shop_id group by reference having count(*) > 1) d;
+  if v_rows <> 0 then
+    raise exception 'FAIL: % references were allocated twice once the counter passed 9999', v_rows;
   end if;
 
   -- And the entry landed in the closed month rather than being redirected to
@@ -765,8 +1119,8 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.code = '4000';
-  if v_ledger <> 21000 then
-    raise exception 'FAIL: revenue is % after the closed-period run, expected 21000', v_ledger;
+  if v_ledger <> 27000 then
+    raise exception 'FAIL: revenue is % after the closed-period run, expected 27000', v_ledger;
   end if;
 
   select coalesce(sum(l.amount_cents), 0) into v_ledger
@@ -774,6 +1128,44 @@ begin
    where e.shop_id = v_shop_id;
   if v_ledger <> 0 then
     raise exception 'FAIL: the trial balance does not zero after the closed-period run, off by %', v_ledger;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 12. AND THE LIVE PATH SURVIVES 9,999 TOO.
+  ---------------------------------------------------------------------------
+  -- post_journal_entry had the same lpad, and one collision there costs a
+  -- cashier a sale: src/lib/sales.ts rethrows, src/lib/checkout-errors.ts
+  -- passes the message through, and the basket is lost with
+  -- "duplicate key value violates unique constraint" on the screen. So the
+  -- format lives in one function, journal_entry_reference, and both paths call
+  -- it -- but the assertion here spells the expected reference out in full
+  -- rather than calling that function, or it would be the same arithmetic twice
+  -- and would pass whatever the function did.
+  --
+  -- The counter is above 10,000 after the run above, so the very next live
+  -- posting is the case that used to truncate.
+  select next_number into v_seq from public.journal_entry_sequences
+   where shop_id = v_shop_id and year = to_char(public.shop_local_date(), 'YYYY');
+  if v_seq is null or v_seq <= 9999 then
+    raise exception 'FIXTURE: the counter is at %, so check 12 is not testing anything past 9999', v_seq;
+  end if;
+
+  v_entry := public.post_journal_entry(
+    v_shop_id, public.shop_local_date(), 'A manual entry past nine thousand nine hundred and ninety-nine',
+    jsonb_build_array(
+      jsonb_build_object('code', '1000', 'amount_cents',  100),
+      jsonb_build_object('code', '3000', 'amount_cents', -100)));
+  select reference into v_text from public.journal_entries where id = v_entry;
+  if v_text <> 'JE-' || to_char(public.shop_local_date(), 'YYYY') || '-' || v_seq::text then
+    raise exception 'FAIL: the entry numbered % took reference %, expected JE-%-% -- lpad truncated a five-digit number back to four',
+      v_seq, v_text, to_char(public.shop_local_date(), 'YYYY'), v_seq;
+  end if;
+
+  -- And an existing four-digit reference keeps its shape, so a shop already
+  -- holding JE-2026-0001 is not renumbered by the fix.
+  if not exists (select 1 from public.journal_entries
+                  where shop_id = v_shop_id and reference like 'JE-%-0001') then
+    raise exception 'FAIL: no JE-YYYY-0001 survives -- the zero-padded four-digit form was not preserved';
   end if;
 
   perform set_config('request.jwt.claims', null, true);

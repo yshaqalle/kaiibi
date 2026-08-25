@@ -21,6 +21,12 @@
 -- convenience wrapper is skipped, and THIS IS THE ONLY THING IN THE CODEBASE
 -- THAT SKIPS IT.
 --
+-- The wrapper does one other thing the trigger does not, and skipping it was a
+-- real loss rather than a convenience: it RAISES 'No such account: 4200' for a
+-- code the shop's chart does not have. That check is reproduced here by
+-- backfill_missing_account, called from the line statements, for the reasons
+-- written at that function.
+--
 -- ## References come from journal_entry_sequences, not from count(*)
 --
 -- 20260908000150 replaced post_journal_entry's `count(*) + 1` with an atomic
@@ -142,6 +148,45 @@
 -- redirect and this replay legitimately put a back-dated expense in different
 -- months.
 
+-- ── The one thing that must never be silent ─────────────────────────────────
+--
+-- Every lines statement below LEFT JOINs the chart of accounts and hands the
+-- miss to this, instead of inner-joining and letting a missing or archived
+-- account quietly DROP the line. An inner join was the original shape and it
+-- fails in two ways, one of them invisible:
+--
+--   * drop one line and the entry no longer balances -- caught, but only at
+--     COMMIT, by the deferred trigger, saying "debits and credits differ by
+--     2000" with no entry named and no hint that an account was missing;
+--   * drop a SELF-BALANCING PAIR -- 5000/1200 on a sale or a refund, 1200/5100
+--     on a count -- and the entry still balances, still has two or more lines,
+--     still passes step 7's guard, and has silently lost its cost of goods.
+--     That is exactly the "looks right" failure this whole task exists to stop.
+--
+-- post_journal_entry raises 'No such account: 4200. Check the chart of
+-- accounts.' for the same case. The replay skips that wrapper, so it has to
+-- carry the wrapper's check itself, and it names the SOURCE ROW as well as the
+-- code because a replay that stops has to say which row it stopped on.
+--
+-- Called from inside COALESCE, which does not evaluate its later arguments once
+-- one is non-null: the join stays set-based and this runs only for the rows
+-- whose account really is missing. VOLATILE (the default) on purpose -- an
+-- IMMUTABLE function with constant arguments can be folded at plan time, which
+-- would raise for a line that the `amount_cents <> 0` filter was about to throw
+-- away.
+create or replace function public.backfill_missing_account(p_code text, p_source text)
+returns uuid
+language plpgsql as $$
+begin
+  raise exception 'No such account: %. The backfill needs it for %, and the shop''s chart of accounts does not have it (or it is archived). Check the chart of accounts.',
+    coalesce(p_code, '<null>'), p_source
+    using errcode = 'P0001';
+end;
+$$;
+
+comment on function public.backfill_missing_account(text, text) is
+  'Raises. Never returns. Called from COALESCE in backfill_shop_ledger''s line statements, so a missing or archived account stops the replay by name instead of silently dropping the line -- which, for a self-balancing pair like 5000/1200, would leave an entry that still balances and has silently lost its COGS.';
+
 create or replace function public.backfill_shop_ledger(p_shop_id uuid)
 returns integer
 language plpgsql security definer set search_path = public as $$
@@ -167,7 +212,23 @@ begin
   --
   -- ON COMMIT DROP, so a second call in a later transaction starts clean and a
   -- failed call leaves nothing behind.
-  create temporary table if not exists _bf_map (
+  --
+  -- DROPPED FIRST, and explicitly qualified. pg_temp is searched BEFORE
+  -- search_path whether or not it is listed, so a caller with a raw session
+  -- could pre-create their own _bf_map -- carrying a trigger, or a rule -- and
+  -- this SECURITY DEFINER function would write to it and fire that trigger as
+  -- the definer. Not reachable through PostgREST, which gives no session to
+  -- prepare, so this is defence in depth; it is also the only temp table in the
+  -- migration set, so it is the only place the question arises. Dropping also
+  -- removes the `_bf_map already exists, skipping` notice a second call in the
+  -- same transaction used to print.
+  -- to_regclass rather than `drop table if exists`, only so the first call in a
+  -- session does not print `schema "pg_temp" does not exist, skipping` -- the
+  -- temp schema is created lazily by the CREATE below.
+  if to_regclass('pg_temp._bf_map') is not null then
+    execute 'drop table pg_temp._bf_map';
+  end if;
+  create temporary table _bf_map (
     source_kind text,
     source_id   uuid,
     entry_id    uuid,
@@ -177,7 +238,6 @@ begin
     source      text,
     reference   text
   ) on commit drop;
-  delete from _bf_map;
 
   -- ── 1. Every unposted row, of every kind ────────────────────────────────
 
@@ -306,6 +366,25 @@ begin
     from _bf_map m
   on conflict (shop_id, starts_on) do nothing;
 
+  -- ...and a check that every date is actually covered, because the insert
+  -- above is `on conflict (shop_id, starts_on) do nothing` and the conflict
+  -- target is starts_on ALONE. A period that already exists for the 1st of a
+  -- month with a SHORTER ends_on -- a half-month period from a partial close,
+  -- anything not month-shaped -- swallows the insert and leaves no row covering
+  -- the back half of that month. journal_entries.period_id is NOT NULL, so the
+  -- entry insert in step 4 would then abort with a null-violation naming a
+  -- column, which says nothing about periods to whoever has to fix it.
+  select string_agg(distinct to_char(m.on_date, 'YYYY-MM-DD'), ', ' order by to_char(m.on_date, 'YYYY-MM-DD'))
+    into v_bad
+    from _bf_map m
+   where not exists (select 1 from public.accounting_periods ap
+                      where ap.shop_id = p_shop_id
+                        and m.on_date between ap.starts_on and ap.ends_on);
+  if v_bad is not null then
+    raise exception 'No accounting period covers: %. A period already starts on the 1st of that month but ends before the month does, so the backfill could not create one. Extend or remove that period and run again.', v_bad
+      using errcode = 'P0001';
+  end if;
+
   -- ── 3. References, from journal_entry_sequences ─────────────────────────
   --
   -- One reservation per YEAR, not per entry. The upsert takes a row lock on the
@@ -324,8 +403,14 @@ begin
     -- shop actually traded. (kind, id) is the tiebreaker and the key: an id is
     -- unique within a table but two tables can hand out the same uuid in
     -- principle, and the pair is what _bf_map is keyed on everywhere else.
+    -- journal_entry_reference, not an inline lpad: 20260908000150 owns the
+    -- format, and lpad(n, 4, '0') TRUNCATES past 9999 -- 'JE-2026-1000' for
+    -- entry 10000, colliding with entry 1000 on
+    -- journal_entries_shop_id_reference_key. A backfill is precisely where a
+    -- shop crosses 9999 for the first time, because it writes a year of history
+    -- in one statement.
     update _bf_map m
-       set reference = 'JE-' || v_year || '-' || lpad((v_first + n.rn - 1)::text, 4, '0')
+       set reference = public.journal_entry_reference(v_year, (v_first + n.rn - 1)::integer)
       from (select source_kind, source_id,
                    row_number() over (order by on_date, source_kind, source_id) as rn
               from _bf_map where to_char(on_date, 'YYYY') = v_year) n
@@ -428,44 +513,56 @@ begin
      where m.source_kind = 'sale'
   )
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
       -- One debit per tender actually used. A single lumped line would make the
       -- drawer and the wallet impossible to reconcile separately, which is most
       -- of what a cash position is for.
-      select m.entry_id, m.location_id,
+      --
+      -- ONE LINE PER METHOD, where complete_sale writes one line per PAYMENT
+      -- ROW. A sale paid twice in cash gets two lines live and one here. The
+      -- per-account totals are identical, which is what every report, the trial
+      -- balance and the drawer reconciliation read, so this is a granularity
+      -- difference and not a discrepancy -- recorded here so the next reader
+      -- does not re-derive it and think one of the two is wrong.
+      select m.entry_id, m.location_id, 'sale ' || m.source_id::text as src,
              public.account_code_for_payment_method(sp.method) as code,
              sum(sp.amount_cents)::bigint as amount_cents,
              'Payment by ' || sp.method as memo
         from _bf_map m
         join public.sale_payments sp on sp.sale_id = m.source_id
        where m.source_kind = 'sale' and not sp.is_settlement
-       group by m.entry_id, m.location_id, sp.method
+       group by m.entry_id, m.location_id, m.source_id, sp.method
 
       union all
       -- What was left on account. DERIVED -- there is no sale_balances table;
       -- a balance is the sale's total less what the till took.
-      select g.entry_id, g.location_id, '1100',
+      select g.entry_id, g.location_id, 'sale ' || g.source_id::text, '1100',
              (g.total_cents - g.till_cents)::bigint, 'Left on account' from agg g
 
       union all
-      select g.entry_id, g.location_id, '4200',
+      select g.entry_id, g.location_id, 'sale ' || g.source_id::text, '4200',
              (g.discount_cents + g.points_redeemed_cents + g.item_discount_cents)::bigint,
              'Discounts and points' from agg g
 
       union all
-      select g.entry_id, g.location_id, '4000',
+      select g.entry_id, g.location_id, 'sale ' || g.source_id::text, '4000',
              -(g.net_lines_cents + g.item_discount_cents)::bigint, 'Sale at list' from agg g
 
       union all
-      select g.entry_id, g.location_id, '2100', -g.tax_cents::bigint, 'Sales tax' from agg g
+      select g.entry_id, g.location_id, 'sale ' || g.source_id::text, '2100',
+             -g.tax_cents::bigint, 'Sales tax' from agg g
 
       union all
-      select g.entry_id, g.location_id, '5000', g.cogs_cents, 'Cost of goods sold' from agg g
+      select g.entry_id, g.location_id, 'sale ' || g.source_id::text, '5000',
+             g.cogs_cents, 'Cost of goods sold' from agg g
       union all
-      select g.entry_id, g.location_id, '1200', -g.cogs_cents, 'Stock sold' from agg g
+      select g.entry_id, g.location_id, 'sale ' || g.source_id::text, '1200',
+             -g.cogs_cents, 'Stock sold' from agg g
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -494,6 +591,30 @@ begin
   -- have gone back out of. Either way the lines sum to total_cents exactly --
   -- largest remainder guarantees it -- so the tie-out is unaffected; the split
   -- across tenders is what improves.
+  --
+  -- ...WHICH IS TRUE ONLY WHILE THAT DENOMINATOR IS NON-ZERO. The live path
+  -- cannot reach the empty case -- refund_sale_items computes its cash figure
+  -- as `least(goods, collected - already refunded)`, so total_cents > 0
+  -- REQUIRES collected > 0 -- but the replay adds `created_at <= r.created_at`
+  -- on top, and a payment row whose created_at was back-dated past its own
+  -- refund (an import, a repaired timestamp) leaves per_method empty while
+  -- total_cents survives. No cash lines are emitted, the entry is short by
+  -- exactly total_cents, and the failure arrives at COMMIT as an unbalanced
+  -- entry naming nothing. Caught here instead, where the refund can be named.
+  select string_agg(r.id::text, ', ' order by r.id::text) into v_bad
+    from _bf_map m
+    join public.refunds r on r.id = m.source_id
+    join public.sales s on s.id = r.sale_id
+   where m.source_kind = 'refund'
+     and r.total_cents > 0
+     and not exists (select 1 from public.sale_payments sp
+                      where sp.sale_id = s.id and sp.amount_cents <> 0
+                        and sp.created_at <= r.created_at);
+  if v_bad is not null then
+    raise exception 'These refunds hand cash back but no payment on their sale is dated before them, so the tenders it went out of cannot be reconstructed: %. A payment''s created_at is later than the refund it paid for -- fix the timestamps and run again.', v_bad
+      using errcode = 'P0001';
+  end if;
+
   with ref as (
     select m.entry_id, m.location_id, m.source_id, r.created_at as refunded_at,
            r.goods_cents, r.total_cents,
@@ -519,15 +640,15 @@ begin
   -- is a debit, i.e. a refund that puts money INTO a tender. Ties break on the
   -- bigger tender then the method name, so a replay is deterministic.
   per_method as (
-    select f.entry_id, f.location_id, sp.method, sum(sp.amount_cents)::numeric as collected,
+    select f.entry_id, f.location_id, f.source_id, sp.method, sum(sp.amount_cents)::numeric as collected,
            f.total_cents, f.collected_cents
       from ref f
       join public.sale_payments sp on sp.sale_id = f.sale_id
      where sp.amount_cents <> 0 and sp.created_at <= f.refunded_at and f.total_cents > 0
-     group by f.entry_id, f.location_id, sp.method, f.total_cents, f.collected_cents
+     group by f.entry_id, f.location_id, f.source_id, sp.method, f.total_cents, f.collected_cents
   ),
   ranked as (
-    select entry_id, location_id, method, total_cents,
+    select entry_id, location_id, source_id, method, total_cents,
            floor(total_cents::numeric * collected / collected_cents)::integer as base,
            sum(floor(total_cents::numeric * collected / collected_cents)::integer) over (partition by entry_id) as base_total,
            row_number() over (
@@ -538,14 +659,17 @@ begin
       from per_method
   )
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select f.entry_id, f.location_id, '4100' as code,
+      select f.entry_id, f.location_id, 'refund ' || f.source_id::text as src, '4100' as code,
              (f.goods_cents - f.tax_back)::bigint as amount_cents, 'Goods returned' as memo from ref f
       union all
-      select f.entry_id, f.location_id, '2100', f.tax_back::bigint, 'Tax on the return' from ref f
+      select f.entry_id, f.location_id, 'refund ' || f.source_id::text, '2100',
+             f.tax_back::bigint, 'Tax on the return' from ref f
       union all
-      select k.entry_id, k.location_id,
+      select k.entry_id, k.location_id, 'refund ' || k.source_id::text,
              public.account_code_for_payment_method(k.method),
              -(k.base + case when k.rn <= k.total_cents - k.base_total then 1 else 0 end)::bigint,
              'Refunded by ' || k.method
@@ -555,14 +679,16 @@ begin
       -- On a sale paid in full this is zero and omitted; on one nobody has paid,
       -- the cash lines are. An if/else on "is anything still owed" gets the
       -- part-paid sale wrong in both directions.
-      select f.entry_id, f.location_id, '1100',
+      select f.entry_id, f.location_id, 'refund ' || f.source_id::text, '1100',
              -(f.goods_cents - f.total_cents)::bigint, 'Reduced what is owed' from ref f
       union all
-      select f.entry_id, f.location_id, '1200',  f.cogs_back, 'Stock returned' from ref f
+      select f.entry_id, f.location_id, 'refund ' || f.source_id::text, '1200',
+             f.cogs_back, 'Stock returned' from ref f
       union all
-      select f.entry_id, f.location_id, '5000', -f.cogs_back, 'Cost reversed' from ref f
+      select f.entry_id, f.location_id, 'refund ' || f.source_id::text, '5000',
+             -f.cogs_back, 'Cost reversed' from ref f
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -574,20 +700,22 @@ begin
   -- classic double-count, and it would show up as a shop whose credit sales
   -- earn twice.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select m.entry_id, m.location_id,
+      select m.entry_id, m.location_id, 'settlement ' || m.source_id::text as src,
              public.account_code_for_payment_method(sp.method) as code,
              sp.amount_cents::bigint as amount_cents, 'Settlement received' as memo
         from _bf_map m join public.sale_payments sp on sp.id = m.source_id
        where m.source_kind = 'settlement'
       union all
-      select m.entry_id, m.location_id, '1100',
+      select m.entry_id, m.location_id, 'settlement ' || m.source_id::text, '1100',
              -sp.amount_cents::bigint, 'Cleared from receivables'
         from _bf_map m join public.sale_payments sp on sp.id = m.source_id
        where m.source_kind = 'settlement'
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -598,22 +726,24 @@ begin
   -- whether they were paid for. Paying the supplier is record_invoice_payment,
   -- replayed above, which debits 2000 back down.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select m.entry_id, m.location_id, '1200' as code,
+      select m.entry_id, m.location_id, 'receipt ' || m.source_id::text as src, '1200' as code,
              sum(ri.unit_cost_cents::bigint * ri.quantity) as amount_cents,
              'Delivery received' as memo
         from _bf_map m join public.stock_receipt_items ri on ri.receipt_id = m.source_id
        where m.source_kind = 'receipt' and ri.unit_cost_cents is not null
-       group by m.entry_id, m.location_id
+       group by m.entry_id, m.location_id, m.source_id
       union all
-      select m.entry_id, m.location_id, '2000',
+      select m.entry_id, m.location_id, 'receipt ' || m.source_id::text, '2000',
              -sum(ri.unit_cost_cents::bigint * ri.quantity), 'Owed to supplier'
         from _bf_map m join public.stock_receipt_items ri on ri.receipt_id = m.source_id
        where m.source_kind = 'receipt' and ri.unit_cost_cents is not null
-       group by m.entry_id, m.location_id
+       group by m.entry_id, m.location_id, m.source_id
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -630,27 +760,30 @@ begin
   -- stolen or breaks is never sold, so its cost enters COGS by no other path
   -- and gross profit reads high by exactly that amount, every month, invisibly.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select v.entry_id, v.location_id, '1200' as code, v.variance_cents as amount_cents,
+      select v.entry_id, v.location_id, 'count ' || v.source_id::text as src,
+             '1200' as code, v.variance_cents as amount_cents,
              case when v.variance_cents < 0 then 'Written off' else 'Stock found' end as memo
         from (
-          select m.entry_id, m.location_id,
+          select m.entry_id, m.location_id, m.source_id,
                  sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity)) as variance_cents
             from _bf_map m join public.stock_count_items ci on ci.count_id = m.source_id
            where m.source_kind = 'count' and ci.unit_cost_cents is not null
-           group by m.entry_id, m.location_id) v
+           group by m.entry_id, m.location_id, m.source_id) v
       union all
-      select v.entry_id, v.location_id, '5100', -v.variance_cents,
+      select v.entry_id, v.location_id, 'count ' || v.source_id::text, '5100', -v.variance_cents,
              case when v.variance_cents < 0 then 'Stock short' else 'Shrinkage reversed' end
         from (
-          select m.entry_id, m.location_id,
+          select m.entry_id, m.location_id, m.source_id,
                  sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity)) as variance_cents
             from _bf_map m join public.stock_count_items ci on ci.count_id = m.source_id
            where m.source_kind = 'count' and ci.unit_cost_cents is not null
-           group by m.entry_id, m.location_id) v
+           group by m.entry_id, m.location_id, m.source_id) v
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -662,20 +795,23 @@ begin
   -- here would double every cost the shop has -- the other half of the
   -- invoice_id exclusion on the expense replay.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select m.entry_id, m.location_id, '2000' as code,
+      select m.entry_id, m.location_id, 'supplier payment ' || m.source_id::text as src,
+             '2000' as code,
              ip.amount_cents::bigint as amount_cents, 'Bill paid' as memo
         from _bf_map m join public.invoice_payments ip on ip.id = m.source_id
        where m.source_kind = 'invoice_payment'
       union all
-      select m.entry_id, m.location_id,
+      select m.entry_id, m.location_id, 'supplier payment ' || m.source_id::text,
              public.account_code_for_payment_method(ip.method),
              -ip.amount_cents::bigint, 'Paid by ' || ip.method
         from _bf_map m join public.invoice_payments ip on ip.id = m.source_id
        where m.source_kind = 'invoice_payment'
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -690,19 +826,22 @@ begin
   -- on the same arithmetic against rows that may have been edited since, and
   -- would post a figure that differs from the expense row the run produced.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select m.entry_id, m.location_id, '6200' as code,
+      select m.entry_id, m.location_id, 'pay run ' || m.source_id::text as src,
+             '6200' as code,
              pr.total_cents::bigint as amount_cents, 'Wages' as memo
         from _bf_map m join public.payroll_runs pr on pr.id = m.source_id
        where m.source_kind = 'payroll'
       union all
-      select m.entry_id, m.location_id, '1000',
+      select m.entry_id, m.location_id, 'pay run ' || m.source_id::text, '1000',
              -pr.total_cents::bigint, 'Paid out'
         from _bf_map m join public.payroll_runs pr on pr.id = m.source_id
        where m.source_kind = 'payroll'
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
@@ -717,34 +856,51 @@ begin
   -- Cr the account the PAYMENT METHOD maps to, not 1000 for everything.
   -- Hardcoding 1000 would make the till count disagree with the ledger for
   -- every zaad or eDahab expense.
+  --
+  -- THE REPLAY READS THE ROW AS IT STANDS TODAY, AND THAT IS A KNOWN HOLE IT
+  -- INHERITS RATHER THAN CREATES. Task 7b's expenses_post_to_ledger is AFTER
+  -- INSERT only (20260908000750:211-213) -- nothing posts an adjustment when an
+  -- expense is edited or deleted afterwards, so a live-posted expense keeps its
+  -- ORIGINAL figure in the ledger while the row moves on. A replayed one gets
+  -- the row's current figure, because the original is not recorded anywhere.
+  -- The two paths therefore disagree for any expense edited after it was first
+  -- recorded, and the backfill has nothing to read that would let it agree.
+  -- Closing it means posting on UPDATE and DELETE too, which is Task 7b's to
+  -- fix; it is named here so the next reader does not mistake it for a defect
+  -- introduced by the replay.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
-  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+  select x.entry_id,
+         coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
+         x.amount_cents, x.location_id, x.memo
     from (
-      select m.entry_id, m.location_id,
+      select m.entry_id, m.location_id, 'expense ' || m.source_id::text as src,
              public.account_code_for_expense_category(e.category) as code,
              e.amount_cents::bigint as amount_cents,
              replace(e.category, '_', ' ') as memo
         from _bf_map m join public.expenses e on e.id = m.source_id
        where m.source_kind = 'expense'
       union all
-      select m.entry_id, m.location_id,
+      select m.entry_id, m.location_id, 'expense ' || m.source_id::text,
              public.account_code_for_payment_method(e.payment_method),
              -e.amount_cents::bigint, 'Paid by ' || e.payment_method
         from _bf_map m join public.expenses e on e.id = m.source_id
        where m.source_kind = 'expense'
     ) x
-    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+    left join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
    where x.amount_cents <> 0;
 
   -- ── 7. Nothing was written half-way ─────────────────────────────────────
   --
-  -- The joins above drop a line whose account is missing or archived from the
-  -- shop's chart. The deferred balance trigger catches that at COMMIT when SOME
-  -- lines survive -- "this entry does not balance" -- but an entry that lost
-  -- ALL of its lines has zero, and assert_journal_balances deliberately allows
-  -- zero (it is the legitimate end state of a draft's lines being deleted). So
-  -- an entry could be left standing with nothing under it and the trial balance
-  -- would still zero.
+  -- A BACKSTOP, not the first line of defence. The missing-account case -- which
+  -- used to reach here, badly, as an entry silently short of lines -- now raises
+  -- by name at the line statement itself (see backfill_missing_account above).
+  -- What is left for this to catch is an entry whose lines all came out ZERO and
+  -- were filtered by `amount_cents <> 0`: a source row carrying no money that
+  -- the step-1 filters did not already exclude. The deferred balance trigger
+  -- cannot see it, because assert_journal_balances deliberately ALLOWS a
+  -- zero-line entry (that is the legitimate end state of a draft's lines being
+  -- deleted), so an entry could be left standing with nothing under it and the
+  -- trial balance would still zero.
   --
   -- Raised rather than skipped. If the replay cannot express a row, the mapping
   -- is wrong and the whole run should stop -- a backfill that quietly wrote a
@@ -764,6 +920,6 @@ end;
 $$;
 
 comment on function public.backfill_shop_ledger(uuid) is
-  'Replays every unposted sale, refund, settlement, stock receipt, stock count, supplier payment, pay run and expense into the ledger and returns how many entries it wrote. Idempotent -- driven by journal_entry_id being null, so a second run writes nothing. Inserts journal_entries and journal_lines directly rather than through post_journal_entry, because open_period_for raises on a closed month and would abort the replay half-way; the deferred balance trigger still runs. References come from journal_entry_sequences, reserved a year at a time.';
+  'Replays every unposted sale, refund, settlement, stock receipt, stock count, supplier payment, pay run and expense into the ledger and returns how many entries it wrote. Idempotent -- driven by journal_entry_id being null, so a second run writes nothing. Inserts journal_entries and journal_lines directly rather than through post_journal_entry, because open_period_for raises on a closed month and would abort the replay half-way; the deferred balance trigger still runs, and the wrapper''s missing-account check is reproduced by backfill_missing_account. References come from journal_entry_sequences, reserved a year at a time.';
 
 grant execute on function public.backfill_shop_ledger(uuid) to authenticated;
