@@ -1,9 +1,14 @@
 import { describeShutMonths, summariseUnposted, type UnpostedCountRow } from '@/lib/ledger-backfill';
 
-// The Post History door has to say how many rows are waiting and of what kind
-// BEFORE anyone presses anything. The counting is the database's -- these cover
-// the half that is this app's: turning eight database words into eight lines a
-// shopkeeper reads down, and the two states the screen is actually ever in.
+// The Post History door has to say how many entries a run will write and of
+// what kind, BEFORE anyone presses anything. The counting is the database's --
+// these cover the half that is this app's: turning nine database words into
+// nine lines a shopkeeper reads down, and the two states the screen is
+// actually ever in.
+//
+// Nine, not eight, since 20260908001300: the eight kinds of source row the
+// replay reads, plus the shop's opening stock balance, which is the one entry
+// a run writes with no source row behind it.
 
 const row = (kind: string, rowsUnposted: number, oldestOn: string | null = null): UnpostedCountRow => ({
   kind,
@@ -11,7 +16,7 @@ const row = (kind: string, rowsUnposted: number, oldestOn: string | null = null)
   oldestOn,
 });
 
-/** What unposted_ledger_counts returns for a shop with nothing waiting: eight rows, all zero. */
+/** What unposted_ledger_counts returns for a shop with nothing waiting: nine rows, all zero. */
 const NOTHING_TO_DO: UnpostedCountRow[] = [
   row('sale', 0),
   row('refund', 0),
@@ -21,6 +26,7 @@ const NOTHING_TO_DO: UnpostedCountRow[] = [
   row('invoice_payment', 0),
   row('payroll', 0),
   row('expense', 0),
+  row('opening', 0),
 ];
 
 describe('summariseUnposted — a shop with nothing to do', () => {
@@ -31,12 +37,12 @@ describe('summariseUnposted — a shop with nothing to do', () => {
     expect(summary.kindsWithRows).toBe(0);
   });
 
-  it('still lists all eight kinds, because eight zeroes is the message', () => {
+  it('still lists all nine kinds, because nine zeroes is the message', () => {
     // "Nothing to do" on its own cannot be told apart from "this screen failed
-    // to load". Eight named rows each reading 0 is a positive statement: it
-    // looked in eight places and all eight are clear.
+    // to load". Nine named rows each reading 0 is a positive statement: it
+    // looked in nine places and all nine are clear.
     const summary = summariseUnposted(NOTHING_TO_DO);
-    expect(summary.lines).toHaveLength(8);
+    expect(summary.lines).toHaveLength(9);
     expect(summary.lines.every((line) => line.count === 0)).toBe(true);
     expect(summary.lines.every((line) => line.label.length > 0 && line.note.length > 0)).toBe(true);
   });
@@ -49,7 +55,7 @@ describe('summariseUnposted — a shop with nothing to do', () => {
     // Not a state the function produces, but a screen that renders a blank card
     // on an empty array is indistinguishable from one that errored.
     const summary = summariseUnposted([]);
-    expect(summary.lines).toHaveLength(8);
+    expect(summary.lines).toHaveLength(9);
     expect(summary.totalRows).toBe(0);
   });
 });
@@ -67,23 +73,29 @@ describe('summariseUnposted — a shop with rows of several kinds', () => {
     row('invoice_payment', 74, '2024-06-02'),
     row('payroll', 12, '2024-07-31'),
     row('expense', 341, '2024-03-09'),
+    // Never more than one, ever, per shop -- and it must reach the total the
+    // reader is asked to confirm, or the button posts one more entry than it
+    // promised.
+    row('opening', 1, '2024-03-01'),
   ];
 
   it('adds up every kind, including the ones that are zero', () => {
-    expect(summariseUnposted(MIXED).totalRows).toBe(3180 + 96 + 0 + 212 + 18 + 74 + 12 + 341);
+    expect(summariseUnposted(MIXED).totalRows).toBe(3180 + 96 + 0 + 212 + 18 + 74 + 12 + 341 + 1);
   });
 
   it('counts how many kinds have anything waiting, not how many were returned', () => {
-    // 7, not 8: the settlement row is present and empty. This is what the
-    // screen's "kinds" tile reads, and reporting 8 would tell a shop it has
+    // 8, not 9: the settlement row is present and empty. This is what the
+    // screen's "kinds" tile reads, and reporting 9 would tell a shop it has
     // settlements to post when it has none.
-    expect(summariseUnposted(MIXED).kindsWithRows).toBe(7);
+    expect(summariseUnposted(MIXED).kindsWithRows).toBe(8);
   });
 
   it('reads down in a fixed order whatever order the rows arrive in', () => {
     const forwards = summariseUnposted(MIXED).lines.map((line) => line.kind);
     const backwards = summariseUnposted([...MIXED].reverse()).lines.map((line) => line.kind);
-    expect(forwards).toEqual(['sale', 'refund', 'settlement', 'receipt', 'count', 'invoice_payment', 'payroll', 'expense']);
+    expect(forwards).toEqual([
+      'sale', 'refund', 'settlement', 'receipt', 'count', 'invoice_payment', 'payroll', 'expense', 'opening',
+    ]);
     expect(backwards).toEqual(forwards);
   });
 
@@ -92,6 +104,7 @@ describe('summariseUnposted — a shop with rows of several kinds', () => {
     expect(labels.invoice_payment).toBe('Supplier payments');
     expect(labels.receipt).toBe('Stock deliveries');
     expect(labels.expense).toBe('Expenses and bills');
+    expect(labels.opening).toBe('Opening stock');
   });
 
   it('puts each count against its own kind', () => {
@@ -102,10 +115,12 @@ describe('summariseUnposted — a shop with rows of several kinds', () => {
   });
 
   it('reports the earliest date across every kind, not the first row it saw', () => {
-    // 2024-03-04 is on `sale`, which arrives first here -- so the test also
-    // runs the rows reversed, where the earliest date is last.
-    expect(summariseUnposted(MIXED).oldestOn).toBe('2024-03-04');
-    expect(summariseUnposted([...MIXED].reverse()).oldestOn).toBe('2024-03-04');
+    // 2024-03-01 is on `opening`, which arrives last here -- so the test also
+    // runs the rows reversed, where the earliest date is first. The opening
+    // balance is always the earliest: it is dated the first day of the month
+    // the ledger begins in.
+    expect(summariseUnposted(MIXED).oldestOn).toBe('2024-03-01');
+    expect(summariseUnposted([...MIXED].reverse()).oldestOn).toBe('2024-03-01');
   });
 
   it('ignores a date attached to a kind with nothing waiting', () => {
@@ -117,20 +132,22 @@ describe('summariseUnposted — a shop with rows of several kinds', () => {
 
 describe('summariseUnposted — a source this app has no name for', () => {
   it('keeps it and counts it, rather than dropping it out of the total', () => {
-    // A ninth source added to the replay must reach the number the reader is
+    // A tenth source added to the replay must reach the number the reader is
     // asked to confirm before it reaches this file's label table. Dropping it
-    // would make the button post more than it promised.
+    // would make the button post more than it promised. This is not
+    // hypothetical: 'opening' arrived exactly this way, and a client that had
+    // dropped it would have said 14 while the run wrote 15.
     const summary = summariseUnposted([...NOTHING_TO_DO, row('asset_disposal', 7, '2025-02-02')]);
     expect(summary.totalRows).toBe(7);
-    expect(summary.lines).toHaveLength(9);
-    expect(summary.lines[8]).toMatchObject({ kind: 'asset_disposal', label: 'asset_disposal', count: 7 });
+    expect(summary.lines).toHaveLength(10);
+    expect(summary.lines[9]).toMatchObject({ kind: 'asset_disposal', label: 'asset_disposal', count: 7 });
     expect(summary.oldestOn).toBe('2025-02-02');
   });
 
-  it('keeps the eight known kinds ahead of it', () => {
+  it('keeps the nine known kinds ahead of it', () => {
     const summary = summariseUnposted([row('asset_disposal', 7), ...NOTHING_TO_DO]);
     expect(summary.lines[0].kind).toBe('sale');
-    expect(summary.lines[8].kind).toBe('asset_disposal');
+    expect(summary.lines[9].kind).toBe('asset_disposal');
   });
 });
 

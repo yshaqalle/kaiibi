@@ -89,6 +89,42 @@ export async function listPostedLines(shopId: string, asOf: string): Promise<Pos
   }));
 }
 
+/**
+ * How far 2000 Accounts Payable has gone the WRONG WAY, and whether the shop
+ * still has history waiting to be posted.
+ *
+ * `debitCents` is zero whenever the account sits where a liability belongs.
+ * `hasUnposted` is what separates the two causes of a positive figure, which the
+ * amount alone cannot: see 20260908001700's header, and the caveat in
+ * invoices-tab.tsx that chooses its remedy from the pair.
+ */
+export type PayableState = { debitCents: number; hasUnposted: boolean };
+
+/**
+ * SUMMED IN THE DATABASE, ONE ROW. Deliberately not `listPostedLines` + a
+ * reduce: that fetches every journal line the shop has ever posted, and
+ * PostgREST's `max-rows` (1000 by default) truncates it SILENTLY -- so a shop
+ * whose payable is properly in credit could be shown a confident accusation
+ * computed over whichever prefix arrived.
+ *
+ * NULL MEANS SAY NOTHING, and it is returned for a reader who lacks
+ * `ledger.view` (the function answers with no rows rather than a zero) and for
+ * any shape that is not exactly one row. Zero would be a claim -- "your payable
+ * is fine" -- and this must fail closed, not fail to zero.
+ */
+export async function getPayableState(shopId: string): Promise<PayableState | null> {
+  const { data, error } = await supabase.rpc('accounts_payable_debit', { p_shop_id: shopId });
+  if (error) throw error;
+  const rows = (data ?? []) as { debit_cents?: unknown; has_unposted?: unknown }[];
+  if (rows.length !== 1) return null;
+  const row = rows[0];
+  // bigint arrives as a string over PostgREST, so a bare `+` on it would
+  // concatenate rather than add.
+  const debitCents = Number(row.debit_cents ?? Number.NaN);
+  if (!Number.isFinite(debitCents)) return null;
+  return { debitCents, hasUnposted: row.has_unposted === true };
+}
+
 export type PostEntryInput = {
   shopId: string;
   entryDate: string;
@@ -132,8 +168,8 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
 // and the gate that matters is the one inside them.
 
 /**
- * How many rows of each kind are waiting to reach the ledger, and how far back
- * the oldest goes. Reads only; writes nothing and takes no lock.
+ * How many entries of each kind a replay would write, and how far back the
+ * oldest goes. Reads only; writes nothing and takes no lock.
  *
  * The counting is entirely the database's. `unposted_ledger_counts` reads the
  * `unposted_ledger_sources` view, which carries the same eight per-kind
@@ -141,6 +177,11 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
  * will not write. Doing it here instead would be a second definition of
  * "unposted", and it would be wrong in ways that look right (a sale's own
  * tenders keep a null `journal_entry_id` for ever).
+ *
+ * The ninth kind, `opening`, is the shop's opening stock balance and is not a
+ * source row at all: it is the value of stock that was on the shelf before the
+ * app recorded any delivery, and whether one is still needed is an arithmetic
+ * question about the ledger rather than a lookup. See 20260908001300.
  */
 export async function listUnpostedLedgerCounts(shopId: string): Promise<UnpostedSummary> {
   // TWO CALLS, IN PARALLEL, AND BOTH MUST SUCCEED. The exposure is not a nicety

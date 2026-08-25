@@ -596,6 +596,360 @@ begin
     end if;
   end;
 
+  -- 23. delete_shop survives a shop that has PAID A BILL.
+  --
+  -- Check 22 above deletes a shop with one manual journal entry, and that is
+  -- not enough: it exercises the foreign keys, not the triggers hanging off
+  -- them. 20260908001000 added an AFTER DELETE trigger to `invoice_payments`
+  -- and shipped in PR #74, and from that moment a platform operator could not
+  -- delete any shop that had ever recorded a supplier payment:
+  --
+  --   ERROR: the journal entry for this payment is missing, so it cannot be
+  --   reversed
+  --   CONTEXT: SQL statement "delete from public.shops where id = ..."
+  --
+  -- `journal_entries.shop_id` and `invoices.shop_id` both cascade from `shops`,
+  -- and the journal branch runs first -- so the entry the payment points at is
+  -- already gone when the payment's own trigger fires. The function then raised
+  -- about an inconsistency that was not one and took the whole deletion with
+  -- it. The same shape as check 22's own bug, one layer up: a rule about
+  -- single-row correctness that the cascade makes wrong.
+  --
+  -- THE MUTATION THAT MUST REDDEN THIS CHECK: in
+  -- reverse_invoice_payment_entry() (20260908001600), delete the
+  -- `if not exists (select 1 from public.shops where id = old.shop_id)` skip --
+  -- or merely move it back below the `select * into v_old from
+  -- public.journal_entries` lookup and have it read `v_old.shop_id`, which is
+  -- where 20260908001000 had it. Expected either way: the DELETE below raises
+  -- 'the journal entry for this payment is missing, so it cannot be reversed'.
+  --
+  -- Its own shop, its own owner, its own bill -- this check destroys what it
+  -- builds and every check above still needs v_shop_id.
+  declare
+    v_paid_shop  uuid;
+    v_paid_owner uuid := gen_random_uuid();
+    v_paid_loc   uuid;
+    v_paid_bill  uuid;
+    v_paid_pay   uuid;
+  begin
+    -- postgres for the whole check, not authenticated: delete_shop runs from
+    -- the platform-admin edge function on the service-role key, which bypasses
+    -- RLS entirely, and the fixture rows (auth.users, a fresh shops row) are
+    -- not reachable through RLS either. Nothing under test here is a policy.
+    perform set_config('role', 'postgres', true);
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_paid_owner, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-ledger-paidbill-' || v_paid_owner || '@example.test', '', now(), now(), now());
+    insert into public.shops (owner_id, name) values (v_paid_owner, 'Paid A Bill Shop')
+      returning id into v_paid_shop;
+    insert into public.shop_locations (shop_id, name, is_primary)
+      values (v_paid_shop, 'Main', true) returning id into v_paid_loc;
+    -- record_invoice_payment gates on has_shop_permission, which reads
+    -- auth.uid() from this claim rather than from the database role.
+    perform set_config('request.jwt.claims', json_build_object('sub', v_paid_owner)::text, true);
+
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents)
+      values (v_paid_shop, v_paid_loc, 'Doomed Vendor', 'DELSHOP-1', 'rent',
+              public.shop_local_date() - 5, public.shop_local_date() + 10, 50000)
+      returning id into v_paid_bill;
+    v_paid_pay := public.record_invoice_payment(v_paid_bill, 4300, public.shop_local_date() - 2, 'zaad');
+
+    -- Without this the check passes with the skip removed: a payment that
+    -- posted nothing returns at the trigger's FIRST line and never reaches the
+    -- guard at all.
+    if (select journal_entry_id from public.invoice_payments where id = v_paid_pay) is null then
+      raise exception 'FAIL: fixture -- the payment posted no entry, so check 23 would not reach the guard';
+    end if;
+
+    delete from public.shops where id = v_paid_shop;
+
+    if exists (select 1 from public.shops where id = v_paid_shop) then
+      raise exception 'FAIL: the shop survived its own deletion';
+    end if;
+    if exists (select 1 from public.invoice_payments where shop_id = v_paid_shop) then
+      raise exception 'FAIL: a supplier payment outlived the shop it was made by';
+    end if;
+    if exists (select 1 from public.journal_entries where shop_id = v_paid_shop) then
+      raise exception 'FAIL: a journal entry outlived the shop it belonged to';
+    end if;
+
+    perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+    perform set_config('role', 'authenticated', true);
+  end;
+
+  -- 24. delete_shop survives a shop that has traded in EVERY way that reverses
+  -- an entry from a trigger -- one shop, all of them, because that is the shop
+  -- a platform operator actually deletes.
+  --
+  -- Three functions reverse a journal entry from a trigger rather than from an
+  -- RPC, which is what makes them reachable by a cascade no caller controls:
+  -- reverse_expense_entry (expenses, 20260908001000),
+  -- reverse_invoice_payment_entry (invoice_payments, 20260908001600) and
+  -- reverse_stock_receipt_entry (stock_receipts, 20260908001500). Check 23
+  -- covers the third route into the second. This one puts a delivery, a
+  -- hand-entered expense, a paid bill, a sale and a pay run in ONE shop and
+  -- deletes it, so no ordering between those cascade branches can be the thing
+  -- that happens to be untested.
+  --
+  -- A REAL `vendors` ROW, not just a vendor_name: `vendors.shop_id` cascades
+  -- from `shops` while `invoices.vendor_id` and `expenses.vendor_id` are ON
+  -- DELETE SET NULL, so deleting this shop fires an UPDATE on `invoices` in the
+  -- middle of the cascade -- which is what invoices_sync_expense listens for.
+  -- A fixture with only a frozen vendor_name never reaches that branch.
+  --
+  -- THE MUTATION THAT MUST REDDEN THIS CHECK: delete the shop guard (`if not
+  -- exists (select 1 from public.shops where id = old.shop_id) then return
+  -- null; end if;`) from reverse_stock_receipt_entry() (20260908001500).
+  -- Expected: check 23 above still passes and the DELETE below raises 'the
+  -- journal entry for this delivery is missing, so it cannot be reversed'. The
+  -- delivery is the one branch check 23's shop does not have, so this is the
+  -- mutation that separates the two checks.
+  --
+  -- AND THE ONE THAT DOES NOT, WHICH IS WORTH RECORDING: deleting skip 2 from
+  -- reverse_expense_entry() (20260908001000) reddens CHECK 23, not this one --
+  -- 'the journal entry for this expense is missing, so it cannot be reversed'.
+  -- Entering a bill mirrors an `expenses` row through sync_invoice_expense
+  -- (20260804000300) and that row posts its own entry, so check 23's shop
+  -- exercises the expense trigger as well as the payment one without ever
+  -- inserting an expense. Check 24's hand-entered expense is therefore extra
+  -- coverage rather than the thing that makes the expense guard tested. What
+  -- this check adds over check 23 is every branch cascading in ONE statement,
+  -- so no ordering between them is the one that happens never to be run.
+  declare
+    v_all_shop  uuid;
+    v_all_owner uuid := gen_random_uuid();
+    v_all_loc   uuid;
+    v_all_vendor uuid;
+    v_all_prod  uuid;
+    v_all_recv  uuid;
+    v_all_bill  uuid;
+    v_all_pay   uuid;
+    v_all_exp   uuid;
+    v_all_sale  uuid;
+    v_all_run   uuid;
+    v_all_role  uuid;
+    v_all_member uuid;
+  begin
+    perform set_config('role', 'postgres', true);
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_all_owner, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-ledger-traded-' || v_all_owner || '@example.test', '', now(), now(), now());
+    insert into public.shops (owner_id, name) values (v_all_owner, 'Traded Everything Shop')
+      returning id into v_all_shop;
+    insert into public.shop_locations (shop_id, name, is_primary)
+      values (v_all_shop, 'Main', true) returning id into v_all_loc;
+    perform set_config('request.jwt.claims', json_build_object('sub', v_all_owner)::text, true);
+
+    insert into public.vendors (shop_id, name) values (v_all_shop, 'Doomed Supplier')
+      returning id into v_all_vendor;
+    insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+      values (v_all_shop, 'Doomed Rice', 2500, null, 0) returning id into v_all_prod;
+
+    -- A COSTED delivery. An uncosted one posts nothing and returns at
+    -- reverse_stock_receipt_entry's first line, never reaching its guard.
+    v_all_recv := public.receive_stock(v_all_shop, v_all_loc, jsonb_build_array(
+      jsonb_build_object('product_id', v_all_prod, 'quantity', 4, 'unit_cost_cents', 1700)));
+    if (select journal_entry_id from public.stock_receipts where id = v_all_recv) is null then
+      raise exception 'FAIL: fixture -- the delivery posted no entry, so check 24 would not reach the delivery guard';
+    end if;
+
+    -- A bill against the real vendor, part-paid.
+    insert into public.invoices (shop_id, location_id, vendor_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents)
+      values (v_all_shop, v_all_loc, v_all_vendor, 'Doomed Supplier', 'TRADED-1', 'utilities',
+              public.shop_local_date() - 4, public.shop_local_date() + 10, 30000)
+      returning id into v_all_bill;
+    v_all_pay := public.record_invoice_payment(v_all_bill, 12000, public.shop_local_date() - 1, 'cash');
+    if (select journal_entry_id from public.invoice_payments where id = v_all_pay) is null then
+      raise exception 'FAIL: fixture -- the payment posted no entry, so check 24 would not reach the payment guard';
+    end if;
+
+    -- A hand-entered expense, which is the row reverse_expense_entry actually
+    -- reverses: a payroll-linked or count-linked one carries a NULL
+    -- journal_entry_id and returns at that function's first line.
+    insert into public.expenses (shop_id, location_id, amount_cents, category, payment_method,
+                                 occurred_on, note, created_by)
+      values (v_all_shop, v_all_loc, 7700, 'transport_delivery', 'cash',
+              public.shop_local_date(), 'Doomed taxi', v_all_owner)
+      returning id into v_all_exp;
+    if (select journal_entry_id from public.expenses where id = v_all_exp) is null then
+      raise exception 'FAIL: fixture -- the expense posted no entry, so check 24 would not reach the expense guard';
+    end if;
+
+    insert into public.product_location_stock (product_id, location_id, stock)
+      values (v_all_prod, v_all_loc, 100)
+      on conflict (product_id, location_id) do update set stock = 100;
+    v_all_sale := public.complete_sale(
+      v_all_shop,
+      jsonb_build_array(jsonb_build_object('product_id', v_all_prod, 'quantity', 2, 'unit_price_cents', 2500)),
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 5000)),
+      null, null, null, null, 0, null, null, v_all_loc);
+    if (select journal_entry_id from public.sales where id = v_all_sale) is null then
+      raise exception 'FAIL: fixture -- the sale posted no entry';
+    end if;
+
+    insert into public.roles (shop_id, name, permissions)
+      values (v_all_shop, 'Doomed Staff', array['expenses.manage']) returning id into v_all_role;
+    -- The owner already has a shop_members row (20260823000000) and the table
+    -- is unique on (shop_id, user_id), so this updates rather than inserts.
+    update public.shop_members
+       set role_id = v_all_role, active = true, full_name = 'Doomed One'
+     where shop_id = v_all_shop and user_id = v_all_owner
+    returning id into v_all_member;
+    insert into public.payroll_runs (shop_id, location_id, period_start, period_end)
+      values (v_all_shop, v_all_loc, public.shop_local_date() - 7, public.shop_local_date() - 1)
+      returning id into v_all_run;
+    insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents)
+      values (v_all_run, v_all_member, 'Doomed One', 15000);
+    -- PERFORM, not assignment: post_payroll_run returns the EXPENSE id, not the
+    -- run id (20260816000000).
+    perform public.post_payroll_run(v_all_run);
+    if (select journal_entry_id from public.payroll_runs where id = v_all_run) is null then
+      raise exception 'FAIL: fixture -- the pay run posted no entry';
+    end if;
+
+    delete from public.shops where id = v_all_shop;
+
+    if exists (select 1 from public.shops where id = v_all_shop) then
+      raise exception 'FAIL: the shop survived its own deletion';
+    end if;
+    if exists (select 1 from public.journal_entries where shop_id = v_all_shop) then
+      raise exception 'FAIL: a journal entry outlived the shop that traded it';
+    end if;
+    if exists (select 1 from public.expenses where shop_id = v_all_shop)
+       or exists (select 1 from public.stock_receipts where shop_id = v_all_shop)
+       or exists (select 1 from public.invoice_payments where shop_id = v_all_shop) then
+      raise exception 'FAIL: a source row outlived the shop it belonged to';
+    end if;
+
+    perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+    perform set_config('role', 'authenticated', true);
+  end;
+
+  -- 25. The guard the two checks above add must not have bought their silence.
+  --
+  -- Standing down for a deleted shop is right; standing down for a payment
+  -- whose entry has vanished while its shop is still trading is a books-do-not-
+  -- tie bug going quiet. Both halves are asserted here, on a shop that lives.
+  --
+  --   a) deleting ONE invoice_payments row still reverses its entry -- the
+  --      original goes to 'reversed', names its mirror, and the pair leaves
+  --      2000 Accounts Payable back where it started.
+  --   b) a payment pointing at an entry that is not there still RAISES.
+  --
+  -- (b) needs the foreign key on invoice_payments.journal_entry_id out of the
+  -- way, because that key is precisely what makes the state unreachable in
+  -- production -- which is why the raise is loud rather than plausible. Dropped
+  -- inside this transaction and rolled back with the rest of the fixture.
+  -- `set constraints all immediate` first: the deferred journal keys from
+  -- 20260908001200 leave pending trigger events on `journal_entries`, and ALTER
+  -- TABLE refuses to take its lock while any are outstanding.
+  --
+  -- THE MUTATION THAT MUST REDDEN THIS CHECK: in
+  -- reverse_invoice_payment_entry(), replace the `raise exception 'the journal
+  -- entry for this payment is missing...'` with `return null` -- the shortcut
+  -- fix for check 23 that costs the loud failure. Expected: 'FAIL: a payment
+  -- whose entry is genuinely missing was deleted in silence'. Checks 23 and 24
+  -- both stay GREEN under that mutation, which is the whole reason this one
+  -- exists. Dropping the invoice_payments_reverse_on_delete trigger instead
+  -- reddens half (a): 'deleting a payment on a live shop left its entry posted'.
+  declare
+    v_live_loc  uuid;
+    v_live_bill uuid;
+    v_live_pay  uuid;
+    v_live_e    uuid;
+    v_live_rev  uuid;
+    v_live_st   text;
+    v_live_2000 bigint;
+    v_orphan    uuid;
+  begin
+    perform set_config('role', 'postgres', true);
+    insert into public.shop_locations (shop_id, name) values (v_shop_id, 'Bills Branch')
+      returning id into v_live_loc;
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents)
+      values (v_shop_id, v_live_loc, 'Live Vendor', 'LIVE-1', 'rent',
+              public.shop_local_date() - 3, public.shop_local_date() + 10, 60000)
+      returning id into v_live_bill;
+    v_live_pay := public.record_invoice_payment(v_live_bill, 5100, public.shop_local_date(), 'edahab');
+    select journal_entry_id into v_live_e from public.invoice_payments where id = v_live_pay;
+    if v_live_e is null then
+      raise exception 'FAIL: fixture -- the live shop''s payment posted no entry';
+    end if;
+
+    -- (a) A plain DELETE of the row, which is the door the `write
+    -- invoice_payments` policy leaves open and the one the trigger exists for.
+    delete from public.invoice_payments where id = v_live_pay;
+
+    select status, reverses_entry_id into v_live_st, v_live_rev
+      from public.journal_entries where id = v_live_e;
+    if v_live_st is distinct from 'reversed' then
+      raise exception 'FAIL: deleting a payment on a live shop left its entry %', coalesce(v_live_st, 'missing');
+    end if;
+    if v_live_rev is null then
+      raise exception 'FAIL: the reversed entry does not name the mirror that reversed it';
+    end if;
+    -- Measured across the pair, not per entry: a mirror that copied the lines
+    -- without negating them balances just as happily on its own.
+    select coalesce(sum(l.amount_cents), 0) into v_live_2000
+      from public.journal_lines l join public.accounts a on a.id = l.account_id
+     where l.entry_id in (v_live_e, v_live_rev) and a.code = '2000';
+    if v_live_2000 <> 0 then
+      raise exception 'FAIL: the payment and its reversal leave 2000 Accounts Payable at %, not 0', v_live_2000;
+    end if;
+
+    -- (b) The genuine inconsistency, which must still be loud.
+    v_orphan := public.record_invoice_payment(v_live_bill, 2200, public.shop_local_date(), 'cash');
+    set constraints all immediate;
+    execute 'alter table public.invoice_payments drop constraint invoice_payments_journal_entry_id_fkey';
+    update public.invoice_payments set journal_entry_id = gen_random_uuid() where id = v_orphan;
+
+    v_raised := false;
+    begin
+      delete from public.invoice_payments where id = v_orphan;
+    exception
+      when others then
+        if sqlerrm <> 'the journal entry for this payment is missing, so it cannot be reversed' then
+          raise exception 'FAIL: expected the missing-entry raise, got: %', sqlerrm;
+        end if;
+        v_raised := true;
+    end;
+    if not v_raised then
+      raise exception 'FAIL: a payment whose entry is genuinely missing was deleted in silence -- the shop-deletion guard has swallowed a real inconsistency';
+    end if;
+
+    -- 26. invoice_payments.shop_id is DERIVED, and a caller cannot write it.
+    --
+    -- The column is documented as "never written by a caller" and the reversal
+    -- guard trusts it to say which shop a row belongs to. Nothing else enforces
+    -- that: the `write invoice_payments` policy (20260804000300) is `for all`
+    -- and both halves of it read the INVOICE's shop, never this row's shop_id --
+    -- so an UPDATE that moves shop_id and leaves invoice_id alone passes RLS
+    -- untouched. The only thing standing in front of it is the trigger, and a
+    -- trigger scoped `update of invoice_id` would not even fire.
+    --
+    -- MUTATION (proves this check): put `of invoice_id` back on
+    -- invoice_payments_set_shop. Expected: FAIL: a caller moved a payment's
+    -- shop_id to another shop and it stuck.
+    declare
+      v_other_shop uuid;
+      v_moved      uuid;
+      v_after      uuid;
+    begin
+      insert into public.shops (owner_id, name) values (v_owner_id, 'Second Shop')
+        returning id into v_other_shop;
+      v_moved := public.record_invoice_payment(v_live_bill, 1300, public.shop_local_date(), 'cash');
+      update public.invoice_payments set shop_id = v_other_shop where id = v_moved;
+      select shop_id into v_after from public.invoice_payments where id = v_moved;
+      if v_after <> v_shop_id then
+        raise exception 'FAIL: a caller moved a payment''s shop_id to another shop and it stuck (now %)', v_after;
+      end if;
+    end;
+
+    perform set_config('role', 'authenticated', true);
+  end;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception

@@ -10,11 +10,15 @@
 // public.unposted_ledger_sources view, which carries the same eight per-kind
 // predicates the replay does -- see the migration's header for why each one is
 // a trap (a sale's own tenders keep a null pointer for ever; a zero-valued sale
-// is never replayed; a count-derived expense stays unposted by design). Eight
-// counts hand-rolled here would give a door and an RPC that disagree about the
-// one word the whole screen is built on.
+// is never replayed; a count-derived expense stays unposted by design) -- plus,
+// since 20260908001300, the shop's opening stock balance, which is the one
+// entry a run writes with NO source row behind it and whose existence depends
+// on an amount rather than on a row. Counts hand-rolled here would give a door
+// and an RPC that disagree about the one word the whole screen is built on, and
+// the opening balance is the one nothing outside the database could work out at
+// all.
 //
-// What IS decided here is presentation: eight database words become eight
+// What IS decided here is presentation: nine database words become nine
 // English ones, in an order a shopkeeper reads down. That is a pure function,
 // and it is tested.
 
@@ -53,7 +57,7 @@ export type PeriodExposure = {
 
 export type UnpostedSummary = {
   totalRows: number;
-  /** All eight kinds, in reading order, zeroes included. */
+  /** All nine kinds, in reading order, zeroes included. */
   lines: UnpostedLine[];
   /** How many kinds have anything waiting. */
   kindsWithRows: number;
@@ -70,6 +74,14 @@ export type UnpostedSummary = {
 // The order the screen reads down, and the only place the database's vocabulary
 // meets the shop's. Sales first because they are almost always the bulk of it,
 // then what happens to a sale afterwards, then stock, then what the shop owes.
+//
+// 'opening' is LAST, and it is the one line here that is not a replay of
+// something the shop did. It is the ledger's starting position -- the stock
+// that was already on the shelf before the app recorded a single delivery --
+// and it is the only entry a run writes with no source row behind it. Last
+// rather than first because the eight replays are the bulk of what happens and
+// this reads as the closing statement of the list rather than a preamble to it.
+// Its count is never more than 1, for ever, per shop.
 const KINDS: { kind: string; label: string; note: string }[] = [
   { kind: 'sale', label: 'Sales', note: 'revenue, tax, tenders and cost of goods' },
   { kind: 'refund', label: 'Refunds', note: 'returns and the tax that came back' },
@@ -79,19 +91,20 @@ const KINDS: { kind: string; label: string; note: string }[] = [
   { kind: 'invoice_payment', label: 'Supplier payments', note: 'against what the shop owed' },
   { kind: 'payroll', label: 'Pay runs', note: 'posted runs only, never drafts' },
   { kind: 'expense', label: 'Expenses and bills', note: 'what the shop spent, by category' },
+  { kind: 'opening', label: 'Opening stock', note: 'what was on the shelf before any delivery was recorded' },
 ];
 
 /**
- * Eight database rows into eight lines a shopkeeper can read, plus the totals.
+ * Nine database rows into nine lines a shopkeeper can read, plus the totals.
  *
  * A zero kind still gets a line. "Nothing to do" is the state this door is in
- * for ever after its first run, and eight named rows each reading 0 is a
- * positive statement -- it looked in eight places and all eight are clear --
+ * for ever after its first run, and nine named rows each reading 0 is a
+ * positive statement -- it looked in nine places and all nine are clear --
  * where a list that drops its empty rows cannot be told apart from one that
  * failed to look.
  *
  * A kind the client has never heard of is kept, not dropped, and labelled with
- * its raw name. A ninth source added to the replay must show up in the total
+ * its raw name. A tenth source added to the replay must show up in the total
  * the reader is asked to confirm, even before anyone gets round to naming it
  * here; silently omitting it would make the button post more than it promised.
  */

@@ -156,7 +156,10 @@ Stated so a reviewer can see the edges rather than infer them.
 | Loyalty liability (2300) | See **Open** below. |
 | The *manual-journal screen's* void button | `reverse_journal_entry` already exists from phase 1 and keeps its `ledger.post` gate. **The posting doors do not use it** — every one of them writes its mirror inline, because a cashier or a shopkeeper holds a till or an expense permission, never a ledger one. See Tasks 5b, 5c and 7c. |
 | ~~`deleteInvoice` reversing a bill **and its payments** together~~ | **No longer out — shipped in Task 7d.** This row said reversing one half was worse than reversing neither, which was true *only* for a bill paid in full and left an unpaid one stranding its whole cost for ever. `reverse_invoice_payment_entry()` reverses the payments on the same cascade, so both halves come off together. Asserted by `verify-posting-bills.sql` checks 16–20 and `verify-posting-expenses.sql` check 17. |
-| Matching a bill to the delivery it pays for | The `invoices`↔`stock_receipts` link, and the whole `inventory_purchase` residue that turns on it — **in both directions**, see Task 7b. Phase 3. |
+| Matching a bill to the delivery it pays for | The `invoices`↔`stock_receipts` link, and the whole `inventory_purchase` residue that turns on it — **in both directions**, see Task 7b. Phase 3. **The under-stated direction is no longer silent:** the Bills screen shows a `wrong`-toned `Caveat` whenever `2000` is in debit, naming the amount. The figure and the diagnosis both come from `public.accounts_payable_debit()` (`20260908001700`) — **one row, summed in the database.** It replaced a client-side sum over `listPostedLines()`, which fetched every journal line the shop had ever posted and which PostgREST truncates at `max-rows` (1000) with no error, so past that the accusation was computed over an arbitrary prefix of the journal. **The caveat now has two branches, because the diagnosis is only exclusive once history is posted:** a bill of any category entered before auto-posting shipped credited nothing while paying it today posts a live `Dr 2000`, so a shop that has not pressed Post History can drive `2000` into debit by paying an old *rent* bill — and "record the delivery" would have it invent goods that never arrived. The function therefore returns `has_unposted` beside the amount; when anything is waiting the copy and the action point at **Post History** instead, and a reader without `ledger.close` (who could act on neither remedy) is shown nothing. `invoices-tab.tsx`, `getPayableState()` in `ledger.ts`, `invoices-payable-caveat.test.tsx`, `verify-posting-bills.sql` check 21. The number is still wrong; it no longer arrives without explanation, and it no longer offers a destructive fix. |
+| **Revaluing a product that is costed *after* it already had stock** | **New, and it is the honest half of the opening-balance argument.** `opening_inventory_gap` excludes uncosted stock, argued on the grounds that an uncosted product's whole life is invisible to `1200`. **That holds only while it stays uncosted.** `receive_stock` (`20260907000000`) costs the *entire holding* at the delivery's price when the prior cost is null, so the opening quantity acquires a cost it never contributed: 50 uncosted units open at 0, a delivery of 10 @ 100 costs all 60 and debits `1200` by 1,000, selling all 60 credits `1200` by 6,000, and `1200` ends at **−5,000** — the same negative asset the opening balance exists to remove. The opening marker means a second replay can never correct it. **The exclusion is still right** (there is no honest value for stock nobody has priced, and `price_cents` capitalises unearned profit), so what is owed is a **revaluation entry** when `products.cost_cents` moves on a product that already holds stock. Phase 3. Asserted as a *present* defect by `verify-backfill.sql` check 21b, whose message says to delete it and this row together when the revaluation lands. |
+| Two findings from the 2026-08-25 follow-up review, numbered **6** and **10** | Deferred by the reviewer rather than by this work, and their text was not carried into the fix brief — so they are recorded here as open and unstated. Recover them from the review before phase 3 plans around this list. |
+| ~~A **deleted stock receipt** leaving its `Dr 1200 / Cr 2000` standing~~ | **No longer out — shipped in `20260908001500`.** Latent rather than live (`stock_receipts` has no delete policy, no client delete and no Delete Delivery button — verified, not assumed), and closed before the button exists because the same hole has been found three times on this branch after it shipped. `reverse_stock_receipt_entry()`, an `AFTER DELETE` trigger, mirrors the entry negated, files it under the source it reverses, marks the original `reversed`, and is a no-op for an uncosted delivery, an already-reversed entry and a shop being deleted. **Its shop-deletion skip runs BEFORE the entry is read** — `journal_entries.shop_id` cascades in the same statement and its branch fires first, so `reverse_invoice_payment_entry`'s ordering fails here. The delivery's *payment* (an `inventory_purchase` `expenses` row) cascades off the same delete and is reversed by `reverse_expense_entry`, so both halves come off together. Asserted by `verify-posting-inventory.sql` checks 10–12. |
 | Re-opening a closed period for the backfill, or refusing a locked one | `backfill_shop_ledger` creates only the periods that do not exist and creates those open; an existing month keeps its status and receives entries anyway. A per-row `open_period_for` is what would abort a shop's replay half-way and leave it with half a ledger. **The door names the exposure instead** — see Task 10. |
 
 ---
@@ -180,6 +183,8 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 *An expense recorded after this phase would not post — an `AFTER INSERT` trigger on `expenses`. **Decided and shipped: see Task 7b.***
 
 *An expense **edited or deleted** after posting, and an invoice payment **undone** after posting, left the ledger stale — Task 7b's own report named the first, Task 7's carried concern 3 named the second. **Decided and shipped: see Task 7c.*** The residue it does **not** close is `deleteInvoice`, now stated in *What is NOT in this plan* rather than left open.
+
+*A **deleted stock receipt** left its `Dr 1200 Inventory / Cr 2000 Accounts Payable` standing — the fourth instance of the same shape, and the only one closed while still latent. **Shipped: `20260908001500`, `reverse_stock_receipt_entry()`.** See the row in *What is NOT in this plan*.*
 
 ---
 
@@ -209,6 +214,7 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `supabase/migrations/20260908000800_expense_source_links.sql` | The final review's C1/C2 fix. Adds `expenses.stock_receipt_id` and `expenses.stock_count_id` and replaces `post_expense_to_ledger()` with the six-way branch. See the correction under Task 7b. |
 | `supabase/migrations/20260908001000_reverse_on_expense_and_payment_delete.sql` | Tasks 7c and 7d. `reverse_expense_entry()` — a `BEFORE UPDATE` / `AFTER DELETE` trigger on `expenses` — plus `post_expense_to_ledger` attached a second time as `AFTER UPDATE` so the replacement goes through the same seven-way branch; `delete_invoice_payment` copied forward with a reversal; and **`reverse_invoice_payment_entry()`, an `AFTER DELETE` trigger on `invoice_payments`**, so both halves of a deleted bill reverse together. |
 | `supabase/migrations/20260908000900_post_sale_delete.sql` | Task 5c, the final review's C3 fix. `delete_sale`, copied forward from `20260820000100`: reverse the sale's entry, its refunds' and its settlements', then delete. Numbered after the backfill for the same reason `20260908000750` is — the number was already claimed — and it depends on nothing either of them creates. |
+| `supabase/migrations/20260908001500_reverse_on_stock_receipt_delete.sql` | Follow-up to 7c/7d, same shape on the delivery side. `reverse_stock_receipt_entry()` — an `AFTER DELETE` trigger on `stock_receipts` — so a deleted delivery takes its `Dr 1200 / Cr 2000` with it. Latent today: the table has no delete policy and no client delete. |
 | `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
@@ -220,6 +226,8 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `src/components/accounting/ledger/backfill-view.tsx` | Task 10. The Post History screen: what is unposted, the confirmation, the result, and the empty case. |
 | `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. Checks 14–16 (Task 10) pin the door's counts against the replay in both directions and assert its `ledger.close` gate; **8b** pins the closed/locked exposure and that the replay leaves both statuses untouched. |
 | `supabase/tests/bench-complete-sale.sql` | Measured before/after on a 20-line basket. |
+
+`20260908001500` adds **no** script either — its three checks (10–12) extend `verify-posting-inventory.sql`, so the count below still stands.
 
 `test:db` goes from **18** to **25** (23 before Task 7b added `verify-posting-expenses.sql`; 24 before Task 8 added `verify-backfill.sql`). Tasks 7c, 7d and 10 add **no** script — 7c's seven new checks extend `verify-posting-expenses.sql` and `verify-posting-bills.sql`, and 10's three extend `verify-backfill.sql`, so the count stays at 25. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
 
@@ -2853,3 +2861,124 @@ Fixing that surfaced two more defects in the same cascade, both older than this 
 - `ON DELETE SET NULL` is itself an `UPDATE`, and `refuse_posted_entry_edit()` / `refuse_posted_line_change()` refuse any update to a posted row except the one reversal transition. Both gained a second permitted transition: `location_id` moving from not-null to null, nothing else changing.
 
 `supabase/migrations/20260908001200_delete_shop_fk_ordering.sql`. `supabase/tests/verify-ledger.sql` checks 22 (`delete_shop` survives a shop that has traded) and 22b (deleting one branch via `deleteLocation()` nulls `location_id` on a posted entry and its lines rather than losing either). `test:db` 25 → 25 (same count; both checks landed in the existing file). `npx tsc --noEmit` clean, `npm test` 141/2294 green, `npm run lint` unchanged at 82.
+
+---
+
+## Post-merge fix 2: `delete_shop` on a shop that has PAID A BILL (PR #74)
+
+The fix above stopped the foreign keys refusing a `delete_shop`. It did not stop
+the **triggers** hanging off them, and the reversal trigger `20260908001000`
+added to `invoice_payments` — shipped in the same PR, pushed with
+`supabase db push` — refused every one:
+
+```
+NOTICE:  seeded: bill entered and paid, entries written
+NOTICE:  RESULT: FAILED -- the journal entry for this payment is missing, so it cannot be reversed
+```
+
+A platform operator could not delete any shop that had ever recorded a supplier
+payment. `journal_entries.shop_id` and `invoices.shop_id` both cascade from
+`shops`; the journal branch runs first, so by the time `invoice_payments`'
+`AFTER DELETE` trigger fires the entry it points at is already gone, and
+`reverse_invoice_payment_entry()` raised about an inconsistency that was not one.
+The same class as `20260908001200` one layer up: a rule about single-row
+correctness that the cascade makes wrong.
+
+**The distinction the fix has to preserve:** a missing entry while the shop still
+exists is a real books-do-not-tie bug and must still raise loudly; a missing
+entry while the shop is being deleted is expected and must be a silent no-op.
+Telling those apart needs the shop — *before* the entry is read, because a guard
+below the lookup never runs.
+
+`invoice_payments` had no `shop_id`, and a diagnostic trigger showed **both** the
+parents it could reach one through are already gone at that moment: an RI cascade
+is an `AFTER` trigger on the parent, so the `invoices` row is deleted in the
+invoice-only case too. So the row was given the answer:
+`invoice_payments.shop_id`, `not null`, `on delete cascade`, derived from the
+bill by `set_invoice_payment_shop()` so none of its three writers
+(`record_invoice_payment`, a client insert under the `for all` policy, a test
+fixture) can get it wrong. The guard then reads the row being deleted, exactly as
+`reverse_stock_receipt_entry()` (`20260908001500`) already does.
+
+**All four trigger-driven reversals were audited, not just the one that
+reproduced.** `reverse_expense_entry()` (both the `BEFORE UPDATE` and
+`AFTER DELETE` legs) and `reverse_stock_receipt_entry()` were already correct —
+both tables carry a `shop_id` and both guards already sat above the lookup — and
+are now held there by tests rather than by reading. Everything else that reverses
+(`edit_sale`, `delete_sale`, `delete_invoice_payment`, `unpost_payroll_run`) is an
+RPC a human calls, which a cascade never reaches.
+
+`supabase/migrations/20260908001600_reversals_stand_down_for_a_deleted_shop.sql`.
+`verify-ledger.sql` gains checks **23** (delete a shop that has paid a bill),
+**24** (delete a shop that has taken a delivery, paid a bill, recorded an
+expense, rung a sale and run payroll, with a real `vendors` row so the
+`SET NULL` → `invoices` `UPDATE` branch is in the cascade too) and **25** (one
+payment deleted on a live shop still reverses, and a genuinely missing entry
+there still raises).
+
+#### The six mutations, each with the message it produced
+
+| Mutation | Reddens | Reported |
+|---|---|---|
+| Re-apply `20260908001000`'s `reverse_invoice_payment_entry` (guard *after* the lookup, reading `v_old.shop_id`) | Check 23 | `the journal entry for this payment is missing, so it cannot be reversed` |
+| Delete the shop guard from `reverse_invoice_payment_entry` | Check 23 | `the journal entry for this payment is missing, so it cannot be reversed` |
+| Delete skip 2 from `reverse_expense_entry` | Check **23**, not 24 | `the journal entry for this expense is missing, so it cannot be reversed` |
+| Delete the shop guard from `reverse_stock_receipt_entry` | Check 24 | `the journal entry for this delivery is missing, so it cannot be reversed` |
+| `return null` instead of raising on a missing entry | Check 25 | `FAIL: a payment whose entry is genuinely missing was deleted in silence` |
+| Drop the `invoice_payments_reverse_on_delete` trigger | Check 25 | `FAIL: deleting a payment on a live shop left its entry posted` |
+
+All six were applied, watched to fail, and reverted. **None was a no-op.**
+
+**One of them landed somewhere other than where the comment predicted, and that
+is recorded rather than tidied away:** removing the expense guard reddens check
+**23**, not 24. Entering a bill mirrors an `expenses` row through
+`sync_invoice_expense` (`20260804000300`) and that row posts its own entry, so a
+shop that has merely paid a bill already exercises two of the three triggers.
+Check 24's own hand-entered expense is extra coverage; what separates it from
+check 23 is the **delivery**, and the stock-receipt mutation is the one that
+proves it.
+
+`npm run test:db` **25 → 25** (all three checks landed in the existing file).
+`npx tsc --noEmit` clean, `npm test` 142 suites / **2315** tests (2314 → 2315: the
+copy-forward guard in `accumulated-rpc-edits.test.ts` gained an entry pinning
+that the shop guard sits *above* the entry lookup, since the wrong order is what
+shipped). `npm run lint` unchanged at 81 problems (49 errors, 32 warnings).
+
+---
+
+## Post-merge fix 3: the review of the four follow-ups (2026-08-25)
+
+**Critical — the re-open in `20260908001400` would have aborted its own deployment.**
+Its one-shot `update public.sales set settled_at = null …` re-opens the sales the old
+receivables formula closed with money still outstanding. `public.sales` carries
+`sales_module BEFORE INSERT OR UPDATE` (`20260818000400`), and `shop_has_module()`
+returns **false outright** for a suspended shop (`20260818000200`) — a live
+platform-admin switch. One suspended shop holding one part-paid, part-cash-refunded
+settled sale would have raised `module_not_included` on the first row and rolled the
+whole `supabase db push` back, taking `20260908001500` and `20260908001600` — which fixes
+a live production defect — with it. Nothing could catch it: the statement runs against an
+empty database at migration time, and `verify-balances` check 35 re-executes it against a
+fixture shop that *has* `pos`.
+
+Fixed the way this repo already documents for `products` (`20260819000000`): the update is
+wrapped in `alter table public.sales disable trigger sales_module` / `… enable`, with the
+rationale carried across. This is a data repair performed by the system, not a write by a
+shop. **`verify-balances` check 36** builds a stranded sale, suspends the shop, asserts
+`shop_has_module(shop,'pos')` is false, runs the statement, asserts the sale re-opens, and
+asserts the gate is back on afterwards.
+
+**The other findings.** The Bills caveat's destructive-remedy branch and its whole-journal
+fetch are both in *What is NOT in this plan* above. `opening_inventory_gap`'s ledger term
+now filters to `posted`/`reversed`, matching the trial balance beside it
+(`verify-backfill` check 21c). The eight per-arm comments dropped when
+`unposted_ledger_source_rows` was copied out of `20260908001100` are restored with the SQL
+they explain. `invoice_payments_set_shop` fires on **every** update rather than
+`update of invoice_id`: the `write invoice_payments` policy is `for all` and checks the
+*invoice*, never `shop_id`, so a client could move a payment's `shop_id` to another shop
+they own and the narrow trigger would never fire (`verify-ledger` check 26). Post History's
+"nothing waiting" caveat no longer claims "your opening stock is recorded", which is false
+for a shop whose stock is entirely uncosted and which therefore never got an opening entry.
+
+`npm run test:db` **25 → 25** (every check landed in an existing file). `npx tsc --noEmit`
+clean, `npm test` 142 suites / **2316** tests, `npm run lint` unchanged at 81 problems
+(49 errors, 32 warnings).

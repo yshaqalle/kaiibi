@@ -202,25 +202,29 @@ stored rows and never recomputed, so an old partial refund is never silently
 ## What `verify-balances.sql` covers
 
 `customer_balances` computes one number across three tables, which makes it
-wrong in two directions that both look fine. Neither raises; both send someone
-to ask a customer for money already handed over, so both are asserted on exact
-cents.
+wrong in three directions that all look fine. None of them raises; the first two
+send someone to ask a customer for money already handed over and the third
+writes off money the shop is owed, so all are asserted on exact cents.
 
 1. A sale paid in full is not a balance.
 2. A part-paid sale owes **exactly** the shortfall.
-3. Goods that come back are not a debt — returning one unit of three drops the
-   debt by that unit, and returning the rest removes the row entirely. A refund
-   on an unpaid sale hands back no cash, because none was ever taken.
+3. Goods that come back are not a debt — but only by their value net of the cash
+   handed over for them. Returning one unit of three on a part-paid sale hands
+   the customer their money back and leaves the debt where it was; returning the
+   rest hands over nothing more and removes the row entirely.
 4. **Two payments and one refund do not multiply.** Joined directly rather than
    through lateral subqueries, two payment rows against one refund row give a
    two-row cross product and the refund is counted twice. Every fixture with one
-   payment and one refund passes anyway, which is why this one has two.
+   payment and one refund passes anyway, which is why this one has two — and it
+   returns *three* units against 2500 collected, so `goods_cents` and
+   `total_cents` differ: with the two equal, the doubled refund cancels itself
+   out of `owed_cents` exactly and the cross product goes undetected.
 5. No name, no debt: an unpaid sale with nobody attached is a loss to write off,
    not a receivable to chase.
 6. **A role holding only `customers.view` reads the true figure.** 20260802030100
    widened `sales` and `sale_items` to that key and left `sale_payments` and
    `refunds` behind, so before 20260831000000 this role read `owed = total` on a
-   sale that was paid off — measured at **4000 owed on a sale owing 500**, with
+   sale that was paid off — measured at **4000 owed on a sale owing 1000**, with
    no error, on the exact screen used to ring that customer up.
 7. Another shop reads nothing.
 
@@ -264,6 +268,31 @@ without paying for it:
 21. A sale returned against **before** it was settled earns nothing at all.
     Proportioning it would have to agree with the refund clawback's own
     proportioning against a base it does not share.
+
+Then, from 20260908001400, the cash a refund hands over — a payment running
+backwards, which `owed_cents` counted in one direction only. The two formulas
+agree exactly on a **full** return and on a return that paid out **no** cash,
+which is every case checks 1–29 exercised; that is why this was never red.
+
+30. **Money handed back over the counter is still owed.** 6300 rung up, 2000
+    paid, one unit worth 3150 returned and the customer handed their 2000 back:
+    the view said **1150** and the customer owes **3150**. `settle_sale_balance`
+    computed the same wrong figure, so it refused anything over 1150 and then
+    stamped `settled_at` — stranding 2000 in 1100 Accounts Receivable that no
+    screen in the app could ever collect.
+31. **The debt that disappeared off the list entirely.** The `owed > 0` filter is
+    the second place the cash term has to appear. 6300 rung up, 3150 paid, one
+    unit worth 3150 back and 3150 handed over computes to exactly zero under the
+    old expression, so the sale vanished from the receivables list owing 3150.
+32. **A full return behaves exactly as it always did** — no row, and the RPC
+    still refuses a further payment. The case every earlier check exercised.
+33. A return that paid out **no** cash still moves the debt by the goods only.
+34. **The view, the RPC and the ledger all say one number**, asserted against
+    each other rather than each against a constant. `complete_sale` debits 1100
+    with `(total − paid)` and `refund_sale_items` credits it with
+    `(goods − cash)`; summed, that *is* `owed_cents`. The view and
+    `settle_sale_balance` computing the same wrong figure is the only reason this
+    bug was consistent rather than random.
 
 ## What `verify-owner-membership.sql` covers
 
