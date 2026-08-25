@@ -1,0 +1,581 @@
+<title>Kaiibi &mdash; A bill names the delivery it pays for</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-profit:#008340; --d-loss:#d72b3e;
+    --d-accwash:#e6edff; --d-accink:#1b47b8; --d-warnwash:#fdf1da; --d-warnink:#8a5806;
+    --d-losswash:#fdeaec; --d-upwash:#d9efe4; --d-upink:#007a38;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:24px 0 6px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr.hi td{background:var(--pg2);}
+  td b.right{color:var(--d-upink);}
+  td b.wrong{color:#a3202f;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:960px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.was{background:var(--d-losswash);color:#a3202f;}
+  .stamp.now{background:var(--d-upwash);color:var(--d-upink);}
+  .stamp.st{background:var(--d-accwash);color:var(--d-accink);}
+
+  /* app chrome, from the real style objects */
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-card + .d-card{margin-top:14px;}
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:18px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);margin-bottom:12px;}
+  /* BentoCard's title row: title left, scope pill right (ui/bento-card.tsx) */
+  .d-crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .d-crow .d-title{margin-bottom:0;}
+  .d-pill{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--d-mut);
+    background:var(--d-soft);border-radius:999px;padding:4px 10px;}
+  .d-metrics{display:flex;gap:10px;flex-wrap:wrap;}
+  .d-tile{flex:1;min-width:132px;background:var(--d-soft);border-radius:14px;padding:12px 13px;}
+  .d-tile .v{font-size:21px;font-weight:800;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:var(--d-ink);}
+  .d-tile .l{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--d-mut);margin-top:3px;text-transform:uppercase;}
+  .d-tile .h{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-tile .h.flag{color:#a3202f;font-weight:700;}
+  .d-tile .h.ok{color:var(--d-upink);font-weight:700;}
+  /* Caveat: src/components/ui/caveat.tsx */
+  .d-cav{border-radius:14px;padding:13px 15px;margin-top:12px;display:flex;gap:11px;align-items:flex-start;}
+  .d-cav.context{background:var(--d-accwash);}
+  .d-cav.wrong{background:var(--d-warnwash);}
+  .d-cav.partial{background:var(--d-soft);}
+  .d-cav .dot{width:7px;height:7px;border-radius:99px;margin-top:6px;flex:none;}
+  .d-cav.context .dot{background:var(--d-accink);}
+  .d-cav.wrong .dot{background:var(--d-warnink);}
+  .d-cav.partial .dot{background:var(--d-mut);}
+  .d-cav p{margin:0;font-size:12.5px;line-height:1.55;}
+  .d-cav.context p{color:var(--d-accink);}
+  .d-cav.wrong p{color:var(--d-warnink);}
+  .d-cav.partial p{color:var(--d-mut);}
+  .d-cav .act{display:block;margin-top:6px;font-size:12.5px;font-weight:700;text-decoration:underline;}
+  .d-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid #f2f2f2;}
+  .d-row:last-child{border-bottom:0;}
+  .d-nm{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-mt{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-amt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--d-ink);white-space:nowrap;}
+  .d-amt.zero{color:#9ca3af;font-weight:700;}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:14px 0 6px;}
+  .d-lbl:first-child{margin-top:0;}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:9px;}
+  .d-sheet{background:var(--d-soft);border-radius:12px;padding:4px 12px;}
+  .d-calc{background:var(--d-soft);border-radius:12px;padding:11px 13px;margin-top:8px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--d-ink2);line-height:1.7;}
+  .d-calc b{color:var(--d-ink);}
+  /* The primary action, from journal-entry-view.tsx's `post` style */
+  .d-btn{display:block;width:100%;text-align:center;background:var(--d-ink);color:var(--d-sf);
+    border-radius:999px;padding:13px;font-size:13.5px;font-weight:800;margin-top:12px;}
+  .d-btn.off{opacity:.4;}
+  .d-btn.ghost{background:var(--d-soft);color:var(--d-ink2);}
+  .d-btns{display:flex;gap:9px;margin-top:12px;}
+  .d-btns .d-btn{margin-top:0;}
+  .d-btns .d-btn.ghost{flex:0 0 34%;}
+  .d-btns .d-btn:not(.ghost){flex:1;}
+
+  /* invoice-editor-modal.tsx's own style object */
+  .d-in{background:#F2F2F2;border-radius:10px;height:38px;padding:0 12px;display:flex;align-items:center;
+    font-size:13px;color:var(--d-ink);}
+  .d-in.ph{color:#9B9B9B;}
+  .d-in.tall{height:60px;align-items:flex-start;padding-top:10px;}
+  .d-frow{display:flex;gap:10px;}
+  .d-fhalf{flex:1;min-width:0;}
+  .d-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .d-chip{border:1px solid #ECECEC;padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700;color:#777777;}
+  .d-chip.on{background:#111111;border-color:#111111;color:#FFFFFF;}
+  .d-warn{font-size:11px;color:#B5793A;font-weight:600;margin-top:8px;}
+  .d-err{font-size:12px;color:#C0392B;font-weight:700;margin-top:10px;}
+  .d-mhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .d-mhead b{font-size:16px;font-weight:800;}
+  .d-dark{background:#111111;color:#fff;border-radius:10px;padding:9px 16px;font-size:12.5px;font-weight:800;}
+  .d-dark.off{background:#CCCCCC;}
+  .d-grey{background:#F2F2F2;color:#111111;border-radius:10px;padding:9px 14px;font-size:12px;font-weight:700;}
+
+  /* the delivery picker rows, modelled on vendor-picker.tsx */
+  .d-pick{background:#F2F2F2;border-radius:10px;padding:4px 12px;}
+  .d-pk{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #E4E4E4;}
+  .d-pk:last-child{border-bottom:0;}
+  .d-pk.on{background:transparent;}
+  .d-pk .t{font-size:12.5px;font-weight:700;color:var(--d-ink);}
+  .d-pk .s{font-size:11px;color:#9ca3af;margin-top:2px;}
+  .d-pk .v{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .d-pk .tick{font-size:12px;font-weight:800;color:var(--d-upink);}
+  /* Badge variant="bento", from badge.tsx */
+  .d-badge{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.3px;border-radius:999px;padding:3px 9px;}
+  .d-badge.warn{background:#FDF1DA;color:#8A5806;}
+  .d-badge.ok{background:#D9EFE4;color:#007A38;}
+  .d-badge.neu{background:#F6F6F7;color:#5E5D65;}
+  .d-bill{background:#FFFFFF;border:1px solid #ECECEC;border-radius:14px;padding:13px;}
+  .d-bill + .d-bill{margin-top:10px;}
+  .d-btop{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .d-bt{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-bm{font-size:11px;color:#9ca3af;margin-top:3px;}
+  .d-bright{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+  .d-bamt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .d-acts{display:flex;gap:8px;margin-top:11px;}
+  .d-pay{background:#438254;color:#fff;border-radius:10px;padding:8px 13px;font-size:12px;font-weight:800;}
+
+  .newmark{outline:2px dashed var(--blue);outline-offset:3px;}
+
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:16px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q p + p{margin-top:9px;}
+
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:9px;}
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Accounting &middot; phase 2b &middot; the last named residue</p>
+<h1>A bill names the delivery it pays for</h1>
+<p class="lede"><code>receive_stock</code> posts <b>Dr 1200 Inventory / Cr 2000 Accounts Payable</b> &mdash; goods arrived, the supplier is owed. <code>record_invoice_payment</code> posts <b>Dr 2000 / Cr wallet</b> &mdash; the supplier is paid. Those two only net out if the bill being paid is <i>for the delivery that raised the payable</i>, and until now the app guessed at that by <b>category</b>. This gives the bill a column that says which delivery, and shuts the door on the case where there isn't one.</p>
+
+<div class="toc">
+  <b>What's in here</b>
+  <ol>
+    <li><a href="#why">Why the category was a guess</a> &mdash; <em>and which two ways it fails</em></li>
+    <li><a href="#decision">The decision</a> &mdash; <em>shut the door, do not post around it</em></li>
+    <li><a href="#form">The bill form</a> &mdash; <em>what it offers, and the refusal</em></li>
+    <li><a href="#nodelivery">When there is no delivery to link</a></li>
+    <li><a href="#existing">An existing unlinked bill</a> &mdash; <em>and the payable caveat</em></li>
+    <li><a href="#branch">The branch, in full</a></li>
+    <li><a href="#residue">What is still open</a></li>
+  </ol>
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="why">
+<h2>1 &middot; Why the category was a guess</h2>
+
+<p class="note">Today <code>post_expense_to_ledger</code> reads the category off the bill's mirrored <code>expenses</code> row. An <code>inventory_purchase</code> bill posts nothing, on the assumption that a delivery already raised its payable. That assumption is a guess about something the database was never told, and it is wrong in both directions.</p>
+
+<div class="tableWrap">
+<table>
+  <tr>
+    <th>What really happened</th><th>Category tapped</th><th>What posts today</th><th>Result</th>
+  </tr>
+  <tr>
+    <td>Delivery recorded in Restock; bill for it entered after</td>
+    <td><code>inventory_purchase</code></td>
+    <td>Delivery: Dr 1200 / Cr 2000. Bill: nothing.</td>
+    <td><b class="right">Correct.</b> This is the app's own unpaid-delivery flow.</td>
+  </tr>
+  <tr class="hi">
+    <td>Goods bill entered with <b>no delivery behind it</b></td>
+    <td><code>inventory_purchase</code></td>
+    <td>Nothing at all.</td>
+    <td><b class="wrong">Under-stated.</b> Nothing ever credits 2000, so paying it drives Accounts&nbsp;Payable into <i>debit</i>. A negative liability on a balance sheet.</td>
+  </tr>
+  <tr class="hi">
+    <td>Delivery recorded; bill for it entered under <code>supplies</code></td>
+    <td><code>supplies</code></td>
+    <td>Delivery: Dr 1200 / Cr 2000. Bill: Dr 6400 / Cr 2000.</td>
+    <td><b class="wrong">Over-stated.</b> The payable is doubled, the cost is on the P&amp;L <i>and</i> the goods are on the balance sheet, and paying once clears half.</td>
+  </tr>
+</table>
+</div>
+
+<p class="note" style="margin-top:14px">Both rows are the same root cause and every entry involved balances, so the trial balance zeroes throughout &mdash; the same reason none of the earlier defects on this branch were caught by a totals check. And the two cases <b>cannot be told apart by category</b>, because in one of them the category is exactly what is wrong. That is the argument for a link: a fact, recorded, rather than an inference.</p>
+
+<div class="q">
+  <b>The same shape has already bitten this branch once.</b>
+  <p>PR&nbsp;#74 removed a wholesale <code>invoice_id</code> exclusion whose stated premise &mdash; &ldquo;the bill recognised the cost&rdquo; &mdash; turned out to be false: nothing on the branch posted when an invoice was inserted, and the row being skipped <i>was</i> the recognition. A guess about what another door did, written as a comment and trusted for four migrations. This is a second instance of it, and the fix is to stop guessing.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="decision">
+<h2>2 &middot; The decision &mdash; shut the door, do not post around it</h2>
+
+<p class="note">The obvious move once <code>invoices.stock_receipt_id</code> exists is: linked bills post nothing, unlinked ones post <b>Dr 1200 / Cr 2000</b>. That is wrong, and it is worth writing out why, because it is the branch a reader will reach for first.</p>
+
+<div class="pair two">
+  <div>
+    <span class="stamp was">Rejected</span>
+    <div class="frameHead"><b>An unlinked goods bill posts Dr 1200 / Cr 2000</b></div>
+    <div class="frame">
+      <p class="note" style="color:var(--d-ink2);max-width:none;margin:0 0 10px"><b>The trigger cannot tell the two unlinked cases apart</b>, which is the whole problem it was meant to solve, arriving one layer down.</p>
+      <div class="d-calc">
+<b>Case A</b> &mdash; the goods DID arrive and were<br>
+recorded in Restock; only the link is missing.<br>
+&nbsp; delivery: Dr 1200 4,800 / Cr 2000 4,800<br>
+&nbsp; bill:&nbsp;&nbsp;&nbsp;&nbsp; Dr 1200 4,800 / Cr 2000 4,800<br>
+&nbsp; <b>&rarr; stock and payable both DOUBLED.</b><br><br>
+<b>Case B</b> &mdash; the goods arrived and were never<br>
+recorded at all. products.stock knows nothing.<br>
+&nbsp; bill:&nbsp;&nbsp;&nbsp;&nbsp; Dr 1200 4,800 / Cr 2000 4,800<br>
+&nbsp; <b>&rarr; ledger value rises, quantity does not.</b>
+      </div>
+      <p class="note" style="color:var(--d-ink2);max-width:none;margin-top:10px">Case&nbsp;B is worse than it looks. <code>opening_inventory_gap</code> is <i>stock on hand less what the ledger holds against 1200</i>, so a phantom debit <b>shrinks the opening balance by exactly the phantom</b> &mdash; permanently, because the opening marker means a second replay can never correct it. That is the negative-asset failure <code>20260908001800</code> was written to remove, re&#8209;entering from the other end.</p>
+    </div>
+  </div>
+
+  <div>
+    <span class="stamp now">Built</span>
+    <div class="frameHead"><b>A goods bill cannot be entered without one</b></div>
+    <div class="frame">
+      <p class="note" style="color:var(--d-ink2);max-width:none;margin:0 0 10px">The link is <b>required at insert</b> for <code>inventory_purchase</code>, offered for every other category, and <b>immutable afterwards</b>. What a bill posts is decided once, when it is entered.</p>
+      <div class="d-calc">
+<b>linked</b> (any category)&nbsp;&rarr; posts nothing.<br>
+&nbsp; the delivery already raised the payable.<br><br>
+<b>unlinked, inventory_purchase</b> &rarr; posts nothing.<br>
+&nbsp; unreachable for a bill entered today &mdash; the<br>
+&nbsp; door refuses it. Rows predating the door<br>
+&nbsp; reach here, and there is no honest entry<br>
+&nbsp; for them. <b>An admitted gap.</b><br><br>
+<b>unlinked, anything else</b> &rarr; Dr category / Cr 2000.
+      </div>
+      <p class="note" style="color:var(--d-ink2);max-width:none;margin-top:10px">The <b>link is tested first</b>, so a goods bill mis&#8209;tapped as <code>supplies</code> and linked posts nothing and the over&#8209;stated direction closes too. The category arm survives only as a residual for rows the link cannot describe, and it no longer claims that a delivery recognised anything.</p>
+    </div>
+  </div>
+</div>
+
+<div class="q">
+  <b>Why an admitted gap beats a precise-looking number.</b>
+  <p>In case&nbsp;B the shop's stock records are <i>already wrong</i> whatever the ledger does &mdash; units are on the shelf that <code>products.stock</code> has never heard of. Posting <code>Dr 1200</code> does not fix that; it hides it, by making the value side agree with a quantity that is missing. Today's negative payable is at least visible, and PR&nbsp;#76 put a <code>wrong</code>&#8209;toned caveat on it. <code>20260804000000</code>'s header states the house instinct plainly: <b>a precise-looking number that is simply wrong is worse than an admitted gap.</b></p>
+</div>
+
+<div class="q">
+  <b>Why the link is immutable.</b>
+  <p>The reverse&#8209;and&#8209;re&#8209;post triggers on <code>expenses</code> fire on a fixed column list (<code>20260908001000</code>), and no column on <code>expenses</code> changes when the <i>invoice's</i> link does &mdash; so the posting would not follow the link even if we let it move. A mutable link would mean the live entry was written under one answer while the replay reads another, which is the one property this whole phase is built on. Set once, at insert, and the two can never disagree. Correcting a mis&#8209;picked delivery is delete&#8209;and&#8209;re&#8209;enter, which already reverses the bill <i>and its payments</i> together (Task&nbsp;7d).</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="form">
+<h2>3 &middot; The bill form</h2>
+
+<p class="note">One new field, between the store picker and the category chips. It reads &ldquo;Not for a delivery&rdquo; by default and is available on <b>every</b> category, not just the goods one &mdash; because the over&#8209;stated case is precisely a goods bill wearing another category, and a field that only appeared for <code>inventory_purchase</code> would never be shown to the person making that mistake.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>New bill &mdash; a delivery picked</b> <i>invoice-editor-modal.tsx</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-mhead"><b>New bill</b><span><span class="d-dark">Save</span></span></div>
+        <div class="d-lbl">WHO THE BILL IS FROM</div>
+        <div class="d-in">Hodan Wholesale</div>
+        <div class="d-frow" style="margin-top:12px">
+          <div class="d-fhalf"><div class="d-lbl">BILL NUMBER</div><div class="d-in">HW-4471</div></div>
+          <div class="d-fhalf"><div class="d-lbl">AMOUNT</div><div class="d-in">48.00</div></div>
+        </div>
+        <div class="d-frow" style="margin-top:12px">
+          <div class="d-fhalf"><div class="d-lbl">ISSUED</div><div class="d-in">2026-08-22</div></div>
+          <div class="d-fhalf"><div class="d-lbl">DUE</div><div class="d-in">2026-09-05</div></div>
+        </div>
+        <div class="d-lbl">STORE</div>
+        <div class="d-in">Main branch</div>
+
+        <div class="newmark" style="border-radius:12px">
+          <div class="d-lbl">WHICH DELIVERY THIS BILL IS FOR</div>
+          <div class="d-pick">
+            <div class="d-pk">
+              <div><div class="t">Hodan Wholesale &middot; HW&#8209;4471</div><div class="s">22 Aug &middot; Main branch &middot; 14 items</div></div>
+              <div><span class="v">48.00</span> <span class="tick">&#10003;</span></div>
+            </div>
+            <div class="d-pk">
+              <div><div class="t">Barwaaqo Traders &middot; BT&#8209;0912</div><div class="s">19 Aug &middot; Main branch &middot; 6 items</div></div>
+              <div><span class="v">21.60</span></div>
+            </div>
+            <div class="d-pk">
+              <div><div class="t">Not for a delivery</div><div class="s">rent, utilities, transport &mdash; anything that is not goods</div></div>
+              <div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-lbl">WHAT IT&rsquo;S FOR</div>
+        <div class="d-chips">
+          <span class="d-chip on">Stock purchase</span><span class="d-chip">Rent</span><span class="d-chip">Utilities</span>
+          <span class="d-chip">Supplies</span><span class="d-chip">Transport</span><span class="d-chip">Other</span>
+        </div>
+        <p class="d-note" style="margin-top:14px">Recording a bill adds it to expenses straight away. This one is paid against a delivery you already received, so it does not add to your stock value again &mdash; paying it clears what you owed for that delivery.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead"><b>Goods bill, nothing picked</b> <i>Save is refused</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-mhead"><b>New bill</b><span><span class="d-dark off">Save</span></span></div>
+        <div class="d-lbl">WHO THE BILL IS FROM</div>
+        <div class="d-in">Hodan Wholesale</div>
+        <div class="d-frow" style="margin-top:12px">
+          <div class="d-fhalf"><div class="d-lbl">BILL NUMBER</div><div class="d-in">HW-4471</div></div>
+          <div class="d-fhalf"><div class="d-lbl">AMOUNT</div><div class="d-in">48.00</div></div>
+        </div>
+        <div class="d-lbl">WHICH DELIVERY THIS BILL IS FOR</div>
+        <div class="d-pick">
+          <div class="d-pk">
+            <div><div class="t">Hodan Wholesale &middot; HW&#8209;4471</div><div class="s">22 Aug &middot; Main branch &middot; 14 items</div></div>
+            <div><span class="v">48.00</span></div>
+          </div>
+          <div class="d-pk">
+            <div><div class="t">Not for a delivery</div><div class="s">rent, utilities, transport &mdash; anything that is not goods</div></div>
+            <div><span class="tick">&#10003;</span></div>
+          </div>
+        </div>
+        <div class="d-lbl">WHAT IT&rsquo;S FOR</div>
+        <div class="d-chips">
+          <span class="d-chip on">Stock purchase</span><span class="d-chip">Rent</span><span class="d-chip">Utilities</span>
+          <span class="d-chip">Supplies</span>
+        </div>
+        <p class="d-warn newmark">A stock purchase has to name the delivery it pays for, so your stock and your books agree about the same goods. Pick the delivery above &mdash; or, if this bill is not for goods, change what it&rsquo;s for.</p>
+        <p class="d-note">Save stays off until one of those two is true.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="q">
+  <b>The amount is prefilled from the delivery, and disagreement is named.</b>
+  <p>Picking a delivery fills <b>Amount</b> with what that delivery cost, because the payable already standing against it is exactly that figure. Typing a different number is allowed &mdash; a supplier's paper often carries carriage or a rounding &mdash; but the form says so: <i>&ldquo;This delivery was valued at 48.00. Paying 51.00 will leave 3.00 sitting in Accounts Payable.&rdquo;</i> It is a warning, not a block: the difference is real money and refusing to record it would be worse. See <a href="#residue">what is still open</a>.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="nodelivery">
+<h2>4 &middot; When there is no delivery to link</h2>
+
+<p class="note">Two shapes, and they need different sentences. A shop with <b>no unbilled deliveries at all</b> is being told to go and record one. A shop whose delivery exists but was <b>received with no costs on it</b> is being told something narrower &mdash; that delivery never reached the books either, so linking to it would settle a payable nobody raised.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Nothing to link</b> <i>the picker is empty</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-lbl">WHICH DELIVERY THIS BILL IS FOR</div>
+        <div class="d-pick">
+          <div class="d-pk">
+            <div><div class="t">No deliveries waiting for a bill</div><div class="s">every delivery you have received is already on one</div></div>
+            <div></div>
+          </div>
+        </div>
+        <div class="d-cav wrong newmark" style="margin-top:12px">
+          <span class="dot"></span>
+          <p>You are recording a bill for goods, but no delivery is waiting for one. Receive the delivery in Inventory first &mdash; that is what puts the goods on your shelf <i>and</i> records what you owe for them. Then come back and this bill will have something to point at.
+          <span class="act">Receive a delivery in Inventory</span></p>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">A <code>wrong</code> tone with a live action. The number the reader is about to create really would be wrong, and the fix is a screen away and is the thing they should be doing anyway &mdash; it corrects stock records that are already out, not only the ledger.</p>
+  </div>
+
+  <div>
+    <div class="frameHead"><b>The delivery has no costs on it</b> <i>offered, then refused</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-lbl">WHICH DELIVERY THIS BILL IS FOR</div>
+        <div class="d-pick">
+          <div class="d-pk">
+            <div><div class="t">Barwaaqo Traders &middot; BT&#8209;0912</div><div class="s">19 Aug &middot; Main branch &middot; 6 items &middot; no cost recorded</div></div>
+            <div><span class="v" style="color:#9ca3af">&mdash;</span></div>
+          </div>
+        </div>
+        <p class="d-warn newmark">That delivery was received without any costs, so it never reached your books &mdash; there is nothing owed against it for this bill to settle. Receive it again with what it cost, and link this bill to that one.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">The uncosted delivery is shown rather than hidden, because a shopkeeper looking for <i>their</i> delivery and not finding it concludes the picker is broken. It is listed, greyed, and the refusal explains itself. The same predicate the ledger uses decides it: a delivery's costed value, non&#8209;zero &mdash; the one <code>unposted_ledger_source_rows</code>' receipt arm already carries.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="existing">
+<h2>5 &middot; An existing unlinked bill, and the caveat above it</h2>
+
+<p class="note">Every bill that exists today has no link, and <b>none of them change</b>. Nothing is re&#8209;posted, no history moves, and the replay writes exactly what it writes now for them. What changes is that the Bills list stops being silent about which ones they are.</p>
+
+<div class="frameHead"><b>Accounting &rarr; Bills</b> <i>invoices-tab.tsx</i></div>
+<div class="frame">
+  <div class="d-card">
+    <div class="d-crow"><div class="d-title">What you owe</div><span class="d-pill">As of today</span></div>
+    <div class="d-metrics">
+      <div class="d-tile"><div class="v">1,412.00</div><div class="l">Still owed</div></div>
+      <div class="d-tile"><div class="v">380.00</div><div class="l">Overdue</div></div>
+      <div class="d-tile"><div class="v">7</div><div class="l">Unpaid bills</div></div>
+    </div>
+    <div class="d-cav wrong">
+      <span class="dot"></span>
+      <p>Your books currently say suppliers owe <b>YOU 412.50</b>, which is the wrong way round. It happens when a bill for goods gets paid but the delivery behind it was never entered in Inventory &mdash; the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself. New bills for goods can no longer be entered this way.
+      <span class="act">Record the delivery in Inventory</span></p>
+    </div>
+  </div>
+
+  <div class="d-card">
+    <div class="d-crow"><div class="d-title">Bills</div><span class="d-pill">Selected range</span></div>
+    <div class="d-bill">
+      <div class="d-btop">
+        <div><div class="d-bt">Hodan Wholesale</div><div class="d-bm">HW-4471 &middot; issued 2026-08-22 &middot; due 2026-09-05</div></div>
+        <div class="d-bright"><span class="d-badge ok">Paid</span><span class="d-bamt">48.00</span></div>
+      </div>
+      <div class="d-acts"><span class="d-grey">Edit</span></div>
+    </div>
+    <div class="d-bill newmark">
+      <div class="d-btop">
+        <div><div class="d-bt">Barwaaqo Traders</div><div class="d-bm">BT-0301 &middot; issued 2026-05-11 &middot; due 2026-05-25</div></div>
+        <div class="d-bright">
+          <span><span class="d-badge warn">Overdue</span> <span class="d-badge warn">No delivery</span></span>
+          <span class="d-bamt">380.00 owed</span>
+        </div>
+      </div>
+      <div class="d-bm" style="margin-top:9px">A stock purchase with no delivery behind it. Paying it will push Accounts Payable the wrong way &mdash; record the delivery in Inventory, or delete this bill and enter it again against one.</div>
+      <div class="d-acts"><span class="d-pay">Record payment</span><span class="d-grey">Edit</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>The caveat keeps <code>wrong</code> and keeps its action.</b>
+    <p>The figure on screen is still wrong and the remedy is still live: for a bill whose delivery genuinely never happened, recording it credits 2000 by the delivery's value and corrects stock at the same time. One clause is added &mdash; <i>&ldquo;New bills for goods can no longer be entered this way&rdquo;</i> &mdash; so a reader who fixes it once knows it will not silently come back. The <code>hasUnposted</code> branch above it, which points at <b>Post History</b> instead, is untouched: before history is posted the diagnosis is still not exclusive, and &ldquo;record the delivery&rdquo; for an old rent bill would have the shop invent goods that never arrived.</p>
+  </div>
+  <div class="vx mid">
+    <b>The per-bill note is not a <code>Caveat</code>.</b>
+    <p>It is a badge and a line of meta inside the row, because a <code>Caveat</code> is a qualification on <i>a figure the card is showing</i> and this is a property of one row among many. Seven of them stacked in a list would be seven amber blocks and the reader would stop seeing any of them &mdash; the failure mode the tone system exists to avoid.</p>
+  </div>
+  <div class="vx good">
+    <b>Nothing offers to link an existing bill.</b>
+    <p>Because the column is immutable, and a control that appeared to fix something and silently did not would be worse than no control. The row names the two real remedies in words instead. Both work today: recording the delivery credits 2000; deleting the bill reverses its cost <i>and</i> its payments together.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="branch">
+<h2>6 &middot; The branch, in full</h2>
+
+<p class="note">Read top to bottom; the first match wins. The three unconditional skips above it &mdash; payroll&#8209;linked, already posted, count&#8209;linked &mdash; are unchanged and are not repeated here.</p>
+
+<div class="tableWrap">
+<table>
+  <tr><th>Row</th><th>Posts</th><th>Why</th></tr>
+  <tr>
+    <td><code>invoice_id</code> set, invoice <b>links a delivery</b></td>
+    <td><b>nothing</b></td>
+    <td><code>receive_stock</code> already posted Dr&nbsp;1200 / Cr&nbsp;2000 for these goods. Whatever category was tapped. <b>This is the new arm and it is tested first.</b></td>
+  </tr>
+  <tr class="hi">
+    <td><code>invoice_id</code> set, no link, <code>inventory_purchase</code></td>
+    <td><b>nothing</b> &mdash; admitted gap</td>
+    <td>Unreachable for a bill entered today. Rows that predate the door reach here and there is no honest entry for them; posting Dr&nbsp;1200 would double a recorded delivery or invent an unrecorded one.</td>
+  </tr>
+  <tr>
+    <td><code>invoice_id</code> set, no link, any other category</td>
+    <td>Dr the category's account / Cr&nbsp;2000</td>
+    <td>A bill is an unpaid expense. Unchanged from <code>20260908000800</code>.</td>
+  </tr>
+  <tr>
+    <td><code>stock_receipt_id</code> set on the <i>expense</i> row</td>
+    <td>Dr&nbsp;2000 / Cr the wallet</td>
+    <td>The Restock sheet's &ldquo;also log this as an inventory purchase&rdquo; tick. Settles the payable. Unchanged.</td>
+  </tr>
+  <tr>
+    <td>standalone <code>stock_loss</code></td>
+    <td>Dr&nbsp;5100 / Cr&nbsp;1200</td>
+    <td>Unchanged.</td>
+  </tr>
+  <tr>
+    <td>everything else</td>
+    <td>Dr the category's account / Cr the wallet</td>
+    <td>Unchanged.</td>
+  </tr>
+</table>
+</div>
+
+<div class="q">
+  <b>The replay carries the identical predicate, in two places, and a check pins them.</b>
+  <p><code>unposted_ledger_source_rows</code> (what the Post History door counts) and <code>backfill_shop_ledger</code> step&nbsp;1 (what the replay writes) both grow the same <code>exists</code> clause against <code>invoices.stock_receipt_id</code>. If they disagree the door promises entries the replay will not write, which is the failure <code>verify-backfill.sql</code> exists to catch in both directions. <code>unposted_inventory_movement</code> and <code>opening_inventory_gap</code> read the view rather than the base tables, so they inherit it and need no edit &mdash; which is what that layer was split out for.</p>
+  <p>No existing row carries a link on the day this ships, so <b>the replay writes exactly what it wrote yesterday</b> for every row that exists. The new arm can only affect rows created after it.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="residue">
+<h2>7 &middot; What is still open, stated rather than hidden</h2>
+
+<div class="verdict">
+  <div class="vx mid">
+    <b>A linked bill whose amount differs from the delivery's value.</b>
+    <p>The delivery credited 2000 by its costed value; paying the bill debits 2000 by the bill's. A carriage charge or a rounding leaves the difference standing in Accounts Payable for ever. The form prefills the amount and warns when it is edited, which is the whole defence &mdash; posting the difference honestly needs a goods&#8209;received&#8209;not&#8209;invoiced or price&#8209;variance account, and inventing one is phase&nbsp;3. It is a small residue where the old one was unbounded.</p>
+  </div>
+  <div class="vx mid">
+    <b>One bill, several deliveries &mdash; or the other way round.</b>
+    <p>The column is one receipt per bill, and unique, so a bill covering three deliveries can name one. The other two stay unbilled and their payables stand until something clears them. A join table is the real answer and is not this task; the unique index at least stops two bills quietly settling the same delivery, which would drive 2000 negative by one delivery's whole value.</p>
+  </div>
+  <div class="vx mid">
+    <b>A bill that arrives before the goods.</b>
+    <p>Refused, with the reason. There is no delivery to name yet, and a payable for inventory the shop does not hold is a prepayment rather than a stock purchase. The remedy is to enter it when the goods land. Named here because a refusal a user cannot explain is how a feature stops being used.</p>
+  </div>
+  <div class="vx bad">
+    <b>A goods bill entered under another category and NOT linked.</b>
+    <p>Still doubles the payable. The door cannot require a link for <code>supplies</code> &mdash; a supplies bill usually is a supplies bill &mdash; so all that stands here is that the picker is offered on every category and the delivery's own reference number is printed in it. A mitigation, not a fix, and the only one available without asking the shop a question it should not have to answer.</p>
+  </div>
+</div>
+</section>
+
+</div>

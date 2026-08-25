@@ -115,6 +115,16 @@ declare
   v_pay_one_e     uuid;
   v_pay_two_e     uuid;
   v_was_1000      bigint;
+  -- Checks 22-24: the bill that names the delivery it pays for.
+  v_prod          uuid;
+  v_delivery      uuid;   -- costed, and the one the linked bill points at.
+  v_dry_delivery  uuid;   -- received with no costs on it, so it reached no book.
+  v_bill_linked   uuid;
+  v_bill_hist     uuid;   -- the shape history is full of and the door refuses.
+  v_2000_was      bigint;
+  v_2000_now      bigint;
+  v_6400_was      bigint;
+  v_ap_now        bigint;
 begin
   -- shops.owner_id and shop_members.user_id both reference auth.users(id), so
   -- the fixture "people" need real rows there before anything else.
@@ -1298,6 +1308,250 @@ begin
     end if;
     perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
   end;
+
+  ---------------------------------------------------------------------------
+  -- 22. A BILL THAT NAMES ITS DELIVERY POSTS NOTHING -- WHATEVER ITS CATEGORY.
+  ---------------------------------------------------------------------------
+  -- The whole of 20260908001900 in one check, and the direction 20260908000800
+  -- could not close.
+  --
+  -- The bill below is categorised 'supplies', which the map sends to 6400 -- an
+  -- EXPENSE account -- and it is for goods that arrived through Restock. That is
+  -- one wrong tap on the category picker, and it is the tap a shopkeeper makes
+  -- when `inventory_purchase` does not sound like what the paper in their hand
+  -- says. Under the category-keyed branch it posted Dr 6400 / Cr 2000 ON TOP OF
+  -- the delivery's own Dr 1200 / Cr 2000: the payable DOUBLED, the cost on the
+  -- P&L while the goods were also on the balance sheet, and paying the bill once
+  -- clearing half of what the books thought was owed. Every entry balanced and
+  -- the trial balance zeroed throughout, which is why nothing caught it.
+  --
+  -- Asserted on 6400 as well as on 2000, and 6400 is the sharper of the two: a
+  -- branch that posted the bill would move BOTH, and a check that only watched
+  -- 2000 could not tell "the payable doubled" from "the payment did not land".
+  --
+  -- MUTATION (proves this check): delete the line
+  --   if v_bill_receipt is not null then return null; end if;
+  -- from post_expense_to_ledger. Run, and it reddens on the FIRST of the three
+  -- assertions below: FAIL: a bill that names its delivery posted an entry of
+  -- its own -- the goods would be recognised twice. (The 6400 assertion is the
+  -- one that says WHICH account the double landed in, and it is kept for that:
+  -- the entry could exist and be harmless, and 6400 is where it is not.)
+  select coalesce(sum(l.amount_cents), 0) into v_2000_was
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000' and e.status in ('posted', 'reversed');
+  select coalesce(sum(l.amount_cents), 0) into v_6400_was
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6400' and e.status in ('posted', 'reversed');
+
+  -- stock 0 and cost null, so receive_stock costs the product for the first time
+  -- with nothing already on the shelf -- 20260908001800's revaluation entry
+  -- needs a prior quantity and must not fire here, or this check would be
+  -- measuring two entries and calling them one.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_id, 'Sack of sugar', 9000, null, 0) returning id into v_prod;
+
+  -- 7 at 5900 = 41300. No other figure in this file shares it, and it is not a
+  -- round number two wrong answers could both land on.
+  v_delivery := public.receive_stock(
+    v_shop_id, v_loc_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod, 'quantity', 7, 'unit_cost_cents', 5900)),
+    'Berbera Wholesale', 'BW-7788', null);
+
+  select coalesce(sum(l.amount_cents), 0) into v_2000_now
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000' and e.status in ('posted', 'reversed');
+  if v_2000_now - v_2000_was <> -41300 then
+    raise exception 'FAIL: the delivery moved 2000 by % , expected -41300 -- receive_stock raises the payable and check 22 rests on it',
+      v_2000_now - v_2000_was;
+  end if;
+
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents, stock_receipt_id)
+    values (v_shop_id, v_loc_id, 'Berbera Wholesale', 'BW-7788', 'supplies',
+            public.shop_local_date(), public.shop_local_date() + 14, 41300, v_delivery)
+    returning id into v_bill_linked;
+
+  if (select journal_entry_id from public.expenses where invoice_id = v_bill_linked) is not null then
+    raise exception 'FAIL: a bill that names its delivery posted an entry of its own -- the goods would be recognised twice';
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_2000_now
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6400' and e.status in ('posted', 'reversed');
+  if v_2000_now <> v_6400_was then
+    raise exception 'FAIL: a bill that names its delivery posted % to 6400 Supplies -- the delivery already recognised those goods',
+      v_2000_now - v_6400_was;
+  end if;
+
+  -- ...AND PAYING IT PUTS 2000 BACK WHERE IT STARTED. This is the sentence the
+  -- whole residue was about: the delivery raised the payable, the payment clears
+  -- it, and the two net to nothing because they are about the same goods.
+  perform public.record_invoice_payment(v_bill_linked, 41300, public.shop_local_date(), 'cash');
+  select coalesce(sum(l.amount_cents), 0) into v_2000_now
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000' and e.status in ('posted', 'reversed');
+  if v_2000_now <> v_2000_was then
+    raise exception 'FAIL: delivery then bill then payment left 2000 at % , expected % -- the two halves did not net out',
+      v_2000_now, v_2000_was;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 23. THE ADMITTED GAP, ASSERTED AS A GAP.
+  ---------------------------------------------------------------------------
+  -- A goods bill with no delivery behind it posts nothing, and paying it drives
+  -- 2000 into DEBIT by exactly its amount. That is wrong, it is what the Bills
+  -- screen's `wrong`-toned Caveat exists to say, and it is asserted here rather
+  -- than papered over -- because the alternative branch (post Dr 1200 / Cr 2000
+  -- for an unlinked goods bill) is worse in both of its cases. It doubles a
+  -- delivery that WAS recorded, or invents stock for one that was not, and in
+  -- the second case it also shrinks opening_inventory_gap by the phantom, for
+  -- ever. See 20260908001900's header.
+  --
+  -- The row is written with the door disabled: guard_invoice_delivery_link
+  -- refuses to create one now, and this is the shape every shop's history holds.
+  --
+  -- MUTATION (proves this check): delete the line
+  --   if new.category = 'inventory_purchase' then return null; end if;
+  -- from post_expense_to_ledger's invoice arm, so the bill posts Dr 1200 /
+  -- Cr 2000 instead. Expected, and observed: FAIL: a goods bill with no delivery
+  -- behind it posted an entry -- there is no honest one to post. It is the FIRST
+  -- assertion that reddens rather than the 2000 one, and that is worth knowing:
+  -- the bill's Cr 2000 would cancel the payment's Dr exactly, so a check that
+  -- only watched the payable would see nothing wrong at all while 1200 quietly
+  -- carried 26400 of stock that is not on any shelf.
+  alter table public.invoices disable trigger invoices_guard_delivery_link;
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Ghost Wholesale', 'BW-9001', 'inventory_purchase',
+            public.shop_local_date(), public.shop_local_date() + 14, 26400)
+    returning id into v_bill_hist;
+  alter table public.invoices enable trigger invoices_guard_delivery_link;
+
+  if (select journal_entry_id from public.expenses where invoice_id = v_bill_hist) is not null then
+    raise exception 'FAIL: a goods bill with no delivery behind it posted an entry -- there is no honest one to post';
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_2000_was
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000' and e.status in ('posted', 'reversed');
+  perform public.record_invoice_payment(v_bill_hist, 26400, public.shop_local_date(), 'cash');
+  select coalesce(sum(l.amount_cents), 0) into v_2000_now
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000' and e.status in ('posted', 'reversed');
+  if v_2000_now - v_2000_was <> 26400 then
+    raise exception 'FAIL: paying a bill nothing ever credited moved 2000 by % , expected +26400 -- this gap is admitted, not hidden',
+      v_2000_now - v_2000_was;
+  end if;
+
+  -- And the screen would say so. accounts_payable_debit is what the Bills tab
+  -- reads; it must carry this shop's whole debit position, not miss the part
+  -- this check just created.
+  select debit_cents into v_ap_now from public.accounts_payable_debit(v_shop_id);
+  if v_ap_now <> greatest(v_2000_now, 0) then
+    raise exception 'FAIL: the Bills screen would report % where 2000 nets to % -- the caveat and the ledger must not disagree',
+      v_ap_now, v_2000_now;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 24. THE DOOR. FOUR REFUSALS, EACH ITS OWN FAILURE IF IT GOES.
+  ---------------------------------------------------------------------------
+  -- (a) A goods bill must name a delivery.
+  --     MUTATION: delete the raise in guard_invoice_delivery_link's null arm.
+  --     Expected: FAIL: a goods bill with no delivery was accepted.
+  v_raised := false;
+  begin
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents)
+      values (v_shop_id, v_loc_id, 'Ghost Wholesale', 'BW-9002', 'inventory_purchase',
+              public.shop_local_date(), public.shop_local_date() + 14, 31700);
+  exception when others then
+    if sqlerrm not like 'A stock purchase has to say which delivery%' then raise; end if;
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a goods bill with no delivery was accepted -- the gap check 23 admits is still creatable';
+  end if;
+
+  -- (b) An UNCOSTED delivery cannot be named. It never reached the books, so
+  --     nothing was ever recorded as owed for it and linking would recreate the
+  --     defect through the new column instead of the old category.
+  --     MUTATION: delete the `if v_value_cents = 0` raise. Expected: FAIL: a
+  --     bill was linked to a delivery that never reached the books.
+  v_dry_delivery := public.receive_stock(
+    v_shop_id, v_loc_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod, 'quantity', 3, 'unit_cost_cents', null)),
+    'Berbera Wholesale', 'BW-7799', null);
+  if (select journal_entry_id from public.stock_receipts where id = v_dry_delivery) is not null then
+    raise exception 'FAIL: check 24b''s delivery posted an entry, so it is not testing the uncosted path';
+  end if;
+  v_raised := false;
+  begin
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents, stock_receipt_id)
+      values (v_shop_id, v_loc_id, 'Berbera Wholesale', 'BW-9003', 'inventory_purchase',
+              public.shop_local_date(), public.shop_local_date() + 14, 12800, v_dry_delivery);
+  exception when others then
+    if sqlerrm not like 'That delivery was received without any costs%' then raise; end if;
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a bill was linked to a delivery that never reached the books -- paying it would drive 2000 into debit again';
+  end if;
+
+  -- (c) THE LINK IS FINAL. If it could move, the live entry would have been
+  --     written under one answer while the replay read another -- for the same
+  --     row. That is the one property this whole phase is built on, and it is
+  --     not enforceable any other way: the reverse-and-re-post triggers on
+  --     `expenses` fire on a fixed column list and nothing on `expenses` moves
+  --     when the INVOICE's link does, so the posting could not follow.
+  --     MUTATION: drop trigger invoices_delivery_link_is_final. Expected: FAIL:
+  --     a bill's delivery link was changed after it was entered.
+  v_raised := false;
+  begin
+    update public.invoices set stock_receipt_id = null where id = v_bill_linked;
+  exception when others then
+    if sqlerrm not like 'Which delivery a bill pays for is fixed%' then raise; end if;
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a bill''s delivery link was changed after it was entered -- the live entry and the replay now disagree about that row';
+  end if;
+
+  -- ...and an ordinary edit still works. A guard that refused every update would
+  -- pass (c) and make the bill uneditable, which is a worse bug than the one it
+  -- closes and is invisible to a check that only tries the forbidden thing.
+  update public.invoices set due_on = public.shop_local_date() + 30 where id = v_bill_linked;
+
+  -- (d) ONE BILL PER DELIVERY. Two bills naming the same delivery each post
+  --     nothing while each of their payments debits 2000, so the payable goes
+  --     negative by a whole delivery's value -- this residue reached through the
+  --     column that closes it.
+  --     MUTATION: drop index invoices_stock_receipt_id_key. Expected: FAIL: two
+  --     bills were allowed to name the same delivery.
+  v_raised := false;
+  begin
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents, stock_receipt_id)
+      values (v_shop_id, v_loc_id, 'Berbera Wholesale', 'BW-9004', 'inventory_purchase',
+              public.shop_local_date(), public.shop_local_date() + 14, 41300, v_delivery);
+  exception when unique_violation then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: two bills were allowed to name the same delivery -- paying both would credit 2000 once and debit it twice';
+  end if;
 
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';

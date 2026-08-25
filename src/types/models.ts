@@ -829,10 +829,37 @@ export type Invoice = {
   dueOn: string;
   amountCents: number;
   paidCents: number;
+  // Which delivery this bill pays for. Set when the bill is entered and
+  // IMMUTABLE afterwards — what a bill posts to the ledger is decided once, or
+  // the live entry and the Post History replay disagree about the same row
+  // (migration 20260908001900).
+  //
+  // A bill carrying one posts NOTHING, whatever its category: receive_stock
+  // already posted Dr 1200 Inventory / Cr 2000 Accounts Payable for those goods,
+  // and paying the bill clears that payable. Required for an inventory_purchase
+  // bill — a goods bill with no delivery behind it raises no payable, so paying
+  // it drives Accounts Payable into debit.
+  stockReceiptId: string | null;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
   payments?: InvoicePayment[];
+};
+
+// One delivery the shop has received that is not yet on a bill — what the bill
+// form's delivery picker offers. `valueCents` is the delivery's COSTED value,
+// and 0 means it was received with no costs on it: nothing was ever recorded as
+// owed for it, so the database refuses to link a bill to it. Such deliveries are
+// still returned rather than hidden — a shopkeeper who cannot find their
+// delivery concludes the picker is broken.
+export type UnbilledDelivery = {
+  id: string;
+  receivedAt: string;
+  supplierName: string | null;
+  reference: string | null;
+  locationId: string | null;
+  itemCount: number;
+  valueCents: number;
 };
 
 export type InvoicePayment = {
