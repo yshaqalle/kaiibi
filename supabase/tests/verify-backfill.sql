@@ -812,16 +812,22 @@ begin
   -- included, because those are payments), less the part of each refund that
   -- reduced the debt rather than handing cash back.
   --
-  -- That last term is what separates this from customer_balances.owed_cents,
-  -- which subtracts the WHOLE of refunds.goods_cents. On a sale paid in full
+  -- That last term used to separate this from customer_balances.owed_cents,
+  -- which subtracted the WHOLE of refunds.goods_cents. On a sale paid in full
   -- and then partly returned, the shop hands the money back out of the till --
   -- refunds.total_cents -- and the customer owed nothing before or after, so
-  -- the receivable never moves. The view drives that sale's owed_cents to
-  -- NEGATIVE 4000 and only avoids showing it because it filters on
-  -- `settled_at is null and owed > 0`. This is the divergence the plan records
-  -- as the app's, not the backfill's; the ledger is right and the view's
-  -- formula is the approximation, so the tie-out is written against the money
-  -- rather than against the view.
+  -- the receivable never moves; the view drove that sale's owed_cents to
+  -- NEGATIVE 4000 and only avoided showing it because it filters on
+  -- `settled_at is null and owed > 0`. This comment recorded that as the app's
+  -- divergence rather than the backfill's, and said the ledger was right and
+  -- the view's formula the approximation.
+  --
+  -- 20260908001400 fixed the view and settle_sale_balance, so the two now agree
+  -- -- `(goods - cash)` here is exactly `- goods + cash` there. The tie-out is
+  -- still written against the MONEY rather than against the view, deliberately:
+  -- a check that reads the same view the ledger is being compared to would pass
+  -- on any formula the two happened to share, which is precisely how the old
+  -- one survived.
   --
   -- This is also what proves the replay debits the receivable the sale
   -- ORIGINALLY created rather than what is left of it: netting the settlement

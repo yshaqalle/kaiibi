@@ -1,13 +1,19 @@
 -- What a customer still owes, and who is allowed to see it.
 --
 -- customer_balances computes one number across three tables (sales, payments,
--- refunds), which makes it wrong in two directions that both look fine:
+-- refunds), which makes it wrong in three directions that all look fine:
 --   * join both children directly and they multiply, so a sale with two
 --     payments counts its one refund twice;
 --   * read it as a role that can see sales but not payments and RLS silently
---     returns `owed = total` on a sale that was paid off months ago.
--- Neither raises. Both send someone to ask a customer for money they already
--- handed over, so both are asserted here on exact cents.
+--     returns `owed = total` on a sale that was paid off months ago;
+--   * subtract the VALUE of the goods returned without adding back the CASH
+--     handed over for them, and the same money is forgiven twice -- the two
+--     figures are equal only on a sale that was paid in full, which is every
+--     sale the first twenty-nine checks here were written against.
+-- None of them raises. The first two send someone to ask a customer for money
+-- they already handed over; the third writes off money the shop is owed and
+-- leaves it stranded in 1100 Accounts Receivable. All are asserted here on
+-- exact cents.
 --
 -- Everything runs inside one DO block whose EXCEPTION clause rolls it all back.
 
@@ -122,19 +128,31 @@ begin
   ------------------------------------------------------------------
   raise notice '=== 3. Goods that come back are not a debt ===';
   ------------------------------------------------------------------
+  -- 3000 rung up, 1000 collected, one unit worth 1000 back. The cap hands the
+  -- customer their whole 1000 over the counter, so the debt does NOT move: they
+  -- are holding 2000 of goods and have paid nothing net.
+  --
+  -- This check read 1000 until 20260908001400. The view subtracted the goods
+  -- without adding the cash back on, forgiving the same 1000 twice.
   select id into v_item_id from public.sale_items where sale_id = v_sale_id;
   perform public.refund_sale_items(v_sale_id,
     jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
 
+  select coalesce(sum(total_cents), 0) into v_paid from public.refunds where sale_id = v_sale_id;
+  if v_paid <> 1000 then
+    raise exception 'FAIL: fixture handed back % in cash, expected the 1000 collected', v_paid;
+  end if;
+
   select owed_cents, refunded_cents into v_owed, v_refunded
     from public.customer_balances where sale_id = v_sale_id;
-  if v_owed <> 1000 or v_refunded <> 1000 then
-    raise exception 'FAIL: after returning one unit expected owed 1000 / refunded 1000, got % / %', v_owed, v_refunded;
+  if v_owed <> 2000 or v_refunded <> 1000 then
+    raise exception 'FAIL: after returning one unit for cash expected owed 2000 / refunded 1000, got % / %', v_owed, v_refunded;
   end if;
-  raise notice 'OK: one unit back, the debt fell 2000 -> 1000';
+  raise notice 'OK: one unit back, 1000 handed over, still 2000 of goods unpaid for';
 
-  -- Returning the rest cancels what is left. The customer owes nothing, and
-  -- was never handed cash back, because none of this was ever paid.
+  -- Returning the rest cancels what is left. The 1000 collected has already gone
+  -- back out on the first refund, so this one hands over nothing and the debt
+  -- falls by the whole value of the goods.
   perform public.refund_sale_items(v_sale_id,
     jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 2)));
 
@@ -149,9 +167,15 @@ begin
   ------------------------------------------------------------------
   -- The regression that a lateral subquery exists to prevent. Joined directly,
   -- two payment rows against one refund row give a two-row cross product and
-  -- the refund is summed twice: refunded reads 2000, owed reads 500 less than
-  -- it should. Every fixture with one payment and one refund passes anyway,
+  -- the refund is summed twice: refunded reads double and owed reads 500 less
+  -- than it should. Every fixture with one payment and one refund passes anyway,
   -- which is why this one has two.
+  --
+  -- THREE units back, not one, and that is load-bearing since 20260908001400.
+  -- owed now subtracts goods_cents and adds total_cents back, so a fixture where
+  -- the two are EQUAL has the doubling cancel itself out exactly and the cross
+  -- product goes undetected. 3000 of goods against 2500 collected puts the cash
+  -- cap to work -- goods 3000, cash 2500 -- and the two errors no longer agree.
   select public.complete_sale(
     v_shop_id, v_items4,
     jsonb_build_array(
@@ -163,14 +187,14 @@ begin
 
   select id into v_item_id from public.sale_items where sale_id = v_sale_id;
   perform public.refund_sale_items(v_sale_id,
-    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 3)));
 
   select owed_cents, paid_cents, refunded_cents into v_owed, v_paid, v_refunded
     from public.customer_balances where sale_id = v_sale_id;
-  if v_paid <> 2500 or v_refunded <> 1000 or v_owed <> 500 then
-    raise exception 'FAIL: expected paid 2500 / refunded 1000 / owed 500, got % / % / %', v_paid, v_refunded, v_owed;
+  if v_paid <> 2500 or v_refunded <> 3000 or v_owed <> 1000 then
+    raise exception 'FAIL: expected paid 2500 / refunded 3000 / owed 1000, got % / % / %', v_paid, v_refunded, v_owed;
   end if;
-  raise notice 'OK: 4000 less 1000 returned less 2500 taken = 500, each counted once';
+  raise notice 'OK: 4000 less 3000 returned less 2500 taken plus 2500 handed back = 1000, each counted once';
 
   ------------------------------------------------------------------
   raise notice '=== 5. No name, no debt ===';
@@ -201,7 +225,7 @@ begin
   ------------------------------------------------------------------
   -- The check this migration exists for. Before it, this role could read the
   -- sale but neither its payments nor its refunds, so the view returned
-  -- owed = 4000 on a sale owing 500 -- no error, just a number eight times too
+  -- owed = 4000 on a sale owing 1000 -- no error, just a number four times too
   -- big, on the exact screen someone uses to ring a customer up.
   perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
 
@@ -210,11 +234,11 @@ begin
   if v_owed is null then
     raise exception 'FAIL: customers.view reads no balances at all';
   end if;
-  if v_owed <> 500 or v_paid <> 2500 or v_refunded <> 1000 then
-    raise exception 'FAIL: customers.view reads owed % / paid % / refunded % where the owner reads 500 / 2500 / 1000',
+  if v_owed <> 1000 or v_paid <> 2500 or v_refunded <> 3000 then
+    raise exception 'FAIL: customers.view reads owed % / paid % / refunded % where the owner reads 1000 / 2500 / 3000',
       v_owed, v_paid, v_refunded;
   end if;
-  raise notice 'OK: staff and owner read the same 500';
+  raise notice 'OK: staff and owner read the same 1000';
 
   ------------------------------------------------------------------
   raise notice '=== 7. Another shop reads nothing ===';
@@ -558,12 +582,17 @@ begin
   perform public.refund_sale_items(v_loyal_sale,
     jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
 
-  -- 3000 of goods, 1000 returned, 1000 already down: 1000 left to settle.
+  -- 3000 of goods, 1000 already down, one unit worth 1000 back -- and the cap
+  -- hands that 1000 straight back over the counter, so 2000 is left to settle.
+  -- This read 1000 until 20260908001400 counted the cash going out.
   select owed_cents into v_owed from public.customer_balances where sale_id = v_loyal_sale;
-  if v_owed <> 1000 then raise exception 'FAIL: expected 1000 owed, got %', v_owed; end if;
+  if v_owed <> 2000 then raise exception 'FAIL: expected 2000 owed, got %', v_owed; end if;
 
+  -- The whole of it, so the sale really does reach settled_at -- which is the
+  -- only state in which points could be credited, and therefore the only state
+  -- in which this check means anything.
   perform public.settle_sale_balance(v_loyal_sale,
-    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)));
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000)));
 
   select points_earned into v_points from public.sales where id = v_loyal_sale;
   if v_points <> 0 then
@@ -806,6 +835,364 @@ begin
     end if;
   end;
   raise notice 'OK: 2000 settled in cash, and the till expects 2000';
+
+  ------------------------------------------------------------------
+  -- 30-34: the cash a refund hands over is a payment RUNNING BACKWARDS.
+  ------------------------------------------------------------------
+  -- 20260831000200 moved owed_cents onto refunds.goods_cents -- the VALUE of
+  -- what came back -- and never added refunds.total_cents, the CASH, back on.
+  -- So a return that was paid out in cash forgave the customer the same money
+  -- twice: once by reducing the debt, once by handing them the notes.
+  --
+  -- The two formulas coincide on a FULL return (both fall to or below zero and
+  -- the view's own `owed > 0` filter hides the difference) and on a return that
+  -- paid out nothing, which is every case the checks above exercised. Checks 32
+  -- and 33 pin those two so they cannot move; 30, 31 and 34 are the divergence.
+  declare
+    v_rice        uuid;
+    v_rice_sale   uuid;
+    v_rice_item   uuid;
+    v_cash_back   integer;
+    v_owed_before integer;
+  begin
+    -- 3150 a unit, so the worked example's figures are the shop's own and not a
+    -- multiple of anything else in this file.
+    insert into public.products (shop_id, name, price_cents, cost_cents)
+      values (v_shop_id, 'Verify Rice', 3150, 1200) returning id into v_rice;
+    insert into public.product_location_stock (product_id, location_id, stock)
+      values (v_rice, v_location_id, 10000);
+
+    ----------------------------------------------------------------
+    raise notice '=== 30. Money handed back over the counter is still owed ===';
+    ----------------------------------------------------------------
+    -- 6300 rung up, 2000 paid, one unit worth 3150 returned. The cap hands the
+    -- customer their 2000 back, because that is all the shop ever took.
+    --
+    --   the view said     6300 - 3150 - 2000        = 1150
+    --   the customer owes 6300 - 3150 - 2000 + 2000 = 3150
+    --
+    -- and settle_sale_balance, computing the same wrong figure, REFUSED anything
+    -- over 1150 and then stamped settled_at -- stranding 2000 in 1100 Accounts
+    -- Receivable that no screen in the app could ever collect.
+    select public.complete_sale(
+      v_shop_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000, 'tendered_cents', 2000)),
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+    ) into v_rice_sale;
+
+    select id into v_rice_item from public.sale_items where sale_id = v_rice_sale;
+    perform public.refund_sale_items(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+
+    -- The fixture itself, asserted: a check that silently stopped producing this
+    -- shape would pass for the wrong reason.
+    select coalesce(sum(goods_cents), 0), coalesce(sum(total_cents), 0)
+      into v_refunded, v_cash_back from public.refunds where sale_id = v_rice_sale;
+    if v_refunded <> 3150 or v_cash_back <> 2000 then
+      raise exception 'FAIL: fixture returned goods % / cash %, expected 3150 / 2000', v_refunded, v_cash_back;
+    end if;
+
+    select owed_cents into v_owed from public.customer_balances where sale_id = v_rice_sale;
+    if v_owed is distinct from 3150 then
+      raise exception 'FAIL: 6300 less 3150 of goods less 2000 paid plus 2000 handed back is 3150, the view says %', v_owed;
+    end if;
+
+    -- And the RPC will now take it. This is the half that was stranding money.
+    select public.settle_sale_balance(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150))) into v_left;
+    if v_left <> 0 then
+      raise exception 'FAIL: 3150 against 3150 owed left %', v_left;
+    end if;
+    select settled_at into v_settled from public.sales where id = v_rice_sale;
+    if v_settled is null then raise exception 'FAIL: paying the whole 3150 did not settle the sale'; end if;
+    raise notice 'OK: 3150 owed, 3150 collected, nothing stranded';
+
+    ----------------------------------------------------------------
+    raise notice '=== 31. The debt that disappeared off the list entirely ===';
+    ----------------------------------------------------------------
+    -- The `owed > 0` filter, which is the second place the cash term has to
+    -- appear. 6300 rung up, 3150 paid, one unit worth 3150 back, 3150 handed
+    -- over: the old expression computes to EXACTLY ZERO and the sale vanishes
+    -- from the receivables list owing 3150. Nobody is chased for the wrong
+    -- amount -- nobody is chased at all.
+    select public.complete_sale(
+      v_shop_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150, 'tendered_cents', 3150)),
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+    ) into v_rice_sale;
+
+    select id into v_rice_item from public.sale_items where sale_id = v_rice_sale;
+    perform public.refund_sale_items(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+
+    select count(*) into v_rows from public.customer_balances where sale_id = v_rice_sale;
+    if v_rows <> 1 then
+      raise exception 'FAIL: a sale owing 3150 appears in % rows of the receivables list', v_rows;
+    end if;
+    select owed_cents into v_owed from public.customer_balances where sale_id = v_rice_sale;
+    if v_owed <> 3150 then
+      raise exception 'FAIL: expected 3150 owed, got %', v_owed;
+    end if;
+    raise notice 'OK: on the list, owing 3150, rather than gone';
+
+    ----------------------------------------------------------------
+    raise notice '=== 32. A FULL return behaves exactly as it always did ===';
+    ----------------------------------------------------------------
+    -- The case every existing check exercised, and the reason this bug never
+    -- went red. Both formulas land at or below zero on a full return, so the
+    -- filter hides the difference. It must not move.
+    select public.complete_sale(
+      v_shop_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000, 'tendered_cents', 2000)),
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+    ) into v_rice_sale;
+
+    select id into v_rice_item from public.sale_items where sale_id = v_rice_sale;
+    perform public.refund_sale_items(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 2)));
+
+    select count(*) into v_rows from public.customer_balances where sale_id = v_rice_sale;
+    if v_rows <> 0 then
+      raise exception 'FAIL: a fully returned sale is being chased for something';
+    end if;
+
+    v_raised := false;
+    begin
+      perform public.settle_sale_balance(v_rice_sale,
+        jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 100)));
+    exception when others then v_raised := true; v_detail := sqlerrm;
+    end;
+    if not v_raised then raise exception 'FAIL: a fully returned sale took another payment'; end if;
+    if v_detail not like '%already paid in full%' then
+      raise exception 'FAIL: refused, but for the wrong reason: %', v_detail;
+    end if;
+    raise notice 'OK: nothing on the list, and the RPC still refuses (%)', v_detail;
+
+    ----------------------------------------------------------------
+    raise notice '=== 33. A return that paid out no cash moves only by the goods ===';
+    ----------------------------------------------------------------
+    -- The other case the two formulas share: nothing was ever collected, so
+    -- nothing goes back and the debt falls by the full value of the goods. The
+    -- fix must not disturb it.
+    select public.complete_sale(
+      v_shop_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+      '[]'::jsonb,
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+    ) into v_rice_sale;
+
+    select id into v_rice_item from public.sale_items where sale_id = v_rice_sale;
+    perform public.refund_sale_items(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+
+    select coalesce(sum(total_cents), 0) into v_cash_back
+      from public.refunds where sale_id = v_rice_sale;
+    if v_cash_back <> 0 then
+      raise exception 'FAIL: % handed back on a sale nobody had paid for', v_cash_back;
+    end if;
+
+    select owed_cents into v_owed from public.customer_balances where sale_id = v_rice_sale;
+    if v_owed <> 3150 then
+      raise exception 'FAIL: 6300 less 3150 of goods with no cash out is 3150, the view says %', v_owed;
+    end if;
+    raise notice 'OK: 3150 of goods back, no cash, 3150 still owed';
+
+    ----------------------------------------------------------------
+    raise notice '=== 34. The view, the RPC and the ledger all say one number ===';
+    ----------------------------------------------------------------
+    -- Asserted against EACH OTHER, not each against a constant. The view and
+    -- settle_sale_balance computing the same wrong figure is the only reason
+    -- this bug was consistent rather than random, and a fix applied to one of
+    -- them is worse than no fix at all.
+    --
+    -- The ledger is the third witness and the one that was right all along:
+    -- complete_sale debits 1100 with (total - paid), refund_sale_items credits
+    -- it with (goods - cash), and settle_sale_balance credits it with each
+    -- instalment. Summed, that IS this migration's formula.
+    select public.complete_sale(
+      v_shop_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 3, 'discount_cents', 0)),
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 4000, 'tendered_cents', 4000)),
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+    ) into v_rice_sale;
+
+    select id into v_rice_item from public.sale_items where sale_id = v_rice_sale;
+    perform public.refund_sale_items(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+
+    select owed_cents into v_owed_before from public.customer_balances where sale_id = v_rice_sale;
+    if coalesce(v_owed_before, 0) <= 0 then
+      raise exception 'FAIL: the fixture owes % -- nothing left to compare', coalesce(v_owed_before, 0);
+    end if;
+
+    -- 1100 across every entry this sale has produced: its own, its refunds' and
+    -- its settlements'. journal_entry_id is the only link back -- journal_entries
+    -- carries no source_id.
+    select coalesce(sum(l.amount_cents), 0) into v_ledger
+      from public.journal_lines l
+      join public.accounts a on a.id = l.account_id
+     where a.code = '1100'
+       and l.entry_id in (
+         select journal_entry_id from public.sales
+           where id = v_rice_sale and journal_entry_id is not null
+         union all
+         select journal_entry_id from public.refunds
+           where sale_id = v_rice_sale and journal_entry_id is not null
+         union all
+         select journal_entry_id from public.sale_payments
+           where sale_id = v_rice_sale and journal_entry_id is not null);
+    if v_ledger <> v_owed_before then
+      raise exception 'FAIL: 1100 Accounts Receivable holds % for this sale, the view says % is owed -- off by %',
+        v_ledger, v_owed_before, v_ledger - v_owed_before;
+    end if;
+
+    -- The RPC's own v_owed, read through its return value rather than asserted
+    -- against a number: take 100 and it must report exactly the view's figure
+    -- less 100.
+    select public.settle_sale_balance(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 100))) into v_left;
+    if v_left <> v_owed_before - 100 then
+      raise exception 'FAIL: the view said % owed; after taking 100 the RPC says % is left, not %',
+        v_owed_before, v_left, v_owed_before - 100;
+    end if;
+
+    select owed_cents into v_owed from public.customer_balances where sale_id = v_rice_sale;
+    if v_owed is distinct from v_left then
+      raise exception 'FAIL: the RPC says % is left and the view says % -- they have diverged', v_left, v_owed;
+    end if;
+
+    -- And the ledger follows the settlement down, still to the cent.
+    select coalesce(sum(l.amount_cents), 0) into v_ledger
+      from public.journal_lines l
+      join public.accounts a on a.id = l.account_id
+     where a.code = '1100'
+       and l.entry_id in (
+         select journal_entry_id from public.sales
+           where id = v_rice_sale and journal_entry_id is not null
+         union all
+         select journal_entry_id from public.refunds
+           where sale_id = v_rice_sale and journal_entry_id is not null
+         union all
+         select journal_entry_id from public.sale_payments
+           where sale_id = v_rice_sale and journal_entry_id is not null);
+    if v_ledger <> v_owed then
+      raise exception 'FAIL: after the settlement 1100 holds % and the view says % is owed', v_ledger, v_owed;
+    end if;
+
+    -- Paying off the rest closes it in all three places at once.
+    select public.settle_sale_balance(v_rice_sale,
+      jsonb_build_array(jsonb_build_object('method', 'zaad', 'amount_cents', v_left))) into v_left;
+    if v_left <> 0 then raise exception 'FAIL: expected nothing left, got %', v_left; end if;
+    select count(*) into v_rows from public.customer_balances where sale_id = v_rice_sale;
+    if v_rows <> 0 then raise exception 'FAIL: a sale paid off is still on the receivables list'; end if;
+    raise notice 'OK: view, RPC and 1100 agree on % throughout', v_owed_before;
+
+    ----------------------------------------------------------------
+    raise notice '=== 35. The sales the old formula closed too early ===';
+    ----------------------------------------------------------------
+    -- 20260908001400 ends with a one-shot UPDATE that clears settled_at on the
+    -- sales the old figure closed with money still outstanding. That statement
+    -- runs against an empty database at migration time and is therefore
+    -- exercised by nothing -- while being the only destructive thing in the
+    -- migration, on real money, on sales a shop has already told a customer are
+    -- settled.
+    --
+    -- So it is re-executed here, VERBATIM, against a state built by hand to look
+    -- like what the old code left behind. IF THE MIGRATION'S PREDICATE CHANGES,
+    -- CHANGE THIS ONE TOO -- they are a pair, and the migration says so.
+    --
+    -- Three sales, and only the first may move:
+    --   A  6300, 2000 paid, one unit worth 3150 back with 2000 handed over, then
+    --      stamped after taking the 1150 the old formula allowed. 2000 is still
+    --      sitting in 1100 and no screen can reach it.
+    --   B  paid in full at the till, then a unit back for cash. Owed nothing
+    --      before the return and owes nothing after it.
+    --   C  A's money shape with nobody attached. The receivables list filters on
+    --      customer_id, so clearing this would only offer an edit path for a
+    --      debt no one can be asked for.
+    declare
+      v_a uuid; v_b uuid; v_c uuid;
+    begin
+      select public.complete_sale(v_shop_id,
+        jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+        jsonb_build_array(jsonb_build_object('method','cash','amount_cents',2000,'tendered_cents',2000)),
+        'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true) into v_a;
+      select id into v_rice_item from public.sale_items where sale_id = v_a;
+      perform public.refund_sale_items(v_a,
+        jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+      perform public.settle_sale_balance(v_a,
+        jsonb_build_array(jsonb_build_object('method','cash','amount_cents',1150)));
+      -- What the old RPC did once it had taken everything it believed was owed.
+      update public.sales set settled_at = now() where id = v_a;
+
+      select public.complete_sale(v_shop_id,
+        jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+        jsonb_build_array(jsonb_build_object('method','cash','amount_cents',6300,'tendered_cents',6300)),
+        'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true) into v_b;
+      select id into v_rice_item from public.sale_items where sale_id = v_b;
+      perform public.refund_sale_items(v_b,
+        jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+
+      select public.complete_sale(v_shop_id,
+        jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+        jsonb_build_array(jsonb_build_object('method','cash','amount_cents',6300,'tendered_cents',6300)),
+        null, null, null, null, 0, null, null, v_location_id, 0) into v_c;
+      select id into v_rice_item from public.sale_items where sale_id = v_c;
+      perform public.refund_sale_items(v_c,
+        jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+      delete from public.sale_payments where sale_id = v_c and amount_cents = 6300;
+      insert into public.sale_payments (sale_id, method, amount_cents) values (v_c, 'cash', 2000);
+
+      -- ── 20260908001400's statement, verbatim ──────────────────────────────
+      update public.sales s
+         set settled_at = null
+       where s.settled_at is not null
+         and s.customer_id is not null
+         and exists (select 1 from public.refunds r where r.sale_id = s.id and r.total_cents > 0)
+         and (s.total_cents
+              - coalesce((select sum(r.goods_cents) from public.refunds r where r.sale_id = s.id), 0)
+              - coalesce((select sum(p.amount_cents) from public.sale_payments p where p.sale_id = s.id), 0)
+              + coalesce((select sum(r.total_cents) from public.refunds r where r.sale_id = s.id), 0)) > 0;
+
+      select settled_at into v_settled from public.sales where id = v_a;
+      if v_settled is not null then
+        raise exception 'FAIL: the sale with 2000 stranded in 1100 is still stamped settled';
+      end if;
+      select owed_cents into v_owed from public.customer_balances where sale_id = v_a;
+      if v_owed is distinct from 2000 then
+        raise exception 'FAIL: re-opened owing %, expected the 2000 that 1100 was holding', v_owed;
+      end if;
+
+      select settled_at into v_settled from public.sales where id = v_b;
+      if v_settled is null then
+        raise exception 'FAIL: a sale settled correctly under the old formula was re-opened';
+      end if;
+
+      select settled_at into v_settled from public.sales where id = v_c;
+      if v_settled is null then
+        raise exception 'FAIL: a sale with nobody attached was re-opened, and nobody can be asked for it';
+      end if;
+
+      -- Idempotent, because a migration gets re-run against a database someone
+      -- has already migrated more often than anyone plans for.
+      update public.sales s set settled_at = null
+       where s.settled_at is not null
+         and s.customer_id is not null
+         and exists (select 1 from public.refunds r where r.sale_id = s.id and r.total_cents > 0)
+         and (s.total_cents
+              - coalesce((select sum(r.goods_cents) from public.refunds r where r.sale_id = s.id), 0)
+              - coalesce((select sum(p.amount_cents) from public.sale_payments p where p.sale_id = s.id), 0)
+              + coalesce((select sum(r.total_cents) from public.refunds r where r.sale_id = s.id), 0)) > 0;
+      get diagnostics v_rows = row_count;
+      if v_rows <> 0 then
+        raise exception 'FAIL: a second run re-opened % more sales', v_rows;
+      end if;
+      raise notice 'OK: the stranded 2000 is collectable again; the other two are left alone';
+    end;
+  end;
 
   raise notice '';
   raise notice '################  ALL CHECKS PASSED  ################';

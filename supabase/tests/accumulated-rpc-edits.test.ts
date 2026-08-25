@@ -294,6 +294,17 @@ const SETTLE_SALE_BALANCE_EDITS: Edit[] = [
   // exactly this fix on the drawer side; a ledger stamped with the sale's
   // branch puts the same cash in two branches that can never be reconciled.
   ['20260908000360', "the entry carries the settling till's store, not the sale's", 'coalesce(v_session.location_id, v_sale.location_id)'],
+  // THE MONEY ONE for this function. v_owed subtracts the VALUE of the goods
+  // returned and adds the CASH handed back on again -- the cash leaving the
+  // drawer is a payment running backwards. Without the second half this RPC
+  // refused to collect more than the understated figure and then stamped
+  // settled_at, stranding the difference in 1100 Accounts Receivable where no
+  // screen in the app could reach it. The token is the whole expression, not
+  // `v_cash_refunded`: a rewrite that declares the variable, reads it and never
+  // adds it satisfies the name and loses the money. customer_balances computes
+  // the identical arithmetic and the two must never diverge.
+  ['20260908001400', 'the cash a refund handed back is still owed',
+    'v_sale.total_cents - v_refunded - v_paid + v_cash_refunded'],
 ];
 
 const RECORD_INVOICE_PAYMENT_EDITS: Edit[] = [
