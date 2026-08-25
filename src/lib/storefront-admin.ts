@@ -1,6 +1,7 @@
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
+import type { StorefrontProduct } from '@/types/models';
 
 // The shop-side counterpart to storefront.ts's public reads: everything a
 // shop does to its OWN page -- the editor screen holds layout and state, this
@@ -19,6 +20,14 @@ export type ShopStorefront = {
   heroImageUrl: string | null;
   offersDelivery: boolean;
   publishedAt: string | null;
+  // Set once, by publish_storefront's own first publish, and never cleared
+  // by unpublish (20260926000100) -- unlike publishedAt, which goes back to
+  // null the moment a shop pulls its page down. This is the signal for "has
+  // this shop EVER chosen a design", the property DesignStrip's "Chosen for
+  // you" badge is required to hold sticky (T3): a shop that has published,
+  // even once, has chosen, whatever it chose, and is never told otherwise
+  // again just because it later unpublished.
+  firstPublishedAt: string | null;
   // Unpublished edits, staged server-side (20260925000200_storefront_draft.sql)
   // so a shop that writes its page and taps Back loses nothing. Null means
   // "nothing staged" -- every field the shop has touched but not published is
@@ -72,6 +81,7 @@ function mapStorefrontRow(
     hero_image_url?: string | null;
     offers_delivery?: boolean | null;
     published_at?: string | null;
+    first_published_at?: string | null;
     draft?: Record<string, unknown> | null;
   }
 ): ShopStorefront {
@@ -86,6 +96,7 @@ function mapStorefrontRow(
     heroImageUrl: sf.hero_image_url ?? null,
     offersDelivery: Boolean(sf.offers_delivery),
     publishedAt: sf.published_at ?? null,
+    firstPublishedAt: sf.first_published_at ?? null,
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
 }
@@ -96,7 +107,9 @@ function mapStorefrontRow(
 export async function getMyStorefront(shopId: string): Promise<ShopStorefront | null> {
   const { data, error } = await supabase
     .from('shops')
-    .select('id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, draft)')
+    .select(
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, draft)'
+    )
     .eq('id', shopId)
     .maybeSingle();
   if (error) throw error;
@@ -254,13 +267,76 @@ export async function countOnlineProducts(shopId: string): Promise<number> {
   return count ?? 0;
 }
 
+function mapStorefrontProductRow(row: {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  price_cents: number;
+  stock: number;
+  image_url: string | null;
+}): StorefrontProduct {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? null,
+    category: row.category ?? null,
+    priceCents: row.price_cents,
+    stock: row.stock,
+    imageUrl: row.image_url ?? null,
+  };
+}
+
+// In-stock first, then category, then name -- the exact order
+// get_public_storefront_products (20260924000100) sorts by, reproduced here
+// rather than delegated to PostgREST: `order by (stock > 0) desc` is a
+// computed boolean expression, which `.order()` on the JS client can only
+// name a real column for, not express. Ties broken the way Postgres does:
+// nulls (an uncategorised product) sort after every real category name.
+function compareStorefrontProducts(a: StorefrontProduct, b: StorefrontProduct): number {
+  const inStockA = a.stock > 0 ? 1 : 0;
+  const inStockB = b.stock > 0 ? 1 : 0;
+  if (inStockA !== inStockB) return inStockB - inStockA;
+  if (a.category !== b.category) {
+    if (a.category === null) return 1;
+    if (b.category === null) return -1;
+    const byCategory = a.category.localeCompare(b.category);
+    if (byCategory !== 0) return byCategory;
+  }
+  return a.name.localeCompare(b.name);
+}
+
+// The preview's product list, read admin-side rather than through
+// get_public_storefront_products -- same reason countOnlineProducts above
+// bypasses that RPC: it deliberately returns zero rows while
+// `published_at is null` (a draft shop must read as a nonexistent one to a
+// customer), which would make the editor's OWN preview show an empty
+// catalogue for every shop on its first run, the exact moment three real
+// products are sitting there marked to sell online. Column list and sort
+// order are kept byte-for-byte identical to that RPC -- the preview is
+// supposed to be what a customer will see the moment this shop publishes,
+// not a different query that happens to look similar.
+export async function getStorefrontPreviewProducts(shopId: string): Promise<StorefrontProduct[]> {
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, name, description, category, price_cents, stock, image_url')
+    .eq('shop_id', shopId)
+    .eq('is_listed_online', true);
+  if (error) throw error;
+  return (data ?? []).map(mapStorefrontProductRow).sort(compareStorefrontProducts);
+}
+
 // published_at is the draft/live switch itself (20260924000000's comment on
-// the column): now() to go live, null to pull the page down without deleting
-// anything it shows.
-export async function setPublished(shopId: string, published: boolean): Promise<void> {
-  const { error } = await supabase
-    .from('storefronts')
-    .update({ published_at: published ? new Date().toISOString() : null })
-    .eq('shop_id', shopId);
+// the column): null pulls the page down without deleting anything it shows.
+// Deliberately narrowed to the pull-down direction only -- the old
+// `setPublished(shopId, true)` was unreachable in practice (nothing called
+// it) and a foot-gun the moment something did: it would set published_at
+// WITHOUT copying the draft into the live columns first, defeating
+// publish_storefront's atomic copy (20260925000200) and shipping whatever
+// was already live under a freshly "published" timestamp. Going live has
+// exactly one path -- publishDraft, below -- and this function cannot be
+// asked to take it.
+export async function unpublish(shopId: string): Promise<void> {
+  const { error } = await supabase.from('storefronts').update({ published_at: null }).eq('shop_id', shopId);
   if (error) throw error;
 }
