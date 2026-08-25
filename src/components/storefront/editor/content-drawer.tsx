@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BentoCard } from '@/components/ui/bento-card';
@@ -26,6 +26,18 @@ export type ContentDrawerValue = {
 
 export type SlugState = 'idle' | 'checking' | 'available' | 'taken' | SlugProblem;
 
+/** The two fields on this drawer a publish blocker can point at. */
+export type ContentDrawerFocusTarget = 'slug' | 'whatsapp';
+
+/**
+ * Bumping `token` (even to the same `field` twice in a row) imperatively
+ * focuses that field -- how the editor screen jumps a shopkeeper straight to
+ * the field that clears the FIRST publish blocker, since PublishBar routes
+ * every blocker's "Fix this" through one `onEdit` with no argument and
+ * cannot say which one was meant.
+ */
+export type ContentDrawerFocusRequest = { field: ContentDrawerFocusTarget; token: number };
+
 // Every state that needs a sentence gets one here, in words a shopkeeper
 // typed nothing technical to earn. 'idle' has no entry -- nothing to say
 // before they've typed anything. The tone follows the same rule the rest of
@@ -51,6 +63,7 @@ export function ContentDrawer({
   slugState,
   shopName = '',
   onUploadHeroImage,
+  focusRequest,
 }: {
   value: ContentDrawerValue;
   onChange: (patch: Partial<ContentDrawerValue>) => void;
@@ -65,11 +78,25 @@ export function ContentDrawer({
    * so there is exactly one upload path in the app, not two.
    */
   onUploadHeroImage?: (localUri: string) => Promise<string>;
+  /** See `ContentDrawerFocusRequest`. Omitted by a caller with no blocker to jump to. */
+  focusRequest?: ContentDrawerFocusRequest | null;
 }) {
   const [phoneDraft, setPhoneDraft] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [heroUploading, setHeroUploading] = useState(false);
   const [heroError, setHeroError] = useState<string | null>(null);
+  const slugInputRef = useRef<TextInput>(null);
+  const phoneInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    if (focusRequest.field === 'slug') slugInputRef.current?.focus();
+    else phoneInputRef.current?.focus();
+    // Only the token needs to be a dependency -- it changes on every request,
+    // including a second press that names the same field, which is exactly
+    // when a re-focus (not a no-op) is the useful behaviour.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.token]);
 
   const suggestion = normalizeSlug(shopName);
   const showSuggestion = suggestion.length > 0 && suggestion !== value.slug.trim();
@@ -124,6 +151,7 @@ export function ContentDrawer({
       <View style={styles.slugRow}>
         <Text style={styles.slugPrefix}>kaiibi.com/</Text>
         <TextInput
+          ref={slugInputRef}
           testID="content-drawer-slug-input"
           style={styles.slugInput}
           value={value.slug}
@@ -213,6 +241,7 @@ export function ContentDrawer({
       <Text style={[styles.eyebrow, styles.spaced]}>WhatsApp number</Text>
       {value.whatsappE164 ? <Text style={styles.currentPhone}>{formatE164ForDisplay(value.whatsappE164)}</Text> : null}
       <TextInput
+        ref={phoneInputRef}
         testID="content-drawer-phone-input"
         style={styles.textInput}
         value={phoneDraft}

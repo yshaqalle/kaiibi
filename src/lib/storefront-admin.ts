@@ -216,6 +216,22 @@ export async function deleteDeliveryArea(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// The count publishBlockers' onlineProductCount needs, computed straight from
+// `products` rather than through get_public_storefront_products: that RPC
+// (20260924000100) deliberately returns zero rows for a page with
+// published_at is null (a draft shop must read as a nonexistent one, see its
+// own comment), which would make "no_products" impossible to ever clear on a
+// shop's FIRST publish -- the exact moment this count has to be right.
+export async function countOnlineProducts(shopId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('products')
+    .select('id', { count: 'exact', head: true })
+    .eq('shop_id', shopId)
+    .eq('is_listed_online', true);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 // published_at is the draft/live switch itself (20260924000000's comment on
 // the column): now() to go live, null to pull the page down without deleting
 // anything it shows.

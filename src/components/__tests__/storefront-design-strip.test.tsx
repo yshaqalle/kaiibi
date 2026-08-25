@@ -9,11 +9,17 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
   return textsIn(node.children as ReactTestRendererJSON[] | null);
 }
 
-function render(theme = 'market', palette = 'ink') {
+function render(theme = 'market', palette = 'ink', neverPublished = true) {
   let tree: ReturnType<typeof create> | undefined;
   act(() => {
     tree = create(
-      <DesignStrip theme={theme as never} palette={palette as never} onThemeChange={() => {}} onPaletteChange={() => {}} />,
+      <DesignStrip
+        theme={theme as never}
+        palette={palette as never}
+        neverPublished={neverPublished}
+        onThemeChange={() => {}}
+        onPaletteChange={() => {}}
+      />,
     );
   });
   return textsIn(tree!.toJSON() as ReactTestRendererJSON);
@@ -30,7 +36,23 @@ describe('DesignStrip', () => {
     for (const p of PALETTES) expect(texts).toContain(p.label);
   });
 
-  it('says which design is chosen for a shop that has not chosen one', () => {
-    expect(render()).toContain('Chosen for you');
+  it('says which design is chosen for a shop that has never published', () => {
+    expect(render('market', 'ink', true)).toContain('Chosen for you');
+  });
+
+  // Property 3a: the badge depends on nothing but neverPublished -- not on
+  // which theme/palette happens to be selected right now. A shop that
+  // customised and published, then deliberately returned to Market/Ink, has
+  // chosen that on purpose and must not be told it was "chosen for you".
+  it('hides the badge once the shop has published, even sitting back on the defaults', () => {
+    expect(render('market', 'ink', false)).not.toContain('Chosen for you');
+  });
+
+  // "depends on nothing else" (property 3a) means nothing else -- not even
+  // which theme is currently selected. The badge marks the Market tile as
+  // the one picked for a shop that has never published, whatever it is
+  // previewing right now.
+  it('still marks the default tile even while a different theme is selected', () => {
+    expect(render('window', 'ink', true)).toContain('Chosen for you');
   });
 });

@@ -3,7 +3,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Colors } from '@/constants/theme';
 import {
-  DEFAULT_PALETTE,
   DEFAULT_THEME,
   PALETTES,
   THEMES,
@@ -26,20 +25,22 @@ const theme = Colors.light;
 export function DesignStrip({
   theme: selectedTheme,
   palette: selectedPalette,
+  neverPublished,
   onThemeChange,
   onPaletteChange,
 }: {
   theme: StorefrontTheme;
   palette: StorefrontPalette;
+  /**
+   * `storefront.publishedAt === null` -- the real signal for "this shop has
+   * never chosen a design", handed down by the editor screen. Depends on
+   * nothing else: a shop that deliberately returns to Market/Ink after
+   * customising has published, so it has chosen, whatever it chose.
+   */
+  neverPublished: boolean;
   onThemeChange: (key: StorefrontTheme) => void;
   onPaletteChange: (key: StorefrontPalette) => void;
 }) {
-  // The only signal this component has for "a shop that has not chosen a
-  // design yet": the props still hold the catalogue's own defaults. A shop
-  // that later chooses Market + Ink on purpose sees the same badge -- an
-  // acceptable reading given the component is not handed publishedAt.
-  const stillOnDefault = selectedTheme === DEFAULT_THEME && selectedPalette === DEFAULT_PALETTE;
-
   return (
     <BentoCard title="Design">
       <Text style={styles.eyebrow}>Layout</Text>
@@ -51,7 +52,7 @@ export function DesignStrip({
       >
         {THEMES.map((t) => {
           const active = t.key === selectedTheme;
-          const showBadge = stillOnDefault && t.key === DEFAULT_THEME;
+          const showBadge = neverPublished && t.key === DEFAULT_THEME;
           return (
             <Pressable
               key={t.key}
