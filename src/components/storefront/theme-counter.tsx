@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
@@ -30,36 +30,45 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
         <WhatsAppButton storefront={storefront} />
       </View>
 
-      {storefront.headline ? (
-        <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
-      ) : null}
+      {/* A plain View never scrolls on native, and Expo Router's web reset sets
+          `body { overflow: hidden }` -- either way, a catalogue longer than one
+          viewport is unreachable without an explicit scroll container. This is
+          the theme built for a long, photo-free price list, so it is the one
+          most likely to overflow. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        {storefront.headline ? (
+          <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
+        ) : null}
 
-      {products.length === 0 ? (
-        <EmptyState colors={colors} />
-      ) : (
-        groupByCategory(products).map(([category, items]) => (
-          <View key={category} style={styles.section}>
-            <Text style={[styles.sectionHead, { color: colors.accent }]}>{category.toUpperCase()}</Text>
-            {items.map((p) => (
-              <View key={p.id} style={[styles.row, { borderBottomColor: colors.soft }]}>
-                <View style={styles.rowName}>
-                  <Text style={[styles.name, { color: colors.ink }]}>{p.name}</Text>
-                  <Text style={[styles.state, { color: p.stock > 0 ? '#1f7a4d' : '#8a5a05' }]}>
-                    {p.stock > 0 ? 'In stock' : 'Out of stock — ask us'}
-                  </Text>
+        {products.length === 0 ? (
+          <EmptyState colors={colors} />
+        ) : (
+          groupByCategory(products).map(([category, items]) => (
+            <View key={category} style={styles.section}>
+              <Text style={[styles.sectionHead, { color: colors.accent }]}>{category.toUpperCase()}</Text>
+              {items.map((p) => (
+                <View key={p.id} style={[styles.row, { borderBottomColor: colors.soft }]}>
+                  <View style={styles.rowName}>
+                    <Text style={[styles.name, { color: colors.ink }]}>{p.name}</Text>
+                    <Text style={[styles.state, { color: p.stock > 0 ? '#1f7a4d' : '#8a5a05' }]}>
+                      {p.stock > 0 ? 'In stock' : 'Out of stock — ask us'}
+                    </Text>
+                  </View>
+                  <Text style={[styles.price, { color: colors.ink }]}>{formatCents(p.priceCents)}</Text>
                 </View>
-                <Text style={[styles.price, { color: colors.ink }]}>{formatCents(p.priceCents)}</Text>
-              </View>
-            ))}
-          </View>
-        ))
-      )}
+              ))}
+            </View>
+          ))
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, gap: 12, borderBottomWidth: 2 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 24 },
   shopName: { fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
   sub: { fontSize: 11.5 },
   headline: { fontSize: 19, fontWeight: '700', paddingHorizontal: 14, paddingTop: 12 },
