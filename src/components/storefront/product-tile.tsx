@@ -1,9 +1,8 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
+import { ProductActions } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
-import { openExternalUrl } from '@/lib/external-url';
-import { waLink } from '@/lib/storefront';
-import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
+import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
 
 type Props = {
@@ -35,17 +34,6 @@ type Props = {
 export function ProductTile({ product, colors, shopName, whatsappE164, onAdd }: Props) {
   const outOfStock = product.stock <= 0;
 
-  // wa.me under the shop's own number, prefilled with the shop and product
-  // name (property 1). Silently does nothing without a number rather than
-  // opening a chat with nobody -- see the Props comment on whatsappE164.
-  function handleAsk() {
-    if (!whatsappE164) return;
-    const message = shopName
-      ? `Hi ${shopName}, is ${product.name} available?`
-      : `Is ${product.name} available?`;
-    openExternalUrl(waLink(whatsappE164, message));
-  }
-
   return (
     <View style={[styles.tile, { borderColor: colors.soft }]}>
       {product.imageUrl ? (
@@ -70,31 +58,7 @@ export function ProductTile({ product, colors, shopName, whatsappE164, onAdd }: 
         </Text>
 
         <View style={styles.actions}>
-          {/* Add is only offered in stock (property 2) -- accent is the
-              palette's own "buttons and the active filter" colour, and
-              ground stands in for the "always white on it" it's paired with
-              (every palette's ground is near-white -- see storefront-catalog.ts),
-              so this button needs no colour literal of its own. */}
-          {outOfStock ? null : (
-            <Pressable
-              testID="product-tile-add"
-              accessibilityRole="button"
-              style={[styles.button, { backgroundColor: colors.accent }]}
-              onPress={() => onAdd?.(product)}
-            >
-              <Text style={[styles.buttonText, { color: colors.ground }]}>Add</Text>
-            </Pressable>
-          )}
-          {/* Ask always renders (property 2) -- WhatsApp's own fixed brand
-              colours, same as theme-shared.tsx's WhatsAppButton. */}
-          <Pressable
-            testID="product-tile-ask"
-            accessibilityRole="button"
-            style={[styles.button, { backgroundColor: WHATSAPP_BUTTON_GREEN }]}
-            onPress={handleAsk}
-          >
-            <Text style={[styles.buttonText, { color: WHATSAPP_INK }]}>Ask</Text>
-          </Pressable>
+          <ProductActions product={product} colors={colors} shopName={shopName} whatsappE164={whatsappE164} onAdd={onAdd} />
         </View>
       </View>
     </View>
@@ -110,7 +74,5 @@ const styles = StyleSheet.create({
   name: { fontSize: 12.5, fontWeight: '700', lineHeight: 16, minHeight: 32 },
   price: { fontSize: 15, fontWeight: '800', marginTop: 5 },
   stock: { fontSize: 11, fontWeight: '700', marginTop: 1 },
-  actions: { flexDirection: 'row', gap: 6, marginTop: 8 },
-  button: { flex: 1, borderRadius: 9, paddingVertical: 6, alignItems: 'center' },
-  buttonText: { fontSize: 12, fontWeight: '800' },
+  actions: { marginTop: 8 },
 });

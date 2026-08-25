@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
-import { CartButton, EmptyState, WhatsAppButton, useStorefrontCart, type ThemeProps } from '@/components/storefront/theme-shared';
+import {
+  CartButton, EmptyState, ProductActions, WhatsAppButton, useStorefrontCart, type ThemeProps,
+} from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -22,12 +24,11 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
 }
 
 export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
-  // Counter has no product grid and so no Add button of its own, but the
-  // basket is keyed by shop slug, not by theme (see theme-shared.tsx's
+  // The basket is keyed by shop slug, not by theme (see theme-shared.tsx's
   // useStorefrontCart) -- a customer can still arrive here with items a
   // grid theme already put in it, or a shop can switch themes with a basket
   // still in progress. Either way this entry point has to be here too.
-  const { cart, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
+  const { cart, addProduct, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
 
   return (
@@ -64,9 +65,24 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
                 <View key={p.id} style={[styles.row, { borderBottomColor: colors.soft }]}>
                   <View style={styles.rowName}>
                     <Text style={[styles.name, { color: colors.ink }]}>{p.name}</Text>
-                    <Text style={[styles.state, { color: p.stock > 0 ? '#1f7a4d' : '#8a5a05' }]}>
-                      {p.stock > 0 ? 'In stock' : 'Out of stock — ask us'}
-                    </Text>
+                    {/* Actions live inside this flex:1 column, not after
+                        price -- price is a separate flex item that always
+                        hugs its own content, so nothing added in here ever
+                        shifts it and the price column keeps scanning down
+                        the same as before this row grew an Add/Ask pair. */}
+                    <View style={styles.stateRow}>
+                      <Text style={[styles.state, { color: p.stock > 0 ? '#1f7a4d' : '#8a5a05' }]}>
+                        {p.stock > 0 ? 'In stock' : 'Out of stock — ask us'}
+                      </Text>
+                      <ProductActions
+                        product={p}
+                        colors={colors}
+                        shopName={storefront.shopName}
+                        whatsappE164={storefront.whatsappE164}
+                        onAdd={addProduct}
+                        compact
+                      />
+                    </View>
                   </View>
                   <Text style={[styles.price, { color: colors.ink }]}>{formatCents(p.priceCents)}</Text>
                 </View>
@@ -101,6 +117,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1 },
   rowName: { flex: 1 },
   name: { fontSize: 13.5, fontWeight: '600' },
-  state: { fontSize: 11.5, fontWeight: '600', marginTop: 2 },
+  stateRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 3 },
+  state: { fontSize: 11.5, fontWeight: '600' },
   price: { fontSize: 14.5, fontWeight: '800' },
 });

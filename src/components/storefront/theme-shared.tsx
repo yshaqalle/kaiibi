@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -31,6 +31,69 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
 
 export function EmptyState({ colors }: { colors: PaletteColors }) {
   return <Text style={[styles.empty, { color: colors.ink }]}>Nothing listed yet.</Text>;
+}
+
+type ProductActionsProps = {
+  product: StorefrontProduct;
+  colors: PaletteColors;
+  // See the identical comment on ProductTile's Props in product-tile.tsx --
+  // Ask stays visible without a number (WhatsAppButton above hides itself
+  // instead, because it's a single nav button; a per-product action can't
+  // hide one of a pair without looking broken) and simply becomes inert.
+  shopName?: string;
+  whatsappE164?: string | null;
+  onAdd?: (product: StorefrontProduct) => void;
+  // ProductTile renders this pair full-width inside a grid tile; Counter
+  // renders it inline in a dense price-list row, where a full-size button
+  // pair would turn every row into a card. `compact` is the same two
+  // buttons at row scale, not a different component.
+  compact?: boolean;
+};
+
+// The Add/Ask pair every theme with per-product actions needs. Originally
+// lived only in ProductTile (Market, Window); Counter has its own row layout
+// and so cannot reuse ProductTile itself, only the two rules its actions
+// follow -- Add only in stock, Ask always rendered but inert without a
+// number. Extracted here rather than copied a third time, so those rules
+// have exactly one place to drift out of sync.
+export function ProductActions({ product, colors, shopName, whatsappE164, onAdd, compact }: ProductActionsProps) {
+  const outOfStock = product.stock <= 0;
+
+  function handleAsk() {
+    if (!whatsappE164) return;
+    const message = shopName
+      ? `Hi ${shopName}, is ${product.name} available?`
+      : `Is ${product.name} available?`;
+    openExternalUrl(waLink(whatsappE164, message));
+  }
+
+  return (
+    <View style={[styles.actions, compact && styles.actionsCompact]}>
+      {/* Add is only offered in stock -- accent is the palette's own
+          "buttons and the active filter" colour, and ground stands in for
+          the "always white on it" it's paired with, so this button needs no
+          colour literal of its own. */}
+      {outOfStock ? null : (
+        <Pressable
+          testID="product-tile-add"
+          accessibilityRole="button"
+          style={[styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }]}
+          onPress={() => onAdd?.(product)}
+        >
+          <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: colors.ground }]}>Add</Text>
+        </Pressable>
+      )}
+      {/* Ask always renders -- WhatsApp's own fixed brand colours. */}
+      <Pressable
+        testID="product-tile-ask"
+        accessibilityRole="button"
+        style={[styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }]}
+        onPress={handleAsk}
+      >
+        <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 // The cart entry point every theme needs -- including Counter, which has no
@@ -98,4 +161,14 @@ const styles = StyleSheet.create({
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
   cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   cartText: { fontSize: 12.5, fontWeight: '800' },
+  // Full-size default: ProductTile's grid tile, where the pair fills the
+  // tile's own width evenly.
+  actions: { flexDirection: 'row', gap: 6 },
+  button: { flex: 1, borderRadius: 9, paddingVertical: 6, alignItems: 'center' },
+  buttonText: { fontSize: 12, fontWeight: '800' },
+  // Row scale: Counter's dense price list, where the pair sits inline next
+  // to the stock label rather than filling a row's width.
+  actionsCompact: { gap: 4 },
+  buttonCompact: { flex: 0, borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
+  buttonTextCompact: { fontSize: 10.5 },
 });
