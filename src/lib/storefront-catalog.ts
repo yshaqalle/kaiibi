@@ -104,12 +104,13 @@ export function paletteColors(palette: StorefrontPalette): PaletteColors {
 // a WhatsApp button get tapped; recolouring it to a shop's accent trades the
 // affordance for a colour nobody asked for.
 //
-// This is a DIFFERENT constant of the same name from
+// Deliberately its own constant, not a re-export of
 // src/components/platform/whatsapp-button.tsx's WHATSAPP_GREEN (#1fa855).
-// That one is the brand green as-is; this one is darkened because this page's
-// contrast test demands 4.5:1 for white text on top of it. Import from this
-// module for the storefront, not the platform one.
-export const WHATSAPP_GREEN = '#1f7a4d';
+// That one fills the WhatsApp logo path, so it has to be the actual brand
+// green. This one is a button background carrying white text, which the
+// brand green fails at 4.5:1 -- so it's darkened here to a shade that passes.
+// Same affordance, different constraint; do not unify them.
+export const WHATSAPP_BUTTON_GREEN = '#1f7a4d';
 // The text colour on the fixed WhatsApp green above -- stays fixed for the
 // same reason the green does, so it's catalogued rather than a stray literal
 // on the button label.

@@ -1,7 +1,7 @@
 import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
-  paletteColors, mutedInk, WHATSAPP_GREEN,
+  paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -57,17 +57,17 @@ describe('muted secondary text', () => {
 
 describe('WhatsApp green', () => {
   it('is fixed, because it is a recognised affordance and not a brand colour', () => {
-    expect(WHATSAPP_GREEN).toBe('#1f7a4d');
-    expect(contrastRatio(WHATSAPP_GREEN, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    expect(WHATSAPP_BUTTON_GREEN).toBe('#1f7a4d');
+    expect(contrastRatio(WHATSAPP_BUTTON_GREEN, '#ffffff')).toBeGreaterThanOrEqual(4.5);
   });
 
   it('is in no palette, so no shop can recolour it by picking one', () => {
     for (const p of PALETTES) {
       const c = paletteColors(p.key);
-      expect(c.ground).not.toBe(WHATSAPP_GREEN);
-      expect(c.soft).not.toBe(WHATSAPP_GREEN);
-      expect(c.ink).not.toBe(WHATSAPP_GREEN);
-      expect(c.accent).not.toBe(WHATSAPP_GREEN);
+      expect(c.ground).not.toBe(WHATSAPP_BUTTON_GREEN);
+      expect(c.soft).not.toBe(WHATSAPP_BUTTON_GREEN);
+      expect(c.ink).not.toBe(WHATSAPP_BUTTON_GREEN);
+      expect(c.accent).not.toBe(WHATSAPP_BUTTON_GREEN);
     }
   });
 });

@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
-import { WHATSAPP_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
+import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
 // The parts every theme needs. Kept out of any one theme so that Market is a
@@ -33,7 +33,7 @@ export function EmptyState({ colors }: { colors: PaletteColors }) {
 
 const styles = StyleSheet.create({
   // Fixed green in every palette: a recognised affordance, not a brand colour.
-  wa: { backgroundColor: WHATSAPP_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  wa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   waText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
 });
