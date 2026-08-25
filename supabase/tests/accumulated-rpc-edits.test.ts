@@ -590,6 +590,36 @@ const REVERSE_INVOICE_PAYMENT_ENTRY_EDITS: Edit[] = [
   ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
 ];
 
+// The delivery side of the same door, added by 20260908001500. `stock_receipts`
+// has no delete policy and no client delete today, so this is the one reversal
+// in the set that was built BEFORE its hole opened -- which makes it the easiest
+// to lose, because nothing in the app exercises it. Losing any entry here leaves
+// 1200 Inventory carrying stock that is not on the shelf and 2000 Accounts
+// Payable carrying money owed for a delivery the shop says never arrived, with
+// every entry still balancing and the trial balance still zeroing.
+const REVERSE_STOCK_RECEIPT_ENTRY_EDITS: Edit[] = [
+  ['20260908001500', 'a deleted delivery reverses the entry it posted', 'reverses_entry_id = v_reversal_id'],
+  ['20260908001500', 'the reversal mirrors the lines, negated', '-amount_cents'],
+  ['20260908001500', 'the reversal is filed under the source it reverses', "v_old.source, 'posted'"],
+  ['20260908001500', 'the original is marked reversed and linked to its mirror',
+    "set status = 'reversed', reverses_entry_id = v_reversal_id"],
+  // An UNCOSTED delivery posts no entry at all -- an ordinary delivery, not an
+  // edge case. Raising here would make deleting one fail outright.
+  ['20260908001500', 'a delivery that posted nothing is a no-op', 'if old.journal_entry_id is null then return null'],
+  // Reachable from the manual ledger screen's void, and from every call of a
+  // future Delete Delivery RPC that reverses inline before deleting -- the shape
+  // delete_invoice_payment already has.
+  ['20260908001500', 'an entry already reversed is a no-op, not an error', "if v_old.status = 'reversed' then return null"],
+  // TODAY THIS IS THE ONLY ROUTE INTO THE TRIGGER AT ALL. stock_receipts.shop_id
+  // cascades from `shops`, the cascade is an AFTER trigger on the parent, and
+  // journal_entries.shop_id is not deferrable -- so a mirror entry written here
+  // aborts the whole shop deletion. Read off old.shop_id: stock_receipts carries
+  // one, unlike invoice_payments.
+  ['20260908001500', 'a shop being deleted writes no mirror entry', 'from public.shops where id = old.shop_id'],
+  ['20260908001500', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
+  ['20260908001500', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
+];
+
 const DELETE_INVOICE_PAYMENT_EDITS: Edit[] = [
   // Recomputed from the surviving rows rather than by subtracting the deleted
   // amount, so a double-undo cannot drive the total negative.
@@ -627,6 +657,7 @@ describe.each([
   ['post_expense_to_ledger', POST_EXPENSE_TO_LEDGER_EDITS],
   ['reverse_expense_entry', REVERSE_EXPENSE_ENTRY_EDITS],
   ['reverse_invoice_payment_entry', REVERSE_INVOICE_PAYMENT_ENTRY_EDITS],
+  ['reverse_stock_receipt_entry', REVERSE_STOCK_RECEIPT_ENTRY_EDITS],
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {

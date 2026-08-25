@@ -2,8 +2,8 @@
 -- balanced double-entry journal entry in the same transaction that moves the
 -- stock.
 --
--- Nine things are asserted, and none of them can be checked from TypeScript
--- because all nine are facts about rows this database wrote for itself:
+-- Twelve things are asserted, and none of them can be checked from TypeScript
+-- because all twelve are facts about rows this database wrote for itself:
 --
 --   1. a costed delivery posts Dr 1200 Inventory / Cr 2000 Accounts Payable for
 --      the WHOLE delivery. Payable, not cash: receive_stock records goods
@@ -39,6 +39,16 @@
 --      the live function source. Somalia is UTC+3, so now()::date and the
 --      shop's date differ for three hours a day and a value comparison would
 --      only bite in that window.
+--  10. A DELETED DELIVERY REVERSES ITS ENTRY (20260908001500). Measured as a
+--      shop-wide 1200/2000 returning to a baseline taken before the delivery,
+--      because a stranded entry balances on its own and every per-entry
+--      assertion above passes while it stands.
+--  11. an uncosted delivery deleted is a clean no-op -- there was no entry, so
+--      reversing nothing must not raise.
+--  12. deleting a SHOP that has deliveries still succeeds. The cascade is an
+--      AFTER trigger on the parent, so the shops row is already gone when the
+--      reversal trigger fires and a mirror entry would violate
+--      journal_entries.shop_id immediately.
 --
 -- Deliberately NOT `set role authenticated`, for the same reason
 -- verify-posting-sales.sql is not: this script stays superuser so RLS never
@@ -66,6 +76,14 @@ declare
   v_text          text;
   v_date          date;
   v_src           text;
+  -- Checks 10-12, the deletion side.
+  v_base_1200     bigint;
+  v_base_2000     bigint;
+  v_reversal      uuid;
+  v_entries       integer;
+  v_del_shop      uuid;
+  v_del_loc       uuid;
+  v_del_prod      uuid;
 begin
   -- shops.owner_id, stock_receipts.created_by and stock_counts.created_by all
   -- reference auth.users(id), so the fixture "person" needs a real row there
@@ -307,6 +325,171 @@ begin
   end if;
   if v_src ~ 'now\(\)\s*::\s*date' then
     raise exception 'FAIL: save_stock_count still dates an entry with now()::date, which resolves in UTC';
+  end if;
+
+  -- 10. A DELETED DELIVERY TAKES ITS ENTRY WITH IT (20260908001500).
+  --
+  --     Measured shop-wide and against a baseline taken BEFORE the delivery,
+  --     not per entry: a stranded entry balances on its own, so every
+  --     per-entry assertion in this file passes while 1200 carries stock that
+  --     is not on the shelf and 2000 carries money owed for a delivery the
+  --     shop says never arrived. The only thing that can see it is the running
+  --     total returning -- or not returning -- to where it started.
+  --
+  --     THE MUTATION THAT MUST REDDEN THIS CHECK: delete the
+  --     `create trigger stock_receipts_reverse_on_delete` statement at the foot
+  --     of 20260908001500. Run, and it fails at the first of the three
+  --     assertions below: 'FAIL: the deleted delivery''s entry should read
+  --     ''reversed'', it reads posted'. The 1200/2000 assertions further down
+  --     are what catch a trigger that fires but gets the arithmetic wrong.
+  select coalesce(sum(l.amount_cents), 0) into v_base_1200
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  select coalesce(sum(l.amount_cents), 0) into v_base_2000
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+
+  --     7 @ 1300 = 9100. Chosen so no other figure in this file (19000, 2700,
+  --     1800, 393) and no partial reading of the line reaches it.
+  v_receipt_id := public.receive_stock(v_shop_id, v_loc_id, jsonb_build_array(
+    jsonb_build_object('product_id', v_prod_a, 'quantity', 7, 'unit_cost_cents', 1300)));
+  select journal_entry_id into v_entry from public.stock_receipts where id = v_receipt_id;
+  if v_entry is null then raise exception 'FAIL: the delivery under test did not post'; end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  if v_amount <> v_base_1200 + 9100 then
+    raise exception 'FAIL: fixture -- the delivery should have raised 1200 by 9100, it moved by %', v_amount - v_base_1200;
+  end if;
+
+  delete from public.stock_receipts where id = v_receipt_id;
+
+  --     The original is marked reversed, not merely offset. A second entry that
+  --     nets it out while the first still reads 'posted' leaves the journals
+  --     list showing a live delivery that no longer exists.
+  select status into v_text from public.journal_entries where id = v_entry;
+  if v_text is distinct from 'reversed' then
+    raise exception 'FAIL: the deleted delivery''s entry should read ''reversed'', it reads %', coalesce(v_text, 'gone');
+  end if;
+
+  select id into v_reversal from public.journal_entries where reverses_entry_id = v_entry and id <> v_entry;
+  if v_reversal is null then
+    raise exception 'FAIL: deleting a delivery wrote no mirror entry linked back to the original';
+  end if;
+
+  --     A reversal files under the SOURCE IT REVERSES, never a literal. Pinned
+  --     phase-wide: a reader filtering source = 'stock' must see the delivery
+  --     AND the reversal cancelling it, or a report grouped by source shows the
+  --     delivery twice.
+  --
+  --     THE MUTATION: replace `v_old.source` in the mirror's insert with
+  --     `'manual'`. Expected: 'FAIL: the reversal should file under ''stock'''.
+  select source into v_text from public.journal_entries where id = v_reversal;
+  if v_text <> 'stock' then
+    raise exception 'FAIL: the reversal should file under ''stock'', the source it reverses; got %', v_text;
+  end if;
+
+  --     And the money is actually back. This is what a copied-rather-than-
+  --     negated mirror fails: it doubles instead of cancelling, and both
+  --     entries balance throughout.
+  --
+  --     THE MUTATION: change `-amount_cents` to `amount_cents` in the mirror's
+  --     line insert. Expected: 'FAIL: deleting a delivery left 1200 Inventory
+  --     at 18200 above where it started'.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  if v_amount <> v_base_1200 then
+    raise exception 'FAIL: deleting a delivery left 1200 Inventory at % above where it started', v_amount - v_base_1200;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount <> v_base_2000 then
+    raise exception 'FAIL: deleting a delivery left 2000 Accounts Payable % away from where it started', v_amount - v_base_2000;
+  end if;
+
+  -- 11. AN UNCOSTED DELIVERY DELETED IS A CLEAN NO-OP. receive_stock writes no
+  --     entry at all when no line carries a cost (check 2), so there is nothing
+  --     to reverse -- and reversing nothing must not raise, or deleting an
+  --     ordinary uncosted delivery fails outright on a ledger the shop never
+  --     used.
+  --
+  --     THE MUTATION: delete the `if old.journal_entry_id is null then return
+  --     null; end if;` guard from reverse_stock_receipt_entry(). Expected: the
+  --     DELETE below raises 'the journal entry for this delivery is missing, so
+  --     it cannot be reversed' -- the lookup finds no row for a null id and the
+  --     next guard fires.
+  select count(*) into v_entries from public.journal_entries where shop_id = v_shop_id;
+  v_receipt_id := public.receive_stock(v_shop_id, v_loc_id, jsonb_build_array(
+    jsonb_build_object('product_id', v_prod_a, 'quantity', 4)));
+  if (select journal_entry_id from public.stock_receipts where id = v_receipt_id) is not null then
+    raise exception 'FAIL: fixture -- the uncosted delivery under test posted an entry';
+  end if;
+  delete from public.stock_receipts where id = v_receipt_id;
+  if (select count(*) from public.journal_entries where shop_id = v_shop_id) <> v_entries then
+    raise exception 'FAIL: deleting an uncosted delivery wrote a journal entry; it had nothing to reverse';
+  end if;
+
+  -- 12. DELETING A SHOP WITH DELIVERIES STILL WORKS.
+  --
+  --     `stock_receipts.shop_id` cascades from `shops`, and a cascade is an
+  --     AFTER trigger on the parent -- so the shops row is already GONE when
+  --     this trigger fires. journal_entries.shop_id is `not null references
+  --     shops(id)` with no deferral, so writing a mirror entry here violates
+  --     that key immediately and takes the whole shop deletion with it.
+  --     delete_shop was broken exactly once before by an FK reached through
+  --     journal rows (20260908001200) and must not be broken again by the fix
+  --     for a hole that is not reachable yet.
+  --
+  --     A SEPARATE SHOP, because this deletes it. Its own location, product and
+  --     costed delivery, so the trigger really is reached with an entry to
+  --     reverse -- a shop with no posted delivery would pass this check with the
+  --     skip removed.
+  --
+  --     THE MUTATION: delete the `if not exists (select 1 from public.shops
+  --     where id = old.shop_id) then return null; end if;` skip from
+  --     reverse_stock_receipt_entry(). Expected: the DELETE below raises
+  --     'the journal entry for this delivery is missing, so it cannot be
+  --     reversed'.
+  --
+  --     MERELY MOVING THE SKIP DOWN reddens this too, and that is the run this
+  --     check was written for: with the skip left where
+  --     reverse_invoice_payment_entry puts it -- after the entry lookup, reading
+  --     v_old.shop_id -- the same message appears. `journal_entries.shop_id`
+  --     cascades from `shops` in the SAME statement and its branch runs first,
+  --     so the entry is already gone by the time the stock_receipts branch gets
+  --     here. Both errors arrive with CONTEXT 'SQL statement "delete from
+  --     public.shops"'.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Posting Stock Shop To Delete')
+    returning id into v_del_shop;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_del_shop, 'Main', true) returning id into v_del_loc;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_del_shop, 'Doomed Tea', 2000, null, 0) returning id into v_del_prod;
+  v_receipt_id := public.receive_stock(v_del_shop, v_del_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_del_prod, 'quantity', 3, 'unit_cost_cents', 1700)));
+  if (select journal_entry_id from public.stock_receipts where id = v_receipt_id) is null then
+    raise exception 'FAIL: fixture -- the doomed shop''s delivery did not post, so check 12 would not reach the skip';
+  end if;
+
+  delete from public.shops where id = v_del_shop;
+  if exists (select 1 from public.shops where id = v_del_shop) then
+    raise exception 'FAIL: the shop survived its own deletion';
+  end if;
+  if exists (select 1 from public.stock_receipts where shop_id = v_del_shop) then
+    raise exception 'FAIL: a stock receipt outlived the shop it belonged to';
   end if;
 
   perform set_config('request.jwt.claims', null, true);
