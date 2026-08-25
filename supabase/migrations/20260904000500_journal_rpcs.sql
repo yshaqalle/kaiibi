@@ -120,6 +120,24 @@ grant execute on function public.post_journal_entry(uuid, date, text, jsonb, uui
 -- would be wrong in two directions at once. If August is closed, the reversal
 -- is refused by open_period_for and the caller must re-open it -- which is the
 -- correct thing to make somebody decide, and is why 'closed' is reversible.
+--
+-- ## Its `source = 'manual'` IS DELIBERATE, and it is the exception
+--
+-- Phase 2b pins the convention that A REVERSAL CARRIES THE SAME SOURCE AS THE
+-- ENTRY IT REVERSES, so a report grouping by source shows both halves of a pair
+-- (20260908000650, 20260908000500, 20260908000900; the plan's Global
+-- Constraints). This function is deliberately NOT changed to match, and the
+-- reason is the gate three lines into its body: it requires `ledger.post`, which
+-- means its reversal really WAS typed by a human at the manual-entry screen.
+-- 'manual' is the true source of THIS entry, not an inherited default -- and its
+-- callers expect the gate, so the RPC keeps both. The posting RPCs are the
+-- opposite case: they are gated on their own door's permission, pass
+-- p_source <> 'manual' for exactly that reason, and reverse inline so they never
+-- reach this function at all.
+--
+-- (Comment added by the phase 2b final review. The body below is untouched, so
+-- this migration's effect on the database is byte-identical to what was applied
+-- when it shipped.)
 create or replace function public.reverse_journal_entry(
   p_entry_id uuid,
   p_reason text

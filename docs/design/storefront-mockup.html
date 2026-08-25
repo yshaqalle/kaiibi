@@ -1,0 +1,1534 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — Editor, Themes, Cart &amp; Checkout</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --warn:#b07206; --warnwash:#fbf3e2;
+    --accwash:#e6edff; --accink:#1b47b8;
+    --profit:#008340;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .decisions{display:grid;gap:10px;margin-top:18px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
+  .dx{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);border-radius:12px;
+    padding:13px 15px;background:var(--sf);}
+  .dx b{display:block;font-size:13px;margin-bottom:3px;}
+  .dx p{margin:0;font-size:13px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;}
+  .frame.bare{padding:0;overflow:hidden;background:#fff;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+  .panel[hidden]{display:none;}
+
+  /* ---------- app chrome (bento) ---------- */
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap;}
+  .head .ey{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);margin:0 0 2px;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .headActs{display:flex;gap:8px;align-items:center;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.ghost{background:transparent;}
+  .btn[disabled]{opacity:.42;cursor:not-allowed;}
+
+  .bgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;}
+  .cell{min-width:0;}
+  .s12{grid-column:span 12;} .s7{grid-column:span 7;} .s5{grid-column:span 5;}
+  .s8{grid-column:span 8;} .s4{grid-column:span 4;} .s6{grid-column:span 6;}
+
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .card > header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;}
+  .card > header h4{margin:0;font-size:14.5px;font-weight:800;letter-spacing:-.01em;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:4px 10px;font-size:11.5px;
+    font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .pill.live{background:#e7f4ec;border-color:#cfe7da;color:var(--profit);}
+  .pill.draft{background:var(--warnwash);border-color:#efe0c2;color:var(--warn);}
+
+  .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);margin:0 0 6px;}
+  .hint{font-size:12px;color:var(--d-mut2);margin:6px 0 0;}
+  .field{margin-bottom:15px;}
+  .field:last-child{margin-bottom:0;}
+  .input{border:1px solid var(--d-rule);background:var(--d-sf);border-radius:12px;padding:10px 12px;
+    font-size:14px;color:var(--d-ink);}
+  .input.soft{background:var(--d-soft);border-color:transparent;}
+  .ta{min-height:66px;}
+  .urlrow{display:flex;align-items:stretch;border:1px solid var(--d-rule);border-radius:12px;overflow:hidden;}
+  .urlrow .slug{padding:10px 12px;font-size:14px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;flex:1;}
+  .urlrow .suffix{padding:10px 12px;font-size:14px;color:var(--d-mut);background:var(--d-soft);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;align-items:center;}
+  .ok{font-size:12px;color:var(--profit);margin:6px 0 0;font-weight:700;}
+
+  /* theme picker */
+  .themes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .th{border:1px solid var(--d-ln);border-radius:16px;padding:10px;cursor:pointer;background:var(--d-sf);}
+  .th[aria-selected="true"]{border-color:var(--d-ink);box-shadow:0 0 0 1px var(--d-ink);}
+  .th b{display:block;font-size:13px;font-weight:800;margin:9px 0 2px;}
+  .th p{margin:0;font-size:11.5px;color:var(--d-mut);line-height:1.45;}
+  .th .badge{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accink);background:var(--accwash);border-radius:999px;padding:2px 7px;display:inline-block;margin-top:7px;}
+  .swatch{height:74px;border-radius:9px;overflow:hidden;background:var(--d-soft);padding:7px;display:grid;gap:4px;}
+  /* Market: dense even grid */
+  .sw-market{grid-template-rows:9px 1fr;}
+  .sw-market .bar{background:#1d1d22;border-radius:3px;}
+  .sw-market .g{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:4px;}
+  .sw-market .g i{background:#d8d8de;border-radius:3px;}
+  /* Counter: list rules */
+  .sw-counter{grid-template-rows:9px 1fr;}
+  .sw-counter .bar{background:#1d1d22;border-radius:3px;}
+  .sw-counter .g{display:grid;grid-template-rows:repeat(4,1fr);gap:4px;}
+  .sw-counter .g i{background:#e2e2e8;border-radius:2px;position:relative;}
+  .sw-counter .g i::after{content:"";position:absolute;right:3px;top:2px;bottom:2px;width:14px;background:#b9b9c2;border-radius:2px;}
+  /* Window: hero + big tiles */
+  .sw-window{grid-template-rows:26px 1fr;}
+  .sw-window .hero{background:#c9c3b6;border-radius:4px;}
+  .sw-window .g{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
+  .sw-window .g i{background:#ddd9d1;border-radius:3px;}
+
+  /* caveat */
+  .cav{display:flex;gap:9px;align-items:flex-start;border-radius:14px;padding:11px 13px;font-size:12.5px;line-height:1.5;}
+  .cav.wrong{background:var(--warnwash);color:#6d4703;}
+  .cav.context{background:var(--d-soft);color:var(--d-ink2);}
+  .cav b{font-weight:800;}
+  .cav .lnk{color:var(--accink);font-weight:800;text-decoration:underline;text-underline-offset:2px;white-space:nowrap;}
+  .cav .ico{font-weight:800;}
+
+  .statrow{display:flex;gap:10px;}
+  .tile{flex:1;background:var(--d-soft);border-radius:16px;padding:13px 14px;}
+  .tile .v{font-size:24px;font-weight:800;letter-spacing:-.02em;}
+  .tile .l{font-size:12px;color:var(--d-mut);margin-top:1px;}
+  .tile .h{font-size:11.5px;color:var(--d-mut2);margin-top:3px;}
+
+  /* preview chrome inside admin */
+  .prevwrap{background:var(--d-soft);border-radius:18px;padding:12px;}
+  .prevbar{display:flex;align-items:center;gap:8px;margin-bottom:9px;}
+  .prevbar .dot{width:8px;height:8px;border-radius:50%;background:#d3d3da;}
+  .prevbar .u{flex:1;background:#fff;border-radius:999px;padding:4px 11px;font-size:11.5px;
+    color:var(--d-mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .prevbar .seg{display:flex;background:#fff;border-radius:999px;padding:2px;gap:2px;}
+  .prevbar .seg span{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;color:var(--d-mut);}
+  .prevbar .seg span[aria-selected="true"]{background:var(--d-ink);color:#fff;}
+  .prevstage{background:#fff;border-radius:12px;overflow:hidden;}
+
+  /* ---------- public storefront themes ---------- */
+  .sfont{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .shopnav{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 20px;}
+  .wa{display:inline-flex;align-items:center;gap:6px;background:#1f7a4d;color:#fff;border-radius:999px;
+    padding:8px 14px;font-size:12.5px;font-weight:800;white-space:nowrap;}
+  .wa.sm{padding:6px 11px;font-size:11.5px;}
+  .wa.out{background:transparent;color:#1f7a4d;border:1.5px solid #1f7a4d;}
+  .photo{background:linear-gradient(135deg,#e8e4dd,#d5cfc4);}
+  .nophoto{display:flex;align-items:flex-end;padding:10px;}
+  .nophoto span{font-size:13px;font-weight:800;line-height:1.25;}
+
+  /* Market theme */
+  .t-market{background:#fff;color:#141418;}
+  .t-market .shopnav{border-bottom:1px solid #ececef;}
+  .t-market .nm{font-size:19px;font-weight:800;letter-spacing:-.02em;}
+  .t-market .sub{font-size:11.5px;color:#6a6a72;}
+  .t-market .strap{padding:16px 20px 6px;}
+  .t-market .strap h5{margin:0;font-size:22px;font-weight:800;letter-spacing:-.022em;}
+  .t-market .strap p{margin:5px 0 0;font-size:13px;color:#57575e;max-width:56ch;}
+  .t-market .cats{display:flex;gap:7px;padding:12px 20px;flex-wrap:wrap;}
+  .t-market .cats span{border:1px solid #e4e4e9;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;color:#4a4a52;}
+  .t-market .cats span:first-child{background:#141418;color:#fff;border-color:#141418;}
+  .t-market .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:6px 20px 20px;}
+  .t-market .p{border:1px solid #ececef;border-radius:14px;overflow:hidden;}
+  .t-market .p .im{aspect-ratio:1;}
+  .t-market .p .im.nophoto{background:#f4f2ef;color:#2b2b30;}
+  .t-market .p .bd{padding:9px 10px 11px;}
+  .t-market .p .n{font-size:12.5px;font-weight:700;line-height:1.3;min-height:32px;}
+  .t-market .p .pr{font-size:15px;font-weight:800;margin-top:5px;}
+  .t-market .p .st{font-size:11px;color:#1f7a4d;font-weight:700;margin-top:1px;}
+  .t-market .p .st.out{color:#8a5a05;}
+  .t-market .p .act{margin-top:8px;}
+
+  /* Counter theme */
+  .t-counter{background:#fcfbf8;color:#181713;}
+  .t-counter .shopnav{border-bottom:2px solid #181713;}
+  .t-counter .nm{font-size:18px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;}
+  .t-counter .sub{font-size:11.5px;color:#6b675c;}
+  .t-counter .strap{padding:15px 20px 4px;}
+  .t-counter .strap h5{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em;}
+  .t-counter .strap p{margin:5px 0 0;font-size:12.5px;color:#5c584e;max-width:60ch;}
+  .t-counter .sec{padding:14px 20px 0;}
+  .t-counter .sech{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+    color:#8a8474;border-bottom:1px solid #e3ded0;padding-bottom:6px;}
+  .t-counter .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #eee9dd;}
+  .t-counter .row .thumb{width:38px;height:38px;border-radius:8px;flex:none;}
+  .t-counter .row .thumb.nophoto{background:#efeadd;}
+  .t-counter .row .n{flex:1;font-size:13.5px;font-weight:600;}
+  .t-counter .row .n em{display:block;font-style:normal;font-size:11.5px;color:#8a8474;font-weight:500;}
+  .t-counter .row .pr{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .t-counter .row .act{flex:none;}
+  .t-counter .foot{padding:16px 20px 20px;}
+
+  /* Window theme */
+  .t-window{background:#faf8f5;color:#1b1a17;}
+  .t-window .shopnav{padding:16px 22px;}
+  .t-window .nm{font-size:15px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;}
+  .t-window .hero{margin:0 22px;border-radius:20px;background:linear-gradient(135deg,#ded7cb,#c8bfae);
+    padding:34px 30px;}
+  .t-window .hero h5{margin:0;font-size:30px;font-weight:800;letter-spacing:-.03em;max-width:18ch;line-height:1.08;}
+  .t-window .hero p{margin:9px 0 16px;font-size:13.5px;color:#4a463d;max-width:44ch;}
+  .t-window .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:22px;}
+  .t-window .p .im{aspect-ratio:4/3;border-radius:16px;overflow:hidden;}
+  .t-window .p .im.nophoto{background:#eae4d9;color:#2e2b25;}
+  .t-window .p .n{font-size:13.5px;font-weight:700;margin-top:9px;}
+  .t-window .p .pr{font-size:14px;font-weight:800;margin-top:2px;color:#3d3a33;}
+  .t-window .p .act{margin-top:8px;}
+
+  /* ---------- storefront editor chrome ---------- */
+  .ed{background:var(--d-pg);border-radius:16px;overflow:hidden;}
+  .ebar{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    background:var(--d-sf);padding:11px 16px;border-bottom:1px solid var(--d-ln);}
+  .ebar .lft{display:flex;align-items:center;gap:11px;min-width:0;}
+  .mark{width:26px;height:26px;border-radius:8px;background:#1c5f43;color:#fff;font-size:14px;
+    font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;}
+  .wordmark{font-size:15px;font-weight:800;letter-spacing:-.02em;}
+  .crumb{font-size:13.5px;color:var(--d-mut);}
+  .crumb b{color:var(--d-ink);font-weight:800;}
+  .ebar .rgt{display:flex;align-items:center;gap:8px;}
+  .btn.pub{background:#1c5f43;border-color:#1c5f43;color:#fff;padding:9px 20px;}
+
+  .tstrip{display:flex;gap:11px;padding:13px 16px;overflow-x:auto;background:var(--d-pg);}
+  .tstrip .th{width:196px;flex:none;}
+
+  .hintbar{display:flex;gap:9px;align-items:flex-start;background:var(--warnwash);
+    border-top:1px solid #f0e3c8;border-bottom:1px solid #f0e3c8;padding:11px 16px;
+    font-size:12.5px;color:#6d4703;line-height:1.5;}
+  .hintbar b{font-weight:800;}
+
+  .stage{padding:22px 16px 26px;display:flex;justify-content:center;}
+  .device{background:#fff;border-radius:14px 14px 0 0;overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,.06),0 12px 34px rgba(0,0,0,.09);width:100%;max-width:880px;}
+  .device.phone{max-width:352px;border-radius:22px;}
+
+  /* edit drawer */
+  .withdrawer{display:flex;align-items:stretch;}
+  .withdrawer .stage{flex:1;min-width:0;}
+  .drawer{width:344px;flex:none;background:var(--d-sf);border-left:1px solid var(--d-ln);
+    padding:16px;overflow-y:auto;}
+  .drawer > h4{margin:0 0 3px;font-size:15px;font-weight:800;letter-spacing:-.015em;}
+  .drawer > .dsub{margin:0 0 15px;font-size:12px;color:var(--d-mut);}
+  .drawer .grp{border-top:1px solid var(--d-ln);padding-top:13px;margin-top:15px;}
+  .drawer .grp:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+  .grpl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--d-mut2);margin:0 0 11px;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{background:var(--d-soft);border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);display:inline-flex;align-items:center;gap:6px;}
+  .chip i{font-style:normal;color:var(--d-mut2);font-weight:800;}
+  .chip.add2{background:transparent;border:1px dashed var(--d-rule);color:var(--d-mut);}
+
+  /* delivery areas editor */
+  .swrow{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    background:var(--d-soft);border-radius:14px;padding:11px 13px;}
+  .swrow .t{font-size:13px;font-weight:800;}
+  .swrow .t em{display:block;font-style:normal;font-size:11.5px;color:var(--d-mut2);font-weight:600;margin-top:1px;}
+  .sw{width:40px;height:23px;border-radius:999px;background:#1c5f43;position:relative;flex:none;}
+  .sw::after{content:"";position:absolute;top:2.5px;right:2.5px;width:18px;height:18px;border-radius:50%;background:#fff;}
+  .sw.off{background:#d3d3da;}
+  .sw.off::after{right:auto;left:2.5px;}
+  .arow{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--d-ln);}
+  .arow:last-of-type{border-bottom:none;}
+  .arow .an{flex:1;font-size:13px;font-weight:700;}
+  .arow .af{border:1px solid var(--d-rule);border-radius:9px;padding:5px 9px;font-size:12.5px;
+    font-weight:800;font-variant-numeric:tabular-nums;min-width:58px;text-align:right;}
+  .arow .ax{color:var(--d-mut2);font-weight:800;font-size:14px;}
+
+
+  /* ---------- orders (bento) ---------- */
+  .tabrow2{display:flex;gap:6px;overflow-x:auto;padding-bottom:12px;}
+  .tabrow2 span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;display:inline-flex;gap:6px;align-items:center;}
+  .tabrow2 span[aria-selected="true"]{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .tabrow2 span i{font-style:normal;background:var(--d-soft);color:var(--d-mut);border-radius:999px;
+    padding:0 6px;font-size:11px;font-weight:800;}
+  .tabrow2 span[aria-selected="true"] i{background:rgba(255,255,255,.22);color:#fff;}
+
+  table.dt{width:100%;border-collapse:collapse;font-size:13px;}
+  table.dt th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut2);padding:8px;border-bottom:1px solid var(--d-rule);}
+  table.dt td{padding:11px 8px;border-bottom:1px solid var(--d-ln);vertical-align:top;}
+  table.dt tr:last-child td{border-bottom:none;}
+  table.dt td em{display:block;font-style:normal;font-size:11.5px;color:var(--d-mut2);margin-top:2px;font-weight:600;}
+  table.dt td b{font-weight:800;}
+  table.dt .r{text-align:right;}
+  table.dt .num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:800;white-space:nowrap;}
+  .tag{display:inline-block;background:var(--accwash);color:var(--accink);border-radius:999px;
+    padding:2px 9px;font-size:11px;font-weight:800;}
+  .tag.alt{background:var(--d-soft);color:var(--d-ink2);}
+
+  .steps{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;}
+  .st2{border-radius:999px;padding:6px 14px;font-size:12px;font-weight:800;background:var(--d-sf);
+    color:var(--d-mut2);border:1px solid var(--d-ln);}
+  .st2.on{background:#e7f4ec;color:var(--profit);border-color:#cfe7da;}
+  .st2.now{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  .ln{display:flex;align-items:baseline;gap:12px;padding:9px 0;border-bottom:1px solid var(--d-ln);}
+  .ln .q{width:34px;flex:none;font-size:12.5px;font-weight:800;color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  .ln .nm3{flex:1;font-size:13.5px;font-weight:600;}
+  .ln .am{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .ln.tot{border-top:1px solid var(--d-rule);border-bottom:none;margin-top:4px;}
+  .ln.tot .nm3,.ln.tot .am{font-weight:800;color:var(--d-mut);}
+  .ln.grand{border-top:1px solid var(--d-rule);border-bottom:none;}
+  .ln.grand .nm3{font-weight:800;}
+  .ln.grand .am{font-size:18px;}
+
+  .kv{display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--d-ln);font-size:13px;}
+  .kv:last-child{border-bottom:none;}
+  .kv span{width:82px;flex:none;color:var(--d-mut);font-weight:600;}
+  .kv b{flex:1;font-weight:700;}
+
+  /* ---------- storefront palettes ----------
+     A theme is a layout. A palette is four values. Themes render through these
+     custom properties, so 3 themes x 6 palettes is 9 things to build, not 18. */
+  .pal{--g:#ffffff;--s:#f4f4f5;--i:#141418;--a:#141418;}
+  .pal-ink    {--g:#ffffff;--s:#f4f4f5;--i:#141418;--a:#141418;}
+  .pal-palm   {--g:#fbfcfa;--s:#eef4ef;--i:#12211a;--a:#1f6b45;}
+  .pal-clay   {--g:#fdfaf7;--s:#f5ede6;--i:#241a14;--a:#98452a;}
+  .pal-sea    {--g:#fafcfd;--s:#eaf1f5;--i:#101f28;--a:#155b78;}
+  .pal-saffron{--g:#fdfbf6;--s:#f6efe0;--i:#241d10;--a:#8a5a05;}
+  .pal-plum   {--g:#fdfafc;--s:#f5ecf2;--i:#221420;--a:#8a2c62;}
+
+  .pal .t-market,.pal .t-counter,.pal .t-window{background:var(--g);color:var(--i);}
+  .pal .t-market .p .im.nophoto,.pal .t-window .p .im.nophoto,
+  .pal .t-counter .row .thumb.nophoto,.pal .li .th.nophoto{background:var(--s);color:var(--i);}
+  .pal .t-market .cats span:first-child{background:var(--a);border-color:var(--a);color:#fff;}
+  .pal .t-counter .shopnav{border-bottom-color:var(--i);}
+  .pal .t-counter .sech{color:var(--a);}
+  .pal .t-window .hero{background:var(--s);}
+  .pal .add,.pal .cta:not(.wa2):not(.out2),.pal .cartpill .ct,.pal .seg2 span[aria-selected="true"]{
+    background:var(--a);border-color:var(--a);color:#fff;}
+  .pal .t-market .p .pr,.pal .t-counter .row .pr,.pal .t-window .p .pr,.pal .tr.big{color:var(--i);}
+  .pal .done .tick{background:var(--s);color:var(--a);}
+
+  /* palette strip in the editor */
+  .pstrip{display:flex;gap:9px;padding:0 16px 13px;flex-wrap:wrap;align-items:center;background:var(--d-pg);}
+  .pstrip .plbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--d-mut2);margin-right:3px;}
+  .pw{display:flex;align-items:center;gap:7px;border:1px solid var(--d-ln);background:var(--d-sf);
+    border-radius:999px;padding:5px 12px 5px 6px;font-size:12px;font-weight:700;color:var(--d-ink2);cursor:pointer;}
+  .pw[aria-selected="true"]{border-color:var(--d-ink);box-shadow:0 0 0 1px var(--d-ink);}
+  .pw .dots{display:flex;}
+  .pw .dots i{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--d-sf);margin-right:-6px;}
+  .pw .dots i:last-child{margin-right:0;}
+
+  .palgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  .palgrid > div{min-width:0;}
+  .palcap{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 7px;}
+  .palcap b{font-size:13px;font-weight:800;}
+  .palcap span{font-size:11.5px;color:var(--mut);}
+  .palbox{border:1px solid var(--ln);border-radius:14px;overflow:hidden;}
+
+  /* ---------- cart + checkout ---------- */
+  .cartpill{display:inline-flex;align-items:center;gap:7px;border:1px solid #e0e0e6;border-radius:999px;
+    padding:7px 13px;font-size:12.5px;font-weight:800;color:#141418;background:#fff;white-space:nowrap;}
+  .cartpill .ct{background:#141418;color:#fff;border-radius:999px;min-width:18px;height:18px;
+    display:inline-flex;align-items:center;justify-content:center;font-size:11px;padding:0 5px;}
+  .buyrow{display:flex;gap:6px;margin-top:8px;}
+  .add{flex:1;background:#141418;color:#fff;border-radius:999px;padding:7px 12px;font-size:12px;
+    font-weight:800;text-align:center;white-space:nowrap;}
+  .askbtn{border:1.5px solid #d7d7de;border-radius:999px;padding:6px 11px;font-size:12px;font-weight:800;
+    color:#3e3e46;white-space:nowrap;}
+
+  .sheet{background:#fff;max-width:520px;margin:0 auto;padding:22px;}
+  .sheet h6{margin:0 0 3px;font-size:20px;font-weight:800;letter-spacing:-.02em;}
+  .sheet .sub{font-size:12.5px;color:#67666e;margin:0 0 16px;}
+  .li{display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #eeeef1;}
+  .li .th{width:46px;height:46px;border-radius:10px;flex:none;}
+  .li .th.nophoto{background:#f2f0ec;}
+  .li .nm2{flex:1;font-size:13.5px;font-weight:700;line-height:1.3;}
+  .li .nm2 em{display:block;font-style:normal;font-size:12px;color:#7a7981;font-weight:600;margin-top:2px;}
+  .step{display:flex;align-items:center;border:1px solid #e2e2e8;border-radius:999px;overflow:hidden;flex:none;}
+  .step span{width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;
+    font-weight:800;color:#4a4a52;}
+  .step b{min-width:24px;text-align:center;font-size:13px;font-weight:800;}
+  .li .amt{width:52px;text-align:right;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;flex:none;}
+  .totals{padding:14px 0 4px;}
+  .tr{display:flex;justify-content:space-between;font-size:13.5px;color:#57575e;padding:4px 0;}
+  .tr.big{font-size:17px;font-weight:800;color:#141418;border-top:1px solid #e6e6eb;margin-top:8px;padding-top:11px;}
+  .cta{display:block;background:#141418;color:#fff;border-radius:999px;padding:13px;text-align:center;
+    font-size:14px;font-weight:800;margin-top:16px;}
+  .cta.wa2{background:#1f7a4d;}
+  .cta.out2{background:#fff;color:#141418;border:1.5px solid #d7d7de;}
+  .or{display:flex;align-items:center;gap:10px;margin:13px 0;color:#9a9aa2;font-size:11.5px;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;}
+  .or::before,.or::after{content:"";flex:1;height:1px;background:#e8e8ed;}
+
+  .fld{margin-bottom:13px;}
+  .fld .l2{font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6a6971;margin:0 0 5px;}
+  .fld .l2 i{font-style:normal;color:#b9b8c0;font-weight:700;text-transform:none;letter-spacing:0;}
+  .in2{border:1px solid #dededf;border-radius:12px;padding:11px 13px;font-size:14px;color:#141418;}
+  .in2.ph{color:#a9a8b0;}
+  .in2.sel{display:flex;align-items:center;justify-content:space-between;}
+  .seg2{display:flex;gap:6px;}
+  .seg2 span{flex:1;text-align:center;border:1.5px solid #e2e2e8;border-radius:12px;padding:11px 8px;
+    font-size:13px;font-weight:800;color:#5e5d65;}
+  .seg2 span[aria-selected="true"]{border-color:#141418;background:#141418;color:#fff;}
+  .paynote{background:#f6f5f2;border-radius:12px;padding:11px 13px;font-size:12.5px;color:#4d4c54;line-height:1.5;}
+
+  .done{text-align:center;padding:40px 22px 34px;}
+  .done .tick{width:52px;height:52px;border-radius:50%;background:#e7f4ec;color:#1f7a4d;font-size:26px;
+    font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
+  .done h6{margin:0 0 6px;font-size:21px;font-weight:800;letter-spacing:-.02em;}
+  .done p{margin:0 auto 4px;font-size:13.5px;color:#5e5d65;max-width:38ch;}
+  .ordno{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:800;
+    background:#f4f4f5;border-radius:10px;padding:8px 14px;display:inline-block;margin:12px 0 16px;}
+
+  /* closed / unknown */
+  .closed{background:#fff;padding:60px 24px;text-align:center;}
+  .closed .mk{font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#9a9aa2;}
+  .closed h5{margin:12px 0 6px;font-size:22px;font-weight:800;letter-spacing:-.02em;}
+  .closed p{margin:0 auto;font-size:13.5px;color:#5e5d65;max-width:40ch;}
+
+  table.t{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;}
+  table.t th,table.t td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  table.t th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);font-weight:700;}
+  table.t td:first-child{white-space:nowrap;font-weight:700;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Kaiibi · Storefront</p>
+  <h1>A shop gets a real web address, with real products, that customers can actually order from.</h1>
+  <p class="lede">
+    <code>xamdi.kaiibi.com</code> renders the products already flagged <code>is_listed_online</code>,
+    takes an order through a cart, and answers questions over WhatsApp. Customer pays on collection
+    or delivery. Fulfilment and the tie into the books come next.
+  </p>
+
+  <div class="decisions">
+    <div class="dx"><b>Cart buys. WhatsApp asks.</b><p>Two channels, two jobs. Add to cart is the primary action; "Ask about this" is for the question a photo can't answer.</p></div>
+    <div class="dx"><b>No money online</b><p>Customer pays on collection or delivery. Stored per-shop as <code>payment_mode</code> so online payment is a later value, not a migration.</p></div>
+    <div class="dx"><b>Form panel, not inline editing</b><p>Content is edited in a normal bento screen with a live preview. Click-anything editing is its own spec.</p></div>
+    <div class="dx"><b>Three photo-optional themes</b><p>Every theme is designed to look deliberate with zero images. Most kaiibi shops will have few.</p></div>
+  </div>
+
+  <p class="note" style="margin-top:20px;">
+    <b>Why both, and why the cart is primary.</b> An enquiry-only page puts the shop back where it
+    started: a phone full of "is this available?" messages to answer by hand, one at a time, with no
+    record. The cart is what turns that into a row someone can work. But a cart alone loses the sale
+    where the customer needs to know whether the cord reaches the socket, or whether you have it in
+    black — the questions that stop a purchase and that no product grid answers. So: cart for buying,
+    WhatsApp for the thing that would otherwise be an abandoned page.
+  </p>
+
+  <section>
+    <h2>The screens</h2>
+    <p class="h2sub">Admin is bento. The public storefront is deliberately not — see the note under the themes.</p>
+
+    <div class="switch" role="tablist">
+      <button role="tab" aria-selected="true" data-p="admin">Editor — pick a design</button>
+      <button role="tab" aria-selected="false" data-p="adminedit">Editor — edit text</button>
+      <button role="tab" aria-selected="false" data-p="adminphone">Editor — phone</button>
+      <button role="tab" aria-selected="false" data-p="market">Theme · Market</button>
+      <button role="tab" aria-selected="false" data-p="counter">Theme · Counter</button>
+      <button role="tab" aria-selected="false" data-p="window">Theme · Window</button>
+      <button role="tab" aria-selected="false" data-p="phone">Storefront — phone</button>
+      <button role="tab" aria-selected="false" data-p="palettes">Colours</button>
+      <button role="tab" aria-selected="false" data-p="cart">Cart</button>
+      <button role="tab" aria-selected="false" data-p="checkout">Checkout</button>
+      <button role="tab" aria-selected="false" data-p="done">Order placed</button>
+      <button role="tab" aria-selected="false" data-p="orders">Orders inbox</button>
+      <button role="tab" aria-selected="false" data-p="order">One order</button>
+      <button role="tab" aria-selected="false" data-p="closed">Not published</button>
+    </div>
+
+    <!-- ================= ADMIN DESKTOP ================= -->
+    <div class="panel" data-panel="admin">
+      <div class="frameHead"><b>Your storefront — picking a design</b><i>src/app/(admin)/storefront.tsx · 1180px</i></div>
+      <div class="scroller">
+        <div class="frame w1180 bare">
+          <div class="ed">
+
+            <div class="ebar">
+              <div class="lft">
+                <span class="mark">k</span>
+                <span class="wordmark">kaiibi</span>
+                <span class="crumb">Store › <b>Your storefront</b></span>
+              </div>
+              <div class="rgt">
+                <span class="pill draft">Draft</span>
+                <button class="btn">✎&nbsp; Edit text &amp; images</button>
+                <button class="btn">▢&nbsp; Phone</button>
+                <button class="btn pub">Publish</button>
+              </div>
+            </div>
+
+            <div class="tstrip">
+              <div class="th" aria-selected="true">
+                <div class="swatch sw-market"><div class="bar"></div><div class="g"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+                <b>Market</b>
+                <p>Even grid, price forward. Works with any number of photos.</p>
+                <span class="badge">Chosen for you</span>
+              </div>
+              <div class="th" aria-selected="false">
+                <div class="swatch sw-counter"><div class="bar"></div><div class="g"><i></i><i></i><i></i><i></i></div></div>
+                <b>Counter</b>
+                <p>A price list. Best for a long catalogue with no photos.</p>
+              </div>
+              <div class="th" aria-selected="false">
+                <div class="swatch sw-window"><div class="hero"></div><div class="g"><i></i><i></i><i></i></div></div>
+                <b>Window</b>
+                <p>Big opening statement, larger tiles. Best when you have photos.</p>
+              </div>
+            </div>
+
+            <div class="pstrip" style="padding:0 16px 13px;">
+              <span class="plbl">Colours</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#141418"></i><i style="background:#f4f4f5"></i><i style="background:#ffffff"></i></span>Ink</span>
+              <span class="pw" aria-selected="true"><span class="dots"><i style="background:#1f6b45"></i><i style="background:#eef4ef"></i><i style="background:#fbfcfa"></i></span>Palm</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#98452a"></i><i style="background:#f5ede6"></i><i style="background:#fdfaf7"></i></span>Clay</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#155b78"></i><i style="background:#eaf1f5"></i><i style="background:#fafcfd"></i></span>Sea</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#8a5a05"></i><i style="background:#f6efe0"></i><i style="background:#fdfbf6"></i></span>Saffron</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#8a2c62"></i><i style="background:#f5ecf2"></i><i style="background:#fdfafc"></i></span>Plum</span>
+            </div>
+
+            <div class="hintbar">
+              <span>!</span>
+              <span><b>Market is already set up for you.</b> Try the others if you like — your words and
+              photos carry over, nothing is lost. Then hit <b>Edit text &amp; images</b> to change what it says.</span>
+            </div>
+
+            <div class="stage">
+              <div class="device">
+                <div class="pal pal-palm sfont t-market">
+                  <div class="shopnav">
+                    <div><div class="nm">Xamdi Electronics</div><div class="sub">Hargeisa · Open until 9pm</div></div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                      <span class="wa sm">Message on WhatsApp</span>
+                      <span class="cartpill">Basket <i class="ct">0</i></span>
+                    </div>
+                  </div>
+                  <div class="strap">
+                    <h5>Everything for the house and the phone.</h5>
+                    <p>Open 8am–9pm, Road No.1, Hargeisa. Message us before you come and we'll set it aside for you.</p>
+                  </div>
+                  <div class="cats"><span>All 18</span><span>Phone</span><span>Home</span><span>Light</span><span>Cable</span></div>
+                  <div class="grid">
+                    <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W USB-C charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                    <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>Extension cord<br>3m, 4 socket</span></div><div class="bd"><div class="n">Extension cord 3m, 4 socket</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                    <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Power bank 10,000mAh</div><div class="pr">$18</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                    <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>LED bulb 9W<br>pack of 4</span></div><div class="bd"><div class="n">LED bulb 9W (pack of 4)</div><div class="pr">$6</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:16px;">
+        <b>This is your reference layout, with one change.</b> Picker strip on top, actions in the bar,
+        preview taking the room — but <b>Edit text &amp; images</b> opens a form drawer rather than
+        turning the preview into an editable surface. Same button, same place, a tenth of the work,
+        and it can become true inline editing later without moving anything the shop owner has learned.
+      </p>
+      <p class="note">
+        <b>Three tiles, not five.</b> The reference's <i>Editorial film</i>, <i>Campaign</i> and
+        <i>Statement</i> all lead with professional photography. A shop with seven photos across
+        eighteen products picks one because the thumbnail looks expensive, publishes, and gets a page
+        of empty frames. Every theme in this set is built to look deliberate with no photos at all.
+      </p>
+      <p class="note">
+        <b>The preview is not chrome — it is the page.</b> It renders the real theme components against
+        real products from inventory, at the real breakpoints. There is no second implementation of a
+        storefront that exists only inside the editor.
+      </p>
+    </div>
+
+    <!-- ================= ADMIN EDIT ================= -->
+    <div class="panel" data-panel="adminedit" hidden>
+      <div class="frameHead"><b>Your storefront — Edit text &amp; images</b><i>drawer open · 1180px</i></div>
+      <div class="scroller">
+        <div class="frame w1180 bare">
+          <div class="ed">
+
+            <div class="ebar">
+              <div class="lft">
+                <span class="mark">k</span>
+                <span class="wordmark">kaiibi</span>
+                <span class="crumb">Store › <b>Your storefront</b></span>
+              </div>
+              <div class="rgt">
+                <span class="pill draft">Unsaved changes</span>
+                <button class="btn" style="background:var(--d-ink);color:#fff;border-color:var(--d-ink);">✎&nbsp; Edit text &amp; images</button>
+                <button class="btn">▢&nbsp; Phone</button>
+                <button class="btn pub">Publish</button>
+              </div>
+            </div>
+
+            <div class="withdrawer">
+              <div class="stage" style="padding:20px 16px 24px;">
+                <div class="device">
+                  <div class="pal pal-palm sfont t-market" style="zoom:.92;">
+                    <div class="shopnav">
+                      <div><div class="nm">Xamdi Electronics</div><div class="sub">Hargeisa · Open until 9pm</div></div>
+                      <div style="display:flex;gap:8px;align-items:center;">
+                        <span class="wa sm">Message on WhatsApp</span>
+                        <span class="cartpill">Basket <i class="ct">0</i></span>
+                      </div>
+                    </div>
+                    <div class="strap">
+                      <h5>Everything for the house and the phone.</h5>
+                      <p>Open 8am–9pm, Road No.1, Hargeisa. Message us before you come and we'll set it aside for you.</p>
+                    </div>
+                    <div class="cats"><span>All 18</span><span>Phone</span><span>Home</span><span>Light</span></div>
+                    <div class="grid" style="grid-template-columns:repeat(3,1fr);">
+                      <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W USB-C charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                      <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>Extension cord<br>3m, 4 socket</span></div><div class="bd"><div class="n">Extension cord 3m, 4 socket</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                      <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Power bank 10,000mAh</div><div class="pr">$18</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="drawer">
+                <h4>Text &amp; images</h4>
+                <p class="dsub">Changes show in the preview as you type. Customers see nothing until you publish.</p>
+
+                <div class="grp">
+                  <p class="grpl">Web address</p>
+                  <div class="urlrow"><div class="slug">xamdi</div><div class="suffix">.kaiibi.com</div></div>
+                  <p class="ok">✓ Available</p>
+                  <p class="hint">Changing this breaks any link already shared or printed.</p>
+                </div>
+
+                <div class="grp">
+                  <p class="grpl">Your words</p>
+                  <div class="field">
+                    <p class="lbl">Shop name</p>
+                    <div class="input soft" style="color:var(--d-mut2);">Xamdi Electronics</div>
+                    <p class="hint">From shop settings. Change it there.</p>
+                  </div>
+                  <div class="field">
+                    <p class="lbl">Headline</p>
+                    <div class="input">Everything for the house and the phone.</div>
+                  </div>
+                  <div class="field">
+                    <p class="lbl">About this shop</p>
+                    <div class="input ta">Open 8am–9pm, Road No.1, Hargeisa. Message us before you come and we'll set it aside for you.</div>
+                  </div>
+                  <div class="field">
+                    <p class="lbl">Opening photo <span style="font-weight:600;text-transform:none;letter-spacing:0;">— optional</span></p>
+                    <div class="input soft" style="display:flex;align-items:center;justify-content:space-between;">
+                      <span style="color:var(--d-mut2);">No photo added</span>
+                      <button class="btn ghost" style="padding:4px 10px;">Add</button>
+                    </div>
+                    <p class="hint">Only <b>Window</b> uses this.</p>
+                  </div>
+                </div>
+
+                <div class="grp">
+                  <p class="grpl">Taking orders</p>
+                  <div class="field">
+                    <p class="lbl">WhatsApp number</p>
+                    <div class="input soft" style="color:var(--d-mut2);">+252 …</div>
+                  </div>
+                  <div class="cav wrong">
+                    <span class="ico">!</span>
+                    <span><b>Add a WhatsApp number before you publish.</b> Every <i>Ask</i> button opens a chat with this number. <span class="lnk">Add number</span></span>
+                  </div>
+                  <div class="field" style="margin-top:14px;">
+                    <div class="swrow">
+                      <span class="t">Offer delivery<em>Off means collection only</em></span>
+                      <span class="sw"></span>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <p class="lbl">Areas you deliver to, and the charge</p>
+                    <div class="arow"><span class="an">Ahmed Dhagah</span><span class="af">$1.00</span><span class="ax">×</span></div>
+                    <div class="arow"><span class="an">Ga'an Libaah</span><span class="af">$1.00</span><span class="ax">×</span></div>
+                    <div class="arow"><span class="an">Ibrahim Koodbuur</span><span class="af">$2.00</span><span class="ax">×</span></div>
+                    <div class="arow"><span class="an">Outside town</span><span class="af">$4.00</span><span class="ax">×</span></div>
+                    <div class="chips" style="margin-top:10px;"><span class="chip add2">+ Add area</span></div>
+                    <p class="hint">The customer sees the charge on the area they pick, and it goes on the order as its own line. Charge $0 for an area you deliver to free.</p>
+                  </div>
+                  <div class="field">
+                    <p class="lbl">Payment</p>
+                    <div class="input soft">Customer pays on collection or delivery</div>
+                    <p class="hint">Online payment isn't available yet.</p>
+                  </div>
+                </div>
+
+                <div class="grp">
+                  <p class="grpl">Products</p>
+                  <div class="statrow">
+                    <div class="tile"><div class="v">18</div><div class="l">Shown online</div><div class="h">of 214</div></div>
+                    <div class="tile"><div class="v">7</div><div class="l">With a photo</div><div class="h">11 name only</div></div>
+                  </div>
+                  <div class="cav context" style="margin-top:11px;">
+                    <span class="ico">i</span>
+                    <span>A product appears when <b>Expose to customers</b> is on in Inventory. Price and stock follow inventory — there is no separate online price. <span class="lnk">Open Inventory</span></span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:16px;">
+        <b>Why the Publish button is never disabled.</b> A greyed-out Publish with no explanation is the
+        failure this screen exists to avoid. Pressing it without a WhatsApp number opens this drawer and
+        puts the <code>wrong</code> caveat in focus. The rule from the bento skill holds: a
+        <code>wrong</code> tone always names its fix.
+      </p>
+      <p class="note">
+        <b>Delivery areas are the shop's, not ours.</b> Hargeisa addresses are landmarks, not street
+        numbers, and a shop in Borama has entirely different ones. A shop-owned list plus a landmark
+        line at checkout is what a delivery actually runs on — and it doubles as the shop's way of
+        saying where it won't go.
+      </p>
+    </div>
+
+    <!-- ================= ADMIN PHONE ================= -->
+    <div class="panel" data-panel="adminphone" hidden>
+      <div class="frameHead"><b>Editor on a phone</b><i>380px · picker scrolls, drawer becomes a sheet</i></div>
+      <div class="scroller">
+        <div class="frame w380 bare">
+          <div class="ed" style="border-radius:0;">
+            <div class="ebar" style="padding:10px 12px;">
+              <div class="lft"><span class="mark">k</span><span class="crumb"><b>Your storefront</b></span></div>
+              <div class="rgt"><button class="btn pub" style="padding:7px 15px;">Publish</button></div>
+            </div>
+            <div class="tstrip" style="padding:11px 12px;">
+              <div class="th" style="width:150px;" aria-selected="true">
+                <div class="swatch sw-market"><div class="bar"></div><div class="g"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+                <b>Market</b><span class="badge">Chosen for you</span>
+              </div>
+              <div class="th" style="width:150px;" aria-selected="false">
+                <div class="swatch sw-counter"><div class="bar"></div><div class="g"><i></i><i></i><i></i><i></i></div></div>
+                <b>Counter</b>
+              </div>
+            </div>
+            <div class="pstrip" style="padding:0 12px 11px;">
+              <span class="plbl">Colours</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#141418"></i><i style="background:#f4f4f5"></i><i style="background:#ffffff"></i></span>Ink</span>
+              <span class="pw" aria-selected="true"><span class="dots"><i style="background:#1f6b45"></i><i style="background:#eef4ef"></i><i style="background:#fbfcfa"></i></span>Palm</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#98452a"></i><i style="background:#f5ede6"></i><i style="background:#fdfaf7"></i></span>Clay</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#155b78"></i><i style="background:#eaf1f5"></i><i style="background:#fafcfd"></i></span>Sea</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#8a5a05"></i><i style="background:#f6efe0"></i><i style="background:#fdfbf6"></i></span>Saffron</span>
+              <span class="pw" aria-selected="false"><span class="dots"><i style="background:#8a2c62"></i><i style="background:#f5ecf2"></i><i style="background:#fdfafc"></i></span>Plum</span>
+            </div>
+
+            <div class="hintbar" style="padding:10px 12px;">
+              <span>!</span><span><b>Add a WhatsApp number before you publish.</b> <span class="lnk" style="color:#6d4703;text-decoration:underline;">Add number</span></span>
+            </div>
+            <div style="display:flex;gap:8px;padding:11px 12px;background:var(--d-sf);border-bottom:1px solid var(--d-ln);">
+              <button class="btn" style="flex:1;">Edit text &amp; images</button>
+              <button class="btn" style="flex:1;">Preview</button>
+            </div>
+            <div class="stage" style="padding:14px 12px 18px;">
+              <div class="device phone">
+                <div class="pal pal-palm sfont t-market" style="zoom:.86;">
+                  <div class="shopnav" style="padding:11px 13px;">
+                    <div><div class="nm" style="font-size:15px;">Xamdi Electronics</div><div class="sub">Hargeisa · Open until 9pm</div></div>
+                    <span class="cartpill">0</span>
+                  </div>
+                  <div class="strap" style="padding:4px 13px 6px;">
+                    <h5 style="font-size:17px;">Everything for the house and the phone.</h5>
+                  </div>
+                  <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+                  <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                    <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W USB-C charger</div><div class="pr">$12</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                    <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        The owner is far more likely to set this up on a laptop, but a shop whose only computer is a
+        phone must still be able to publish. The picker becomes a horizontal scroller and the edit
+        drawer becomes a full-height sheet — no capability is removed.
+      </p>
+    </div>
+
+    <!-- ================= MARKET ================= -->
+    <div class="panel" data-panel="market" hidden>
+      <div class="frameHead"><b>Market</b><i>the default · 8 products, 4 with photos, 1 out of stock</i></div>
+      <div class="scroller">
+        <div class="frame w1180 bare">
+          <div class="pal pal-palm sfont t-market">
+            <div class="shopnav">
+              <div><div class="nm">Xamdi Electronics</div><div class="sub">Hargeisa · Open until 9pm</div></div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <span class="wa">Message on WhatsApp</span>
+                <span class="cartpill">Basket <i class="ct">4</i></span>
+              </div>
+            </div>
+            <div class="strap">
+              <h5>Everything for the house and the phone.</h5>
+              <p>Open 8am–9pm, Road No.1, Hargeisa. Message us before you come and we'll set it aside for you.</p>
+            </div>
+            <div class="cats"><span>All 18</span><span>Phone</span><span>Home</span><span>Light</span><span>Cable</span></div>
+            <div class="grid">
+              <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W USB-C charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>Extension cord<br>3m, 4 socket</span></div><div class="bd"><div class="n">Extension cord 3m, 4 socket</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Power bank 10,000mAh</div><div class="pr">$18</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>LED bulb 9W<br>pack of 4</span></div><div class="bd"><div class="n">LED bulb 9W (pack of 4)</div><div class="pr">$6</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Solar lantern, rechargeable</div><div class="pr">$14</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>HDMI cable<br>2m</span></div><div class="bd"><div class="n">HDMI cable 2m</div><div class="pr">$5</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Screen protector, A15</div><div class="pr">$3</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im nophoto" style="background:#f4f2ef;opacity:.6;"><span>Electric kettle<br>1.7L</span></div><div class="bd"><div class="n">Electric kettle 1.7L</div><div class="pr">$22</div><div class="st out">Out of stock — ask us</div><div class="buyrow"><span class="askbtn" style="flex:1;text-align:center;">Ask about this</span></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>The no-photo tile is the whole design.</b> Half this catalogue has no image, so the
+        fallback is not an error state — it is a typographic tile carrying the product name at a
+        size that reads on a phone. Grey box with a broken-image glyph would make the shop look
+        abandoned; this looks like a price label.
+      </p>
+      <p class="note">
+        <b>Out of stock is shown, not hidden.</b> Hiding it means a customer who saw the kettle
+        yesterday thinks the shop lost it. Shown-and-marked keeps the enquiry button live — the
+        shop may well be restocking, and that message is a sale.
+      </p>
+    </div>
+
+    <!-- ================= COUNTER ================= -->
+    <div class="panel" data-panel="counter" hidden>
+      <div class="frameHead"><b>Counter</b><i>for a long catalogue with no photos — pharmacy, hardware, wholesale</i></div>
+      <div class="scroller">
+        <div class="frame w1180 bare">
+          <div class="pal pal-sea sfont t-counter">
+            <div class="shopnav">
+              <div><div class="nm">Xamdi Electronics</div><div class="sub">Hargeisa · Open until 9pm</div></div>
+              <span class="wa">Message on WhatsApp</span>
+            </div>
+            <div class="strap">
+              <h5>Everything for the house and the phone.</h5>
+              <p>Open 8am–9pm, Road No.1, Hargeisa. Message us before you come and we'll set it aside for you.</p>
+            </div>
+            <div class="sec">
+              <div class="sech">Phone</div>
+              <div class="row"><div class="thumb photo"></div><div class="n">Anker 20W USB-C charger<em>In stock</em></div><div class="pr">$12</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="row"><div class="thumb photo"></div><div class="n">Power bank 10,000mAh<em>In stock</em></div><div class="pr">$18</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="row"><div class="thumb photo"></div><div class="n">Screen protector, A15<em>In stock</em></div><div class="pr">$3</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+            </div>
+            <div class="sec">
+              <div class="sech">Home</div>
+              <div class="row"><div class="thumb nophoto"></div><div class="n">Extension cord 3m, 4 socket<em>In stock</em></div><div class="pr">$9</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="row"><div class="thumb nophoto"></div><div class="n">Electric kettle 1.7L<em style="color:#8a5a05;">Out of stock — ask us</em></div><div class="pr">$22</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="row"><div class="thumb nophoto"></div><div class="n">HDMI cable 2m<em>In stock</em></div><div class="pr">$5</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+            </div>
+            <div class="sec">
+              <div class="sech">Light</div>
+              <div class="row"><div class="thumb nophoto"></div><div class="n">LED bulb 9W (pack of 4)<em>In stock</em></div><div class="pr">$6</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="row" style="border-bottom:none;"><div class="thumb photo"></div><div class="n">Solar lantern, rechargeable<em>In stock</em></div><div class="pr">$14</div><div class="buyrow" style="margin-top:0;"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+            </div>
+            <div class="foot"><span class="wa">Message on WhatsApp</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>Counter groups by <code>products.category</code></b>, which already exists and is already
+        filled in for most shops. A photo is a 38px thumbnail — present it if you have it, absent
+        it costs nothing. This is the theme that makes a 200-line pharmacy catalogue readable, and
+        it's the one that would have been impossible if all three themes led with photography.
+      </p>
+    </div>
+
+    <!-- ================= WINDOW ================= -->
+    <div class="panel" data-panel="window" hidden>
+      <div class="frameHead"><b>Window</b><i>for a shop that has photos — clothing, furniture, cosmetics</i></div>
+      <div class="scroller">
+        <div class="frame w1180 bare">
+          <div class="pal pal-clay sfont t-window">
+            <div class="shopnav">
+              <div class="nm">Xamdi Electronics</div>
+              <span class="wa">Message on WhatsApp</span>
+            </div>
+            <div class="hero">
+              <h5>Everything for the house and the phone.</h5>
+              <p>Open 8am–9pm, Road No.1, Hargeisa. Message us before you come and we'll set it aside for you.</p>
+              <span class="wa">Message on WhatsApp</span>
+            </div>
+            <div class="grid">
+              <div class="p"><div class="im photo"></div><div class="n">Anker 20W USB-C charger</div><div class="pr">$12</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="p"><div class="im photo"></div><div class="n">Power bank 10,000mAh</div><div class="pr">$18</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="p"><div class="im nophoto"><span>Extension cord<br>3m, 4 socket</span></div><div class="n">Extension cord 3m, 4 socket</div><div class="pr">$9</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="p"><div class="im photo"></div><div class="n">Solar lantern, rechargeable</div><div class="pr">$14</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="p"><div class="im nophoto"><span>LED bulb 9W<br>pack of 4</span></div><div class="n">LED bulb 9W (pack of 4)</div><div class="pr">$6</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+              <div class="p"><div class="im photo"></div><div class="n">Screen protector, A15</div><div class="pr">$3</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>Window is the only theme that reads the opening photo</b>, and when there isn't one the
+        hero falls back to a flat warm panel carrying the headline — which is why the hero above is
+        drawn without a photo. It still looks intentional. That is the test every theme had to
+        pass to be in the set.
+      </p>
+    </div>
+
+    <!-- ================= PHONE ================= -->
+    <div class="panel" data-panel="phone" hidden>
+      <div class="frameHead"><b>Market on a phone</b><i>380px · where nearly all the traffic will be</i></div>
+      <div class="scroller">
+        <div class="frame w380 bare">
+          <div class="pal pal-palm sfont t-market">
+            <div class="shopnav" style="padding:12px 14px;">
+              <div><div class="nm" style="font-size:16px;">Xamdi Electronics</div><div class="sub">Hargeisa · Open until 9pm</div></div>
+            </div>
+            <div style="padding:0 14px 12px;"><span class="wa" style="display:flex;justify-content:center;">Message on WhatsApp</span></div>
+            <div class="strap" style="padding:4px 14px 6px;">
+              <h5 style="font-size:18px;">Everything for the house and the phone.</h5>
+              <p style="font-size:12.5px;">Open 8am–9pm, Road No.1, Hargeisa.</p>
+            </div>
+            <div class="cats" style="padding:10px 14px;flex-wrap:nowrap;overflow-x:auto;"><span>All 18</span><span>Phone</span><span>Home</span><span>Light</span><span>Cable</span></div>
+            <div class="grid" style="grid-template-columns:1fr 1fr;padding:4px 14px 18px;gap:10px;">
+              <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W USB-C charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>Extension cord<br>3m, 4 socket</span></div><div class="bd"><div class="n">Extension cord 3m, 4 socket</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Power bank 10,000mAh</div><div class="pr">$18</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              <div class="p"><div class="im nophoto" style="background:#f4f2ef;"><span>LED bulb 9W<br>pack of 4</span></div><div class="bd"><div class="n">LED bulb 9W (pack of 4)</div><div class="pr">$6</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>The WhatsApp button is a link, not a form.</b> Tapping <i>Ask</i> opens
+        <code>wa.me/252634XXXXXX?text=…</code> prefilled with the shop name, the product name and
+        the price the customer was looking at. The shop receives a message they can act on without
+        asking "which one?" — which is what makes this useful before a cart exists.
+      </p>
+    </div>
+
+    <!-- ================= PALETTES ================= -->
+    <div class="panel" data-panel="palettes" hidden>
+      <div class="frameHead"><b>Six palettes</b><i>Market shown in all six · every theme takes every palette</i></div>
+      <div class="palgrid">
+        <div>
+          <div class="palcap"><b>Ink</b><span>neutral · the default</span></div>
+          <div class="palbox">
+            <div class="pal pal-ink sfont t-market">
+              <div class="shopnav" style="padding:11px 13px;">
+                <div><div class="nm" style="font-size:14px;">Xamdi Electronics</div><div class="sub">Hargeisa</div></div>
+                <span class="cartpill" style="padding:5px 10px;font-size:11.5px;">Basket <i class="ct">2</i></span>
+              </div>
+              <div class="strap" style="padding:11px 13px 4px;">
+                <h5 style="font-size:16px;">Everything for the house and the phone.</h5>
+              </div>
+              <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                <div class="p"><div class="im nophoto"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--mut);margin:7px 0 0;">Accent on white <b>18.37:1</b></p>
+        </div>
+        <div>
+          <div class="palcap"><b>Palm</b><span>grocery, pharmacy, produce</span></div>
+          <div class="palbox">
+            <div class="pal pal-palm sfont t-market">
+              <div class="shopnav" style="padding:11px 13px;">
+                <div><div class="nm" style="font-size:14px;">Xamdi Electronics</div><div class="sub">Hargeisa</div></div>
+                <span class="cartpill" style="padding:5px 10px;font-size:11.5px;">Basket <i class="ct">2</i></span>
+              </div>
+              <div class="strap" style="padding:11px 13px 4px;">
+                <h5 style="font-size:16px;">Everything for the house and the phone.</h5>
+              </div>
+              <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                <div class="p"><div class="im nophoto"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--mut);margin:7px 0 0;">Accent on white <b>6.47:1</b></p>
+        </div>
+        <div>
+          <div class="palcap"><b>Clay</b><span>hardware, furniture, textiles</span></div>
+          <div class="palbox">
+            <div class="pal pal-clay sfont t-market">
+              <div class="shopnav" style="padding:11px 13px;">
+                <div><div class="nm" style="font-size:14px;">Xamdi Electronics</div><div class="sub">Hargeisa</div></div>
+                <span class="cartpill" style="padding:5px 10px;font-size:11.5px;">Basket <i class="ct">2</i></span>
+              </div>
+              <div class="strap" style="padding:11px 13px 4px;">
+                <h5 style="font-size:16px;">Everything for the house and the phone.</h5>
+              </div>
+              <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                <div class="p"><div class="im nophoto"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--mut);margin:7px 0 0;">Accent on white <b>6.52:1</b></p>
+        </div>
+        <div>
+          <div class="palcap"><b>Sea</b><span>electronics, phones, tools</span></div>
+          <div class="palbox">
+            <div class="pal pal-sea sfont t-market">
+              <div class="shopnav" style="padding:11px 13px;">
+                <div><div class="nm" style="font-size:14px;">Xamdi Electronics</div><div class="sub">Hargeisa</div></div>
+                <span class="cartpill" style="padding:5px 10px;font-size:11.5px;">Basket <i class="ct">2</i></span>
+              </div>
+              <div class="strap" style="padding:11px 13px 4px;">
+                <h5 style="font-size:16px;">Everything for the house and the phone.</h5>
+              </div>
+              <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                <div class="p"><div class="im nophoto"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--mut);margin:7px 0 0;">Accent on white <b>7.50:1</b></p>
+        </div>
+        <div>
+          <div class="palcap"><b>Saffron</b><span>food, spice, tailoring</span></div>
+          <div class="palbox">
+            <div class="pal pal-saffron sfont t-market">
+              <div class="shopnav" style="padding:11px 13px;">
+                <div><div class="nm" style="font-size:14px;">Xamdi Electronics</div><div class="sub">Hargeisa</div></div>
+                <span class="cartpill" style="padding:5px 10px;font-size:11.5px;">Basket <i class="ct">2</i></span>
+              </div>
+              <div class="strap" style="padding:11px 13px 4px;">
+                <h5 style="font-size:16px;">Everything for the house and the phone.</h5>
+              </div>
+              <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                <div class="p"><div class="im nophoto"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--mut);margin:7px 0 0;">Accent on white <b>5.92:1</b></p>
+        </div>
+        <div>
+          <div class="palcap"><b>Plum</b><span>cosmetics, clothing, salon</span></div>
+          <div class="palbox">
+            <div class="pal pal-plum sfont t-market">
+              <div class="shopnav" style="padding:11px 13px;">
+                <div><div class="nm" style="font-size:14px;">Xamdi Electronics</div><div class="sub">Hargeisa</div></div>
+                <span class="cartpill" style="padding:5px 10px;font-size:11.5px;">Basket <i class="ct">2</i></span>
+              </div>
+              <div class="strap" style="padding:11px 13px 4px;">
+                <h5 style="font-size:16px;">Everything for the house and the phone.</h5>
+              </div>
+              <div class="cats" style="padding:9px 13px;flex-wrap:nowrap;overflow:hidden;"><span>All 18</span><span>Phone</span><span>Home</span></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;padding:2px 13px 14px;gap:9px;">
+                <div class="p"><div class="im photo"></div><div class="bd"><div class="n">Anker 20W charger</div><div class="pr">$12</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+                <div class="p"><div class="im nophoto"><span>Extension cord<br>3m</span></div><div class="bd"><div class="n">Extension cord 3m</div><div class="pr">$9</div><div class="st">In stock</div><div class="buyrow"><span class="add">Add</span><span class="askbtn">Ask</span></div></div></div>
+              </div>
+            </div>
+          </div>
+          <p style="font-size:11.5px;color:var(--mut);margin:7px 0 0;">Accent on white <b>8.02:1</b></p>
+        </div>
+      </div>
+      <p class="note" style="margin-top:20px;">
+        <b>Presets, not a colour wheel.</b> A free hex picker lets a shop owner put yellow text on a
+        white page and publish it. Every palette here is four values checked against WCAG AA before it
+        ships — the lowest is Saffron at 5.92:1 for accent-on-white, the same discipline
+        <a href="../../src/constants/theme.ts">theme.ts</a> already applies to every app token.
+      </p>
+      <p class="note">
+        <b>A palette is four custom properties</b> — ground, soft, ink, accent. Themes render through
+        them, so three themes and six palettes is nine things to build and verify, not eighteen.
+        Adding a seventh palette later is one line and a contrast check.
+      </p>
+      <p class="note">
+        <b>WhatsApp green is not themeable.</b> The <i>Message on WhatsApp</i> button stays
+        <code>#1f7a4d</code> in every palette. It's a recognised affordance — recolouring it to match
+        a shop's accent costs the one thing that makes it get tapped.
+      </p>
+    </div>
+
+    <!-- ================= CART ================= -->
+    <div class="panel" data-panel="cart" hidden>
+      <div class="frameHead"><b>Cart</b><i>380px · same on every theme</i></div>
+      <div class="scroller">
+        <div class="frame w380 bare">
+          <div class="pal pal-palm sfont" style="background:var(--g);">
+            <div class="shopnav" style="border-bottom:1px solid #ececef;padding:13px 16px;">
+              <div style="font-size:15px;font-weight:800;">Your basket</div>
+              <span style="font-size:13px;color:#7a7981;font-weight:700;">Close</span>
+            </div>
+            <div class="sheet" style="padding:16px;">
+              <div class="li">
+                <div class="th photo"></div>
+                <div class="nm2">Anker 20W USB-C charger<em>$12 each</em></div>
+                <div class="step"><span>−</span><b>2</b><span>+</span></div>
+                <div class="amt">$24</div>
+              </div>
+              <div class="li">
+                <div class="th nophoto"></div>
+                <div class="nm2">Extension cord 3m, 4 socket<em>$9 each</em></div>
+                <div class="step"><span>−</span><b>1</b><span>+</span></div>
+                <div class="amt">$9</div>
+              </div>
+              <div class="li" style="border-bottom:none;">
+                <div class="th nophoto"></div>
+                <div class="nm2">LED bulb 9W (pack of 4)<em>$6 each</em></div>
+                <div class="step"><span>−</span><b>1</b><span>+</span></div>
+                <div class="amt">$6</div>
+              </div>
+              <div class="totals">
+                <div class="tr"><span>4 items</span><span>$39</span></div>
+                <div class="tr big"><span>Total</span><span>$39</span></div>
+              </div>
+              <div class="paynote" style="margin-top:12px;">
+                Delivery is added at checkout once you pick an area. You pay when you collect or when
+                it arrives — nothing is charged now.
+              </div>
+              <span class="cta">Checkout</span>
+              <span class="cta out2" style="margin-top:8px;">Keep shopping</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>The cart holds a price, not a promise.</b> Line prices are captured when the item goes in,
+        and re-checked against inventory at checkout — if the shop repriced or sold out in between,
+        the customer is told on the checkout screen rather than after they've committed. Stock is
+        <b>not</b> reserved by adding to a cart; that would let anyone empty a shop's shelves from a
+        browser. The shop confirms availability when they work the order.
+      </p>
+    </div>
+
+    <!-- ================= CHECKOUT ================= -->
+    <div class="panel" data-panel="checkout" hidden>
+      <div class="frameHead"><b>Checkout</b><i>380px · name and phone required, delivery fields conditional</i></div>
+      <div class="scroller">
+        <div class="frame w380 bare">
+          <div class="pal pal-palm sfont" style="background:var(--g);">
+            <div class="shopnav" style="border-bottom:1px solid #ececef;padding:13px 16px;">
+              <div style="font-size:15px;font-weight:800;">Your details</div>
+              <span style="font-size:13px;color:#7a7981;font-weight:700;">Back</span>
+            </div>
+            <div class="sheet" style="padding:16px;">
+
+              <div class="fld">
+                <p class="l2">Your name</p>
+                <div class="in2">Khadra Jama</div>
+              </div>
+              <div class="fld">
+                <p class="l2">Phone number</p>
+                <div class="in2">+252 63 4 45 67 89</div>
+                <p style="font-size:11.5px;color:#8a8992;margin:5px 0 0;">The shop calls this number to confirm.</p>
+              </div>
+
+              <div class="fld">
+                <p class="l2">How do you want it</p>
+                <div class="seg2">
+                  <span aria-selected="false">Collect from shop</span>
+                  <span aria-selected="true">Delivery</span>
+                </div>
+              </div>
+
+              <div class="fld">
+                <p class="l2">Area</p>
+                <div class="in2 sel"><span>Ahmed Dhagah &nbsp;·&nbsp; <b>$1.00 delivery</b></span><span style="color:#a9a8b0;">▾</span></div>
+                <p style="font-size:11.5px;color:#8a8992;margin:5px 0 0;">The charge changes with the area. Ga'an Libaah $1.00 · Ibrahim Koodbuur $2.00 · Outside town $4.00</p>
+              </div>
+              <div class="fld">
+                <p class="l2">Nearby landmark</p>
+                <div class="in2">Behind Maansoor Hotel, blue gate</div>
+                <p style="font-size:11.5px;color:#8a8992;margin:5px 0 0;">How the rider will find you.</p>
+              </div>
+              <div class="fld">
+                <p class="l2">Note for the shop <i>— optional</i></p>
+                <div class="in2 ph">Anything else they should know</div>
+              </div>
+
+              <div class="totals" style="border-top:1px solid #eeeef1;margin-top:4px;">
+                <div class="tr"><span>4 items</span><span>$39.00</span></div>
+                <div class="tr"><span>Delivery to Ahmed Dhagah</span><span>$1.00</span></div>
+                <div class="tr big"><span>Total</span><span>$40.00</span></div>
+              </div>
+
+              <div class="paynote" style="margin-top:12px;">
+                <b>You pay $40.00 on delivery.</b> Cash or Zaad, to the rider. The shop will call you
+                to confirm before it leaves.
+              </div>
+
+              <span class="cta">Place order</span>
+              <div class="or">or</div>
+              <span class="cta wa2">Send this order on WhatsApp</span>
+              <p style="font-size:11.5px;color:#8a8992;margin:10px 0 0;text-align:center;line-height:1.5;">
+                Both place the order. WhatsApp also opens a chat with your basket already written out.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>Both buttons create the same order row.</b> This is the decision worth defending: a
+        "checkout via WhatsApp" that <i>only</i> opens a chat produces sales the shop can't see in the
+        app, can't count, and can't fulfil through the inbox — the exact fragmentation the storefront
+        is meant to end. So the WhatsApp button writes the order first, then opens
+        <code>wa.me</code> prefilled with the order number and every line. The shop gets a tracked row
+        <i>and</i> a thread. If the customer never sends the message, the order still exists.
+      </p>
+      <p class="note">
+        <b>Area is a list the shop owns, not a map.</b> Hargeisa addresses are landmarks, not street
+        numbers, so a free-text address field produces things a rider can't use. A shop-configured area
+        list plus a landmark line is what a delivery actually runs on. The area list lives in the
+        storefront settings — see the admin screen — and if a shop lists none, the delivery option
+        doesn't appear at all and checkout is collection-only.
+      </p>
+      <p class="note">
+        <b>Phone is required and normalised to E.164</b> — same treatment as the shop's own WhatsApp
+        number. It is the only way the shop reaches this customer, and a mistyped one makes the order
+        worthless.
+      </p>
+    </div>
+
+    <!-- ================= DONE ================= -->
+    <div class="panel" data-panel="done" hidden>
+      <div class="frameHead"><b>Order placed</b><i>380px</i></div>
+      <div class="scroller">
+        <div class="frame w380 bare">
+          <div class="pal pal-palm sfont" style="background:var(--g);">
+            <div class="done">
+              <div class="tick">✓</div>
+              <h6>Order sent to Xamdi Electronics</h6>
+              <p>They'll call you on +252 63 4 45 67 89 to confirm.</p>
+              <div class="ordno">#1043</div>
+              <p>4 items $39.00 · Delivery to Ahmed Dhagah $1.00</p>
+              <p style="margin-top:6px;"><b style="color:#141418;">$40.00 to pay when it arrives.</b></p>
+              <div style="padding:0 22px;">
+                <span class="cta wa2" style="margin-top:18px;">Message the shop on WhatsApp</span>
+                <span class="cta out2" style="margin-top:8px;">Back to the shop</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>The order number is short and per-shop</b>, not a UUID — it exists so a customer can say
+        "ten forty-three" on the phone. The customer is not asked to make an account, and there is no
+        order-tracking page: they have a number and a phone call, which is how this trade already
+        works. Adding accounts would put a signup wall in front of the one thing that has to be
+        frictionless.
+      </p>
+    </div>
+
+    <!-- ================= ORDERS ================= -->
+    <div class="panel" data-panel="orders" hidden>
+      <div class="frameHead"><b>Orders</b><i>src/app/(admin)/(tabs)/orders.tsx · bento · 1180px</i></div>
+      <div class="scroller">
+        <div class="frame w1180">
+
+          <div class="head">
+            <div>
+              <p class="ey">Store</p>
+              <h3>Orders</h3>
+              <p>What customers ordered from your page. Confirm, then fulfil.</p>
+            </div>
+            <div class="headActs">
+              <span class="pill">This week</span>
+              <span class="pill">Xamdi Electronics</span>
+            </div>
+          </div>
+
+          <div class="tabrow2">
+            <span aria-selected="true">New <i>3</i></span>
+            <span>Confirmed <i>2</i></span>
+            <span>Ready <i>1</i></span>
+            <span>Done</span>
+            <span>Cancelled</span>
+          </div>
+
+          <div class="bgrid" style="margin-bottom:14px;">
+            <div class="cell s12">
+              <div class="card">
+                <header><h4>Waiting on you</h4><span class="pill">Updated just now</span></header>
+                <div class="statrow">
+                  <div class="tile"><div class="v">3</div><div class="l">New orders</div><div class="h">oldest 14 minutes ago</div></div>
+                  <div class="tile"><div class="v">$127</div><div class="l">Value unconfirmed</div><div class="h">not counted as sales yet</div></div>
+                  <div class="tile"><div class="v">4</div><div class="l">To deliver today</div><div class="h">3 areas</div></div>
+                  <div class="tile"><div class="v">1</div><div class="l">Short on stock</div><div class="h">check before confirming</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding-left:10px;padding-right:10px;">
+            <header style="padding:0 8px;"><h4>New orders</h4><span class="pill">3</span></header>
+            <table class="dt">
+              <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>How</th><th class="r">Total</th><th>Placed</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="num">#1043</td>
+                  <td><b>Khadra Jama</b><em>+252 63 4 45 67 89</em></td>
+                  <td>4 items<em>Charger, cord, bulbs</em></td>
+                  <td><span class="tag">Delivery</span><em>Ahmed Dhagah</em></td>
+                  <td class="r"><b>$40.00</b><em>incl. $1.00 delivery</em></td>
+                  <td>14 min ago</td>
+                  <td class="r"><span class="btn solid" style="padding:6px 13px;">Confirm</span></td>
+                </tr>
+                <tr>
+                  <td class="num">#1042</td>
+                  <td><b>Cabdi Warsame</b><em>+252 63 4 11 90 22</em></td>
+                  <td>1 item<em>Power bank 10,000mAh</em></td>
+                  <td><span class="tag alt">Collect</span><em>from shop</em></td>
+                  <td class="r"><b>$18.00</b></td>
+                  <td>40 min ago</td>
+                  <td class="r"><span class="btn solid" style="padding:6px 13px;">Confirm</span></td>
+                </tr>
+                <tr>
+                  <td class="num">#1041</td>
+                  <td><b>Hodan Ali</b><em>+252 63 4 78 30 15</em></td>
+                  <td>3 items<em>Kettle, 2 bulbs</em></td>
+                  <td><span class="tag">Delivery</span><em>Outside town</em></td>
+                  <td class="r"><b>$69.00</b><em>incl. $4.00 delivery</em></td>
+                  <td>2 hours ago</td>
+                  <td class="r"><span class="btn" style="padding:6px 13px;">Open</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="padding:0 8px;">
+              <div class="cav wrong" style="margin-top:12px;">
+                <span class="ico">!</span>
+                <span><b>#1041 asks for 1 kettle and you have none.</b> Stock isn't held when someone orders — call the customer before you confirm, or confirm the rest and drop the line. <span class="lnk">Open #1041</span></span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>A ledger is read down a column, so the table takes the full width</b> and sits outside the
+        grid — the strip above it is the part you glance at. That is the one decision the bento skill
+        asks you to get right, and putting this table in a <code>BentoCell span={7}</code> would cost a
+        nested sideways scroll on a phone.
+      </p>
+      <p class="note">
+        <b>Unconfirmed value is not revenue.</b> The tile says "not counted as sales yet" because
+        nothing here touches the ledger until an order is fulfilled. An order is a customer's
+        intention; a sale is a thing that happened. Counting the first as the second would put money
+        in your dashboard that no one ever paid.
+      </p>
+      <p class="note">
+        <b>Stock is checked at confirm time, not order time.</b> Nothing is reserved when a customer
+        adds to a cart, so the shortfall surfaces here — with a <code>wrong</code> caveat that names
+        the fix, because the shop can still rescue the sale with a phone call.
+      </p>
+    </div>
+
+    <!-- ================= ORDER DETAIL ================= -->
+    <div class="panel" data-panel="order" hidden>
+      <div class="frameHead"><b>One order</b><i>confirm → ready → collected · 1180px</i></div>
+      <div class="scroller">
+        <div class="frame w1180">
+
+          <div class="head">
+            <div>
+              <p class="ey">Store › Orders</p>
+              <h3>#1043</h3>
+              <p>Placed 14 minutes ago · Khadra Jama</p>
+            </div>
+            <div class="headActs">
+              <span class="btn">Message on WhatsApp</span>
+              <span class="btn">Cancel order</span>
+              <span class="btn solid">Confirm order</span>
+            </div>
+          </div>
+
+          <div class="steps">
+            <span class="st2 on">Placed</span>
+            <span class="st2 now">Confirm</span>
+            <span class="st2">Ready</span>
+            <span class="st2">Delivered</span>
+          </div>
+
+          <div class="bgrid">
+            <div class="cell s7">
+              <div class="card">
+                <header><h4>What they ordered</h4><span class="pill">4 items</span></header>
+                <div class="ln"><span class="q">2 ×</span><span class="nm3">Anker 20W USB-C charger</span><span class="am">$24.00</span></div>
+                <div class="ln"><span class="q">1 ×</span><span class="nm3">Extension cord 3m, 4 socket</span><span class="am">$9.00</span></div>
+                <div class="ln"><span class="q">1 ×</span><span class="nm3">LED bulb 9W (pack of 4)</span><span class="am">$6.00</span></div>
+                <div class="ln tot"><span class="q"></span><span class="nm3">Goods</span><span class="am">$39.00</span></div>
+                <div class="ln"><span class="q"></span><span class="nm3">Delivery — Ahmed Dhagah</span><span class="am">$1.00</span></div>
+                <div class="ln grand"><span class="q"></span><span class="nm3">To collect from customer</span><span class="am">$40.00</span></div>
+                <div class="cav context" style="margin-top:12px;">
+                  <span class="ico">i</span>
+                  <span>Prices are what the customer was shown when they ordered. If you have since repriced an item, this order keeps the old price.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cell s5" style="display:grid;gap:14px;align-content:start;">
+              <div class="card">
+                <header><h4>Where it goes</h4></header>
+                <div class="kv"><span>Name</span><b>Khadra Jama</b></div>
+                <div class="kv"><span>Phone</span><b>+252 63 4 45 67 89</b></div>
+                <div class="kv"><span>How</span><b>Delivery</b></div>
+                <div class="kv"><span>Area</span><b>Ahmed Dhagah</b></div>
+                <div class="kv"><span>Landmark</span><b>Behind Maansoor Hotel, blue gate</b></div>
+                <div class="kv"><span>Note</span><b>Call when you're close</b></div>
+              </div>
+              <div class="card">
+                <header><h4>Payment</h4></header>
+                <div class="kv"><span>Method</span><b>On delivery</b></div>
+                <div class="kv"><span>To collect</span><b>$40.00</b></div>
+                <div class="cav context" style="margin-top:10px;">
+                  <span class="ico">i</span>
+                  <span>Nothing is in your books yet. Marking this <b>Delivered</b> records the sale, takes the stock, and posts to the ledger — goods to <b>4000</b>, the delivery charge to <b>4300</b>.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>One state change writes to the books, and it is the last one.</b> Placed, Confirmed and
+        Ready are shop workflow and touch nothing. <b>Delivered</b> (or <b>Collected</b>) is what
+        creates the sale, moves stock, and posts the journal entry — through the same
+        <code>post_complete_sale</code> path the register already uses, so an online order and a
+        counter sale land in the ledger identically.
+      </p>
+      <p class="note">
+        <b>Cancel is not a refund.</b> No money moved and no stock left, so cancelling before
+        fulfilment writes nothing to the ledger — it just closes the order. Only an order already
+        marked delivered can be refunded, and that is the existing refund path, not a new one.
+      </p>
+    </div>
+
+    <!-- ================= CLOSED ================= -->
+    <div class="panel" data-panel="closed" hidden>
+      <div class="frameHead"><b>Unpublished or unknown address</b><i>identical on purpose</i></div>
+      <div class="scroller">
+        <div class="frame w1180 bare">
+          <div class="sfont closed">
+            <div class="mk">kaiibi</div>
+            <h5>There's no shop at this address.</h5>
+            <p>Check the spelling, or ask the shop for their link.</p>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px;">
+        <b>A draft shop and a nonexistent shop render the same page.</b> If "not published yet" were
+        distinguishable from "no such shop", the subdomain becomes an oracle: anyone could walk
+        names and learn which shops are on kaiibi and what they're called before they open. One
+        page, one message, no leak. It also means the public read path never sees an unpublished
+        row — enforced in RLS, not in the client.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What this costs in schema</h2>
+    <p class="h2sub">Small. Nothing existing changes shape.</p>
+    <table class="t">
+      <tr><th>Change</th><th>Why</th></tr>
+      <tr><td><code>shops.slug</code></td><td>Globally unique, nullable until set. Reserved list blocks <code>www</code>, <code>app</code>, <code>api</code>, <code>admin</code>, <code>platform</code>.</td></tr>
+      <tr><td><code>storefronts</code></td><td>One row per shop: <code>theme</code>, <code>palette</code>, headline, about, hero image, <code>offers_delivery</code>, <code>payment_mode</code>, <code>published_at</code>. Theme and palette are CHECK-constrained to the shipped catalogues — an unknown value must fall back to the default rather than render an unstyled page. Separate table so the public read path can be granted on it alone.</td></tr>
+      <tr><td><code>shops.whatsapp_e164</code></td><td><code>contact_phone</code> is free text and can't be dialled. A link needs E.164. Required to publish, not to exist.</td></tr>
+      <tr><td><code>storefront_delivery_areas</code></td><td>Name plus <code>fee_cents</code> per area, ordered. A child table rather than JSON so a fee is a typed column that can be summed and checked <code>&gt;= 0</code>. A flat fee is just the case where every row carries the same number, so one structure covers both.</td></tr>
+      <tr><td><code>orders</code></td><td>Per-shop sequential <code>number</code>, customer name and E.164 phone, <code>fulfilment</code> (collect / deliver), area, landmark, note, <code>payment_mode</code> copied at creation, <code>status</code>, <code>subtotal_cents</code>, <code>delivery_fee_cents</code> and total — the fee <b>copied at order time</b>, like every line price, so raising the charge next month never rewrites what a customer already agreed to. No customer account, no auth — the phone number is the identity.</td></tr>
+      <tr><td><code>order_items</code></td><td>Product reference plus <b>name, unit price and quantity captured at order time</b>. An order must still read correctly after the product is renamed, repriced or deleted — the same reason your sale lines don't join live to products.</td></tr>
+      <tr><td>Anon <code>insert</code> on orders</td><td>An unauthenticated write, which nothing in this app has today. Needs a rate limit and a server-side recompute of every line total — a client-supplied price is a discount anyone can grant themselves.</td></tr>
+      <tr><td>Module <code>storefront</code></td><td>14th entry in <a href="../../src/lib/entitlements.ts">entitlements.ts</a>, gated in DB write policies and the client route guard, as the file's header requires.</td></tr>
+      <tr><td>Anon read policy</td><td>The one genuinely new security surface: unauthenticated <code>select</code> on published storefronts and their <code>is_listed_online</code> products, exposing name, price, stock and image only — never cost.</td></tr>
+    </table>
+    <p class="note" style="margin-top:14px;">
+      <b>The delivery fee needs an account that doesn't exist yet.</b> The chart of accounts
+      (<code>20260904000100</code>) has <code>4000 Sales Revenue</code>, <code>4100 Sales Returns</code>
+      and <code>4200 Discounts Given</code> — nothing for delivery. Posting the fee into 4000 inflates
+      goods revenue with income that carries no cost of sales, and quietly flatters gross margin on
+      every report you just built. It wants its own <code>4300 Delivery Income</code>, seeded the same
+      way the others are. That lands in the fulfilment spec, when an order becomes a sale — but the
+      column has to be separate from day one or the number is unrecoverable later.
+    </p>
+    <p class="note">
+      <b>The one that needs care.</b> Every other table in this app is read by an authenticated
+      member of one shop. This adds a path with no session at all, and the column list is the
+      whole defence — <code>products.cost_cents</code> sitting one column away from
+      <code>price_cents</code> is the thing a careless <code>select *</code> leaks. The public read
+      goes through a view or an explicit column list, and a test asserts cost is absent.
+    </p>
+  </section>
+
+  <section>
+    <h2>Deliberately not in spec 1</h2>
+    <table class="t">
+      <tr><th>Left out</th><th>Where it goes</th></tr>
+      <tr><td>Click-anything inline editing</td><td>Its own spec, over this same content model. The button and its position are already right.</td></tr>
+      <tr><td>Online payment</td><td>Not scheduled. <code>payment_mode</code> holds the seat.</td></tr>
+      <tr><td>Customer accounts, order tracking page</td><td>Not scheduled. A number and a phone call. A signup wall in front of checkout would cost more orders than tracking wins.</td></tr>
+      <tr><td>Custom domains (<code>xamdi.so</code>)</td><td>Not scheduled. Subdomain only.</td></tr>
+      <tr><td>Search, follow, best sellers, product detail page</td><td>Not scheduled. Eighteen products fit on one screen; search is a solution to a catalogue these shops don't have yet.</td></tr>
+    </table>
+    <p class="note" style="margin-top:14px;">
+      <b>The honest scope warning.</b> This is four subsystems in one spec: a public storefront, an
+      editor, an ordering system, and a fulfilment workflow. It is large. It is also the smallest thing
+      that is actually useful — a page nobody can order from, or orders nobody can work, is not a
+      shippable half. The plan below phases it so each phase leaves the tree working, and the phase
+      boundaries are where you can stop if it turns out to be too much at once.
+    </p>
+  </section>
+
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.switch button');
+  const panels = document.querySelectorAll('.panel');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-selected', String(x === t)));
+    panels.forEach(p => { p.hidden = p.dataset.panel !== t.dataset.p; });
+  }));
+</script>

@@ -1,0 +1,546 @@
+<title>Kaiibi &mdash; A door for the ledger backfill</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-profit:#008340; --d-loss:#d72b3e;
+    --d-accwash:#e6edff; --d-accink:#1b47b8; --d-warnwash:#fdf1da; --d-warnink:#8a5806;
+    --d-losswash:#fdeaec; --d-upwash:#d9efe4; --d-upink:#007a38;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:24px 0 6px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr.hi td{background:var(--pg2);}
+  td b.right{color:var(--d-upink);}
+  td b.wrong{color:#a3202f;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:960px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.was{background:var(--d-losswash);color:#a3202f;}
+  .stamp.now{background:var(--d-upwash);color:var(--d-upink);}
+  .stamp.st{background:var(--d-accwash);color:var(--d-accink);}
+
+  /* app chrome, from the real style objects */
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-card + .d-card{margin-top:14px;}
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:18px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);margin-bottom:12px;}
+  /* BentoCard's title row: title left, scope pill right (ui/bento-card.tsx) */
+  .d-crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .d-crow .d-title{margin-bottom:0;}
+  .d-pill{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--d-mut);
+    background:var(--d-soft);border-radius:999px;padding:4px 10px;}
+  .d-metrics{display:flex;gap:10px;flex-wrap:wrap;}
+  .d-tile{flex:1;min-width:132px;background:var(--d-soft);border-radius:14px;padding:12px 13px;}
+  .d-tile .v{font-size:21px;font-weight:800;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:var(--d-ink);}
+  .d-tile .l{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--d-mut);margin-top:3px;text-transform:uppercase;}
+  .d-tile .h{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-tile .h.flag{color:#a3202f;font-weight:700;}
+  .d-tile .h.ok{color:var(--d-upink);font-weight:700;}
+  /* Caveat: src/components/ui/caveat.tsx */
+  .d-cav{border-radius:14px;padding:13px 15px;margin-top:12px;display:flex;gap:11px;align-items:flex-start;}
+  .d-cav.context{background:var(--d-accwash);}
+  .d-cav.wrong{background:var(--d-warnwash);}
+  .d-cav.partial{background:var(--d-soft);}
+  .d-cav .dot{width:7px;height:7px;border-radius:99px;margin-top:6px;flex:none;}
+  .d-cav.context .dot{background:var(--d-accink);}
+  .d-cav.wrong .dot{background:var(--d-warnink);}
+  .d-cav.partial .dot{background:var(--d-mut);}
+  .d-cav p{margin:0;font-size:12.5px;line-height:1.55;}
+  .d-cav.context p{color:var(--d-accink);}
+  .d-cav.wrong p{color:var(--d-warnink);}
+  .d-cav.partial p{color:var(--d-mut);}
+  .d-cav .act{display:block;margin-top:6px;font-size:12.5px;font-weight:700;text-decoration:underline;}
+  .d-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid #f2f2f2;}
+  .d-row:last-child{border-bottom:0;}
+  .d-nm{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-mt{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-amt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--d-ink);white-space:nowrap;}
+  .d-amt.zero{color:#9ca3af;font-weight:700;}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:14px 0 6px;}
+  .d-lbl:first-child{margin-top:0;}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:9px;}
+  .d-sheet{background:var(--d-soft);border-radius:12px;padding:4px 12px;}
+  .d-calc{background:var(--d-soft);border-radius:12px;padding:11px 13px;margin-top:8px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--d-ink2);line-height:1.7;}
+  .d-calc b{color:var(--d-ink);}
+  /* The primary action, from journal-entry-view.tsx's `post` style */
+  .d-btn{display:block;width:100%;text-align:center;background:var(--d-ink);color:var(--d-sf);
+    border-radius:999px;padding:13px;font-size:13.5px;font-weight:800;margin-top:12px;}
+  .d-btn.off{opacity:.4;}
+  .d-btn.ghost{background:var(--d-soft);color:var(--d-ink2);}
+  .d-btns{display:flex;gap:9px;margin-top:12px;}
+  .d-btns .d-btn{margin-top:0;}
+  .d-btns .d-btn.ghost{flex:0 0 34%;}
+  .d-btns .d-btn:not(.ghost){flex:1;}
+  /* The hub's launcher cards, from ledger-hub.tsx */
+  .d-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  @media(max-width:900px){ .d-tiles{grid-template-columns:repeat(2,1fr);} }
+  .d-launch{background:var(--d-sf);border-radius:26px;padding:18px;display:flex;flex-direction:column;}
+  .d-launch .ic{width:30px;height:30px;border-radius:9px;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:14px;color:var(--d-ink2);margin-bottom:10px;}
+  .d-launch b{font-size:13.5px;font-weight:800;color:var(--d-ink);}
+  .d-launch .d{font-size:11.5px;color:var(--d-mut);margin-top:4px;line-height:1.4;flex:1;}
+  .d-launch .ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;}
+  .d-launch .when{font-size:11px;color:var(--d-mut2);}
+  .d-launch .when.hot{color:var(--d-warnink);font-weight:800;}
+  .d-launch .go{font-size:11.5px;font-weight:800;color:var(--d-ink2);background:var(--d-soft);
+    border-radius:999px;padding:6px 12px;white-space:nowrap;}
+  .d-launch .go.solid{background:var(--d-ink);color:var(--d-sf);}
+  .d-grp{font-size:12.5px;font-weight:800;color:var(--d-ink);margin:0 0 10px;}
+  .d-grp + .d-tiles{margin-bottom:18px;}
+  .newmark{outline:2px dashed var(--blue);outline-offset:3px;}
+
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:16px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q p + p{margin-top:9px;}
+
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:9px;}
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Accounting &middot; phase 2b &middot; the last gap in PR&nbsp;#74</p>
+<h1>A door for the ledger backfill</h1>
+<p class="lede"><code>backfill_shop_ledger(uuid)</code> exists, ties to the cent, is idempotent and takes a per&#8209;shop advisory lock. <b>Nothing calls it.</b> Until something does, a shop's ledger holds only what has happened since this branch shipped, and years of real trading sit outside the books. This is the screen that lets someone press it &mdash; and, more importantly, the screen that says what pressing it will do <i>before</i> they press.</p>
+
+<div class="toc">
+  <b>What's in here</b>
+  <ol>
+    <li><a href="#hub">The card, in place</a> &mdash; <em>fifth in &ldquo;Ledger &amp; journals&rdquo;</em></li>
+    <li><a href="#before">Before anything happens</a> &mdash; <em>what is unposted, and of what kind</em></li>
+    <li><a href="#confirm">The confirmation</a> &mdash; <em>guarded, but not frightening</em></li>
+    <li><a href="#after">The result</a>, and <a href="#empty">the empty case</a> &mdash; <em>which is the common one</em></li>
+    <li><a href="#gate">Without <code>ledger.close</code></a></li>
+    <li><a href="#counts">Where the counts come from</a> &mdash; <em>one definition of &ldquo;unposted&rdquo;, not two</em></li>
+    <li><a href="#decisions">Six decisions</a></li>
+  </ol>
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="hub">
+<h2>1 &middot; The card, in place</h2>
+
+<p class="note">The hub's <b>Ledger &amp; journals</b> group holds four launcher cards today. This adds a fifth. Every card states its default period in the footer &mdash; <i>&ldquo;As of today&rdquo;</i>, <i>&ldquo;Manual entry&rdquo;</i>, <i>&ldquo;7 days&rdquo;</i> &mdash; and carries exactly one action. This one's period is <b>live</b>: it reads the number of unposted rows, the way Chart of Accounts already reads its account count.</p>
+
+<div class="frameHead"><b>Accounting &rarr; Accounting tab &rarr; hub</b> <i>ledger-hub.tsx</i></div>
+<div class="frame">
+  <p class="d-grp">Ledger and journals</p>
+  <div class="d-tiles">
+    <div class="d-launch">
+      <div class="ic">&#9636;</div><b>Chart of Accounts</b>
+      <span class="d">Assets, liabilities, equity, revenue and expense accounts.</span>
+      <div class="ft"><span class="when">31 accounts</span><span class="go">View accounts</span></div>
+    </div>
+    <div class="d-launch">
+      <div class="ic">&#9998;</div><b>General Journal Entry</b>
+      <span class="d">Post a manual debit/credit entry to the ledger.</span>
+      <div class="ft"><span class="when">Manual entry</span><span class="go solid">+ New entry</span></div>
+    </div>
+    <div class="d-launch">
+      <div class="ic">&#8801;</div><b>Journals</b>
+      <span class="d">Every journal entry recorded, in order.</span>
+      <div class="ft"><span class="when">7 days</span><span class="go">View list</span></div>
+    </div>
+    <div class="d-launch">
+      <div class="ic">&#9878;</div><b>Trial Balance</b>
+      <span class="d">Every account's debit and credit balance, side by side.</span>
+      <div class="ft"><span class="when">As of today</span><span class="go">Run report</span></div>
+    </div>
+    <div class="d-launch newmark">
+      <div class="ic">&#8635;</div><b>Post History</b>
+      <span class="d">Replay past sales, refunds, deliveries and bills into the ledger.</span>
+      <div class="ft"><span class="when hot">3,973 unposted</span><span class="go solid">+ Post history</span></div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:12px">The fifth card lands on the second row at four&#8209;across and alone &mdash; which is exactly why <code>BentoCell span={3}</code> exists rather than a flex&#8209;wrap row: a wrapping row gave the lone card <code>flexGrow</code> and stretched it across the whole band, which is how Audit Log came to render 1344px wide beside four 327px siblings.</p>
+
+<div class="q">
+  <b>Why the filled button, and why the plus.</b>
+  <p>The hub's two button styles carry a real distinction, pinned by a test: a card that <b>writes to the ledger</b> gets the solid button and a leading <code>+</code>; a card you only read gets the quiet one. Post History writes &mdash; potentially thousands of entries &mdash; so it is the second card in this group to be solid, beside General Journal Entry. Reading a report and writing to the books must not look like the same act.</p>
+</div>
+
+<div class="q">
+  <b>Why the count is in the footer and not a badge.</b>
+  <p>Because it is the card's <i>period</i>, and every other card in the group states one. &ldquo;3,973&nbsp;unposted&rdquo; answers the same question &ldquo;7&nbsp;days&rdquo; does &mdash; what am I about to be shown. A badge would answer &ldquo;is something wrong&rdquo;, and nothing is: a shop that has never backfilled is in a normal state, not an alarming one. It is coloured with the warn ink rather than the muted grey <b>only while non&#8209;zero</b>, which is the one honest use of emphasis here.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="before">
+<h2>2 &middot; Before anything happens</h2>
+
+<p class="note">This is the state the screen is in when it opens, and the one that matters most. Before anyone presses anything it must say <b>how many rows are unposted and of what kind</b>. A single number &mdash; &ldquo;3,973 entries&rdquo; &mdash; is not enough: a shopkeeper who sees 3,973 has no way to tell a correct replay from a mapping that has silently swept up every payroll expense twice.</p>
+
+<div class="frameHead"><b>Post History</b> <i>backfill-view.tsx &mdash; the idle state</i></div>
+<div class="frame">
+  <div class="d-card">
+    <div class="d-crow"><div class="d-title">Not yet in the ledger</div><span class="d-pill">Right now</span></div>
+    <div class="d-metrics">
+      <div class="d-tile"><div class="v">3,973</div><div class="l">Entries to write</div><div class="h">one per source row</div></div>
+      <div class="d-tile"><div class="v">8</div><div class="l">Kinds</div><div class="h">sales, refunds, bills&hellip;</div></div>
+      <div class="d-tile"><div class="v">4 Mar 2024</div><div class="l">Oldest</div><div class="h">2 years 5 months back</div></div>
+    </div>
+  </div>
+
+  <div class="d-card">
+    <div class="d-title">What will be posted</div>
+    <div class="d-sheet">
+      <div class="d-row"><div><div class="d-nm">Sales</div><div class="d-mt">revenue, tax, tenders and cost of goods</div></div><div class="d-amt">3,180</div></div>
+      <div class="d-row"><div><div class="d-nm">Refunds</div><div class="d-mt">returns and the tax that came back</div></div><div class="d-amt">96</div></div>
+      <div class="d-row"><div><div class="d-nm">Balance settlements</div><div class="d-mt">money collected against a credit sale</div></div><div class="d-amt">41</div></div>
+      <div class="d-row"><div><div class="d-nm">Stock deliveries</div><div class="d-mt">at the delivery's costed value</div></div><div class="d-amt">212</div></div>
+      <div class="d-row"><div><div class="d-nm">Stock counts</div><div class="d-mt">the net variance only</div></div><div class="d-amt">18</div></div>
+      <div class="d-row"><div><div class="d-nm">Supplier payments</div><div class="d-mt">against what the shop owed</div></div><div class="d-amt">74</div></div>
+      <div class="d-row"><div><div class="d-nm">Pay runs</div><div class="d-mt">posted runs only, never drafts</div></div><div class="d-amt">12</div></div>
+      <div class="d-row"><div><div class="d-nm">Expenses and bills</div><div class="d-mt">what the shop spent, by category</div></div><div class="d-amt">340</div></div>
+    </div>
+
+    <div class="d-cav context">
+      <span class="dot"></span>
+      <p>Each entry is dated <b>when the thing happened</b>, not today &mdash; so a sale rung in March 2024 lands in March 2024, and a month you have already closed is re&#8209;opened to receive it. Your Trial Balance and every report that reads the ledger will change, because until now they have only seen entries posted since this feature shipped.</p>
+    </div>
+
+    <span class="d-btn">Post 3,973 entries</span>
+    <p class="d-note">Safe to run again &mdash; anything already posted is skipped.</p>
+  </div>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>Eight rows, named in the shop's words.</b>
+    <p>The database calls them <code>sale</code>, <code>refund</code>, <code>settlement</code>, <code>receipt</code>, <code>count</code>, <code>invoice_payment</code>, <code>payroll</code>, <code>expense</code>. The screen calls them what the person pressing the button calls them. The mapping is one table in <code>ledger-backfill.ts</code> and it is the only place the two vocabularies meet.</p>
+  </div>
+  <div class="vx mid">
+    <b>A zero row still renders.</b>
+    <p>All eight kinds are listed even when one is zero, greyed rather than dropped. A list that hides its empty rows changes shape between shops and between runs, and a reader who saw seven rows last time cannot tell whether the eighth is zero or whether the door forgot to look.</p>
+  </div>
+  <div class="vx good">
+    <b>The caveat is <code>context</code>, and carries no action.</b>
+    <p>Nothing here is wrong. The reader is being told why their reports are about to move, which is the definition of <code>context</code>. A <code>wrong</code> tone would demand a fix for a state that is not a defect &mdash; and the house rule is that a <code>wrong</code> with no action trains people to skip the whole family.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="confirm">
+<h2>3 &middot; The confirmation</h2>
+
+<p class="note">This writes potentially thousands of entries, so it is not a single unguarded tap. But it is <b>idempotent and safe to re&#8209;run</b>, and the copy says so plainly rather than borrowing the language of a destructive action. Nothing is deleted, nothing already posted moves, and a second press writes nothing.</p>
+
+<div class="pair two">
+  <div>
+    <span class="stamp was">Rejected</span>
+    <div class="frameHead"><b>A system dialog</b> <i>lib/confirm.ts</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-lbl">127.0.0.1:8081 SAYS</div>
+        <p style="font-size:13px;margin:0 0 4px">Post 3,973 entries? This cannot be undone.</p>
+        <div class="d-btns"><span class="d-btn ghost">Cancel</span><span class="d-btn">OK</span></div>
+        <p class="d-note" style="color:#a3202f;font-weight:700">Wrong twice: it is <i>not</i> irreversible, and on web <code>confirm.ts</code> raises a real browser dialog that a Playwright check cannot see past.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <span class="stamp now">Built</span>
+    <div class="frameHead"><b>The card becomes the confirmation</b> <i>backfill-view.tsx &mdash; confirming</i></div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-title">Post 3,973 entries?</div>
+        <p style="font-size:12.5px;color:var(--d-mut);margin:0 0 4px;line-height:1.55">
+          Every past sale, refund, delivery, stock count, supplier payment, pay run and expense that has not reached the
+          ledger gets one journal entry, dated when it happened.</p>
+        <p style="font-size:12.5px;color:var(--d-mut);margin:0;line-height:1.55">
+          <b style="color:var(--d-ink)">Nothing already in the ledger changes</b>, and running this again later is safe &mdash;
+          anything posted is skipped. It may take a minute.</p>
+        <div class="d-btns">
+          <span class="d-btn ghost">Cancel</span>
+          <span class="d-btn">Yes, post 3,973</span>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">In place, not stacked. A sheet opened from the Accounting tab is a second modal on iOS and the platform drops it &mdash; which reads as a dead button.</p>
+  </div>
+</div>
+
+<div class="q">
+  <b>The count is repeated in the confirm button, on purpose.</b>
+  <p>It is the one number that would tell a reader the screen is looking at a different shop than they are &mdash; and it is the last moment anyone can notice. It also makes the button say what it does rather than <i>&ldquo;OK&rdquo;</i>, which is what a person actually reads before they press.</p>
+</div>
+
+<div class="frameHead" style="margin-top:22px"><b>While it runs</b> <i>backfill-view.tsx &mdash; running</i></div>
+<div class="frame">
+  <div class="d-card">
+    <div class="d-title">Posting&hellip;</div>
+    <p style="font-size:12.5px;color:var(--d-mut);margin:0;line-height:1.55">Writing 3,973 entries. This runs in one transaction &mdash; if anything stops it, nothing is written and you can try again.</p>
+    <span class="d-btn off">Posting&hellip;</span>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="after">
+<h2>4 &middot; The result</h2>
+
+<p class="note">One number &mdash; how many entries were written &mdash; and a way to go and look at them. The Journals list already exists and is the right destination; building a second one here would be a worse copy of it.</p>
+
+<div class="frameHead"><b>Post History</b> <i>backfill-view.tsx &mdash; done</i></div>
+<div class="frame">
+  <div class="d-card">
+    <div class="d-crow"><div class="d-title">Posted</div><span class="d-pill">Just now</span></div>
+    <div class="d-metrics">
+      <div class="d-tile"><div class="v">3,973</div><div class="l">Entries written</div><div class="h ok">the ledger now holds your history</div></div>
+      <div class="d-tile"><div class="v">0</div><div class="l">Still unposted</div><div class="h">nothing left to replay</div></div>
+    </div>
+    <div class="d-cav context">
+      <span class="dot"></span>
+      <p>3,973 entries were written, each dated when the thing it records happened. Your Trial Balance and every ledger report now cover your whole trading history rather than only the period since posting was switched on.
+        <span class="act">See them in Journals &rarr;</span></p>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:12px">The action is a <code>Caveat</code>'s, not a second button. A <code>context</code> caveat may carry one &mdash; what it must not do is carry the <i>obligation</i> of a <code>wrong</code>. &ldquo;Go and look&rdquo; is an offer.</p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="empty">
+<h2>5 &middot; Nothing to do &mdash; the common case</h2>
+
+<p class="note">After the first run, this is what the door looks like <b>for ever</b>. Every posting RPC writes its entry inline now, so nothing accumulates. That makes the empty state the state this screen is usually in, and it deserves more than a blank card and a greyed button.</p>
+
+<div class="pair two">
+  <div>
+    <span class="stamp st">Hub</span>
+    <div class="frameHead"><b>The card, with nothing behind it</b> <i>ledger-hub.tsx</i></div>
+    <div class="frame">
+      <div class="d-tiles" style="grid-template-columns:1fr;max-width:340px">
+        <div class="d-launch">
+          <div class="ic">&#8635;</div><b>Post History</b>
+          <span class="d">Replay past sales, refunds, deliveries and bills into the ledger.</span>
+          <div class="ft"><span class="when">Nothing unposted</span><span class="go">Check</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">The footer loses its warn ink, and the action goes <b>quiet and loses its plus</b> &mdash; because with nothing to write, opening it creates nothing. The card is still there and still opens: &ldquo;is everything posted?&rdquo; is a question worth being able to ask.</p>
+  </div>
+
+  <div>
+    <span class="stamp st">Screen</span>
+    <div class="frameHead"><b>Post History</b> <i>backfill-view.tsx &mdash; empty</i></div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-crow"><div class="d-title">Not yet in the ledger</div><span class="d-pill">Right now</span></div>
+        <div class="d-metrics">
+          <div class="d-tile"><div class="v">0</div><div class="l">Entries to write</div><div class="h ok">everything has posted</div></div>
+        </div>
+        <div class="d-sheet" style="margin-top:12px">
+          <div class="d-row"><div class="d-nm">Sales</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Refunds</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Balance settlements</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Stock deliveries</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Stock counts</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Supplier payments</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Pay runs</div><div class="d-amt zero">0</div></div>
+          <div class="d-row"><div class="d-nm">Expenses and bills</div><div class="d-amt zero">0</div></div>
+        </div>
+        <div class="d-cav context">
+          <span class="dot"></span>
+          <p>Every sale, refund, delivery, stock count, supplier payment, pay run and expense has reached the ledger. New ones post as they happen, so there is nothing here to press &mdash; this door is only for history.
+            <span class="act">See the ledger in Journals &rarr;</span></p>
+        </div>
+        <span class="d-btn off">Nothing to post</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="q">
+  <b>The eight zeroes are the message, not the padding.</b>
+  <p>&ldquo;Nothing to do&rdquo; on its own is indistinguishable from &ldquo;this screen failed to load&rdquo;. Eight named rows each reading <b>0</b> is a positive statement: it looked in eight places and all eight are clear. That is worth eight lines.</p>
+</div>
+
+<div class="q">
+  <b>A handful, rather than none.</b>
+  <p>A shop that runs this on Monday and comes back on Friday sees a small number &mdash; the week's trading is already posted, but a bill entered against a closed month, or a row written by an older client, can still land here. The screen makes no distinction between <i>&ldquo;years of history&rdquo;</i> and <i>&ldquo;three stragglers&rdquo;</i>: the copy is the same and so is the arithmetic, because both are the same act.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="gate">
+<h2>6 &middot; Without <code>ledger.close</code></h2>
+
+<p class="note"><code>backfill_shop_ledger</code> gates on <code>ledger.close</code>, not <code>ledger.post</code>, and its own comment says why: <i>&ldquo;rewriting a shop's entire history is the heaviest thing anyone can do to these books&rdquo;</i>. The door must gate on the same permission the RPC does, or it offers a button that raises.</p>
+
+<div class="pair two">
+  <div>
+    <span class="stamp was">Not shown</span>
+    <div class="frameHead"><b>The hub, for a bookkeeper with <code>ledger.post</code> only</b></div>
+    <div class="frame">
+      <div class="d-tiles" style="grid-template-columns:repeat(2,1fr)">
+        <div class="d-launch"><div class="ic">&#8801;</div><b>Journals</b><span class="d">Every journal entry recorded, in order.</span>
+          <div class="ft"><span class="when">7 days</span><span class="go">View list</span></div></div>
+        <div class="d-launch"><div class="ic">&#9878;</div><b>Trial Balance</b><span class="d">Every account's debit and credit balance, side by side.</span>
+          <div class="ft"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      </div>
+      <p class="d-note">Four cards, not five. Post History is absent.</p>
+    </div>
+    <p class="note" style="margin-top:10px">Absent, not disabled. A greyed card asks &ldquo;why can't I?&rdquo; on every visit and answers nothing; the hub has no vocabulary for a locked card and inventing one for a single case is worse than the case.</p>
+  </div>
+
+  <div>
+    <span class="stamp st">By URL</span>
+    <div class="frameHead"><b>&hellip;and if the view is reached anyway</b> <i>?view=backfill</i></div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-crow"><div class="d-title">Not yet in the ledger</div><span class="d-pill">Right now</span></div>
+        <div class="d-cav partial">
+          <span class="dot"></span>
+          <p>Posting past trading into the ledger needs permission to <b>close an accounting period</b>, which your role does not carry. Ask an owner.</p>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">The <code>view</code> is a URL parameter, so the screen is reachable by typing it and cannot rely on the hub having hidden the card. <code>partial</code> is the exact tone: the figure is incomplete through permissions, not through a defect, and there is nothing this reader can do.</p>
+  </div>
+</div>
+
+<div class="vx bad" style="margin-top:18px">
+  <b>The UI gate is not the gate.</b>
+  <p>Hiding the card stops an honest reader reaching a button that raises. It stops nothing else: <code>backfill_shop_ledger</code> is granted to <code>authenticated</code> and anyone can call it over PostgREST. The real gate is the <code>has_shop_permission(p_shop_id, 'ledger.close')</code> check at the top of the function, and the <b>counts function carries the same check</b> so the two cannot drift into disagreeing about who may look.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="counts">
+<h2>7 &middot; Where the counts come from</h2>
+
+<p class="note">The screen has to answer &ldquo;how many, of what kind&rdquo; <b>before</b> the RPC runs. The obvious way to get that is eight queries in TypeScript. It is also the wrong way, and the reason is specific: <code>backfill_shop_ledger</code>'s idea of &ldquo;unposted&rdquo; is not <code>journal_entry_id is null</code>. It is that, <i>and</i> eight per&#8209;kind money predicates that are anything but obvious.</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>Kind</th><th>Unposted means&hellip;</th><th>The part TypeScript would get wrong</th></tr></thead>
+  <tbody>
+    <tr><td>Sale</td><td><code>journal_entry_id is null</code> and it carries money</td><td>&ldquo;Carries money&rdquo; is a six&#8209;term disjunction over <code>sale_items</code> and <code>sale_payments</code>. A zero&#8209;value sale &mdash; free samples on account &mdash; is <b>deliberately never posted</b>.</td></tr>
+    <tr class="hi"><td>Settlement</td><td><code>is_settlement</code> is the filter</td><td>A till payment's <code>journal_entry_id</code> stays null <b>for ever</b>: <code>complete_sale</code> folds it into the sale's own entry. Counting on the column alone over&#8209;reports by every payment the shop has ever taken.</td></tr>
+    <tr><td>Refund</td><td>reached through <code>sales</code></td><td><code>refunds</code> has no <code>shop_id</code>. Neither does <code>invoice_payments</code>.</td></tr>
+    <tr><td>Delivery</td><td>costed lines only</td><td>An uncosted line is excluded, not zeroed.</td></tr>
+    <tr><td>Stock count</td><td>net variance &ne; 0</td><td>A count that found what it expected is not an accounting event.</td></tr>
+    <tr><td>Pay run</td><td><code>status = 'posted'</code></td><td>A draft has paid nobody, and an <i>unposted</i> run has had its pointer cleared on purpose.</td></tr>
+    <tr class="hi"><td>Expense</td><td>four exclusions</td><td>Payroll&#8209;derived, count&#8209;derived, and the <code>inventory_purchase</code> half of a bill are all excluded &mdash; two of them stay unposted <b>permanently by design</b>.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="note" style="margin-top:16px">Reimplementing that in the client gives a door and an RPC that disagree about the word the whole screen is built on. The number would be plausible and wrong &mdash; the failure this branch has spent nine tasks avoiding.</p>
+
+<div class="q">
+  <b>So: one view, and one function over it.</b>
+  <p><code>public.unposted_ledger_sources</code> is a view yielding <b>one row per source row the backfill would replay</b> &mdash; <code>(shop_id, source_kind, source_id, on_date)</code> &mdash; carrying the eight predicates and nothing else. <code>public.unposted_ledger_counts(p_shop_id)</code> groups it, gates on <code>ledger.close</code> exactly as the RPC does, and is what the screen calls.</p>
+  <p>The client does no counting at all. It maps eight <code>source_kind</code> values to eight English labels, orders them, and sums.</p>
+</div>
+
+<div class="vx good">
+  <b>And they are pinned to agree, in <code>verify-backfill.sql</code>.</b>
+  <p>Two checks, which together are tight in both directions. <b>Before</b> the replay: the view's row count equals what <code>backfill_shop_ledger</code> returns. <b>After</b> it: the view returns zero rows, for every kind. A view that over&#8209;counts fails the first; one that under&#8209;counts fails the first the other way; one that goes stale fails the second. The fixture's permanently&#8209;unposted rows &mdash; the zero&#8209;valued sale, the count&#8209;derived expense &mdash; are what makes the pair sharp rather than a tautology, because a view that forgot their exclusions would over&#8209;count by exactly those.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="decisions">
+<h2>8 &middot; Six decisions</h2>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>A hub card, not a Settings item and not an automatic migration.</b>
+    <p>Automatic was considered and rejected: a backfill that runs itself on deploy gives a shop no moment at which to see 3,973 entries appear and no chance to read what they are. It also cannot be gated on a permission, because a migration has no user. The books belong to the shop and pressing the button is an accounting act, so it lives with the other accounting acts.</p>
+  </div>
+  <div class="vx good">
+    <b>The confirmation is a state of the card, not a dialog.</b>
+    <p>Three reasons, in order of how much they cost: <code>lib/confirm.ts</code> raises a real <code>window.confirm</code> on web, which a Playwright check cannot dismiss; a sheet opened from within the Accounting tab is a stacked modal and iOS drops it; and a dialog can only fit one sentence, where the honest explanation needs three.</p>
+  </div>
+  <div class="vx mid">
+    <b>No per&#8209;kind or per&#8209;date selection.</b>
+    <p>&ldquo;Post the sales but not the expenses&rdquo; produces a ledger that ties to nothing, and &ldquo;post from January&rdquo; produces receivables with no origin. <code>backfill_shop_ledger</code> takes one argument for the same reason. A partial replay is not a smaller version of a correct one; it is a different and wrong thing.</p>
+  </div>
+  <div class="vx good">
+    <b>No progress bar.</b>
+    <p>The RPC is one transaction and returns one integer &mdash; there is nothing to report progress against, and a bar that moves on a timer rather than on work is a lie. &ldquo;Posting&hellip;&rdquo; with the button disabled is the whole truth available.</p>
+  </div>
+  <div class="vx mid">
+    <b>The counts are read live, and again after the run.</b>
+    <p>Not cached and not derived from the number the RPC returned. The second read is what turns &ldquo;it says it wrote 3,973&rdquo; into &ldquo;there are 0 left&rdquo;, which is the claim a reader actually wants &mdash; and it is the same query the empty state uses, so there is one code path, not two.</p>
+  </div>
+  <div class="vx bad">
+    <b>What this still does not do.</b>
+    <p>It does not tell you what the entries will <i>say</i> &mdash; no preview of the accounts and amounts before writing. That would mean running the mapping twice, once to show and once to write, and two copies of the mapping is the exact failure mode Task&nbsp;1 created the account&#8209;map functions to prevent. The Journals list after the fact is the preview, and it is the real thing rather than a promise about it.</p>
+    <p>It also cannot be undone from here. Reversing 3,973 entries is a different feature with a different permission, and offering half of it would be worse than offering none.</p>
+  </div>
+</div>
+</section>
+
+</div>

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { Account, JournalEntry, JournalLine } from '@/types/models';
 import type { PostedLine } from '@/lib/ledger-math';
+import { summariseUnposted, type UnpostedSummary } from '@/lib/ledger-backfill';
 
 // The Supabase-facing half of the ledger. Every number this returns is computed
 // by the database; nothing here decides anything. The arithmetic lives in
@@ -121,6 +122,68 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
   });
   if (error) throw error;
   return data as string;
+}
+
+// ── The Post History door ──────────────────────────────────────────────────
+//
+// Both calls gate on ledger.close in the database. The hub hides the card
+// without it, which stops an honest reader reaching a button that raises and
+// stops nothing else -- these functions are reachable over PostgREST by anyone,
+// and the gate that matters is the one inside them.
+
+/**
+ * How many rows of each kind are waiting to reach the ledger, and how far back
+ * the oldest goes. Reads only; writes nothing and takes no lock.
+ *
+ * The counting is entirely the database's. `unposted_ledger_counts` reads the
+ * `unposted_ledger_sources` view, which carries the same eight per-kind
+ * predicates the replay does -- so the door cannot promise entries the replay
+ * will not write. Doing it here instead would be a second definition of
+ * "unposted", and it would be wrong in ways that look right (a sale's own
+ * tenders keep a null `journal_entry_id` for ever).
+ */
+export async function listUnpostedLedgerCounts(shopId: string): Promise<UnpostedSummary> {
+  // TWO CALLS, IN PARALLEL, AND BOTH MUST SUCCEED. The exposure is not a nicety
+  // bolted on after the counts: showing "412 entries" without "and 3 of your
+  // shut months receive them" is the screen that was there before, and it told
+  // the reader the opposite of the truth. If the second call fails the card
+  // shows its failure caveat rather than a number with a silent omission behind
+  // it. Both gate on ledger.close, so they fail together or not at all.
+  const [counts, exposure] = await Promise.all([
+    supabase.rpc('unposted_ledger_counts', { p_shop_id: shopId }),
+    supabase.rpc('unposted_ledger_period_exposure', { p_shop_id: shopId }),
+  ]);
+  if (counts.error) throw counts.error;
+  if (exposure.error) throw exposure.error;
+  return summariseUnposted(
+    (counts.data ?? []).map((row: any) => ({
+      kind: row.kind,
+      // bigint arrives as a string over PostgREST, so a bare `+` on it would
+      // concatenate rather than add.
+      rowsUnposted: Number(row.rows_unposted ?? 0),
+      oldestOn: row.oldest_on ?? null,
+    })),
+    (exposure.data ?? []).map((row: any) => ({
+      status: row.status,
+      months: Number(row.months ?? 0),
+      entries: Number(row.entries ?? 0),
+    }))
+  );
+}
+
+/**
+ * Replays every unposted sale, refund, settlement, delivery, stock count,
+ * supplier payment, pay run and expense into the ledger, and returns how many
+ * entries it wrote.
+ *
+ * Idempotent: a second call writes nothing and returns 0. It takes a per-shop
+ * advisory lock, so two people pressing at once cannot each write a complete
+ * set of entries and orphan one of them.
+ */
+export async function backfillShopLedger(shopId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('backfill_shop_ledger', { p_shop_id: shopId });
+  if (error) throw error;
+  return Number(data ?? 0);
 }
 
 export type AuditRow = {

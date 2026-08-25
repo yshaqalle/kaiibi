@@ -61,7 +61,7 @@ passed=0
 #
 # Declared by a marker on the script's first lines rather than by a list in here,
 # so the fact lives with the file and cannot drift away from it.
-for script in "$HERE"/verify-*.sql; do
+for script in "$HERE"/verify-*.sql "$HERE"/bench-*.sql; do
   name="$(basename "$script" .sql)"
 
   if grep -qm1 '@requires-populated-database' "$script"; then

@@ -463,6 +463,139 @@ begin
     end if;
   end;
 
+  -- 22. delete_shop survives a shop that has traded.
+  --
+  -- journal_entries.location_id and journal_lines.location_id shipped with
+  -- no ON DELETE (20260904000300). Almost every phase-1 manual entry left
+  -- location_id null, so nothing exercised the gap until this branch (2b)
+  -- made every sale, refund, settlement, delivery, count, payment and pay
+  -- run stamp a real location on its entry and its lines. After that,
+  -- delete_shop -- a plain `delete from shops where id = ...`
+  -- (supabase/functions/platform-admin, case 'delete_shop', relying
+  -- entirely on FK cascade) -- refused outright the first time a shop with
+  -- history was deleted:
+  --
+  --   ERROR: update or delete on table "shop_locations" violates foreign
+  --   key constraint "journal_lines_location_id_fkey"
+  --
+  -- Fixing that surfaced a second, OLDER defect one statement later:
+  -- journal_lines.account_id -> accounts and journal_entries.period_id ->
+  -- accounting_periods carry the same no-ON-DELETE shape and predate this
+  -- branch entirely (same migration as location_id, 20260904000300) --
+  -- delete_shop was already broken for any shop with even one posted entry,
+  -- location or not, because account_id is NOT NULL on every line. Both
+  -- were made DEFERRABLE INITIALLY DEFERRED rather than SET NULL: an
+  -- account and a period are not optional dimensions the way a location is,
+  -- and the row they reference is destroyed by the SAME delete_shop cascade
+  -- a moment later, so the fix is WHEN the FK is checked, not what it does.
+  -- See 20260908001200 for the full account.
+  --
+  -- A fresh shop, not v_shop_id -- this check deletes the shop it builds,
+  -- and every check above and below still needs v_shop_id to exist.
+  declare
+    v_del_shop  uuid;
+    v_del_owner uuid := gen_random_uuid();
+    v_del_loc   uuid;
+    v_del_entry uuid;
+  begin
+    -- Raw inserts need postgres, not authenticated -- RLS is on since check
+    -- 16 turned it on, and neither auth.users nor a fresh shops row is
+    -- reachable through it.
+    perform set_config('role', 'postgres', true);
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_del_owner, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-ledger-delshop-' || v_del_owner || '@example.test', '', now(), now(), now());
+    insert into public.shops (owner_id, name) values (v_del_owner, 'Deletable Shop') returning id into v_del_shop;
+    insert into public.shop_locations (shop_id, name) values (v_del_shop, 'Main Branch') returning id into v_del_loc;
+    perform set_config('role', 'authenticated', true);
+
+    perform set_config('request.jwt.claims', json_build_object('sub', v_del_owner)::text, true);
+    v_del_entry := public.post_journal_entry(
+      v_del_shop, date '2026-08-22', 'Delete-shop fixture entry',
+      '[{"code":"5100","amount_cents":42700},{"code":"1200","amount_cents":-42700}]'::jsonb,
+      v_del_loc
+    );
+    perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+
+    -- delete_shop itself runs with the service-role key (platform-admin
+    -- edge function), which bypasses RLS entirely -- back to postgres for
+    -- the same reason.
+    perform set_config('role', 'postgres', true);
+
+    if (select location_id from public.journal_entries where id = v_del_entry) is distinct from v_del_loc then
+      raise exception 'FAIL: fixture entry was not posted carrying a location';
+    end if;
+
+    -- THE MUTATION THAT MUST REDDEN THIS CHECK: restore
+    -- journal_lines_location_id_fkey and journal_entries_location_id_fkey to
+    -- plain `references shop_locations(id)` with no ON DELETE clause --
+    -- 20260904000300's original text, before 20260908001200. Expected: this
+    -- DELETE raises "violates foreign key constraint
+    -- journal_lines_location_id_fkey" instead of succeeding. (Reverting the
+    -- account_id/period_id half of 20260908001200 instead does NOT redden
+    -- this check on its own -- location_id blocks first in the cascade
+    -- order this fixture exercises, which is the whole reason the original
+    -- bug report only ever saw the location_id error.)
+    delete from public.shops where id = v_del_shop;
+
+    -- The entry does NOT survive with location_id nulled -- it is gone,
+    -- because journal_entries.shop_id cascades (20260904000300) and this
+    -- whole shop went with the DELETE. That is the case this task's own
+    -- instructions call out: "unless the shop cascade removes the entries
+    -- entirely, in which case assert that". SET NULL's actual job is a
+    -- different, narrower one -- a single branch closing while its shop and
+    -- ledger live on, which check 22b exercises directly.
+    if exists (select 1 from public.journal_entries where id = v_del_entry) then
+      raise exception 'FAIL: the entry survived delete_shop; shop_id should have cascaded it away too';
+    end if;
+    if exists (select 1 from public.shop_locations where id = v_del_loc) then
+      raise exception 'FAIL: the location survived delete_shop';
+    end if;
+
+    perform set_config('role', 'authenticated', true);
+  end;
+
+  -- 22b. SET NULL's actual job: one branch closes, the shop and its ledger
+  -- do not. This is a live door, not a hypothetical one -- deleteLocation()
+  -- (src/lib/locations.ts) is a direct `shop_locations` delete called from
+  -- the "delete this branch" action in the Locations settings panel, and
+  -- before this fix it would have failed with the same FK violation
+  -- delete_shop did the moment the branch had ever posted. This is the only
+  -- check in the file that exercises what ON DELETE SET NULL actually does,
+  -- rather than only what it stops blocking.
+  declare
+    v_loc2   uuid;
+    v_entry2 uuid;
+  begin
+    insert into public.shop_locations (shop_id, name) values (v_shop_id, 'Closing Branch') returning id into v_loc2;
+    v_entry2 := public.post_journal_entry(
+      v_shop_id, date '2026-08-22', 'Entry at the closing branch',
+      '[{"code":"5100","amount_cents":51300},{"code":"1200","amount_cents":-51300}]'::jsonb,
+      v_loc2
+    );
+    if (select location_id from public.journal_entries where id = v_entry2) is distinct from v_loc2 then
+      raise exception 'FAIL: fixture entry was not posted carrying the closing branch';
+    end if;
+    if (select count(*) from public.journal_lines where entry_id = v_entry2 and location_id = v_loc2) <> 2 then
+      raise exception 'FAIL: fixture lines were not posted carrying the closing branch';
+    end if;
+
+    delete from public.shop_locations where id = v_loc2;
+
+    if not exists (select 1 from public.journal_entries where id = v_entry2) then
+      raise exception 'FAIL: the entry vanished when only its location was deleted';
+    end if;
+    if (select location_id from public.journal_entries where id = v_entry2) is not null then
+      raise exception 'FAIL: journal_entries.location_id did not go null';
+    end if;
+    if exists (select 1 from public.journal_lines where entry_id = v_entry2 and location_id is not null) then
+      raise exception 'FAIL: a journal_lines row did not go null, or was dropped, when its location was deleted';
+    end if;
+    if (select count(*) from public.journal_lines where entry_id = v_entry2) <> 2 then
+      raise exception 'FAIL: a journal_lines row vanished when its location was deleted -- CASCADE would unbalance the entry';
+    end if;
+  end;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception

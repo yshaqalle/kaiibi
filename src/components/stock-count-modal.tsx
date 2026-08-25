@@ -408,10 +408,24 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // important of the two. (Returning rather than calling setError is what makes
   // that possible: both callers finish by resetting, which would wipe the
   // message.)
-  const logStockLoss = async (locId: string, amountCents: number): Promise<string | null> => {
+  //
+  // `countId` is not optional and is not decoration. save_stock_count has
+  // already posted the whole write-off as Dr 5100 Inventory Shrinkage / Cr 1200
+  // Inventory, and no money moved -- so this row exists for the Expenses screen
+  // and the expense reports, and posts NOTHING. The trigger reads
+  // expenses.stock_count_id to know that. Without the id it takes the
+  // standalone path, 5100 doubles and a till that never opened is credited for
+  // stock nobody sold -- with every entry still balancing and the trial balance
+  // still zero. Hence a required parameter and not an options bag.
+  const logStockLoss = async (
+    locId: string,
+    amountCents: number,
+    countId: string
+  ): Promise<string | null> => {
     try {
       await createExpense(shopId, {
         locationId: locId,
+        stockCountId: countId,
         // Local date, not toISOString().slice(0, 10) -- an evening stock-take
         // west of Greenwich would otherwise land in tomorrow's P&L.
         occurredOn: toDateColumn(new Date()),
@@ -477,8 +491,14 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     // onDone is the Inventory screen's reload, and a reload throwing on a
     // network blip landed in this catch -- an error beside a full basket and a
     // live Save button. Pressing it wrote the same count a second time.
+    // The count id is kept, not discarded: it is what tells the expense row
+    // below which stock-take it belongs to, and therefore what stops it posting
+    // a second Dr 5100 on top of the one save_stock_count just wrote. Declared
+    // out here because the try ends the moment the write resolves (see above)
+    // and the expense is logged well past it.
+    let countId: string;
     try {
-      await saveStockCount(
+      countId = await saveStockCount(
         shopId,
         locationId,
         handLines.map((line) => ({
@@ -532,7 +552,8 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     // re-read here rather than trusting `logExpense` alone: the tick survives
     // an edit that turns a shortfall into a match, and a checkbox merely
     // disappearing must not leave a stale yes behind it.
-    const expenseProblem = handExpenseCents !== null ? await logStockLoss(locationId, handExpenseCents) : null;
+    const expenseProblem =
+      handExpenseCents !== null ? await logStockLoss(locationId, handExpenseCents, countId) : null;
     // Swallowed on purpose: the caller's list refresh is not part of the
     // stock-take, and treating its failure as this screen's failure is what
     // produced the double-commit above.
@@ -774,7 +795,10 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     const offered = logExpense && planSummary.shortfallCents !== null && planSummary.shortfallCents > 0;
     for (const count of plan.counts) {
       try {
-        await saveStockCount(
+        // This store's own count id, per iteration -- the expense below belongs
+        // to THIS stock-take, and pointing it at another store's count would
+        // make the trigger skip a row whose own count had not posted.
+        const countId = await saveStockCount(
           shopId,
           count.locationId,
           count.lines.map((line) => ({
@@ -794,7 +818,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
         if (offered) {
           const storeShortfall = summariseCount(count.lines).shortfallCents;
           if (storeShortfall !== null && storeShortfall > 0) {
-            const problem = await logStockLoss(count.locationId, storeShortfall);
+            const problem = await logStockLoss(count.locationId, storeShortfall, countId);
             if (problem) expenseProblems.push(`${count.locationName}: ${problem}`);
           }
         }

@@ -457,10 +457,24 @@ export function StockRestockModal({
   // rolling them back to punish a failed expense loses the more important of
   // the two. (Returning rather than calling setError is what makes that
   // possible: both callers finish by resetting, which would wipe the message.)
-  const logInventoryPurchase = async (locId: string, amountCents: number): Promise<string | null> => {
+  //
+  // `receiptId` is not optional and is not decoration. receive_stock has
+  // already posted this delivery as Dr 1200 Inventory / Cr 2000 Accounts
+  // Payable, so this row is the shop PAYING for it, and the trigger reads
+  // expenses.stock_receipt_id to post Dr 2000 / Cr the wallet -- settling the
+  // payable rather than debiting inventory a second time. Without the id it
+  // takes the standalone path, 1200 doubles, and a payable is invented against
+  // a supplier who was handed cash. Every entry balances either way; nothing
+  // anywhere goes red. Hence a required parameter and not an options bag.
+  const logInventoryPurchase = async (
+    locId: string,
+    amountCents: number,
+    receiptId: string
+  ): Promise<string | null> => {
     try {
       await createExpense(shopId, {
         locationId: locId,
+        stockReceiptId: receiptId,
         // Local date, not `toISOString().slice(0, 10)` -- see toDateColumn.
         // An evening delivery west of Greenwich would otherwise land in
         // tomorrow's P&L.
@@ -508,8 +522,14 @@ export function StockRestockModal({
     // Pressing it received the same units a second time, rewrote
     // products.cost_cents again, and (because `logExpense` was still ticked)
     // logged the inventory purchase twice.
+    // The receipt id is kept, not discarded: it is what tells the expense row
+    // below which delivery it is paying for, and therefore what stops it
+    // debiting 1200 Inventory a second time. Declared out here because the try
+    // ends the moment the write resolves (see above) and the expense is logged
+    // well past it.
+    let receiptId: string;
     try {
-      await receiveStock(shopId, locationId, items, {
+      receiptId = await receiveStock(shopId, locationId, items, {
         supplierName: supplier.trim() || null,
         reference: reference.trim() || null,
         note: note.trim() || null,
@@ -543,7 +563,9 @@ export function StockRestockModal({
     // (Both are read from this render's closure, so emptying the basket above
     // does not change either.)
     const expenseProblem =
-      logExpense && handExpenseCents !== null ? await logInventoryPurchase(locationId, handExpenseCents) : null;
+      logExpense && handExpenseCents !== null
+        ? await logInventoryPurchase(locationId, handExpenseCents, receiptId)
+        : null;
     // Swallowed on purpose. This is the caller's list refresh, not part of the
     // delivery -- a stale Inventory list is a pull-to-refresh away, while
     // treating its failure as this screen's failure is what produced the
@@ -719,7 +741,10 @@ export function StockRestockModal({
     const succeeded: PlannedReceipt[] = [];
     for (const receipt of plan.receipts) {
       try {
-        await receiveStock(
+        // This store's own receipt id, per iteration -- the expense below pays
+        // for THIS delivery, and pointing it at another store's receipt would
+        // settle the wrong payable.
+        const receiptId = await receiveStock(
           shopId,
           receipt.locationId,
           receipt.items.map((item) => ({
@@ -740,7 +765,7 @@ export function StockRestockModal({
         if (logExpense && planExpenseCents !== null) {
           const cents = receiptCents(receipt);
           if (cents > 0) {
-            const problem = await logInventoryPurchase(receipt.locationId, cents);
+            const problem = await logInventoryPurchase(receipt.locationId, cents, receiptId);
             if (problem) expenseProblems.push(`${receipt.locationName}: ${problem}`);
           }
         }

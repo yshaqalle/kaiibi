@@ -21,6 +21,8 @@ function mapExpenseRow(row: any): Expense {
     note: row.note,
     invoiceId: row.invoice_id ?? null,
     payrollRunId: row.payroll_run_id ?? null,
+    stockReceiptId: row.stock_receipt_id ?? null,
+    stockCountId: row.stock_count_id ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -44,6 +46,16 @@ function toRow(input: Partial<NewExpenseInput>) {
     ...(input.vendorId !== undefined && { vendor_id: input.vendorId }),
     ...(input.paymentMethod !== undefined && { payment_method: input.paymentMethod }),
     ...(input.note !== undefined && { note: input.note }),
+    // What the row POSTS turns on these, not just what it is linked to:
+    // a receipt-linked row settles the payable the delivery raised (Dr 2000 /
+    // Cr the wallet) instead of debiting 1200 a second time, and a count-linked
+    // row posts nothing because save_stock_count already posted both sides.
+    // Dropping either here — the exact bug migration 20260816000000's comment
+    // above records for location_id — would send both straight back to the
+    // double-count they were added to stop, silently, with every entry still
+    // balancing.
+    ...(input.stockReceiptId !== undefined && { stock_receipt_id: input.stockReceiptId }),
+    ...(input.stockCountId !== undefined && { stock_count_id: input.stockCountId }),
   };
 }
 

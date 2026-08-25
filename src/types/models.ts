@@ -763,15 +763,47 @@ export type Expense = {
   // edit that RLS will refuse.
   invoiceId: string | null;
   payrollRunId: string | null;
+  // Which delivery or which stock-take this row belongs to, when it was written
+  // by the Restock or Count sheet's "also log this" tick rather than typed on
+  // the Expenses screen (migration 20260908000800). These decide WHAT THE ROW
+  // POSTS, and the difference is not cosmetic:
+  //
+  //   * `stockReceiptId` — the delivery was already recorded as Dr 1200
+  //     Inventory / Cr 2000 Accounts Payable, so this row is the money going
+  //     out: Dr 2000 / Cr the wallet. A standalone `inventory_purchase` with no
+  //     receipt behind it still debits 1200, because nothing else did.
+  //   * `stockCountId` — `save_stock_count` already posted both sides of the
+  //     write-off and no money moved, so this row posts nothing at all. A
+  //     standalone `stock_loss` posts Dr 5100 / Cr 1200.
+  //
+  // At most one of the four link columns is ever set (a CHECK enforces it).
+  stockReceiptId: string | null;
+  stockCountId: string | null;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
+// The two stock links are OPTIONAL rather than required, unlike every other
+// field here. Almost every caller is the expense editor, which has no receipt
+// and no count to point at, and making them mandatory would force a pair of
+// `null`s onto every call site to describe the ordinary case.
 export type NewExpenseInput = Omit<
   Expense,
-  'id' | 'shopId' | 'vendorName' | 'createdBy' | 'createdAt' | 'updatedAt' | 'invoiceId' | 'payrollRunId'
->;
+  | 'id'
+  | 'shopId'
+  | 'vendorName'
+  | 'createdBy'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'invoiceId'
+  | 'payrollRunId'
+  | 'stockReceiptId'
+  | 'stockCountId'
+> & {
+  stockReceiptId?: string | null;
+  stockCountId?: string | null;
+};
 
 // A bill the shop owes a vendor — accounts payable, not customer invoicing.
 // Recording one posts a linked `Expense` (see the invoices migration), so the
