@@ -4,10 +4,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/components/card';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Colors } from '@/constants/theme';
+import type { Permission } from '@/lib/permissions';
 
 const theme = Colors.light;
 
-export type LedgerView = 'hub' | 'accounts' | 'entry' | 'journals' | 'trial' | 'audit';
+export type LedgerView = 'hub' | 'accounts' | 'entry' | 'journals' | 'trial' | 'audit' | 'backfill';
 
 // The catalogue, in one place, because four things read it: the hub's cards,
 // the shell's title row, the shell's "is this a view I know" guard, and the nav
@@ -21,6 +22,11 @@ export type LedgerView = 'hub' | 'accounts' | 'entry' | 'journals' | 'trial' | '
 // Journals is "7 days", and a reader who does not know which is which will
 // misread one of them. A card whose action CREATES something gets the filled
 // button and a plus; a card you only read gets the quiet one.
+//
+// `requires` is the permission the card's own door needs. Null means the tab's
+// own gate is the whole gate -- which is true of five of the six. It exists for
+// Post History, whose RPC refuses anyone without ledger.close, and a card that
+// offers a button that raises is worse than no card.
 export const LEDGER_VIEWS: {
   key: LedgerView;
   label: string;
@@ -30,6 +36,7 @@ export const LEDGER_VIEWS: {
   scope: string;
   action: string;
   creates: boolean;
+  requires: Permission | null;
 }[] = [
   {
     key: 'hub',
@@ -40,6 +47,7 @@ export const LEDGER_VIEWS: {
     scope: '',
     action: '',
     creates: false,
+    requires: null,
   },
   {
     key: 'accounts',
@@ -50,6 +58,7 @@ export const LEDGER_VIEWS: {
     scope: 'As of today',
     action: 'View accounts',
     creates: false,
+    requires: null,
   },
   {
     key: 'entry',
@@ -60,6 +69,7 @@ export const LEDGER_VIEWS: {
     scope: 'Manual entry',
     action: '+ New entry',
     creates: true,
+    requires: null,
   },
   {
     key: 'journals',
@@ -70,6 +80,7 @@ export const LEDGER_VIEWS: {
     scope: '7 days',
     action: 'View list',
     creates: false,
+    requires: null,
   },
   {
     key: 'trial',
@@ -80,6 +91,27 @@ export const LEDGER_VIEWS: {
     scope: 'As of today',
     action: 'Run report',
     creates: false,
+    requires: null,
+  },
+  {
+    key: 'backfill',
+    label: 'Post History',
+    blurb: 'Replay past sales, refunds, deliveries and bills into the ledger.',
+    group: 'Ledger and journals',
+    icon: 'refresh-outline',
+    // The static fallback, shown while the live count is still null. Never a
+    // guessed "0 unposted" -- a shop with two years of trading outside the
+    // books would read that as "nothing to do" and close the card.
+    scope: 'Past trading',
+    action: '+ Post history',
+    // It writes to the books, so it takes the solid button beside General
+    // Journal Entry. Reading a report and rewriting a shop's history must not
+    // look like the same act.
+    creates: true,
+    // The same permission backfill_shop_ledger itself demands. ledger.post is
+    // NOT enough: replaying a whole history is heavier than posting one entry,
+    // and the RPC says so in its own first ten lines.
+    requires: 'ledger.close',
   },
   {
     key: 'audit',
@@ -90,22 +122,65 @@ export const LEDGER_VIEWS: {
     scope: 'All time',
     action: 'View log',
     creates: false,
+    requires: null,
   },
 ];
+
+/**
+ * The cards this user may actually open.
+ *
+ * A card whose door refuses them is dropped, not greyed. The hub has no
+ * vocabulary for a locked card, and inventing one for a single case would ask
+ * "why can't I?" on every visit while answering nothing. The permission is
+ * still enforced in the database -- this only stops an honest reader reaching a
+ * button that raises.
+ */
+export function visibleLedgerViews(can: (permission: Permission) => boolean): typeof LEDGER_VIEWS {
+  return LEDGER_VIEWS.filter((view) => view.requires === null || can(view.requires));
+}
+
+/**
+ * Post History's footer, which is the one that moves.
+ *
+ * With rows waiting it is a create: the solid button, a plus, and the count in
+ * place of a period, because "3,973 unposted" answers the same question "7
+ * days" does on the card beside it. With none it goes quiet and loses the plus
+ * -- opening it then creates nothing. The card stays either way, because "is
+ * everything posted?" is a question worth being able to ask.
+ */
+export function backfillFooter(unpostedRows: number | null): { scope: string; action: string; creates: boolean } {
+  // Null is "not known yet", not "none". Falls back to the static scope.
+  if (unpostedRows === null) return { scope: 'Past trading', action: '+ Post history', creates: true };
+  if (unpostedRows === 0) return { scope: 'Nothing unposted', action: 'Check', creates: false };
+  return { scope: `${unpostedRows.toLocaleString()} unposted`, action: '+ Post history', creates: true };
+}
 
 export function LedgerHub({
   onOpen,
   accountCount,
+  unpostedRows,
+  can,
 }: {
   onOpen: (view: LedgerView) => void;
   /** Null while the shell is still fetching. */
   accountCount: number | null;
+  /** How many rows are waiting to reach the ledger. Null while unknown. */
+  unpostedRows: number | null;
+  /**
+   * From the shell's useAuth, passed rather than read here. This module is
+   * imported by the nav test, and reaching for the auth context would drag the
+   * Supabase client in behind it and make the catalogue untestable without a
+   * runtime — the same split ledger-math.ts draws.
+   */
+  can: (permission: Permission) => boolean;
 }) {
-  const groups = LEDGER_VIEWS.filter((v) => v.group).reduce<Record<string, typeof LEDGER_VIEWS>>((acc, view) => {
-    const key = view.group as string;
-    acc[key] = [...(acc[key] ?? []), view];
-    return acc;
-  }, {});
+  const groups = visibleLedgerViews(can)
+    .filter((v) => v.group)
+    .reduce<Record<string, typeof LEDGER_VIEWS>>((acc, view) => {
+      const key = view.group as string;
+      acc[key] = [...(acc[key] ?? []), view];
+      return acc;
+    }, {});
 
   return (
     <View style={styles.wrap}>
@@ -118,7 +193,21 @@ export function LedgerHub({
               siblings. A cell takes its span and no more, however few there
               are in the row. */}
           <BentoGrid>
-            {views.map((view) => (
+            {views.map((view) => {
+              // The live footer where there is one, so the card says what is
+              // behind it rather than only what it is. Both fall back to the
+              // static scope while the count is still null, rather than
+              // flashing "0 accounts" at a shop that has 31 -- or, worse,
+              // "Nothing unposted" at one with two years outside its books.
+              const footer =
+                view.key === 'backfill'
+                  ? backfillFooter(unpostedRows)
+                  : {
+                      scope: view.key === 'accounts' && accountCount !== null ? `${accountCount} accounts` : view.scope,
+                      action: view.action,
+                      creates: view.creates,
+                    };
+              return (
               <BentoCell key={view.key} span={3}>
               <Pressable style={styles.cell} onPress={() => onOpen(view.key)} role="button">
                 <Card variant="bento" style={styles.card}>
@@ -128,21 +217,21 @@ export function LedgerHub({
                   <Text style={styles.title}>{view.label}</Text>
                   <Text style={styles.blurb}>{view.blurb}</Text>
                   <View style={styles.footer}>
-                    {/* The live count where there is one, so the card says what
-                        is behind it rather than only what it is. Falls back to
-                        the static scope while the count is still null, rather
-                        than flashing "0 accounts" at a shop that has 31. */}
-                    <Text style={styles.scope} numberOfLines={1}>
-                      {view.key === 'accounts' && accountCount !== null ? `${accountCount} accounts` : view.scope}
+                    <Text
+                      style={[styles.scope, view.key === 'backfill' && (unpostedRows ?? 0) > 0 && styles.scopeWaiting]}
+                      numberOfLines={1}
+                    >
+                      {footer.scope}
                     </Text>
-                    <View style={[styles.action, view.creates && styles.actionSolid]}>
-                      <Text style={[styles.actionText, view.creates && styles.actionTextSolid]}>{view.action}</Text>
+                    <View style={[styles.action, footer.creates && styles.actionSolid]}>
+                      <Text style={[styles.actionText, footer.creates && styles.actionTextSolid]}>{footer.action}</Text>
                     </View>
                   </View>
                 </Card>
               </Pressable>
               </BentoCell>
-            ))}
+              );
+            })}
           </BentoGrid>
         </View>
       ))}
@@ -174,6 +263,10 @@ const styles = StyleSheet.create({
   blurb: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 4, lineHeight: 16 },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 14 },
   scope: { fontSize: 11, color: theme.bentoMuted2, flexShrink: 1 },
+  // Only while something is actually waiting, and only on Post History. A shop
+  // that has never backfilled is in a normal state rather than an alarming one,
+  // so this is emphasis on a fact, not a warning.
+  scopeWaiting: { color: theme.warning, fontWeight: '800' },
   action: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.bentoSoft },
   actionSolid: { backgroundColor: theme.bentoInk },
   actionText: { fontSize: 11.5, fontWeight: '800', color: theme.bentoInk2 },

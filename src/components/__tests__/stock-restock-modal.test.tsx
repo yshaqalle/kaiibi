@@ -62,7 +62,12 @@ jest.mock('@/lib/products', () => ({
       updatedAt: '2026-01-01T00:00:00Z',
     },
   ]),
-  receiveStock: jest.fn(async () => {}),
+  // Returns the receipt id, as the real wrapper does. Not `undefined`: the id
+  // is what the logged expense carries as `stockReceiptId`, and it is what
+  // stops that expense debiting 1200 Inventory a second time for goods the
+  // delivery has already put there. A mock returning nothing made the two
+  // assertions below unable to tell the fix from the bug.
+  receiveStock: jest.fn(async () => 'receipt-1'),
 }));
 
 const { receiveStock } = jest.requireMock('@/lib/products') as { receiveStock: jest.Mock };
@@ -162,6 +167,7 @@ async function openWithALine(): Promise<ReactTestRenderer> {
 
 beforeEach(() => {
   receiveStock.mockClear();
+  receiveStock.mockImplementation(async () => 'receipt-1');
   createExpense.mockClear();
   createExpense.mockImplementation(async () => ({}));
 });
@@ -301,6 +307,15 @@ describe('StockRestockModal inventory-purchase expense', () => {
       locationId: 'loc-1',
       amountCents: 1000,
       category: 'inventory_purchase',
+      // THE LINK BACK TO THE DELIVERY, and the reason this row is not a
+      // double-post. receive_stock has already recorded these goods as
+      // Dr 1200 Inventory / Cr 2000 Accounts Payable; this expense is the shop
+      // PAYING for them, and the id is what tells the database to settle the
+      // payable (Dr 2000 / Cr the wallet) instead of buying the goods again.
+      // Drop it and inventory doubles while a payable is invented against a
+      // supplier who was handed cash -- with every journal entry still
+      // balancing, so nothing else in this repo goes red.
+      stockReceiptId: 'receipt-1',
     });
     // After the units, never before.
     expect(receiveStock.mock.invocationCallOrder[0]).toBeLessThan(createExpense.mock.invocationCallOrder[0]);
@@ -344,6 +359,13 @@ describe('StockRestockModal inventory-purchase expense', () => {
       },
     });
 
+    // A DIFFERENT receipt id per store, in plan order (Main then Second), so
+    // the assertion below can tell "each row carries its own delivery" from
+    // "both rows carry whichever one came back first".
+    receiveStock
+      .mockImplementationOnce(async () => 'receipt-main')
+      .mockImplementationOnce(async () => 'receipt-second');
+
     let tree!: ReactTestRenderer;
     await act(async () => {
       tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
@@ -359,9 +381,22 @@ describe('StockRestockModal inventory-purchase expense', () => {
     // Two rows, not one lump: per-store reporting would otherwise attribute
     // the whole delivery to whichever store committed first.
     expect(createExpense).toHaveBeenCalledTimes(2);
+    // Each row carries ITS OWN store's receipt id, not the first one's:
+    // pointing both at one delivery would settle that supplier's payable twice
+    // and leave the other store's standing.
     expect(createExpense.mock.calls.map((call) => call[1])).toEqual([
-      expect.objectContaining({ locationId: 'loc-1', amountCents: 600, category: 'inventory_purchase' }),
-      expect.objectContaining({ locationId: 'loc-2', amountCents: 1500, category: 'inventory_purchase' }),
+      expect.objectContaining({
+        locationId: 'loc-1',
+        amountCents: 600,
+        category: 'inventory_purchase',
+        stockReceiptId: 'receipt-main',
+      }),
+      expect.objectContaining({
+        locationId: 'loc-2',
+        amountCents: 1500,
+        category: 'inventory_purchase',
+        stockReceiptId: 'receipt-second',
+      }),
     ]);
   });
 
@@ -550,7 +585,7 @@ describe('StockRestockModal sheet-tab footer', () => {
     // Main goes through; Second fails. plan.receipts is keyed by insertion
     // order, which is row order, so this is the Main call then the Second
     // call -- matching the two mockImplementationOnce calls below in order.
-    receiveStock.mockImplementationOnce(async () => {}).mockImplementationOnce(async () => {
+    receiveStock.mockImplementationOnce(async () => 'receipt-main').mockImplementationOnce(async () => {
       throw new Error('boom');
     });
 
