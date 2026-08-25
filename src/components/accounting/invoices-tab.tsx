@@ -239,6 +239,15 @@ export function InvoicesTab({
             becomes stale. The proper fix is the invoices<->stock_receipts link
             in phase 3; until then this is the whole defence.
 
+            IT CAN NO LONGER RECUR, AND THE COPY SAYS SO. A goods bill now has
+            to name the delivery it pays for (`invoices.stock_receipt_id`,
+            20260908001900) and the database refuses one that does not, so this
+            figure can only be describing bills entered before that door existed.
+            Without that clause a shopkeeper who fixes it once has no way to know
+            whether it is about to come back, and the honest answer -- it is not
+            -- is the difference between a caveat worth acting on and one worth
+            ignoring.
+
             BUT THE DIAGNOSIS IS ONLY EXCLUSIVE ONCE THE HISTORY IS POSTED, AND
             OFFERING IT BEFORE THEN IS DESTRUCTIVE. A bill of ANY category
             entered before auto-posting shipped credited nothing, while paying it
@@ -275,7 +284,7 @@ export function InvoicesTab({
             tone="wrong"
             action={{ label: 'Record the delivery in Inventory', onPress: () => router.push('/inventory') }}
           >
-            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payable.debitCents)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself.`}
+            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payable.debitCents)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter that missing delivery — only one that was never received, because receiving the same goods twice cannot be undone — and this corrects itself. New bills for goods now have to name their delivery, so this cannot happen again.`}
           </Caveat>
         ) : null}
       </BentoCard>
@@ -294,6 +303,16 @@ export function InvoicesTab({
           {visible.map((invoice) => {
             const status = invoiceStatus(invoice);
             const outstanding = balanceCents(invoice);
+            // A GOODS BILL WITH NO DELIVERY BEHIND IT — the row that puts
+            // Accounts Payable into debit when it is paid. Only reachable for
+            // bills entered before 20260908001900 closed that door, and named
+            // per row because the card-level caveat above can only say the shop
+            // HAS the problem, not which bill is it.
+            //
+            // A badge and a line of meta, deliberately NOT a `Caveat`: a Caveat
+            // qualifies a figure the card is showing, and seven amber blocks
+            // stacked in a list is how a reader learns to skip the whole family.
+            const unlinkedGoods = invoice.category === 'inventory_purchase' && invoice.stockReceiptId === null;
             return (
               <View key={invoice.id} style={styles.card}>
                 <View style={[styles.cardTop, compact && styles.cardTopCompact]}>
@@ -305,12 +324,34 @@ export function InvoicesTab({
                     </Text>
                   </View>
                   <View style={[styles.cardRight, compact && styles.cardRightCompact]}>
-                    <Badge variant="bento" label={INVOICE_STATUS_LABELS[status]} tone={INVOICE_STATUS_TONES[status]} />
+                    <View style={styles.badgeRow}>
+                      <Badge variant="bento" label={INVOICE_STATUS_LABELS[status]} tone={INVOICE_STATUS_TONES[status]} />
+                      {unlinkedGoods && <Badge variant="bento" label="No delivery" tone="warning" />}
+                    </View>
                     <Text style={styles.cardAmount}>
                       {outstanding > 0 ? `${formatAccountingCents(outstanding)} owed` : formatAccountingCents(invoice.amountCents)}
                     </Text>
                   </View>
                 </View>
+                {/* THE SAFE REMEDY FIRST. This flag is on every goods bill
+                    entered before the link existed, and for most of them the
+                    delivery WAS received properly — only the link is missing,
+                    because there was none to set. "Record the delivery in
+                    Inventory" told to one of those is an instruction to receive
+                    the same goods a second time: the quantity doubles, the
+                    delivery posts Dr 1200 / Cr 2000 and the revaluation posts
+                    Dr 1200 / Cr 3000, and stock_receipts has a read policy and
+                    nothing else, so nothing takes it back. Delete-and-re-enter
+                    is correct either way, so it leads; receiving is named only
+                    for goods that never reached Inventory at all. */}
+                {unlinkedGoods && (
+                  <Text style={styles.cardFlag} testID={`invoice-unlinked-${invoice.id}`}>
+                    A stock purchase with no delivery behind it. Paying it pushes Accounts Payable the wrong way. If that
+                    delivery is already in Inventory, delete this bill and enter it again against it. Record the delivery
+                    only if those goods were never received into Inventory at all — receiving the same goods twice cannot
+                    be undone.
+                  </Text>
+                )}
                 {canManage && (
                   <View style={styles.actionRow}>
                     {outstanding > 0 && (
@@ -388,6 +429,8 @@ const styles = StyleSheet.create({
   cardDesc: { fontSize: 12, color: '#555555', marginTop: 2 },
   cardMeta: { fontSize: 11, color: '#999999', marginTop: 3 },
   cardRight: { alignItems: 'flex-end', gap: 6 },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  cardFlag: { fontSize: 11.5, color: '#8A5A05', lineHeight: 16, marginTop: 9 },
   cardRightCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginTop: 10 },
   cardAmount: { fontSize: 14, fontWeight: '800', color: '#111111' },
 

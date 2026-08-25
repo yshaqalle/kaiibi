@@ -33,6 +33,7 @@ function mapInvoiceRow(row: any): Invoice {
     dueOn: row.due_on,
     amountCents: row.amount_cents,
     paidCents: row.paid_cents ?? 0,
+    stockReceiptId: row.stock_receipt_id ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -51,6 +52,14 @@ function toRow(input: Partial<NewInvoiceInput>) {
     ...(input.issuedOn !== undefined && { issued_on: input.issuedOn }),
     ...(input.dueOn !== undefined && { due_on: input.dueOn }),
     ...(input.amountCents !== undefined && { amount_cents: input.amountCents }),
+    // Sent on UPDATE as well as INSERT, and that is deliberate rather than
+    // careless. The column is immutable in the database
+    // (invoices_delivery_link_is_final, 20260908001900) and its trigger has a
+    // WHEN clause, so re-sending the SAME value costs nothing and never fires.
+    // Sending a DIFFERENT one raises a readable message — which is what should
+    // happen if this form ever grows a control that appears to let the link move
+    // and silently does not. Omitting the field here would hide that bug.
+    ...(input.stockReceiptId !== undefined && { stock_receipt_id: input.stockReceiptId }),
   };
 }
 

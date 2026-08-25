@@ -1,388 +1,589 @@
--- The stock that was already on the shelf before the app started recording
--- deliveries -- and the entry that finally puts it into the ledger.
+-- A bill says which delivery it pays for, and the ledger stops guessing.
 --
--- ===========================================================================
--- THE DEFECT, AS FOUND ON A REAL SHOP
--- ===========================================================================
+-- ## The guess, and the two ways it fails
 --
--- backfill_shop_ledger (20260908000700) replays SOURCE ROWS. Every one of its
--- eight kinds starts from a row somebody wrote: a sale, a refund, a delivery, a
--- count, a bill. That is exactly right for everything the shop DID, and it has
--- one hole the size of the shop's whole starting position:
+-- receive_stock posts Dr 1200 Inventory / Cr 2000 Accounts Payable: goods
+-- arrived, the supplier is owed. record_invoice_payment posts Dr 2000 / Cr the
+-- wallet: the supplier is paid. Those two net out ONLY IF the bill being paid
+-- is for the delivery that raised the payable -- and until this migration the
+-- app decided that by CATEGORY. 20260908000800's branch reads
 --
---   THERE IS NO SOURCE ROW FOR STOCK THAT WAS ALREADY THERE.
+--     invoice_id set and category = 'inventory_purchase' -> post nothing
 --
--- A product created with `stock: 40` writes products.stock and, through
--- product_opening_stock (20260810000000), one product_location_stock row. A CSV
--- import does the same, forty times. Neither writes a stock_receipts row,
--- because nothing was received -- the shopkeeper was describing what was
--- already on the shelf. So the replay records that stock LEAVING, in COGS and
--- in shrinkage, and has no record of it ever ARRIVING.
+-- on the assumption that a delivery already raised the payable. That assumption
+-- is about something the database was never told, and it is wrong in both
+-- directions. 20260908000800 states both at length; in short:
 --
--- On the real `yusefshop`, after its 54 entries posted and every tie-out in
--- verify-backfill.sql reconciled to the cent:
+--   UNDER-STATED. A goods bill with no delivery behind it credits 2000 nowhere,
+--   so paying it drives Accounts Payable into DEBIT -- a negative liability on a
+--   balance sheet. PR #76 put a `wrong`-toned Caveat on the Bills screen so it is
+--   at least visible. This migration is what stops it happening.
 --
---     Cr 1200 from COGS         234.00
---     Cr 1200 from shrinkage    866.00
---                             --------
---     total credits to 1200    1100.00      trial balance says 1100.00
---     debits to 1200              0.00      <-- nothing ever debited inventory
+--   OVER-STATED. A bill FOR GOODS entered under `supplies` -- one wrong tap on
+--   the category picker -- takes the generic arm and posts Dr 6400 / Cr 2000 ON
+--   TOP OF the delivery's Dr 1200 / Cr 2000. The payable is DOUBLED. The category
+--   exclusion cannot see this, because the category is exactly what is wrong.
 --
--- 1200 Inventory in CREDIT $1,100: a negative asset on the balance sheet, over
--- books whose trial balance is perfectly zero. Both halves of every entry were
--- right; the opening position was missing. That is why nothing caught it, and
--- it is the failure mode this whole phase keeps circling -- a number that is
--- plausible, internally consistent, and wrong.
+-- Both are one root cause -- no link between `invoices` and `stock_receipts` --
+-- and every entry involved balances, so the trial balance zeroes throughout.
 --
--- The design called for the fix and the plan omitted it.
--- docs/superpowers/specs/2026-08-22-accounting-standards-design.md, Risks:
--- phase 2b "replays every existing sale, refund, bill, payment, pay run and
--- stock receipt into journal entries, THEN POSTS ONE OPENING-BALANCE ENTRY PER
--- SHOP".
+-- THE SHAPE HAS BITTEN THIS BRANCH BEFORE. 20260908000800 removed a wholesale
+-- invoice_id exclusion whose stated premise ("the bill recognised the cost") was
+-- false; the row it was skipping WAS the recognition. A guess about what another
+-- door did, written as a comment and trusted for four migrations. So the column
+-- below is a recorded fact, and the branch keys on it rather than on a category.
 --
--- Both accounts were provisioned for it and both were verified before this was
--- written: default_chart_of_accounts() (20260904000100) seeds
--- `3000 Owner's Capital` for every shop, and journal_entries.source's CHECK
--- already lists 'opening' alongside the thirteen others.
+-- ## The decision: shut the door, do not post around the gap
 --
---     Dr 1200 Inventory        the stock no delivery accounts for
---     Cr 3000 Owner's Capital  the same
+-- The obvious branch once the column exists is "linked posts nothing, unlinked
+-- posts Dr 1200 / Cr 2000". IT IS WRONG, and the reason is worth writing out
+-- because it is what a reader reaches for first. THE TRIGGER CANNOT TELL THE TWO
+-- UNLINKED CASES APART -- which is the whole problem, arriving one layer down:
 --
--- ===========================================================================
--- THE AMOUNT. THIS IS THE PART THAT HAD TO BE REASONED OUT.
--- ===========================================================================
+--   A. The goods DID arrive and were recorded through Restock; only the link is
+--      missing. Posting Dr 1200 / Cr 2000 DOUBLES both the stock and the payable
+--      -- the over-stated failure above, in its most expensive form.
 --
--- Three framings were considered. Only the third survives.
+--   B. The goods arrived and were NEVER RECORDED AT ALL. products.stock has not
+--      heard of them. Posting Dr 1200 makes the ledger say inventory value rose
+--      while the quantity did not -- value and quantity diverge, invisibly. And
+--      it is worse than it looks: opening_inventory_gap (20260908001300) is
+--      "stock on hand less what the ledger holds against 1200", so a phantom
+--      debit SHRINKS the opening balance by exactly the phantom -- permanently,
+--      because the opening marker means a second replay can never correct it.
+--      That is the negative-asset failure 20260908001800 was written to remove,
+--      re-entering from the other end.
 --
--- REJECTED 1: "today's stock at today's cost". Stock on hand now is the
--- RESIDUE of the opening position, not the opening position: the shop has sold
--- and lost stock since, and every one of those movements is ALREADY POSTED by
--- the replay. Debiting 1200 with today's holding on top of them leaves 1200
--- reading (today's stock - everything that ever left), which is too low by the
--- whole of COGS and shrinkage. On yusefshop it would leave 1200 at
--- (stock - 1100.00) -- still negative for any shop that has sold more than it
--- currently holds, which is most shops.
+-- In case B the shop's stock records are ALREADY WRONG whatever the ledger does.
+-- Posting Dr 1200 does not fix that; it hides it, by making the value side agree
+-- with a quantity that is missing. Today's negative payable is at least visible
+-- and flagged. 20260804000000's header states the house instinct plainly: a
+-- precise-looking number that is simply wrong is worse than an admitted gap.
 --
--- REJECTED 2: "reconstruct the opening QUANTITY per product, then value it".
--- Opening units = units held today + units sold + units lost - units received
--- - units found. Attractive, and not reconstructible:
---   * a stock_loss EXPENSE carries an amount and no quantity at all, so units
---     lost is simply unavailable for the shop whose shrinkage was logged that
---     way -- which is yusefshop's 866.00;
---   * a CSV re-import or a product-form edit SETS stock and leaves no trace of
---     what it overwrote;
---   * a transfer moves units between locations with no cost record of its own.
--- Any reconstruction is therefore a guess dressed as arithmetic, and it would
--- be valued at TODAY's weighted average while the movements it is undoing were
--- posted at the costs FROZEN on their rows. The two disagree by exactly the
--- amount every re-costing has moved since, and the residue lands in 1200 --
--- which is the thing this entry exists to make true.
+-- So: the link is REQUIRED AT INSERT for an inventory_purchase bill, OFFERED for
+-- every other category, and IMMUTABLE afterwards.
 --
--- CHOSEN: THE AMOUNT THAT MAKES 1200 TELL THE TRUTH.
+-- ## Why immutable, and it is not conservatism
 --
---   opening = (value of stock actually on hand)
---             - (everything the ledger has already put through 1200)
+-- expenses_reverse_on_edit and expenses_post_to_ledger_on_edit (20260908001000)
+-- fire on a FIXED COLUMN LIST on `expenses`, and nothing on `expenses` changes
+-- when the INVOICE's link does -- sync_invoice_expense copies location, date,
+-- amount, category, vendor and note, and none of those move. So the posting
+-- would not follow the link even if the link were allowed to move. A mutable
+-- link therefore means the live entry was written under one answer while the
+-- replay reads another, for the same row: the exact live/replay divergence this
+-- whole phase is built on not having. Set once, at insert, and the two cannot
+-- disagree.
 --
--- Read the second term as "every 1200 line the shop will hold once this run
--- finishes" -- the lines that were already there, plus the ones the eight
--- replays just wrote. Then by construction:
+-- Correcting a mis-picked delivery is delete-and-re-enter, which is already a
+-- complete remedy: 20260908001000's reverse_expense_entry and
+-- reverse_invoice_payment_entry take the bill's cost AND its payments off
+-- together (Task 7d).
 --
---   1200 after = already-there + just-written + opening
---              = already-there + just-written
---                + on-hand - already-there - just-written
---              = on-hand.
+-- ## What existing bills do: NOTHING CHANGES, and nothing is re-posted
 --
--- That is the whole derivation, and it is why this framing is not one candidate
--- among several: it is the only one whose result is GUARANTEED to leave the
--- balance sheet stating the stock the shop actually has. The other two land
--- near it and the difference is invisible.
+-- Every invoice that exists on the day this ships has stock_receipt_id null. The
+-- second arm of the branch below -- unlinked, inventory_purchase, post nothing --
+-- is exactly what those rows do today, live and on replay, so no history moves
+-- and no figure on any report changes. What that arm no longer does is CLAIM
+-- that a delivery recognised the cost. It is an admitted gap for rows the link
+-- cannot describe, and it is unreachable for a bill entered from now on.
 --
--- Four consequences worth stating out loud, because each is a requirement
--- somebody would otherwise have to add separately:
+-- ## The shop with no `inventory` module
 --
---   * A SHOP WHOSE STOCK REALLY DID COME THROUGH receive_stock CANNOT BE
---     DOUBLE-COUNTED. Its deliveries already debited 1200; under a moving
---     weighted average the running total of 1200 IS quantity x average cost, so
---     on-hand minus the ledger is zero and NOTHING IS POSTED. The no-double-count
---     rule is not a special case here, it is arithmetic.
---   * A SHOP WITH NO STOCK AND NO HISTORY gets zero, and zero posts nothing --
---     which it must, because journal_lines carries check (amount_cents <> 0)
---     and a two-line entry of zeroes cannot be written at all.
---   * THE SIGN IS NOT FORCED POSITIVE. A shop that logged inventory_purchase
---     expenses for goods it no longer holds, or whose shelf was re-imported
---     downwards, has a ledger claiming more stock than exists; the correction is
---     Cr 1200 / Dr 3000, and it is posted. An opening entry that only ever ran
---     one way -- a greatest(0, ...) clamp, which is the tempting shape because
---     "an opening balance cannot be negative" sounds obviously true -- would
---     leave exactly half of the shops with a 1200 that lies, and the half it
---     abandoned is the one whose books OVERSTATE an asset, which is the more
---     dangerous direction of the two.
---
---     AND THE COUNTERPART IS STILL 3000, not 5100 Inventory Shrinkage, which
---     was the other candidate and is the more obvious reading of "the books
---     have stock the shelf does not". Rejected for two reasons. An opening
---     entry is a BALANCE SHEET entry by definition -- it states the position
---     the books start from -- and 5100 sits in cost of sales, so the shrinkage
---     reading would put a loss into the P&L of the shop's very first month,
---     back-dated, for stock that was mostly lost later than that. And it would
---     make one entry mean two different things depending on its sign, which is
---     how an entry becomes impossible to explain to the person whose capital
---     account it moved. A shop whose negative gap really is shrinkage has a
---     better instrument already: record a stock count. That posts Dr 5100 /
---     Cr 1200 with a date and a reason -- and the opening balance then computes
---     to zero, because the plug only ever picks up what nothing else recorded.
---   * IT IS A PLUG, AND A PLUG ABSORBS ERROR. If the replay's COGS were wrong,
---     this entry would silently make 1200 right and push the difference into
---     capital. That is accepted, for the reason every conversion accepts it:
---     opening capital IS the plug in a real set of opening balances (assets
---     less liabilities), the alternative is a knowingly wrong balance sheet,
---     and the replay's COGS is pinned independently by verify-backfill.sql's
---     3a-3i against the source rows. What this must never do is HIDE the plug,
---     which is why it is one named entry against Owner's Capital rather than a
---     quiet adjustment folded into a replayed entry.
---
--- ---------------------------------------------------------------------------
--- "VALUE OF STOCK ACTUALLY ON HAND" -- AND WHAT AN UNCOSTED PRODUCT CONTRIBUTES
--- ---------------------------------------------------------------------------
---
---   sum(products.stock * products.cost_cents) where cost_cents is not null
---
--- products.cost_cents is a WEIGHTED AVERAGE since 20260907000000, which is
--- what makes `quantity x cost` the right valuation rather than an approximation
--- of one: a moving average is defined so that quantity x average equals the
--- running total of what was paid, which is precisely what a delivery debits
--- into 1200. FIFO layers would need the layers; the average needs two columns.
---
--- products.stock, not product_location_stock, even though the location table is
--- the finer one. products.stock is the rollup the app itself shows everywhere,
--- it is maintained from the location rows by product_stock_is_derived, and it
--- survives the one case the location rows do not: product_opening_stock returns
--- early for a shop that has no location yet, leaving products.stock set and no
--- location row at all. Valuing from the location table would silently value
--- that shop's whole stock at nothing.
---
--- AN UNCOSTED PRODUCT CONTRIBUTES NOTHING, AND NOTHING IS NOT ZERO. The rule
--- holds throughout this codebase -- isUncosted() in src/lib/product-costing.ts,
--- costOfGoodsSold() in sales-reporting.ts, and every `unit_cost_cents is not
--- null` in the replay above. But there is a reason here sharper than
--- consistency, and it is the one that decides it:
---
---   NOTHING TAKES AN UNCOSTED PRODUCT BACK OUT OF 1200 WHILE IT STAYS
---   UNCOSTED. A sale of it posts no COGS (its frozen unit_cost_cents is null
---   and the sales statement excludes it); a count variance on it posts
---   nothing; a delivery of it is excluded from the receipt's value. So a shop
---   that opened with 50 uncosted units and left them that way would, if we
---   valued them here, carry their value in 1200 FOR EVER -- inventory
---   permanently overstated by a figure that can never be worked off, growing
---   every time somebody imports another uncosted line. Valuing them at zero is
---   the only treatment under which 1200 stays equal to the stock it can
---   actually account for.
---
--- THAT SECOND SENTENCE WAS TRUE ONLY OF A PRODUCT THAT STAYS UNCOSTED, AND
--- 20260908001800 IS WHAT MAKES THE PARAGRAPH ABOVE SAFE TO READ.
---
--- As written when this file shipped, "nothing takes an uncosted product back
--- out of 1200" holds until the product IS costed, and the moment it is, 1200
--- was permanently UNDERSTATED by the opening quantity. receive_stock costs the
--- ENTIRE HOLDING at the delivery's price when stock was uncosted -- it cannot
--- weight an average against a cost that does not exist -- so:
---
---   50 units uncosted        -> 0 in the opening gap
---   a delivery of 10 @ 100   -> cost_cents becomes 100, Dr 1200 by 1,000
---   selling all 60           -> Cr 1200 by 6,000
---   1200 USED TO END AT     -> -5,000
---
--- which is the same negative asset this migration exists to remove, and the
--- opening marker meant the backfill could never come back and correct it.
---
--- THE EXCLUSION ABOVE IS UNCHANGED AND STILL RIGHT -- there is no honest value
--- to put on stock nobody has priced, and inventing one is worse than a gap.
--- What was missing was the other end: costing a product that already had stock
--- is a REVALUATION, and a revaluation has to reach the ledger.
--- 20260908001800 posts it, at the moment the cost appears, as its own entry --
--- Dr 1200 Inventory / Cr 3000 Owner's Capital for the units already on the
--- shelf, the same treatment and the same account this file gives the same
--- stock. The delivery above now debits 1,000 + 5,000 and 1200 ends at 0
--- against an empty shelf, not at -5,000.
---
--- NOTHING IN THIS FILE CHANGED, AND THAT IS THE RESULT. A revaluation is a
--- posted entry with a line on 1200, so it enters opening_inventory_gap's second
--- term the moment it is written; it has no source row, so it never enters the
--- third term or unposted_ledger_sources, and the door and the replay still
--- cannot disagree about what a run will write. Check 21b in verify-backfill.sql
--- runs the whole sequence above and asserts the number 1200 really ends at, so
--- nobody can re-derive either "1200 can never go negative again" or the
--- superseded residue from a comment.
---
--- None of which is to say the stock is worthless. It is to say the LEDGER has
--- nothing to say about it, which is true, and the place that says so is the
--- Inventory Valuation report's uncosted disclosure -- not a number invented
--- here. In particular NOT price_cents: valuing stock at what the shop hopes to
--- sell it for capitalises unearned profit into an asset, which is the one thing
--- every inventory standard in existence forbids.
---
--- ---------------------------------------------------------------------------
--- THE DATE
--- ---------------------------------------------------------------------------
---
--- THE FIRST DAY OF THE MONTH THE SHOP'S LEDGER BEGINS IN.
---
---   date_trunc('month', least(oldest entry the shop has, oldest entry this run
---                             is about to write))
---
--- Dated TODAY it would be wrong in the way the original defect is wrong. Every
--- balance sheet the shop can draw for any date before today would show 1200
--- negative -- the whole of its trading history, every closed month, every
--- period an accountant might actually look at -- and the figure would only come
--- right at the instant the backfill happened to be run. The replay dates every
--- other entry from its source row precisely so that past months read truly
--- (20260908000700, ## Dates); an opening balance stamped at run time undoes
--- that for the one account this task is about.
---
--- Dated the first day of the FIRST MONTH rather than the day of the first
--- transaction, for two reasons. It is what an opening balance MEANS -- the
--- position the books start from, before the first day's trading, which is the
--- convention every accountant reading these statements will expect. And it is
--- unambiguous where "the same day as the first sale" is not: journal entries
--- carry a DATE and no intra-day ordering, so an opening balance sharing a date
--- with the sale that consumes it is a coin toss about which came first.
---
--- Not the day BEFORE the first entry either, which was the other candidate.
--- That falls into the previous MONTH whenever the shop's first trade was on the
--- 1st, creating an accounting period for a month the shop did not exist in and
--- putting the opening balance in a month with nothing else in it.
---
--- WHAT IF THAT MONTH IS CLOSED, OR LOCKED? It receives the entry, exactly as
--- every other back-dated entry in the replay does, and for the reason
--- 20260908000700 step 2 sets out at length: a per-row gate on open_period_for
--- is what would leave a shop with half a ledger and no way to finish. The
--- oldest month is the one MOST likely to be shut, so this is not a corner case
--- -- and it is not silent either. unposted_ledger_period_exposure reads off
--- unposted_ledger_sources, which now carries an 'opening' row with this date,
--- so the Post History card counts the opening entry among the entries a shut
--- month is about to receive, before the button is pressed, with no change to
--- that function at all.
---
--- The fallback, for a shop with stock and no ledger whatsoever -- a shop that
--- imported a catalogue and has not yet sold anything -- is the current month.
--- Its books begin now because there is nothing earlier for them to begin at.
---
--- ---------------------------------------------------------------------------
--- PER SHOP, NOT PER LOCATION -- AND THIS WAS THE CLOSE ONE
--- ---------------------------------------------------------------------------
---
--- ONE entry, ONE Dr 1200 line, ONE Cr 3000 line, no location on either.
---
--- The case for splitting it per location is real: stock lives in
--- product_location_stock, journal_lines carries location_id, every other
--- statement in the replay stamps the source row's location, and kaiibi reports
--- profit per branch. A per-location split would let each branch's 1200 equal
--- its own shelf.
---
--- It was rejected on three grounds, in increasing order of how much they matter.
---
---   1. NOTHING READS 1200 BY LOCATION. Trial Balance, Journals and the Chart of
---      Accounts are all shop-wide; not one component under
---      src/components/accounting/ledger/ mentions a location. A split would be
---      precision no reader can see, bought at the cost below.
---   2. THE RESIDUE IS NOT ATTRIBUTABLE. The amount is on-hand less what the
---      ledger already moved, and a large part of what the ledger already moved
---      CARRIES NO LOCATION AT ALL: sales.location_id was added by
---      20260809000000 and expenses.location_id by 20260816000000, so every row
---      older than those is null, and an expense can still be entered without
---      one today. Splitting the plug per location means every one of those
---      historical credits falls into a null bucket while today's shelf split is
---      charged to the branches -- so each branch's 1200 comes out overstated by
---      its share of the shop's own history, and a phantom null-location
---      liability holds the difference. Each branch figure would look exact and
---      be wrong.
---   3. TODAY'S SHELF IS NOT THE OPENING SHELF. Even with perfect location data,
---      splitting an OPENING position by where the stock sits TODAY attributes
---      it by an accident of the last transfer. A shop that moved its opening
---      stock from the warehouse to the kiosk last week would be told the kiosk
---      opened with all of it.
---
--- So the entry states the one thing that is actually known -- the shop as a
--- whole opened with this much stock -- and states it without a location, the
--- same way post_journal_entry leaves a manual entry. If per-location inventory
--- reporting is ever built, the honest fix is to give the MOVEMENTS their
--- locations, not to split this plug; a split here would make that work harder
--- by leaving a plausible-looking figure to reconcile against.
---
--- ---------------------------------------------------------------------------
--- IDEMPOTENCY: source = 'opening' IS NOT SUFFICIENT ON ITS OWN
--- ---------------------------------------------------------------------------
---
--- The requirement is that backfill_shop_ledger, which will be re-run, never
--- posts a second opening entry. Two things are checked, and the obvious handle
--- is only one of them.
---
---   * `exists (an entry with source = 'opening' AND A LINE ON 1200)`, not
---     `source = 'opening'` alone. 'opening' is the source for EVERY opening
---     balance, and phase 3 brings the rest of them -- opening cash, opening
---     receivables, opening payables, the whole conversion. The moment one of
---     those exists, a bare `source = 'opening'` test would report that
---     inventory had already been opened when it had not, and the shop would
---     keep its negative 1200 for ever with nothing to say why. Keyed on the
---     ACCOUNT, this stays true when the rest of the conversion arrives.
---   * AND the amount itself, which is self-cancelling. Once the entry is
---     posted, its own Dr 1200 is part of "what the ledger has already put
---     through 1200", so the gap recomputes to zero and a second run has nothing
---     to write even if the marker test were deleted.
---
--- Neither is redundant. The gap alone would fail on DRIFT: re-cost a product
--- and on-hand moves while the ledger does not, so a later run would post a
--- second "opening" entry -- a correction, back-dated into the shop's first
--- month, wearing the name of an opening balance. The marker alone would fail
--- for the reason above. Both, and an opening balance is written exactly once
--- per shop, for ever. (A re-costing does need to reach the ledger; that is
--- inventory revaluation, it is phase 3's, and it is not this entry.)
---
--- ---------------------------------------------------------------------------
--- THE DOOR AND THE RPC STILL AGREE, WHICH IS THIS PHASE'S LOAD-BEARING PROPERTY
--- ---------------------------------------------------------------------------
---
--- unposted_ledger_sources (20260908001100) exists so that the Post History card
--- and the replay cannot disagree about what "unposted" means. The opening entry
--- is something a run WRITES, so it has to appear there -- and it is the one
--- row whose existence depends on an AMOUNT rather than on a source row.
---
--- Which creates the difficulty this file's shape is a response to: the amount
--- is "on-hand less everything the ledger will hold AFTER the run", and before
--- the run that includes lines nobody has written yet. The door cannot see them.
---
--- Resolved by ONE definition called from BOTH sides, never two:
---
---   opening_inventory_gap(shop) = on-hand
---                               - 1200 lines that exist
---                               - 1200 lines the replay is ABOUT TO write
---
--- The third term is computed over unposted_ledger_source_rows, so it inherits
--- the eight per-kind predicates rather than copying them. Called by the door
--- BEFORE a run, all three terms are live. Called by the replay AFTER its lines
--- are in, the third term is EMPTY BY CONSTRUCTION -- every source row now
--- carries a journal_entry_id -- and its value has simply moved into the second.
--- Same function, same number, two moments. verify-backfill.sql asserts the two
--- against each other to the cent, so a drift in the prediction reddens a check
--- rather than quietly making the door's promise false.
---
--- The view is therefore split in two: unposted_ledger_source_rows holds the
--- eight arms exactly as 20260908001100 wrote them, and unposted_ledger_sources
--- becomes that plus the opening arm. A view cannot reference itself, and the
--- opening arm needs both the other arms' dates and their inventory movement --
--- so the layer is what lets the eight predicates stay written once.
+-- receive_stock is gated on it (20260902000000), so such a shop cannot record a
+-- delivery at all and requiring a link would brick stock-purchase bills for a
+-- whole class of shop. The door therefore asks shop_has_module first, and a shop
+-- without inventory keeps today's behaviour exactly -- posts nothing, admitted
+-- gap. Stated rather than silent: it is the one shop shape this migration does
+-- not improve.
 
 -- ---------------------------------------------------------------------------
--- 1. The eight source arms, unchanged, under their own name
+-- 1. The column
 -- ---------------------------------------------------------------------------
 --
--- Character for character what 20260908001100 defined, moved down one layer so
--- the opening arm can read it. Nothing about the predicates has changed, AND
--- NEITHER HAS THE COMMENT ON EACH ARM: they come across with the SQL. Each one
--- names the trap its predicate exists to avoid, and a copy-forward that keeps
--- the code and drops the reasoning leaves the next reader with eight clauses
--- that look like they could be simplified. 20260908001100's header carries the
--- same list in prose; these are the per-arm half of it.
+-- ON DELETE SET NULL, and the choice is between three bad-looking options.
+-- CASCADE would delete a bill because a delivery went, which loses a real
+-- liability. RESTRICT/NO ACTION would fire during a shop delete, where invoices
+-- and stock_receipts both cascade off `shops` in one statement and the order is
+-- not ours to choose -- exactly the failure b2f66fd had to fix once already.
+-- SET NULL leaves a bill that no longer names a delivery, which is honest: the
+-- delivery's own Dr 1200 / Cr 2000 was reversed on the same cascade
+-- (20260908001500), so there is nothing left for the bill to have been settling.
+-- It also never fires in practice -- stock_receipts has no delete policy, no
+-- client delete and no RPC that removes one.
+--
+-- The row it leaves violates no invariant this migration states, because the
+-- invariant is about CREATION, not about the row for ever. See the guard below.
+alter table public.invoices
+  add column if not exists stock_receipt_id uuid references public.stock_receipts(id) on delete set null;
+
+create index if not exists invoices_stock_receipt_id_idx on public.invoices(stock_receipt_id);
+
+-- ONE BILL PER DELIVERY, and this is not tidiness. Two bills naming the same
+-- delivery would each post nothing while each of their payments debits 2000, so
+-- the payable goes negative by a whole delivery's value -- the very failure the
+-- column exists to close, reached through the column itself.
+--
+-- Partial, so the nulls every existing bill carries do not collide.
+create unique index if not exists invoices_stock_receipt_id_key
+  on public.invoices(stock_receipt_id) where stock_receipt_id is not null;
+
+comment on column public.invoices.stock_receipt_id is
+  'The delivery this bill pays for. Set when the bill is entered and immutable afterwards -- what a bill posts is decided once, or the live entry and the replay disagree about the same row. A bill carrying one posts NOTHING, whatever its category: receive_stock already posted Dr 1200 / Cr 2000 for those goods and record_invoice_payment''s Dr 2000 clears it. Required for an inventory_purchase bill in a shop that has the inventory module.';
+
+-- ---------------------------------------------------------------------------
+-- 2. The door
+-- ---------------------------------------------------------------------------
+--
+-- A trigger rather than a CHECK constraint, for three reasons that each rule the
+-- constraint out on its own:
+--
+--   * A plain CHECK is validated against EVERY EXISTING ROW, and every existing
+--     goods bill would fail it. The migration would not apply.
+--   * A NOT VALID CHECK skips the existing rows but is still enforced on UPDATE,
+--     so an old unlinked goods bill could never have its due date corrected
+--     again -- and the error would be a raw constraint name.
+--   * The condition reads another table (the delivery's costed value) and asks
+--     shop_has_module. A CHECK may do neither.
+--
+-- The messages are written to be read by a shopkeeper, because they surface
+-- verbatim: invoice-editor-modal.tsx's extractErrorMessage passes any message it
+-- does not recognise straight through to the form.
+create or replace function public.guard_invoice_delivery_link() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_receipt_shop uuid;
+  v_value_cents  bigint;
+begin
+  -- The UPDATE arm. Reached only through the WHEN clause on the second trigger
+  -- below, so an ordinary edit -- amount, dates, category, vendor -- never comes
+  -- here and record_invoice_payment's paid_cents update never does either.
+  if tg_op = 'UPDATE' then
+    raise exception 'Which delivery a bill pays for is fixed when the bill is entered and cannot be changed afterwards. Delete this bill and enter it again against the right delivery -- that takes its cost and any payments off your books together.'
+      using errcode = 'P0001';
+  end if;
+
+  if new.stock_receipt_id is null then
+    -- shop_has_module FIRST. A shop without `inventory` cannot record a delivery
+    -- at all, so demanding one would refuse a bill it has no way to satisfy.
+    if new.category = 'inventory_purchase' and public.shop_has_module(new.shop_id, 'inventory') then
+      raise exception 'A stock purchase has to say which delivery it pays for, so your stock and your books agree about the same goods. Receive the delivery in Inventory first and then enter this bill against it -- or, if this bill is not for goods, change what it is for.'
+        using errcode = 'P0001';
+    end if;
+    return new;
+  end if;
+
+  -- Scoped to the bill's own shop. This function is SECURITY DEFINER, so
+  -- without the shop test a caller who guessed a uuid could name another
+  -- tenant's delivery and read back, through the error messages below, whether
+  -- it exists and whether it was costed.
+  select r.shop_id,
+         coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
+                     from public.stock_receipt_items ri
+                    where ri.receipt_id = r.id and ri.unit_cost_cents is not null), 0)
+    into v_receipt_shop, v_value_cents
+    from public.stock_receipts r
+   where r.id = new.stock_receipt_id;
+
+  if v_receipt_shop is distinct from new.shop_id then
+    raise exception 'That delivery does not belong to this shop.' using errcode = 'P0001';
+  end if;
+
+  -- AN UNCOSTED DELIVERY NEVER REACHED THE BOOKS, so there is no payable for
+  -- this bill to be settling and linking to it would recreate the exact defect
+  -- this migration closes -- nothing credits 2000, and paying the bill drives it
+  -- into debit -- through the new column instead of the old category.
+  --
+  -- The predicate is the delivery's costed value being non-zero, which is
+  -- character for character what unposted_ledger_source_rows' receipt arm and
+  -- backfill_shop_ledger's receipt statement both use to decide whether a
+  -- delivery is an accounting event at all. Three copies of one question would
+  -- be two too many; this is the same question asked at the door.
+  --
+  -- AND IT MUST NOT SAY "RECEIVE IT AGAIN". That was this message's first
+  -- wording and it is the one instruction here that produces a wrong number
+  -- rather than refusing one. An uncosted delivery is an ORDINARY outcome --
+  -- stock-restock-modal.tsx leaves the cost field empty on purpose and
+  -- receive_stock accepts a null cost -- so this refusal is reached by shops
+  -- that did nothing unusual, and it is the only remedy the app offers them.
+  -- Followed, on 50 units already on the shelf: re-receiving 50 @ 100 upserts
+  -- product_location_stock to 100 units, costs the holding at 100, posts the
+  -- delivery's Dr 1200 5,000 / Cr 2000 5,000 AND 20260908001800's revaluation
+  -- of the fifty that were already there, Dr 1200 5,000 / Cr 3000 5,000.
+  -- Inventory overstated by 5,000 against a shelf holding fifty, equity
+  -- overstated by 5,000, and the trial balance perfectly zero. There is no
+  -- undo: stock_receipts has one policy (`read stock_receipts`), no delete, no
+  -- update, no RPC and no UI, so the only correction left is a stock count,
+  -- which books the phantom as Dr 5100 Inventory Shrinkage. A migration
+  -- written to stop the app producing a wrong-but-balanced number must not
+  -- ship copy that produces one.
+  --
+  -- What the message says instead is the truth: the costs cannot be added to a
+  -- delivery afterwards, so this bill cannot be attached to that one. The two
+  -- remedies named are the two that exist -- a different delivery, or a bill
+  -- that is not for goods saying so -- and the prevention is named last,
+  -- because it is the only thing that stops the state recurring.
+  if v_value_cents = 0 then
+    raise exception 'That delivery was received without any costs on it, so nothing was ever recorded as owed for it and this bill would have nothing to settle -- and what a delivery cost cannot be added to it afterwards. Do not receive the same goods again to put a cost on them: they would be counted twice, once on your shelf and once in your books, and nothing can take that back. Pick the delivery this bill really pays for, or, if this bill is not for goods, change what it is for. Next time, enter what each line cost as you receive it.'
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$;
+
+comment on function public.guard_invoice_delivery_link() is
+  'BEFORE INSERT and BEFORE UPDATE on invoices. On insert: an inventory_purchase bill must name a delivery (unless the shop has no inventory module and therefore no way to record one), the delivery must belong to the same shop, and it must have been costed -- an uncosted delivery raised no payable for the bill to settle. On update: refuses any change to stock_receipt_id, because what a bill posts is decided when it is entered and a link that moved afterwards would make the live entry and the replay disagree about the same row.';
+
+drop trigger if exists invoices_guard_delivery_link on public.invoices;
+create trigger invoices_guard_delivery_link
+  before insert on public.invoices
+  for each row execute function public.guard_invoice_delivery_link();
+
+-- WHEN, so an ordinary edit does not pay for this at all -- and so that
+-- record_invoice_payment's `update invoices set paid_cents = ...`, which runs on
+-- every supplier payment, never enters the function.
+drop trigger if exists invoices_delivery_link_is_final on public.invoices;
+create trigger invoices_delivery_link_is_final
+  before update on public.invoices
+  for each row when (old.stock_receipt_id is distinct from new.stock_receipt_id)
+  execute function public.guard_invoice_delivery_link();
+
+-- ---------------------------------------------------------------------------
+-- 3. What the picker offers
+-- ---------------------------------------------------------------------------
+--
+-- Deliveries that are not already on a bill, newest first, with the two figures
+-- the person choosing needs: how many lines arrived and what the delivery was
+-- worth. UNCOSTED DELIVERIES ARE RETURNED, at value 0, rather than filtered out
+-- -- a shopkeeper looking for their delivery and not finding it concludes the
+-- picker is broken, where a row that is present and refuses to be chosen
+-- explains itself. The guard above is what refuses it; this only reports.
+--
+-- SECURITY DEFINER with an explicit permission check, matching
+-- unposted_ledger_counts: the `not exists` against `invoices` has to see EVERY
+-- bill to be true, and under invoker rights a reader whose RLS hid one bill
+-- would be offered a delivery that is already on it.
+--
+-- THE LIMIT AND THE SEARCH ARE WHAT MAKE A MANDATORY FIELD SATISFIABLE. No bill
+-- that exists today carries a link, so the `not exists` leaves EVERY delivery
+-- the shop has ever received unbilled -- the list does not start short and grow,
+-- it starts at the whole history. At the 25 this function first shipped with,
+-- the ordinary weekly pattern (receive through the week, sit down on Friday and
+-- enter the bills) pushes the older half off the end, and the form then disables
+-- Save on a field whose only permitted value is not on the list. The only escape
+-- left is to mis-classify the bill, which puts goods into 6400 Supplies -- the
+-- exact tap the whole migration exists to make harmless.
+--
+-- So: 100 rather than 25, and a search that runs IN THE DATABASE rather than
+-- over the page already fetched, because the delivery a shop cannot find is by
+-- definition the one past the end of the page. The search matches what the row
+-- SHOWS -- supplier, reference, and the date as it is printed -- so a person
+-- typing what is in front of them finds the row they are looking at.
+create or replace function public.unbilled_stock_receipts(p_shop_id uuid, p_limit integer default 100,
+                                                          p_search text default null)
+returns table (id uuid, received_at timestamptz, supplier_name text, reference text,
+               location_id uuid, item_count bigint, value_cents bigint)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_search text := nullif(btrim(coalesce(p_search, '')), '');
+begin
+  if not public.has_shop_permission(p_shop_id, 'invoices.manage') then
+    raise exception 'Choosing the delivery a bill pays for needs invoices.manage.' using errcode = 'P0001';
+  end if;
+
+  return query
+  select r.id, r.created_at, r.supplier_name, r.reference, r.location_id,
+         (select count(*) from public.stock_receipt_items ri where ri.receipt_id = r.id)::bigint,
+         coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
+                     from public.stock_receipt_items ri
+                    where ri.receipt_id = r.id and ri.unit_cost_cents is not null), 0)::bigint
+    from public.stock_receipts r
+   where r.shop_id = p_shop_id
+     and not exists (select 1 from public.invoices bill where bill.stock_receipt_id = r.id)
+     -- `%` around the term, and the columns are nullable -- a delivery with no
+     -- supplier and no reference simply does not match a search, which is
+     -- right, rather than dropping out of an unsearched list.
+     and (v_search is null
+          or r.supplier_name ilike '%' || v_search || '%'
+          or r.reference ilike '%' || v_search || '%'
+          -- The date AS THE PICKER PRINTS IT (`receivedAt.slice(0, 10)`), so a
+          -- person typing 2026-08 or 08-19 gets the rows they can see.
+          or to_char(r.created_at, 'YYYY-MM-DD') like '%' || v_search || '%')
+   order by r.created_at desc
+   limit greatest(coalesce(p_limit, 100), 0);
+end;
+$$;
+
+comment on function public.unbilled_stock_receipts(uuid, integer, text) is
+  'Deliveries this shop has received that are not yet on a bill, newest first, with their line count and costed value. Uncosted deliveries are returned at value 0 rather than hidden -- guard_invoice_delivery_link refuses to link one and says why, which is more useful than a delivery that is simply missing from the list. p_search matches the supplier, the reference or the date as the picker prints it, and it runs here rather than over the page already fetched, because a delivery past the end of the page is exactly the one a shop cannot find. Gates on invoices.manage.';
+
+grant execute on function public.unbilled_stock_receipts(uuid, integer, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4. The branch, keyed on the link
+-- ---------------------------------------------------------------------------
+--
+-- Reproduced in full from 20260908000800 with ONE addition: the invoice arm now
+-- asks the bill whether it names a delivery, and answers that question BEFORE it
+-- looks at the category.
+--
+--   payroll_run_id set   -> nothing   (post_payroll_run posted its own entry)
+--   journal_entry_id set -> nothing   (already posted; the backfill sets this)
+--   stock_count_id set   -> nothing   (save_stock_count posted both sides)
+--   invoice_id, bill names a delivery -> nothing (receive_stock recognised it)
+--   invoice_id, no delivery, inventory_purchase -> nothing (ADMITTED GAP)
+--   invoice_id, no delivery, anything else      -> Dr the category's account / Cr 2000
+--   stock_receipt_id set -> Dr 2000 / Cr wallet
+--   standalone stock_loss        -> Dr 5100 / Cr 1200
+--   standalone anything else     -> Dr the category's account / Cr wallet
+--
+-- THE ORDER OF THE TWO INVOICE ARMS IS THE WHOLE CHANGE. Asking about the link
+-- first is what closes the over-stated direction: a bill for goods mis-tapped as
+-- `supplies` and linked to its delivery now posts nothing, where before it posted
+-- Dr 6400 / Cr 2000 on top of the delivery's own credit and doubled the payable.
+-- The category arm survives only as a residual for rows the link cannot describe,
+-- and it no longer claims that a delivery recognised anything.
+create or replace function public.post_expense_to_ledger() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_debit_code   text;
+  v_credit_code  text;
+  v_debit_memo   text;
+  v_credit_memo  text;
+  v_period_status text;
+  v_posted_date  date;
+  v_entry_id     uuid;
+  -- Which delivery the BILL behind this row names, if any. Read from `invoices`
+  -- rather than carried on the expense row, because expenses_one_source_link
+  -- (20260908000800) permits at most one of the four link columns and this row
+  -- already carries invoice_id -- and because expenses.stock_receipt_id means
+  -- something else entirely here (a delivery PAID, Dr 2000 / Cr wallet).
+  v_bill_receipt uuid;
+begin
+  -- See the exclusion block in 20260908000750. Do not remove these without
+  -- reading it; post_payroll_run is named there by name. The invoice_id
+  -- exclusion that used to stand alongside them has been REMOVED -- see the
+  -- correction in 20260908000800; it recognised nothing.
+  if new.payroll_run_id is not null then return null; end if;
+  if new.journal_entry_id is not null then return null; end if;
+  -- save_stock_count posts Dr 5100 / Cr 1200 for the whole variance in the same
+  -- transaction that moved the units, and nothing was paid for -- so there is no
+  -- second entry to write. Posting one here doubled 5100 and credited a till
+  -- that never opened.
+  if new.stock_count_id is not null then return null; end if;
+
+  if new.invoice_id is not null then
+    -- A BILL IS AN UNPAID EXPENSE (20260804000300), and this is where that
+    -- sentence becomes an entry. Cr 2000, never a wallet: no money has moved,
+    -- and the mirror row's payment_method is the literal 'other' that
+    -- sync_invoice_expense writes because a bill has no payment method at all --
+    -- so routing it through account_code_for_payment_method would credit 1010
+    -- Bank for a bill nobody has paid. record_invoice_payment then debits 2000
+    -- back down when the money really does leave, and what is left in 2000 is
+    -- what the shop actually owes.
+    select i.stock_receipt_id into v_bill_receipt
+      from public.invoices i where i.id = new.invoice_id;
+
+    -- THE DELIVERY ALREADY DID THIS. receive_stock posted Dr 1200 / Cr 2000 for
+    -- these goods, so the payable exists and record_invoice_payment's Dr 2000
+    -- clears it. Posting here would debit 1200 and credit 2000 a SECOND time:
+    -- stock overstated by the whole delivery and a phantom payable beside the
+    -- real one.
+    --
+    -- ASKED BEFORE THE CATEGORY, deliberately -- see the note above this
+    -- function. Whatever the shopkeeper tapped, a bill that names a delivery is
+    -- for that delivery.
+    if v_bill_receipt is not null then return null; end if;
+
+    -- ...AND A GOODS BILL THAT NAMES NO DELIVERY POSTS NOTHING, AS AN ADMITTED
+    -- GAP RATHER THAN AS A CLAIM. guard_invoice_delivery_link refuses to create
+    -- one, so only rows entered before that door existed reach this line. There
+    -- is no honest entry for them: debiting 1200 would double a delivery that
+    -- WAS recorded, or invent stock for one that was not, and either way the
+    -- ledger's inventory value would stop matching the quantity on the shelf.
+    -- Nothing is lost from the P&L that was not already lost -- 1200 is an
+    -- asset, and its cost reaches the P&L as COGS when the goods sell.
+    if new.category = 'inventory_purchase' then return null; end if;
+    v_debit_code  := public.account_code_for_expense_category(new.category);
+    v_credit_code := '2000';
+    v_debit_memo  := replace(new.category, '_', ' ');
+    v_credit_memo := 'Owed to supplier';
+  elsif new.stock_receipt_id is not null then
+    -- SETTLING THE PAYABLE THE RECEIPT RAISED, not buying the goods again.
+    -- receive_stock has already put the delivery into 1200 against 2000; this
+    -- row is the money going out. Hardcoded '2000' rather than routed through
+    -- account_code_for_expense_category, because the category on the row is
+    -- 'inventory_purchase' (which maps to 1200) and it is the LINK, not the
+    -- category, that decides what this is. record_invoice_payment writes the
+    -- same shape for a bill.
+    v_debit_code  := '2000';
+    v_credit_code := public.account_code_for_payment_method(new.payment_method);
+    v_debit_memo  := 'Delivery paid';
+    v_credit_memo := 'Paid by ' || new.payment_method;
+  elsif new.category = 'stock_loss' then
+    -- A standalone write-off, with no count behind it. Cr 1200, NEVER a wallet:
+    -- stock that is stolen, broken or expired costs the shop the stock, not the
+    -- till. Crediting cash here balances perfectly and makes the drawer
+    -- disagree with the ledger by the whole of the shop's shrinkage, while
+    -- leaving 1200 carrying units that are not on the shelf.
+    --
+    -- 5100 rather than account_code_for_expense_category is a no-op today --
+    -- the map sends 'stock_loss' to 5100 -- and is written out because the pair
+    -- has to move together: the point of this branch is the CONTRA, and reading
+    -- one side from the map would invite someone to "simplify" it back into the
+    -- generic branch and take the 1200 with it.
+    v_debit_code  := '5100';
+    v_credit_code := '1200';
+    v_debit_memo  := 'stock loss';
+    v_credit_memo := 'Written off';
+  else
+    v_debit_code := public.account_code_for_expense_category(new.category);
+    -- The wallet the money actually left, not 1000 Cash for everything.
+    -- expenses.payment_method carries the same four values invoice_payments.method
+    -- does and account_code_for_expense_category's sibling already maps them.
+    -- Hardcoding 1000 would make the till count disagree with the ledger for
+    -- every zaad or eDahab expense, and leave 1020/1021 permanently understated
+    -- on the balance sheet this phase exists to make possible -- the exact defect
+    -- verify-posting-bills.sql check 2 exists to catch on the supplier-payment
+    -- side. For the common case (payment_method defaults to 'cash') this IS
+    -- '1000'.
+    v_credit_code := public.account_code_for_payment_method(new.payment_method);
+    v_debit_memo  := replace(new.category, '_', ' ');
+    v_credit_memo := 'Paid by ' || new.payment_method;
+  end if;
+
+  -- occurred_on, not today: 20260804000200 makes the point that a receipt is
+  -- often logged days after the purchase and it is the PURCHASE date that
+  -- decides the period. It is already a `date` column, so it is exempt from the
+  -- shop_local_date() rule -- there is no moment in time to resolve against a
+  -- server timezone, and wrapping it would be a no-op cast through a function
+  -- that expects a timestamptz.
+  --
+  -- A BACK-DATED EXPENSE WHOSE MONTH HAS CLOSED POSTS TO THE OPEN ONE, which
+  -- is Task 3b's treatment of a back-dated sale and is here for a stronger
+  -- reason: the expense editor has a free date field
+  -- (expense-editor-modal.tsx:101), so back-dating is not an import edge case,
+  -- it is the ordinary way a receipt from last week gets entered. Without this,
+  -- open_period_for would raise `This period is closed` and a plain expense
+  -- insert -- something that works today -- would start failing outright.
+  --
+  -- READ, not caught. An exception handler around post_journal_entry would also
+  -- swallow an unbalanced entry, an unknown account code or a missing chart of
+  -- accounts and retry them into the current month as though the only thing
+  -- wrong were the date.
+  select status into v_period_status
+    from public.accounting_periods
+   where shop_id = new.shop_id and new.occurred_on between starts_on and ends_on;
+
+  -- No row means open_period_for will create it open, so only an EXISTING
+  -- non-open period redirects. Treating a missing row as shut would redate
+  -- every expense in a month the shop has not traded in yet.
+  if v_period_status is not null and v_period_status <> 'open' then
+    v_posted_date := public.shop_local_date();
+  else
+    v_posted_date := new.occurred_on;
+  end if;
+
+  -- The description carries the expense id so the link is readable in both
+  -- directions -- expenses.journal_entry_id gets you from the row to the entry,
+  -- and a journal of four hundred lines all reading 'Expense' gets you nowhere
+  -- back. Task 8's backfill reconciles replayed entries against their source
+  -- rows and wants the same link.
+  --
+  -- coalesce on v_period_status even though the branch above cannot leave it
+  -- NULL while the dates differ: `||` with a NULL operand yields NULL for the
+  -- WHOLE expression, and post_journal_entry then refuses the row with
+  -- "A journal entry needs a description." -- an error about descriptions for a
+  -- bug about dates. The same trap 20260908000300 documents.
+  v_entry_id := public.post_journal_entry(
+    new.shop_id,
+    v_posted_date,
+    'Expense ' || new.id::text
+      || case when v_posted_date <> new.occurred_on
+              then ' (incurred ' || to_char(new.occurred_on, 'YYYY-MM-DD')
+                   || '; that period is ' || coalesce(v_period_status, 'not open')
+                   || ', so it is recognised here)'
+              else '' end,
+    jsonb_build_array(
+      jsonb_build_object('code', v_debit_code,  'amount_cents',  new.amount_cents,
+                         'memo', v_debit_memo),
+      jsonb_build_object('code', v_credit_code, 'amount_cents', -new.amount_cents,
+                         'memo', v_credit_memo)),
+    -- The store the cost belongs to travels onto the entry, for the reason
+    -- 20260816000000 exists: a cost with no store drops out of that store's
+    -- P&L. Null stays null for a business-wide expense, which is a real value
+    -- and not a gap.
+    new.location_id,
+    'bill');
+
+  -- AFTER INSERT, so `new` is not writable -- assigning to it here would be
+  -- silently discarded rather than rejected. The row is updated instead.
+  --
+  -- AFTER rather than BEFORE deliberately: post_journal_entry's description
+  -- carries new.id, and in a BEFORE INSERT trigger that id is the default the
+  -- row is ABOUT to get -- which is fine -- but the entry would also be written
+  -- before the row's own constraints (amount_cents > 0, the category CHECK,
+  -- enforce_shop_module) had all been proved. AFTER means the ledger only ever
+  -- learns about an expense the table has already accepted.
+  update public.expenses set journal_entry_id = v_entry_id where id = new.id;
+
+  return null;
+end;
+$$;
+
+comment on function public.post_expense_to_ledger() is
+  'AFTER INSERT and AFTER UPDATE on expenses. Posts nothing for a row carrying payroll_run_id, stock_count_id or an existing journal_entry_id -- something else already posted that event. A row carrying invoice_id asks the BILL whether it names a delivery: if it does, nothing is posted, because receive_stock already debited 1200 against 2000 for those goods and record_invoice_payment''s Dr 2000 clears it -- and that is asked BEFORE the category, so a goods bill mis-tapped as supplies no longer doubles the payable. A goods bill naming no delivery also posts nothing, as an admitted gap: guard_invoice_delivery_link refuses to create one, so only rows predating that door reach it. Every other bill posts Dr the category''s account / Cr 2000. A row carrying stock_receipt_id posts Dr 2000 / Cr the wallet, settling the payable receive_stock raised. A standalone stock_loss posts Dr 5100 / Cr 1200. Everything else posts Dr the category''s account / Cr the payment method''s wallet.';
+
+-- Unchanged from 20260908000800, restated because the function was replaced and
+-- a reader of this file should not have to open the last one to learn where the
+-- trigger is. Row-level, so an insert of several expenses at once posts one
+-- entry each.
+drop trigger if exists expenses_post_to_ledger on public.expenses;
+create trigger expenses_post_to_ledger
+  after insert on public.expenses
+  for each row execute function public.post_expense_to_ledger();
+
+-- CARRIED FORWARD, and 20260908001000 says at the trigger that it must be: a
+-- migration that re-creates post_expense_to_ledger and leaves this behind gives
+-- a shop an edited expense that reverses and never re-posts. The WHEN clause is
+-- character for character the one on expenses_reverse_on_edit -- if the two ever
+-- diverge, one half of reverse-and-re-post fires without the other.
+drop trigger if exists expenses_post_to_ledger_on_edit on public.expenses;
+create trigger expenses_post_to_ledger_on_edit
+  after update on public.expenses
+  for each row
+  when (old.shop_id         is distinct from new.shop_id
+     or old.amount_cents    is distinct from new.amount_cents
+     or old.category        is distinct from new.category
+     or old.payment_method  is distinct from new.payment_method
+     or old.occurred_on     is distinct from new.occurred_on
+     or old.location_id     is distinct from new.location_id
+     or old.invoice_id      is distinct from new.invoice_id
+     or old.payroll_run_id  is distinct from new.payroll_run_id
+     or old.stock_receipt_id is distinct from new.stock_receipt_id
+     or old.stock_count_id  is distinct from new.stock_count_id)
+  execute function public.post_expense_to_ledger();
+
+-- ---------------------------------------------------------------------------
+-- 5. The door and the replay must not disagree about what a run will write
+-- ---------------------------------------------------------------------------
+--
+-- unposted_ledger_source_rows (20260908001300, itself 20260908001100's eight
+-- arms moved one layer down) is what the Post History card counts; the statement
+-- in backfill_shop_ledger below is what the replay actually writes. They carry
+-- the same predicates on purpose, and verify-backfill.sql pins them against each
+-- other in both directions.
+--
+-- Reproduced in full, arms and comments together, because a copy-forward that
+-- keeps the SQL and drops the reasoning leaves the next reader with eight
+-- clauses that look like they could be simplified. ONE arm changes -- the last.
+--
+-- unposted_inventory_movement and opening_inventory_gap read this view rather
+-- than the base tables, so they inherit the new exclusion and need no edit. That
+-- is what the layer was split out for, and it is why an extra clause here is not
+-- a fifth copy of anything.
 create or replace view public.unposted_ledger_source_rows
 with (security_invoker = true) as
 
@@ -481,17 +682,29 @@ with (security_invoker = true) as
 
   union all
 
-  -- Expenses, with the four exclusions the replay carries. Two of them --
-  -- count-derived rows, and the inventory_purchase half of a bill -- leave a
-  -- row unposted for ever by design, and verify-backfill.sql check 5 exempts
-  -- both for that reason. They must be excluded HERE too or the door promises
-  -- entries the replay will never write.
+  -- Expenses, with the exclusions the replay carries. Three of them -- rows from
+  -- a stock count, goods bills that name no delivery, and bills that DO name one
+  -- -- leave a row unposted for ever by design, and verify-backfill.sql check 5
+  -- exempts them for that reason. They must be excluded HERE too or the door
+  -- promises entries the replay will never write.
+  --
+  -- THE DELIVERY TEST IS NEW AND IT IS TESTED ALONGSIDE THE CATEGORY, not
+  -- instead of it, because the two exclude different rows. A bill that names a
+  -- delivery is excluded WHATEVER its category -- that is the over-stated
+  -- direction closing, and it is why the live branch asks about the link first.
+  -- A goods bill that names none is excluded because there is no honest entry
+  -- for it; guard_invoice_delivery_link stops new ones being made, and the rows
+  -- that reach here predate that door.
   select e.shop_id, 'expense'::text, e.id, e.occurred_on
     from public.expenses e
    where e.journal_entry_id is null
      and e.payroll_run_id is null
      and e.stock_count_id is null
-     and not (e.invoice_id is not null and e.category = 'inventory_purchase')
+     and not (e.invoice_id is not null
+              and (e.category = 'inventory_purchase'
+                   or exists (select 1 from public.invoices bi
+                               where bi.id = e.invoice_id
+                                 and bi.stock_receipt_id is not null)))
      and e.amount_cents <> 0;
 
 comment on view public.unposted_ledger_source_rows is
@@ -500,506 +713,17 @@ comment on view public.unposted_ledger_source_rows is
 revoke all on public.unposted_ledger_source_rows from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
--- 2. What the replay is about to move through 1200
+-- 6. The replay, carrying the identical clause
 -- ---------------------------------------------------------------------------
 --
--- The third term of the gap. Five of the eight kinds touch inventory, and the
--- two case expressions in the expense arm are a DELIBERATE character-for-
--- character mirror of the ones in backfill_shop_ledger's expense statement --
--- written as the full branch rather than as the two arms that happen to reach
--- 1200, so a reader can diff them and so a future branch cannot be missed by
--- someone reasoning about which ones "matter".
+-- Reproduced in full from 20260908001300 -- NOT from 20260908000700, which
+-- would delete the opening balance. One statement changes: step 1's expenses
+-- filter, which grows the same delivery test the view above just grew.
 --
--- Driven off unposted_ledger_source_rows rather than off the base tables, so
--- the eight exclusions -- a payroll-derived expense, a count-derived write-off,
--- an inventory_purchase bill, a zero-valued sale, a draft pay run -- are
--- inherited rather than restated. That is what keeps this from becoming the
--- second copy of a definition.
---
--- AFTER A REPLAY THIS IS ZERO, for every shop, because every row it reads has
--- been given a journal_entry_id. That is not a happy accident, it is the
--- property that lets the door and the replay call the same function at
--- different moments and get the same answer.
-create or replace function public.unposted_inventory_movement(p_shop_id uuid)
-returns bigint
-language sql stable as $$
-  select coalesce(sum(x.cents), 0)::bigint from (
-
-    -- Sales: Cr 1200 by the cost FROZEN on the line. An uncosted line moves
-    -- nothing, exactly as the replay's `si.unit_cost_cents is not null` does.
-    select -coalesce(sum(si.unit_cost_cents::bigint * si.quantity), 0) as cents
-      from public.unposted_ledger_source_rows u
-      join public.sale_items si on si.sale_id = u.source_id
-     where u.shop_id = p_shop_id and u.source_kind = 'sale'
-       and si.unit_cost_cents is not null
-
-    union all
-
-    -- Refunds: Dr 1200 by the cost of what came back.
-    select coalesce(sum(si.unit_cost_cents::bigint * ri.quantity), 0)
-      from public.unposted_ledger_source_rows u
-      join public.refund_items ri on ri.refund_id = u.source_id
-      join public.sale_items si on si.id = ri.sale_item_id
-     where u.shop_id = p_shop_id and u.source_kind = 'refund'
-       and si.unit_cost_cents is not null
-
-    union all
-
-    -- Deliveries: Dr 1200 at the delivery's costed value.
-    select coalesce(sum(ri.unit_cost_cents::bigint * ri.quantity), 0)
-      from public.unposted_ledger_source_rows u
-      join public.stock_receipt_items ri on ri.receipt_id = u.source_id
-     where u.shop_id = p_shop_id and u.source_kind = 'receipt'
-       and ri.unit_cost_cents is not null
-
-    union all
-
-    -- Counts: 1200 by the SIGNED variance -- short credits it, found debits it.
-    select coalesce(sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity)), 0)
-      from public.unposted_ledger_source_rows u
-      join public.stock_count_items ci on ci.count_id = u.source_id
-     where u.shop_id = p_shop_id and u.source_kind = 'count'
-       and ci.unit_cost_cents is not null
-
-    union all
-
-    -- Expenses: the replay's own four-way branch, both sides, filtered to the
-    -- lines that land on 1200. A standalone inventory_purchase debits it
-    -- (account_code_for_expense_category maps that category to 1200); a
-    -- standalone stock_loss credits it. An invoice-linked or receipt-linked row
-    -- reaches 2000 on one side and never 1200 on the other.
-    select coalesce(sum(
-             (case when (case when e.invoice_id is not null       then public.account_code_for_expense_category(e.category)
-                             when e.stock_receipt_id is not null then '2000'
-                             when e.category = 'stock_loss'      then '5100'
-                             else public.account_code_for_expense_category(e.category)
-                        end) = '1200' then e.amount_cents::bigint else 0 end)
-           - (case when (case when e.invoice_id is not null then '2000'
-                             when e.stock_receipt_id is null and e.category = 'stock_loss' then '1200'
-                             else public.account_code_for_payment_method(e.payment_method)
-                        end) = '1200' then e.amount_cents::bigint else 0 end)
-           ), 0)
-      from public.unposted_ledger_source_rows u
-      join public.expenses e on e.id = u.source_id
-     where u.shop_id = p_shop_id and u.source_kind = 'expense'
-
-  ) x;
-$$;
-
-comment on function public.unposted_inventory_movement(uuid) is
-  'How much backfill_shop_ledger is about to move through 1200 Inventory, in cents, debits positive. Read over unposted_ledger_source_rows so the eight per-kind exclusions are inherited rather than copied. Zero for every shop once a replay has finished, which is what lets opening_inventory_gap give the same answer before and after.';
-
-revoke all on function public.unposted_inventory_movement(uuid) from anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- 3. The gap -- the amount of the opening entry
--- ---------------------------------------------------------------------------
---
--- The whole derivation is in this file's header. In one line: what stock is
--- worth, less what the ledger will say it is worth once the replay finishes.
---
--- Returns 0 -- meaning "post nothing" -- for a shop that has already had one.
--- Keyed on an opening entry WITH A LINE ON 1200, not on source = 'opening'
--- alone, so phase 3's opening cash and opening receivables do not suppress it.
--- See the idempotency section of the header.
---
--- THE LEDGER TERM DOES NOT FILTER archived_at. A line posted to 1200 moved the
--- shop's inventory whether or not somebody archived the account afterwards, and
--- excluding it would make the gap jump by the whole of that account's history
--- the moment it was archived. This is the one place in the phase that reads
--- accounts WITHOUT the archived filter, and it is deliberate: the line
--- statements are asking "may I post here", this is asking "what has been
--- posted".
-create or replace function public.opening_inventory_gap(p_shop_id uuid)
-returns bigint
-language sql stable as $$
-  select case when exists (
-           select 1 from public.journal_entries e
-             join public.journal_lines l on l.entry_id = e.id
-             join public.accounts a on a.id = l.account_id
-            where e.shop_id = p_shop_id and e.source = 'opening' and a.code = '1200')
-         then 0::bigint
-         else
-           -- What the shop actually holds, at weighted-average cost. An
-           -- uncosted product contributes nothing -- see the header: while it
-           -- stays uncosted nothing takes it back OUT of 1200 either. The day
-           -- somebody costs it, receive_stock posts the revaluation itself
-           -- (20260908001800, Dr 1200 / Cr 3000), which lands in the ledger
-           -- term below; it was never a reason to invent a value here.
-           coalesce((select sum(p.stock::bigint * p.cost_cents)
-                       from public.products p
-                      where p.shop_id = p_shop_id and p.cost_cents is not null), 0)
-           -- ...less what the ledger already holds against 1200. POSTED AND
-           -- REVERSED ONLY, matching listPostedLines() in src/lib/ledger.ts and
-           -- therefore the Trial Balance the reader will compare this against. A
-           -- draft has not reached the books -- post_journal_entry refuses to
-           -- touch a posted entry and a draft can still be edited or thrown away
-           -- -- so counting one here would net an opening balance against stock
-           -- movement nobody has agreed to yet, and the two screens would
-           -- disagree by exactly that amount. A reversal and its mirror are BOTH
-           -- kept, for the same reason the trial balance keeps them: they net to
-           -- nothing, and dropping either would unbalance the figure.
-           - coalesce((select sum(l.amount_cents)
-                         from public.journal_lines l
-                         join public.journal_entries e on e.id = l.entry_id
-                         join public.accounts a on a.id = l.account_id
-                        where e.shop_id = p_shop_id and a.code = '1200'
-                          and e.status in ('posted', 'reversed')), 0)
-           -- ...less what the replay is about to add to it. Zero after a run.
-           - public.unposted_inventory_movement(p_shop_id)
-         end;
-$$;
-
-comment on function public.opening_inventory_gap(uuid) is
-  'The opening inventory balance a shop still needs, in cents: the value of stock on hand less everything the ledger will have put through 1200 once backfill_shop_ledger finishes. Positive debits 1200 against 3000 Owner''s Capital; negative credits it; zero posts nothing. Zero also for a shop that already has an opening entry carrying a 1200 line, which is what makes the replay idempotent. Called by the Post History door before a run and by the replay after its other lines are in -- the same number at both moments, because the "about to add" term empties as the replay writes.';
-
-revoke all on function public.opening_inventory_gap(uuid) from anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- 4. The date the opening entry carries
--- ---------------------------------------------------------------------------
---
--- The first day of the month the shop's ledger begins in -- see the header for
--- why not today, why not the day of the first trade, and why not the day
--- before it.
---
--- least() over two sources because the answer has to be the same before and
--- after the replay: BEFORE, the oldest thing is a source row waiting to be
--- posted; AFTER, that same row is an entry and the second term is empty. LEAST
--- ignores nulls, so each side simply drops out when it has nothing.
-create or replace function public.opening_inventory_date(p_shop_id uuid)
-returns date
-language sql stable as $$
-  select date_trunc('month', coalesce(
-           least(
-             (select min(e.entry_date) from public.journal_entries e
-               where e.shop_id = p_shop_id),
-             (select min(u.on_date) from public.unposted_ledger_source_rows u
-               where u.shop_id = p_shop_id)),
-           -- A shop with stock and no ledger at all: a catalogue imported,
-           -- nothing sold yet. Its books begin now because there is nothing
-           -- earlier for them to begin at.
-           public.shop_local_date()))::date;
-$$;
-
-comment on function public.opening_inventory_date(uuid) is
-  'The date backfill_shop_ledger gives a shop''s opening balance: the first day of the month its ledger begins in, taken across both the entries it already has and the source rows about to become entries, falling back to the current month for a shop with neither. Never the day of the run -- an opening balance stamped today leaves every past balance sheet showing the negative inventory this entry exists to remove.';
-
-revoke all on function public.opening_inventory_date(uuid) from anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- 5. The door's view: the eight arms, plus the opening balance
--- ---------------------------------------------------------------------------
---
--- One row per ENTRY a run will write, which is what the Post History card
--- counts and what verify-backfill.sql pins against the replay's return value in
--- both directions.
---
--- The opening arm carries the SHOP'S OWN ID as source_id. There is no source
--- row -- that is the entire point of this entry -- and the shop is the thing it
--- is about. It is also unique per shop, which keeps the row countable and
--- distinguishable like every other.
---
--- No `not exists (an opening entry)` clause here: opening_inventory_gap already
--- returns 0 in that case, and putting the test in one place is what stops the
--- door and the replay drifting apart on the question of whether a shop has been
--- opened.
-create or replace view public.unposted_ledger_sources
-with (security_invoker = true) as
-  select u.shop_id, u.source_kind, u.source_id, u.on_date
-    from public.unposted_ledger_source_rows u
-
-  union all
-
-  select s.id, 'opening'::text, s.id, public.opening_inventory_date(s.id)
-    from public.shops s
-   where public.opening_inventory_gap(s.id) <> 0;
-
-comment on view public.unposted_ledger_sources is
-  'One row per journal entry backfill_shop_ledger would write: the eight kinds of source row it replays, plus the shop''s opening inventory balance where one is still needed. Read-only, and the single definition of "unposted" that the Post History door and the replay share. verify-backfill.sql pins the two together: before a replay this view''s row count equals what backfill_shop_ledger returns, and after it the view is empty.';
-
-revoke all on public.unposted_ledger_sources from anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- 6. The counts function, now with a ninth kind
--- ---------------------------------------------------------------------------
---
--- Recreated only to add ('opening', 9) to the list of kinds it always returns.
--- The reason it enumerates them rather than reading distinct values out of the
--- view is unchanged and is why this had to be edited at all: "we looked and
--- found none" and "we did not look" must not render the same, so a kind with
--- nothing waiting still gets a row reading 0.
---
--- LAST in the ordering, not first, although the entry it describes is dated
--- earliest. The card is read top-down by someone deciding whether to press, and
--- the eight replays are the bulk of what happens; the opening balance is one
--- entry and one sentence, and it reads as the closing statement of the list
--- rather than as a preamble to it.
-create or replace function public.unposted_ledger_counts(p_shop_id uuid)
-returns table (kind text, rows_unposted bigint, oldest_on date)
-language plpgsql stable security definer set search_path = public as $$
-begin
-  if not public.has_shop_permission(p_shop_id, 'ledger.close') then
-    raise exception 'Seeing what is waiting to be posted needs ledger.close.' using errcode = 'P0001';
-  end if;
-
-  return query
-  with mine as (
-    select s.source_kind, s.source_id, s.on_date
-      from public.unposted_ledger_sources s
-     where s.shop_id = p_shop_id
-  )
-  select k.k, count(m.source_id)::bigint, min(m.on_date)
-    from (values ('sale', 1), ('refund', 2), ('settlement', 3), ('receipt', 4),
-                 ('count', 5), ('invoice_payment', 6), ('payroll', 7), ('expense', 8),
-                 ('opening', 9)) as k(k, ord)
-    left join mine m on m.source_kind = k.k
-   group by k.k, k.ord
-   order by k.ord;
-end;
-$$;
-
-comment on function public.unposted_ledger_counts(uuid) is
-  'How many entries of each kind backfill_shop_ledger would write, and how far back the oldest reaches. Read-only; writes nothing and takes no lock. Always returns all nine kinds -- the eight replayed sources and the opening inventory balance -- zeroes included. Gates on ledger.close, the same permission the replay itself requires.';
-
-grant execute on function public.unposted_ledger_counts(uuid) to authenticated;
-
--- ---------------------------------------------------------------------------
--- 7. The replay, reproduced in full, with the opening balance at the end
--- ---------------------------------------------------------------------------
---
--- Reproduced in full because that is this repo's convention for a plpgsql
--- function: the newest migration holds the whole body, so a reader never has to
--- assemble one from a chain of patches. supabase/tests/accumulated-rpc-edits.
--- test.ts pins every edit ever made to it against exactly this hazard.
---
--- TWO CHANGES from 20260908000700, and nothing else:
---
---   A. THE EARLY `if v_written = 0 then return 0` IS GONE, and it had to go.
---      It was an optimisation -- every statement after it is naturally a no-op
---      over an empty _bf_map -- but it now skips the one thing that does NOT
---      come from a source row. The shop this whole task was found on is exactly
---      the case: yusefshop has already been backfilled, has nothing left
---      unposted, and needs an opening balance. With the early return it would
---      never get one, and re-running the replay -- which is what an owner will
---      do -- would go on answering 0 for ever while 1200 stayed in credit.
---   B. STEP 6b posts the opening entry, after every other line is written, for
---      the reason the header gives: only then is "what the ledger holds against
---      1200" complete, and only then does opening_inventory_gap return the
---      number the door promised before the run.
-
--- Replay every existing row into the ledger, so the books describe the shop's
--- whole life rather than only the period since phase 2b shipped.
---
--- ## Why this does not call post_journal_entry
---
--- Two structural reasons, not a preference:
---
---   1. open_period_for RAISES on a closed or locked month. A shop that closed a
---      period during phase 1 would abort the replay part-way, leaving the books
---      in a state strictly worse than not having started -- half a year of
---      history posted, the rest not, and no way to tell which half from the
---      ledger. The backfill therefore creates every period it needs UP FRONT
---      and never consults open_period_for.
---   2. open_period_for opens periods one at a time, on first use. Fine for the
---      interactive path it was written for; wasteful across three years of
---      history, where the whole set is known before the first entry is written.
---
--- The deferred balance trigger on journal_lines still runs -- it is a
--- constraint trigger on the table, not something post_journal_entry installs --
--- so the guarantee that every entry sums to zero is unchanged. Only the
--- convenience wrapper is skipped, and THIS IS THE ONLY THING IN THE CODEBASE
--- THAT SKIPS IT.
---
--- The wrapper does one other thing the trigger does not, and skipping it was a
--- real loss rather than a convenience: it RAISES 'No such account: 4200' for a
--- code the shop's chart does not have. That check is reproduced here by
--- backfill_missing_account, called from the line statements, for the reasons
--- written at that function.
---
--- ## References come from journal_entry_sequences, not from count(*)
---
--- 20260908000150 replaced post_journal_entry's `count(*) + 1` with an atomic
--- per-shop-per-year counter, because the count raced the
--- `unique (shop_id, reference)` index and failed concurrent sales. A backfill
--- that invented its own numbering -- a second series, a 'R'/'E' prefix, a
--- restart at 1 -- would collide with every reference the live path has already
--- allocated for that year, and the collision would surface as a unique
--- violation on whichever side ran second.
---
--- So this reads from the SAME counter, in the same one-statement
--- read-and-increment. The only difference is that it reserves a BLOCK of n
--- numbers instead of one:
---
---   ... do update set next_number = next_number + n returning next_number - n
---
--- which takes the same row lock, leaves the counter holding the number the next
--- caller gets, and hands this run a contiguous range nobody else can be inside.
--- One statement per year, not one per entry -- which is what makes the replay
--- linear instead of quadratic. The opening entry in step 6b takes its number
--- from the same counter, one at a time, because there is only ever one of it.
---
--- ## Backfilled entries carry their TRUE source
---
--- 'sale', 'refund', 'settlement', 'stock', 'count', 'payment', 'payroll',
--- 'bill' -- never a 'backfill' marker. A P&L must not care whether an entry was
--- posted live or replayed, and any report filtering on source would silently
--- drop replayed history. ('backfill' is not a permitted value anyway:
--- journal_entries.source's CHECK lists exactly manual, sale, refund,
--- settlement, bill, payment, payroll, stock, count, transfer, asset,
--- depreciation, close, opening.) The opening balance is 'opening', which is the
--- one value in that list this function did not previously use.
---
--- ## Idempotency
---
--- Driven entirely by journal_entry_id being null on the source row. Re-running
--- writes nothing and returns 0. This matters more than it sounds: the first run
--- of a real backfill always finds something the verification disagrees with,
--- and the fix is to correct the mapping and run it again. The opening balance
--- has no source row and therefore no pointer; it is guarded twice instead, and
--- both guards live inside opening_inventory_gap -- see this migration's header.
---
--- ## THE FOUR WAYS THIS DOUBLE-COUNTS, AND WHAT STOPS EACH
---
--- 1. EXPENSES MIRRORING SOMETHING ALREADY POSTED. post_payroll_run writes BOTH
---    a journal entry AND an expenses row carrying payroll_run_id. The Count
---    sheet writes a stock_loss row carrying stock_count_id on top of a
---    save_stock_count that already posted Dr 5100 / Cr 1200. Replaying either
---    would count 6200 Salaries and Wages or the shop's whole shrinkage TWICE --
---    with the trial balance still zero, because both entries individually
---    balance, so nothing else would catch it. And an inventory_purchase BILL
---    would recognise goods receive_stock already put into 1200 against 2000.
---    The expense replay below applies exactly the exclusions
---    post_expense_to_ledger() applies (20260908000750, extended by
---    20260908000800), for exactly their reasons -- and takes the same branch it
---    takes for the rows it does replay.
---
---    A BILL'S MIRROR ROW IS NOT ONE OF THEM, whatever the exclusion here used
---    to say. Nothing on this branch posts when an invoice is inserted, so the
---    row being skipped was the only place the cost was ever going to be
---    recognised; skipping it left the replay reproducing the live defect
---    exactly -- Accounts Payable driven negative by every non-stock bill in the
---    shop's history, with the trial balance ties all green.
---
--- 2. sale_payments.journal_entry_id IS NULL DOES NOT MEAN "UNPOSTED". Only
---    SETTLEMENT rows ever carry their own entry; complete_sale folds the
---    initial payments into the sale's entry and leaves those rows null forever.
---    The settlement replay filters `is_settlement and journal_entry_id is null`
---    -- never journal_entry_id alone, which would post a second entry for every
---    till payment on every sale in the shop's history.
---
--- 3. ANYTHING ALREADY CARRYING A journal_entry_id IS ALREADY POSTED. Every map
---    below is driven by that column being null. This is not an optimisation: a
---    shop is backfilled while Task 7b's expense trigger is live, so the filter
---    is what stops the two paths posting the same row.
---
--- 4. A PRE-TASK-3 SALE THAT WAS LATER REFUNDED OR SETTLED HAS ALREADY HAD A
---    ONE-SIDED ENTRY POSTED AGAINST IT. refund_sale_items credited 1100 and
---    settle_sale_balance cleared it, but the debit that put the receivable
---    there was never posted, because the sale predates posting -- so those
---    shops' 1100 currently reads negative.
---
---    THE FIX IS THE REPLAY ITSELF, and it needs nothing extra. The sale's own
---    entry supplies the missing debit, at the FULL original receivable
---    (total_cents less what the till took), because:
---      * settlement payments are excluded from the till total, so the 1100
---        debit is the receivable as it stood when the sale was rung up -- and
---        the settlement entries that already exist credit it back down;
---      * the receivable is NOT reduced by refunds, because the refund entry
---        that already exists has already credited 1100 by its own share.
---    Getting either of those wrong -- netting settlements or refunds into the
---    sale line -- would leave 1100 permanently understated by exactly the
---    amount the existing entries already moved. A sale is replayed on its own
---    terms; what happened to it afterwards was posted at the time.
---
---    THE SAME SHAPE OF HOLE EXISTS ON 1200, and the replay alone does NOT fix
---    that one, which is what this migration is for. There is no source row to
---    supply the missing debit, because the stock was never received -- it was
---    typed into a product form. Step 6b supplies it.
---
--- ## Dates
---
--- Every entry is dated from its SOURCE ROW, never from the run. A replay that
--- stamped everything today would put three years of trading into this month and
--- leave every past period empty.
---
--- Where the source carries a timestamptz, the date is public.shop_local_date()
--- of it -- the same expression the live path evaluates, applied at the moment
--- the live path would have evaluated it. Never a bare ::date, which resolves in
--- the session's timezone (UTC on Supabase) while every market kaiibi serves is
--- UTC+3, so a sale at 01:30 local on the 1st would land in the previous month.
--- Where the source carries a plain `date` (expenses.occurred_on,
--- invoice_payments.paid_on) it is used as-is: there is no moment in time to
--- resolve, and wrapping it would be a no-op cast through a function that
--- expects a timestamptz.
---
--- THE ONE DATE THAT HAD TO BE DECIDED. A pay run's live entry is dated
--- shop_local_date() -- the day it was POSTED -- while the expenses row it
--- writes alongside is dated period_end. 20260908000500 names the divergence and
--- leaves it to this task. The replay uses shop_local_date(posted_at): that IS
--- what the live path wrote, evaluated at the true moment rather than at replay
--- time, so a replayed pay run and a live one land on the same day. period_end
--- was rejected because it would put the replay in a different month from every
--- pay run posted since phase 2b shipped, making "wages by month" depend on when
--- the shop was backfilled. The expense row's period_end date never reaches the
--- ledger at all, because that row is excluded (see 1 above), so there is no
--- second date to reconcile.
---
--- THE SECOND DATE THAT HAD TO BE DECIDED is the opening balance's, and it is
--- the only entry here that has no source row to take one from. It is the first
--- day of the month the shop's ledger begins in -- opening_inventory_date() --
--- for the reasons set out at length in this migration's header.
---
--- ## What this does NOT redirect
---
--- Task 3b's complete_sale and Task 7b's expense trigger redirect a row whose
--- month has closed into the open one. This does not: it inserts periods
--- directly and leaves them open, and a month that a shop CLOSED during phase 1
--- is closed over a ledger that did not yet contain this history -- so re-dating
--- into it is the honest treatment, not a violation of the close. The
--- consequence for the tie-out is stated in verify-backfill.sql: an expense
--- total must be compared shop-wide, not per month, because the live trigger's
--- redirect and this replay legitimately put a back-dated expense in different
--- months.
-
--- ── The one thing that must never be silent ─────────────────────────────────
---
--- Every lines statement below LEFT JOINs the chart of accounts and hands the
--- miss to this, instead of inner-joining and letting a missing or archived
--- account quietly DROP the line. An inner join was the original shape and it
--- fails in two ways, one of them invisible:
---
---   * drop one line and the entry no longer balances -- caught, but only at
---     COMMIT, by the deferred trigger, saying "debits and credits differ by
---     2000" with no entry named and no hint that an account was missing;
---   * drop a SELF-BALANCING PAIR -- 5000/1200 on a sale or a refund, 1200/5100
---     on a count -- and the entry still balances, still has two or more lines,
---     still passes step 7's guard, and has silently lost its cost of goods.
---     That is exactly the "looks right" failure this whole task exists to stop.
---
--- post_journal_entry raises 'No such account: 4200. Check the chart of
--- accounts.' for the same case. The replay skips that wrapper, so it has to
--- carry the wrapper's check itself, and it names the SOURCE ROW as well as the
--- code because a replay that stops has to say which row it stopped on.
---
--- Called from inside COALESCE, which does not evaluate its later arguments once
--- one is non-null: the join stays set-based and this runs only for the rows
--- whose account really is missing. VOLATILE (the default) on purpose -- an
--- IMMUTABLE function with constant arguments can be folded at plan time, which
--- would raise for a line that the `amount_cents <> 0` filter was about to throw
--- away.
-create or replace function public.backfill_missing_account(p_code text, p_source text)
-returns uuid
-language plpgsql as $$
-begin
-  raise exception 'No such account: %. The backfill needs it for %, and the shop''s chart of accounts does not have it (or it is archived). Check the chart of accounts.',
-    coalesce(p_code, '<null>'), p_source
-    using errcode = 'P0001';
-end;
-$$;
-
-comment on function public.backfill_missing_account(text, text) is
-  'Raises. Never returns. Called from COALESCE in backfill_shop_ledger''s line statements, so a missing or archived account stops the replay by name instead of silently dropping the line -- which, for a self-balancing pair like 5000/1200, would leave an entry that still balances and has silently lost its COGS.';
+-- NO EXISTING ROW CARRIES A LINK on the day this ships, so the replay writes
+-- exactly what it wrote yesterday for every row that exists. The new arm can
+-- only affect rows created after it, and the guard means those are correct by
+-- construction. Nothing is re-posted and no history moves.
 
 create or replace function public.backfill_shop_ledger(p_shop_id uuid)
 returns integer
@@ -1256,7 +980,15 @@ begin
   -- inventory_purchase stays out, for the reason 20260908000800 gives at
   -- length: the delivery already debited 1200 against 2000, and pairing a bill
   -- with a receipt is the app's own unpaid-delivery flow rather than a
-  -- double-entry a shop should have avoided.
+  -- double-entry a shop should have avoided. 20260908001900 narrows what that
+  -- sentence CLAIMS -- it is an admitted gap for rows entered before a goods
+  -- bill had to name its delivery, not a statement that one did -- and adds the
+  -- clause beside it: A BILL THAT NAMES A DELIVERY IS EXCLUDED WHATEVER ITS
+  -- CATEGORY. That is the over-stated direction closing. A bill for goods
+  -- mis-tapped as `supplies` used to be replayed as Dr 6400 / Cr 2000 on top of
+  -- the delivery's own Dr 1200 / Cr 2000, doubling the payable, and the category
+  -- test could not see it because the category was what was wrong. The live
+  -- branch in post_expense_to_ledger asks the same question in the same order.
   --
   -- FORWARD REFERENCE, AND IT IS SAFE. stock_count_id and stock_receipt_id are
   -- added by 20260908000800, which applies AFTER 20260908000700 where this
@@ -1282,7 +1014,11 @@ begin
      and e.journal_entry_id is null
      and e.payroll_run_id is null
      and e.stock_count_id is null
-     and not (e.invoice_id is not null and e.category = 'inventory_purchase')
+     and not (e.invoice_id is not null
+              and (e.category = 'inventory_purchase'
+                   or exists (select 1 from public.invoices bi
+                               where bi.id = e.invoice_id
+                                 and bi.stock_receipt_id is not null)))
      and e.amount_cents <> 0;
 
   select count(*) into v_written from _bf_map;
@@ -2050,8 +1786,7 @@ begin
   return v_written;
 end;
 $$;
-
 comment on function public.backfill_shop_ledger(uuid) is
-  'Replays every unposted sale, refund, settlement, stock receipt, stock count, supplier payment, pay run and expense into the ledger, then posts the shop''s opening inventory balance (Dr 1200 / Cr 3000) for stock that arrived before the app recorded deliveries, and returns how many entries it wrote. Idempotent -- the eight replays are driven by journal_entry_id being null and the opening balance by opening_inventory_gap(), which returns 0 once one exists -- so a second run writes nothing. Inserts journal_entries and journal_lines directly rather than through post_journal_entry, because open_period_for raises on a closed month and would abort the replay half-way; the deferred balance trigger still runs, and the wrapper''s missing-account check is reproduced by backfill_missing_account. References come from journal_entry_sequences, reserved a year at a time.';
+  'Replays every unposted sale, refund, settlement, stock receipt, stock count, supplier payment, pay run and expense into the ledger, then posts the shop''s opening inventory balance (Dr 1200 / Cr 3000) for stock that arrived before the app recorded deliveries, and returns how many entries it wrote. Idempotent -- the eight replays are driven by journal_entry_id being null and the opening balance by opening_inventory_gap(), which returns 0 once one exists -- so a second run writes nothing. Inserts journal_entries and journal_lines directly rather than through post_journal_entry, because open_period_for raises on a closed month and would abort the replay half-way; the deferred balance trigger still runs, and the wrapper''s missing-account check is reproduced by backfill_missing_account. References come from journal_entry_sequences, reserved a year at a time. A bill''s mirrored expense row is skipped when the bill names a delivery -- receive_stock recognised those goods -- and when it is an inventory_purchase naming none, which is the gap 20260908001900 states rather than posts.';
 
 grant execute on function public.backfill_shop_ledger(uuid) to authenticated;

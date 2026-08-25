@@ -202,6 +202,17 @@ declare
   v_shop_short  uuid;   -- 18b: a ledger claiming more stock than the shelf has
   v_loc2        uuid;
   v_prod2       uuid;
+  -- 22: THE SAME SHOP BUILT TWICE. One posts as it trades, the other is replayed
+  -- from raw rows, and the two must agree account for account.
+  v_shop_live   uuid;
+  v_shop_replay uuid;
+  v_loc3        uuid;
+  v_prod3       uuid;
+  v_recv3       uuid;
+  v_bill3       uuid;
+  v_code        text;
+  v_live_cents  bigint;
+  v_repl_cents  bigint;
 begin
   v_old_at    := (v_old_day + time '22:30')::timestamp at time zone 'UTC';
   v_old_local := public.shop_local_date(v_old_at);
@@ -448,11 +459,23 @@ begin
   -- standalone stock_loss row below was added for. Left UNPAID and at 1300, so
   -- it cannot be confused with the 5000 bill, the 2000 delivery or the 3000
   -- payment, and so it moves no tender.
+  --
+  -- THE DOOR IS DISABLED AROUND THIS INSERT, AND THAT IS THE POINT OF THE ROW.
+  -- 20260908001900's guard_invoice_delivery_link refuses a goods bill that names
+  -- no delivery, so this shape can no longer be CREATED -- but every shop's
+  -- history is full of it, and the replay's job is to treat those rows exactly
+  -- as it did yesterday. Reproducing history means writing a row the door would
+  -- now turn away; disabling the trigger for one statement says so out loud
+  -- where a hand-crafted work-around would hide it. (This script runs as
+  -- postgres and the whole DO block rolls back, so the trigger is never off for
+  -- anything but this insert.)
+  alter table public.invoices disable trigger invoices_guard_delivery_link;
   insert into public.invoices
       (shop_id, location_id, vendor_name, invoice_number, category, issued_on, due_on,
        amount_cents, created_by)
     values (v_shop_id, v_loc_id, 'Berbera Wholesale', 'BW-1002', 'inventory_purchase',
             public.shop_local_date() - 9, public.shop_local_date() + 21, 1300, v_user_id);
+  alter table public.invoices enable trigger invoices_guard_delivery_link;
 
   ---------------------------------------------------------------------------
   -- A POSTED PAY RUN and its expenses row. THE FIRST DOUBLE-COUNT TRAP.
@@ -2391,37 +2414,50 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
-  -- 21b. ...AND WHAT THAT COSTS, WHEN THE PRODUCT IS COSTED LATER.
+  -- 21b. ...AND THE REVALUATION THAT CLOSES IT, WHEN THE PRODUCT IS COSTED
+  --      LATER.
   ---------------------------------------------------------------------------
   -- CHECK 21 IS NOT THE WHOLE STORY, AND THIS CHECK EXISTS SO NOBODY CAN READ
-  -- IT AS IF IT WERE. 20260908001300's header used to argue the exclusion by
+  -- IT AS IF IT WERE. 20260908001300's header argued the exclusion partly by
   -- saying an uncosted product's whole life is invisible to 1200. That holds
-  -- only while it STAYS uncosted. receive_stock (20260907000000) costs the
-  -- ENTIRE HOLDING at the delivery's price when the prior cost is null -- it has
-  -- nothing to weight an average against -- so the opening quantity acquires a
-  -- cost it never contributed, and 1200 is understated by exactly that from then
-  -- on. The opening marker means a second backfill can never come back for it.
+  -- only while it STAYS uncosted. receive_stock costs the ENTIRE HOLDING at the
+  -- delivery's price when the prior cost is null -- it has nothing to weight an
+  -- average against -- so the opening quantity acquires a cost it never
+  -- contributed. Until 20260908001800 nothing put that cost into the ledger,
+  -- and the opening marker meant a second backfill could never come back for
+  -- it:
   --
-  -- The numbers, all live-path:
   --   8 sacks of rice at 200, 50 uncosted mats  -> opening Dr 1200  1600
   --   a delivery of 10 mats at 100              -> Dr 1200          1000  (all
   --                                                60 mats now cost 100 each)
   --   all 60 mats sold                          -> Cr 1200         -6000
-  --   1200 ends at                                                 -3400
-  -- while the shelf still holds 1600 of rice. THE ASSET IS NEGATIVE AGAIN, and
-  -- it is short by 5000 -- the 50 opening units at the 100 they were later given.
+  --   1200 USED TO END AT                                          -3400
   --
-  -- The exclusion is still right: there is no honest value for stock nobody has
-  -- priced, and inventing one is worse than a gap. What is wrong is calling the
-  -- argument closed. Costing a product that already has stock is a REVALUATION
-  -- and revaluations have to reach the ledger; that is phase 3's, and it is in
-  -- the plan's residue list.
+  -- while the shelf still held 1600 of rice. A NEGATIVE ASSET, short by exactly
+  -- 5000 -- the 50 opening units at the 100 they were later given. That was
+  -- asserted here as a present defect for as long as it was one.
   --
-  -- MUTATION (proves this check): none is needed to make it red -- it asserts a
-  -- defect that is PRESENT. Change the expected -3400 to 1600 (what a ledger
-  -- with no residue would hold) and it reddens immediately, which is the same
-  -- thing said the other way round: the day phase 3 fixes this, this check
-  -- fails and its message tells whoever is reading why.
+  -- 20260908001800 posts the missing entry at the moment the cost appears:
+  -- Dr 1200 / Cr 3000 Owner's Capital for the units already on the shelf, which
+  -- is the same treatment and the same account the opening balance gives the
+  -- same stock. So the delivery now adds 1000 + 5000 and:
+  --
+  --   1200 ENDS AT                                                  1600
+  --
+  -- equal to the shelf, which is the property this whole area exists to keep.
+  -- The exclusion in opening_inventory_gap is UNCHANGED and still right: there
+  -- is no honest value for stock nobody has priced. What has changed is that
+  -- the day somebody prices it, the ledger hears about it.
+  --
+  -- MUTATION (proves this check): delete the `if v_reval_cents > 0 then ... end
+  -- if;` block at the foot of receive_stock in 20260908001800. Expected:
+  -- 'FAIL: 1200 reads -3400 for the later-costed shop, expected 1600'.
+  --
+  -- The two assertions are deliberately not the same statement: the first pins
+  -- the ABSOLUTE figure, so a mutation that moved both 1200 and the shelf
+  -- together cannot satisfy it, and the second pins the AGREEMENT, so a
+  -- mutation that got 1600 by some other route is still caught the moment the
+  -- shelf changes.
   insert into public.shops (owner_id, name) values (v_user_id, 'Later-costed Shop')
     returning id into v_shop_later;
   insert into public.shop_locations (shop_id, name, is_primary)
@@ -2470,15 +2506,32 @@ begin
   if v_onhand <> 1600 then
     raise exception 'FIXTURE: the shelf is worth %, expected 1600 (eight sacks at 200)', v_onhand;
   end if;
-  if v_ledger <> -3400 then
-    raise exception 'FAIL: 1200 reads % for the later-costed shop, expected -3400. This check asserts a KNOWN residue: uncosted opening stock that is costed later leaves 1200 understated by the opening quantity at its new cost (50 x 100 = 5000 here). If this is now 1600 the phase-3 revaluation has landed -- delete this check and the residue entry with it', v_ledger;
+  -- ONE ASSERTION, AND IT IS THE AGREEMENT ONE. There used to be two here --
+  -- `v_ledger <> 1600` and then `v_ledger <> v_onhand` -- and the second could
+  -- not fail: the line above pins v_onhand to the literal 1600 and the line
+  -- before it pinned v_ledger to the same literal, so it read as an independent
+  -- agreement check while being dead code. The shelf is the fixture (1600,
+  -- checked above); the ledger is what is under test, and it is compared
+  -- against the shelf rather than against a second copy of the same number.
+  if v_ledger <> v_onhand then
+    raise exception 'FAIL: 1200 reads % for the later-costed shop against a shelf worth % -- an opening balance and a revaluation together must leave the two equal. -3400 means the revaluation in 20260908001800 did not post and the fifty opening mats went out through COGS at a cost the ledger was never given (50 x 100 = 5000)', v_ledger, v_onhand;
   end if;
-  if v_onhand - v_ledger <> 5000 then
-    raise exception 'FAIL: 1200 is short by %, expected 5000 -- the fifty opening mats at the 100 the delivery gave them', v_onhand - v_ledger;
+  -- Exactly one revaluation, and it is filed under 'stock' rather than
+  -- 'opening'. 'opening' would balance and would read beautifully -- and it
+  -- would set opening_inventory_gap's idempotency marker, so a shop whose first
+  -- delivery revalued something would never get the opening balance this whole
+  -- file is about.
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_later and description = 'Existing stock valued' and source = 'stock';
+  if v_rows <> 1 then
+    raise exception 'FAIL: the later-costed shop holds % revaluation entries filed under ''stock'', expected 1', v_rows;
   end if;
 
-  -- And the marker is the reason it stays that way: a second replay writes no
-  -- second opening balance and therefore cannot correct the 5000.
+  -- And the marker still holds: a second replay writes no second opening
+  -- balance. It has nothing left to correct now -- which is the point. The
+  -- revaluation happened at the moment the cost appeared, on the live path,
+  -- rather than waiting for a replay that would never have been allowed to
+  -- come back for it.
   v_posted := public.backfill_shop_ledger(v_shop_later);
   select count(*) into v_rows from public.journal_entries
    where shop_id = v_shop_later and source = 'opening';
@@ -2490,8 +2543,8 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_later and a.code = '1200';
-  if v_ledger <> -3400 then
-    raise exception 'FAIL: a second replay moved 1200 to % -- the opening marker is supposed to make this unreachable', v_ledger;
+  if v_ledger <> 1600 then
+    raise exception 'FAIL: a second replay moved 1200 to %, expected it to stay at 1600 -- the opening marker is supposed to make a second opening balance unreachable', v_ledger;
   end if;
 
   ---------------------------------------------------------------------------
@@ -2582,6 +2635,158 @@ begin
     end if;
   end;
   perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+
+  ---------------------------------------------------------------------------
+  -- 22. A BILL THAT NAMES ITS DELIVERY: THE LIVE PATH AND THE REPLAY AGREE.
+  ---------------------------------------------------------------------------
+  -- 20260908001900 added a branch to post_expense_to_ledger and the SAME branch
+  -- to this replay's step-1 filter. Two copies of one rule is exactly how live
+  -- behaviour and replayed history come to differ -- and both would still
+  -- balance, and the trial balance would still zero, so nothing else in this
+  -- suite would notice.
+  --
+  -- So the shop is BUILT TWICE. The live one trades through the real doors and
+  -- posts as it goes; the replayed one is raw rows with nothing posted, and
+  -- backfill_shop_ledger does the work. Then the two are compared account by
+  -- account. Neither figure is written down as a constant, so this check cannot
+  -- be satisfied by two implementations that are wrong in the same way -- it can
+  -- only be satisfied by them being wrong in the same way AND a human writing
+  -- that wrong number down, which is the failure mode a constant invites.
+  --
+  -- The bill is categorised 'supplies' -> 6400, DELIBERATELY, because that is
+  -- the wrong category for goods and it is the tap a shopkeeper makes. Keyed on
+  -- the category, the bill posts Dr 6400 / Cr 2000 on top of the delivery's own
+  -- Dr 1200 / Cr 2000 and the payable doubles. Keyed on the LINK, it posts
+  -- nothing on both paths.
+  --
+  -- MUTATION (proves this check, replay side): delete the `bi.stock_receipt_id
+  -- is not null` clause from step 1's expenses filter. Observed: FAIL: the
+  -- replayed shop wrote 3 entries, expected 2 -- the entry count reddens before
+  -- the account comparison gets a chance to, which is the earlier and clearer
+  -- signal. The comparison is what would catch a replay that wrote the right
+  -- NUMBER of entries with the wrong lines in them.
+  --
+  -- MUTATION (proves the door beside it): delete the same clause from
+  -- unposted_ledger_source_rows and leave the replay alone. Observed: FAIL: the
+  -- door still shows 1 rows unposted for the replayed shop: expense=1 -- it
+  -- promises entries the replay will not write. Two copies of one rule, and this
+  -- is the check that stops them drifting.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Live Shop')
+    returning id into v_shop_live;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_live, 'Main', true) returning id into v_loc3;
+  -- stock 0 and cost null: receive_stock costs the product for the first time
+  -- with nothing already on the shelf, so 20260908001800's revaluation entry
+  -- does not fire and both shops hold one delivery entry, not two.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_live, 'Sack of sugar', 9000, null, 0) returning id into v_prod3;
+
+  -- 7 at 5900 = 41300, matching nothing else in this file.
+  v_recv3 := public.receive_stock(
+    v_shop_live, v_loc3,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod3, 'quantity', 7, 'unit_cost_cents', 5900)),
+    'Berbera Wholesale', 'BW-7788', null);
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents, created_by, stock_receipt_id)
+    values (v_shop_live, v_loc3, 'Berbera Wholesale', 'BW-7788', 'supplies',
+            public.shop_local_date(), public.shop_local_date() + 14, 41300, v_user_id, v_recv3)
+    returning id into v_bill3;
+  perform public.record_invoice_payment(v_bill3, 41300, public.shop_local_date(), 'cash');
+
+  -- The replayed twin. Every row written directly, in the state a shop that
+  -- traded before this branch shipped would be in: no journal_entry_id anywhere.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Replayed Shop')
+    returning id into v_shop_replay;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_replay, 'Main', true) returning id into v_loc3;
+  -- What receive_stock leaves behind: the product costed and the units on the
+  -- shelf. Written by hand so the two shops' opening_inventory_gap is the same
+  -- zero -- 7 x 5900 on hand against 41300 the replay is about to put through
+  -- 1200 -- and neither shop gets an opening entry the other does not.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_replay, 'Sack of sugar', 9000, 5900, 7) returning id into v_prod3;
+  insert into public.stock_receipts (shop_id, location_id, created_by, supplier_name, reference)
+    values (v_shop_replay, v_loc3, v_user_id, 'Berbera Wholesale', 'BW-7788')
+    returning id into v_recv3;
+  insert into public.stock_receipt_items (receipt_id, product_id, product_name, quantity, unit_cost_cents)
+    values (v_recv3, v_prod3, 'Sack of sugar', 7, 5900);
+  -- ON CONFLICT because a product created with stock already gets its per-store
+  -- row from a trigger; check 18's product is created at 0 and does not, which
+  -- is why that one is a plain insert and this one cannot be.
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod3, v_loc3, 7)
+    on conflict (product_id, location_id) do update set stock = excluded.stock;
+  -- Inserting the bill DOES fire sync_invoice_expense and post_expense_to_ledger
+  -- live, and that is fine and is the point: the branch answers "this bill names
+  -- a delivery" and posts nothing, so there is no entry to blank out. If it ever
+  -- posts one, the row arrives at the replay already pointed at an entry, the
+  -- replay skips it, and this shop reads 41300 on 6400 where the live one reads
+  -- 0 -- caught below either way.
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents, created_by, stock_receipt_id)
+    values (v_shop_replay, v_loc3, 'Berbera Wholesale', 'BW-7788', 'supplies',
+            public.shop_local_date(), public.shop_local_date() + 14, 41300, v_user_id, v_recv3)
+    returning id into v_bill3;
+  insert into public.invoice_payments (invoice_id, amount_cents, paid_on, method, created_by)
+    values (v_bill3, 41300, public.shop_local_date(), 'cash', v_user_id);
+
+  -- Two entries and no more: the delivery and the payment. A third would be the
+  -- bill posting, which is the whole thing under test.
+  v_posted := public.backfill_shop_ledger(v_shop_replay);
+  if v_posted <> 2 then
+    raise exception 'FAIL: the replayed shop wrote % entries, expected 2 (the delivery and the supplier payment). 3 means the bill was replayed even though it names the delivery it pays for', v_posted;
+  end if;
+
+  -- And the door said the same thing before the button was pressed. Asserted
+  -- after the run rather than before only because the run is what proves the
+  -- count was honest; the view must now be empty for this shop.
+  select coalesce(sum(rows_unposted), 0) into v_rows
+    from public.unposted_ledger_counts(v_shop_replay);
+  if v_rows <> 0 then
+    select string_agg(kind || '=' || rows_unposted, ' ' order by kind) into v_text
+      from public.unposted_ledger_counts(v_shop_replay) where rows_unposted <> 0;
+    raise exception 'FAIL: the door still shows % rows unposted for the replayed shop: % -- it promises entries the replay will not write', v_rows, v_text;
+  end if;
+
+  -- THE COMPARISON. Four accounts, each named, because a single "every account
+  -- agrees" loop that found nothing would pass on two empty ledgers.
+  foreach v_code in array array['1200', '2000', '6400', '1000'] loop
+    select coalesce(sum(l.amount_cents), 0) into v_live_cents
+      from public.journal_lines l
+      join public.accounts a on a.id = l.account_id
+      join public.journal_entries e on e.id = l.entry_id
+     where e.shop_id = v_shop_live and a.code = v_code and e.status in ('posted', 'reversed');
+    select coalesce(sum(l.amount_cents), 0) into v_repl_cents
+      from public.journal_lines l
+      join public.accounts a on a.id = l.account_id
+      join public.journal_entries e on e.id = l.entry_id
+     where e.shop_id = v_shop_replay and a.code = v_code and e.status in ('posted', 'reversed');
+    if v_live_cents <> v_repl_cents then
+      raise exception 'FAIL: the replayed shop''s % reads % where the live shop reads % -- history and live behaviour disagree about a bill that names its delivery',
+        v_code, v_repl_cents, v_live_cents;
+    end if;
+  end loop;
+
+  -- ...and the figures are not both zero. Two empty ledgers agree perfectly.
+  select coalesce(sum(l.amount_cents), 0) into v_live_cents
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_live and a.code = '1200';
+  if v_live_cents <> 41300 then
+    raise exception 'FAIL: the live shop''s 1200 reads %, expected 41300 -- check 22 is comparing two shops that did nothing', v_live_cents;
+  end if;
+  -- 2000 back at zero on both: the delivery raised the payable and the payment
+  -- cleared it, because they are about the same goods. This is the sentence the
+  -- whole residue was about.
+  select coalesce(sum(l.amount_cents), 0) into v_live_cents
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_replay and a.code = '2000';
+  if v_live_cents <> 0 then
+    raise exception 'FAIL: the replayed shop''s 2000 Accounts Payable reads %, expected 0 -- the delivery''s credit and the payment''s debit did not net out', v_live_cents;
+  end if;
 
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
