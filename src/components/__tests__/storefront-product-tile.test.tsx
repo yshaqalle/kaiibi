@@ -1,8 +1,20 @@
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ProductTile } from '@/components/storefront/product-tile';
+import { openExternalUrl } from '@/lib/external-url';
+import { waLink } from '@/lib/storefront';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
+
+// product-tile.tsx now imports waLink from '@/lib/storefront' for Ask, which
+// transitively imports '@/lib/supabase' -- that throws at import time without
+// real env vars. Same mock storefront-theme-counter.test.tsx already carries
+// for the same reason.
+jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+jest.mock('@/lib/external-url', () => ({ openExternalUrl: jest.fn() }));
+
+const openMock = openExternalUrl as jest.MockedFunction<typeof openExternalUrl>;
+beforeEach(() => openMock.mockReset());
 
 // `@testing-library/react-native` is not installed in this repo (see
 // stat-tile.test.tsx and sale-line.test.tsx for the same pattern) -- flatten
@@ -70,5 +82,60 @@ describe('ProductTile', () => {
   it('says in stock when there is stock', () => {
     const texts = renderTile(base);
     expect(texts).toContain('In stock');
+  });
+
+  it('shows Add when in stock and calls onAdd with the product on press', () => {
+    const onAdd = jest.fn();
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<ProductTile product={base} colors={colors} onAdd={onAdd} />);
+    });
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
+    expect(texts).toContain('Add');
+
+    const addButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-add');
+    act(() => addButtons[0].props.onPress());
+    expect(onAdd).toHaveBeenCalledWith(base);
+  });
+
+  // The shop may be restocking, and that enquiry is a sale -- an out-of-stock
+  // tile loses Add but must never lose Ask or disappear.
+  it('loses Add but keeps Ask when out of stock', () => {
+    const texts = renderTile({ ...base, stock: 0 });
+    expect(texts).not.toContain('Add');
+    expect(texts).toContain('Ask');
+    expect(texts).toContain('Out of stock — ask us');
+  });
+
+  it('shows Ask alongside Add when in stock', () => {
+    const texts = renderTile(base);
+    expect(texts).toContain('Ask');
+    expect(texts).toContain('Add');
+  });
+
+  it('Ask opens a wa.me link prefilled with the shop and product name', () => {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <ProductTile product={base} colors={colors} shopName="Deka Electronics" whatsappE164="+252634418820" />
+      );
+    });
+    const askButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-ask');
+    act(() => askButtons[0].props.onPress());
+
+    const expected = waLink('+252634418820', 'Hi Deka Electronics, is Anker 20W charger available?');
+    expect(openMock).toHaveBeenCalledWith(expected);
+  });
+
+  // No number to reach means nothing to open, but the property is that Ask
+  // stays VISIBLE regardless (asserted above) -- it just becomes inert here.
+  it('Ask does nothing when the shop has no WhatsApp number', () => {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<ProductTile product={base} colors={colors} />);
+    });
+    const askButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-ask');
+    act(() => askButtons[0].props.onPress());
+    expect(openMock).not.toHaveBeenCalled();
   });
 });
