@@ -46,6 +46,7 @@ Plan 1 ships a page a shop cannot yet edit — seeded by SQL — which is delibe
 | `src/lib/storefront-host.ts` | Hostname → slug. Pure. |
 | `src/lib/storefront.ts` | Supabase reads for the public page. |
 | `src/components/storefront/product-tile.tsx` | One product, photo or typographic fallback. |
+| `src/components/storefront/theme-shared.tsx` | `ThemeProps`, the WhatsApp button and the empty state — the parts all three themes need. |
 | `src/components/storefront/theme-market.tsx` | Market theme. |
 | `src/components/storefront/theme-counter.tsx` | Counter theme. |
 | `src/components/storefront/theme-window.tsx` | Window theme. |
@@ -1442,7 +1443,7 @@ git commit -m "feat(storefront): product tile whose no-photo case is the design"
 ### Task 10: The three themes and the view that picks one
 
 **Files:**
-- Create: `src/components/storefront/theme-market.tsx`, `theme-counter.tsx`, `theme-window.tsx`, `storefront-view.tsx`
+- Create: `src/components/storefront/theme-shared.tsx`, `theme-market.tsx`, `theme-counter.tsx`, `theme-window.tsx`, `storefront-view.tsx`
 - Test: `src/components/__tests__/storefront-view.test.tsx`
 
 **Interfaces:**
@@ -1599,7 +1600,7 @@ Create `src/components/storefront/theme-counter.tsx`:
 ```tsx
 import { StyleSheet, Text, View } from 'react-native';
 
-import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-market';
+import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -1672,7 +1673,7 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 5: Write Window**
+- [ ] **Step 6: Write Window**
 
 Create `src/components/storefront/theme-window.tsx`:
 
@@ -1680,7 +1681,7 @@ Create `src/components/storefront/theme-window.tsx`:
 import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
 
 import { ProductTile } from '@/components/storefront/product-tile';
-import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-market';
+import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-shared';
 
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
@@ -1736,7 +1737,7 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 6: Write the view that picks one**
+- [ ] **Step 7: Write the view that picks one**
 
 Create `src/components/storefront/storefront-view.tsx`:
 
@@ -1774,7 +1775,7 @@ export function StorefrontView({
 }
 ```
 
-- [ ] **Step 7: Run the tests and watch them pass**
+- [ ] **Step 8: Run the tests and watch them pass**
 
 ```bash
 npm test -- storefront-view
@@ -1782,7 +1783,7 @@ npm test -- storefront-view
 
 Expected: PASS, 8 tests (3 parameterised + 5).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/components/storefront
@@ -1796,7 +1797,7 @@ git commit -m "feat(storefront): three photo-optional themes over six palettes"
 **Files:**
 - Create: `src/app/s/[slug].tsx`
 - Modify: `src/app/_layout.tsx`
-- Test: `src/app/__tests__/storefront-route.test.tsx`
+- Test: `src/__tests__/storefront-route.test.tsx`
 
 **Interfaces:**
 - Consumes: `slugFromHostname` (Task 5), `getPublicStorefront`, `getPublicStorefrontProducts` (Task 8), `StorefrontView` (Task 10).
@@ -1804,7 +1805,7 @@ git commit -m "feat(storefront): three photo-optional themes over six palettes"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `src/app/__tests__/storefront-route.test.tsx`:
+Create `src/__tests__/storefront-route.test.tsx`:
 
 ```tsx
 import { render, screen, waitFor } from '@testing-library/react-native';
@@ -1989,7 +1990,7 @@ Then, with a shop seeded and published in the local database, open `http://local
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/app/s src/app/_layout.tsx src/app/__tests__/storefront-route.test.tsx
+git add src/app/s src/app/_layout.tsx src/__tests__/storefront-route.test.tsx
 git commit -m "feat(storefront): serve a published shop at its own subdomain"
 ```
 
