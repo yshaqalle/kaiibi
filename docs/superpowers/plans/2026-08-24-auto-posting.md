@@ -2840,3 +2840,16 @@ The pre-press copy claimed *"a month you have already closed is re-opened to rec
 ## What this unblocks
 
 **Phase 3 — the statements** becomes possible: balance sheet, cash flow and income statement all read what this phase writes. **Cash becoming derived** — the stated outcome of 2b — becomes a read-side change with real data behind it.
+
+---
+
+## Post-merge fix: `delete_shop` on a shop that has traded (PR #74)
+
+Stamping a location on every posted entry (Tasks 3–7) turned a latent gap into a live one: `journal_entries.location_id` and `journal_lines.location_id` (`20260904000300`) carried no `ON DELETE`, so `delete_shop` (a plain cascading `delete from shops`, `supabase/functions/platform-admin`) refused any shop that had ever posted a location-bearing entry — which after this phase is nearly every shop.
+
+Fixing that surfaced two more defects in the same cascade, both older than this phase:
+
+- `journal_lines.account_id -> accounts` and `journal_entries.period_id -> accounting_periods` carry the same no-`ON DELETE` shape and blocked the same delete one FK later — `delete_shop` was already broken for **any** shop with a single posted entry, location or not, since `account_id` is `not null`. Fixed by making both constraints `DEFERRABLE INITIALLY DEFERRED` rather than `SET NULL`: neither column is optional the way a location is, and the row each points at is destroyed by the same cascade a moment later, so the fix is *when* the FK checks, not what it does.
+- `ON DELETE SET NULL` is itself an `UPDATE`, and `refuse_posted_entry_edit()` / `refuse_posted_line_change()` refuse any update to a posted row except the one reversal transition. Both gained a second permitted transition: `location_id` moving from not-null to null, nothing else changing.
+
+`supabase/migrations/20260908001200_delete_shop_fk_ordering.sql`. `supabase/tests/verify-ledger.sql` checks 22 (`delete_shop` survives a shop that has traded) and 22b (deleting one branch via `deleteLocation()` nulls `location_id` on a posted entry and its lines rather than losing either). `test:db` 25 → 25 (same count; both checks landed in the existing file). `npx tsc --noEmit` clean, `npm test` 141/2294 green, `npm run lint` unchanged at 82.
