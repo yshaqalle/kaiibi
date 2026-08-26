@@ -45,7 +45,7 @@ for b in $(git branch -r --format='%(refname:short)' | grep -v HEAD); do git ls-
 for w in .claude/worktrees/*/; do ls "$w/supabase/migrations/" 2>/dev/null; done
 ```
 
-A pre-commit check for duplicate version prefixes across worktrees would end this permanently and is worth the thirty lines.
+This is now enforced by `npm test`: `supabase/tests/migration-version-guard.test.ts` reads every version prefix in this tree, every sibling worktree, and every local and remote git branch, and fails loudly — naming both files — on any collision.
 
 ### Baselines move under you
 
@@ -169,6 +169,8 @@ Before choosing a number, check every branch **and** every worktree, not just `m
 for b in $(git branch -r --format='%(refname:short)' | grep -v HEAD); do git ls-tree --name-only "$b" supabase/migrations/; done
 for w in .claude/worktrees/*/; do ls "$w/supabase/migrations/" 2>/dev/null; done
 ```
+
+`supabase/tests/migration-version-guard.test.ts` now runs this on every `npm test` and fails loudly on a collision, so this is a manual fallback rather than the only line of defense.
 
 ---
 
