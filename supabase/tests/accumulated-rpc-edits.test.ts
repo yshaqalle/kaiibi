@@ -303,25 +303,28 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // subtraction, so it pins the figure that actually reaches the journal line.
   ['20260929000100', 'revenue is credited net of the tax that was inside the quote',
     '-(v_gross_cents + v_item_discount_cents - v_included_tax_cents)'],
-  // TAKING THE TAX OUT OF THE PRICE TAKES IT OUT OF THE TILL. The same two items
-  // at a 5% shop collect 2520 and leave 2400 of revenue without the flag, and
-  // collect 2400 and leave 2286 with it -- 114 cents of the shop's own takings,
-  // decided by a boolean in a JSON payload. That is the money 20260929000050
-  // gated the agreed price's undercut to protect, reached through another field.
+  // TWO ENTRIES WERE DELETED HERE BY 20260929000150, and they are written out
+  // rather than removed silently so the next reader does not put them back.
   //
-  // THE CONDITION AS ONE TOKEN, because the property is the PAIRING and each
-  // half alone is green against the defect: has_shop_permission(...,
-  // 'discounts.manual') already appears twice in this function, and the
-  // rate test alone is satisfiable by a rewrite that asks nothing. It is
-  // ON THE EFFECT rather than on the field -- a shop that charges no tax hands
-  // back the identical sale either way, so nothing is asked there.
-  ['20260929000100', 'extracting tax needs discounts.manual, and only where there is tax to extract',
-    "if v_prices_include_tax\n     and coalesce(v_tax_enabled, false) and coalesce(v_tax_rate, 0) > 0\n     and not public.has_shop_permission(p_shop_id, 'discounts.manual') then"],
-  // ...and it is refused BY NAME, for the reason the undercut refusal is:
-  // complete_sale raises plain P0001 and the text is a client's only handle on
-  // it. Task 4's storefront fulfilment is the caller that will meet this one.
-  ['20260929000100', 'the tax-inclusive refusal names itself so a client can say it',
-    "'not authorized to file a sale at prices that already include tax'"],
+  // 20260929000100 gated the tax-inclusive flag itself on `discounts.manual`
+  // -- refused at a tax-charging shop with `not authorized to file a sale at
+  // prices that already include tax` -- and guarded that gate with two tokens
+  // here. 20260929000150 removed the gate, so both entries went with it.
+  //
+  // The argument for the gate was that the flag moves what the shop KEEPS: the
+  // same two items at a 5% shop collect 2520 and leave 2400 of revenue without
+  // it and collect 2400 and leave 2286 with it. It does not survive the
+  // payments-equality check -- a caller who sets the flag must actually COLLECT
+  // the lower figure, so it is the customer paying less at the shop's own
+  // published price, not the till going short -- and Task 4 makes
+  // complete_storefront_order set this flag for EVERY storefront order at a
+  // tax-charging shop, so the gate made ORDINARY online fulfilment need a
+  // discounting permission. The whole argument is in 20260929000150's header.
+  //
+  // WHAT IS EMPHATICALLY NOT DELETED is the `discounts.manual` gate on an
+  // UNDERCUT through `agreed_unit_price_cents`, two entries above
+  // ('20260929000050'). That one is about a cashier inventing a figure at the
+  // counter and it stays.
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [

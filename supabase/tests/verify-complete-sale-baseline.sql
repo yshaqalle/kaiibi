@@ -128,7 +128,7 @@
 --      AGREED price was bounded before its own multiplication; a line priced
 --      from the shelf was not bounded at all.
 --
--- CHECKS 26-30 WERE ADDED BY TASK 3, and like 14-25 they assert NEW behaviour:
+-- CHECKS 26-31 WERE ADDED BY TASK 3, and like 14-25 they assert NEW behaviour:
 -- p_prices_include_tax, the flag that says the prices in this cart ALREADY have
 -- the tax in them, so it is EXTRACTED from the quoted total rather than added to
 -- it. Appended after 25 for the reason every wave before them was appended: 20,
@@ -161,15 +161,33 @@
 --  29. AT A SHOP WITH TAX DISABLED THE FLAG CHANGES NOTHING. There is nothing in
 --      the price to extract, so the total, the tax and the four journal lines
 --      are check 1's.
---  30. EXTRACTING TAX NEEDS discounts.manual, and only where there is tax to
---      extract. The flag does not move a price, but at a tax-charging shop it
---      takes the tax OUT of what the shop keeps: 2400 collected becomes 2286 of
---      revenue instead of 2400. That is the same money the undercut gate of
---      check 20 exists to protect, reached through a different field, so it is
---      gated the same way -- ON THE EFFECT, not on the field. Where the shop
---      charges no tax the flag asks nothing (a), where it does the un-privileged
---      member is refused by name (b), and the same member ringing up the same
---      cart WITHOUT the flag is untouched (c).
+--  30. AN EXPLICIT NULL FLAG IS A TAXED SALE. `p_prices_include_tax => null` is
+--      not the same call as omitting the parameter -- the default fills in
+--      false, an explicit null does not -- and read raw, `if v_tax_enabled and
+--      not p_prices_include_tax` is NULL rather than TRUE, so the add-on branch
+--      is skipped, the extraction branch is skipped too, and the sale goes out
+--      of a 5% shop with NO TAX AT ALL and nothing said about it. The function
+--      coalesces the flag to false in its DECLARE block; this is what proves it
+--      does, because 20260929000100 pinned that coalesce only as a source token
+--      in accumulated-rpc-edits.test.ts and the whole of this script stayed
+--      GREEN when the coalesce was deleted. The payment is 2520, so the defect
+--      cannot pass by accident either: it would be refused as more than the
+--      2400 total the untaxed sale comes to.
+--  31. THE TAX-INCLUSIVE FLAG NEEDS NO DISCOUNT PERMISSION, which is Task 3's
+--      fix wave 1 and the deletion of its own first answer. 20260929000100
+--      gated the flag on `discounts.manual`; 20260929000150 removed that gate,
+--      because the flag is not a discount (it states how the price was QUOTED),
+--      because the payments-equality check means a caller who sets it must
+--      actually collect the lower figure, and because Task 4 sets it on EVERY
+--      storefront order at a tax-charging shop -- so the gate made ordinary
+--      online fulfilment require a discounting permission.
+--
+--      Check 20's member again: pos.access and NOTHING else. (a) they complete
+--      a tax-inclusive sale at the 5% shop and it lands at 2400 / 114, and
+--      (b) the SAME member is still refused an undercut through
+--      `agreed_unit_price_cents`, by name, so this check cannot be satisfied by
+--      a build that simply stopped asking permissions. Check 20 is the other
+--      half of (b) and stays green.
 --
 -- AGREED_UNIT_PRICE_CENTS IS A NEW FIELD, and it had to be. Carts have carried
 -- a `unit_price_cents` since 0001 and complete_sale has always ignored it --
@@ -2549,104 +2567,149 @@ begin
   raise notice 'OK 29: at a shop with tax off the flag changes nothing at all';
 
   ---------------------------------------------------------------------------
-  -- 30. EXTRACTING TAX NEEDS discounts.manual -- and asks for nothing where
-  --     there is no tax to extract.
+  -- 30. AN EXPLICIT NULL FLAG IS A TAXED SALE, not an untaxed one.
   --
-  --     The flag does not move a price, so at first sight it needs no
-  --     permission. It moves the MONEY THE SHOP KEEPS: at a 5% shop the same
-  --     2 Tea collect 2520 and leave 2400 of revenue without the flag, and
-  --     collect 2400 and leave 2286 with it. 114 cents of the shop's own
-  --     takings, on a field a cashier can set. That is the money check 20's
-  --     undercut gate exists to protect, reached through a different field, so
-  --     the register asks the same permission for it -- ON THE EFFECT, not on
-  --     the field, exactly as check 21 establishes for the agreed price.
+  --     `p_prices_include_tax => null` is a DIFFERENT call from omitting the
+  --     parameter: a default fills in false, an explicit null does not. Read
+  --     raw, `if v_tax_enabled and not p_prices_include_tax` is NULL rather
+  --     than TRUE for such a call -- so the add-on branch is skipped, the
+  --     extraction branch (which needs the flag TRUE) is skipped too, and a 5%
+  --     shop files a sale with NO TAX AT ALL and says nothing about it. The
+  --     one failure mode of this whole change that costs the shop money
+  --     silently.
   --
-  --     Back to check 20's member, who holds pos.access and NOTHING else.
+  --     complete_sale coalesces the flag to false in its DECLARE block. Until
+  --     this check that was pinned only as a source token in
+  --     accumulated-rpc-edits.test.ts, and a source token is not a behaviour:
+  --     the whole of this script stayed GREEN with the coalesce deleted.
   --
-  --     (a) TAX OFF: nothing is extracted, so nothing is asked. Accepted.
-  --     (b) TAX ON: refused by name, and the refusal writes nothing.
-  --     (c) TAX ON, NO FLAG: the same member, the same cart, taxed on top and
-  --         accepted. Without this, a gate that simply refused this member's
-  --         sales outright would pass (b) and mean nothing.
+  --     Check 5's cart at check 5's shop, so the expected answer is check 5's
+  --     answer -- 2400 of goods, 120 of tax on top, 2520 collected. The payment
+  --     is 2520 rather than a figure that would fit either outcome, so the
+  --     defect is refused by the payments-equality guard as well as caught
+  --     here: an untaxed sale totals 2400 and 2520 is more than that.
   ---------------------------------------------------------------------------
-  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
-
-  begin
-    v_sale_id := public.complete_sale(
-      p_shop_id            => v_shop_id,
-      p_items              => jsonb_build_array(jsonb_build_object(
-                                'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 9999)),
-      p_payments           => jsonb_build_array(jsonb_build_object(
-                                'method', 'cash', 'amount_cents', 1200, 'tendered_cents', 1200)),
-      p_location_id        => v_loc_id,
-      p_prices_include_tax => true);
-  exception
-    when others then
-      raise exception 'FAIL 30a: the flag takes nothing out of a shop that charges no tax and must not need a permission, and it was refused. complete_sale said: % (the gate is on the FIELD rather than on the effect)', sqlerrm;
-  end;
-
-  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
-  if v_amount <> 1200 or v_int <> 0 then
-    raise exception 'FAIL 30a: expected 1200 / 0, got % / %', v_amount, v_int;
-  end if;
-
   update public.shops set tax_enabled = true, tax_rate_percent = 5 where id = v_shop_id;
 
   begin
     v_sale_id := public.complete_sale(
       p_shop_id            => v_shop_id,
       p_items              => jsonb_build_array(jsonb_build_object(
-                                'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 9999)),
+                                'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
       p_payments           => jsonb_build_array(jsonb_build_object(
-                                'method', 'cash', 'amount_cents', 1200, 'tendered_cents', 1200)),
+                                'method', 'cash', 'amount_cents', 2520, 'tendered_cents', 2520)),
       p_location_id        => v_loc_id,
-      p_prices_include_tax => true);
-    select total_cents into v_amount from public.sales where id = v_sale_id;
-    raise exception 'FAIL 30b: a member WITHOUT discounts.manual took the tax out of a quoted total and the sale went through at % -- 114 cents of the shop''s revenue through a field the discount permission does not cover', v_amount;
+      p_prices_include_tax => null);
   exception
     when others then
-      if sqlerrm like 'FAIL 30b:%' then
-        raise;
-      end if;
-      if sqlerrm not like 'not authorized to file a sale at prices that already include tax%' then
-        raise exception 'FAIL 30b: expected a refusal naming the missing discount permission, got: %', sqlerrm;
-      end if;
+      raise exception 'FAIL 30: an explicit NULL flag must behave as the documented default (false) and the sale was refused. complete_sale said: % (payments total 2520 is more than sale total 2400 = the null was read as "not false", both tax branches were skipped, and the sale went out untaxed)', sqlerrm;
   end;
 
-  select count(*) into v_count from public.sales where shop_id = v_shop_id;
-  if v_count <> 25 then
-    raise exception 'FAIL 30b: expected 25 sales after a REFUSED one, got % -- the refusal left a sale behind', v_count;
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 2520 or v_int <> 120 then
+    raise exception 'FAIL 30: expected 2520 / 120 -- check 5''s sale, because a null flag is a false flag -- got % / % (2400 / 0 = an UNTAXED sale at a shop that charges 5%%)', v_amount, v_int;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2100';
+  if v_amount <> -120 then
+    raise exception 'FAIL 30: expected Cr 2100 Sales Tax Payable -120 on a null-flag sale, got % (0 = the state''s share was never recorded)', v_amount;
   end if;
 
-  -- (c) The same member, the same cart, no flag: taxed on top and accepted.
+  raise notice 'OK 30: an explicit null flag is the documented default -- 2520 with 120 of tax, not 2400 with none';
+
+  ---------------------------------------------------------------------------
+  -- 31. THE TAX-INCLUSIVE FLAG NEEDS NO DISCOUNT PERMISSION.
+  --
+  --     Task 3 shipped this flag GATED on `discounts.manual` (20260929000100)
+  --     and 20260929000150 removed the gate. The argument, in full, is in that
+  --     migration's header; in short:
+  --
+  --       * the flag is not a discount. It does not reduce a price, it states
+  --         how the price was QUOTED. `discounts.manual` is the authority to
+  --         type a figure the cashier invents, and the flag invents nothing.
+  --       * the money argument does not survive the payments-equality check:
+  --         a caller who sets the flag must actually COLLECT the lower figure,
+  --         so it is the customer paying less at the shop's own published
+  --         price, not the till going short.
+  --       * Task 4 sets this flag for EVERY storefront order at a tax-charging
+  --         shop. The gate therefore restricted the NORMAL path: the most
+  --         natural custom role there is -- "cashier, no discounting" -- could
+  --         ring up till sales all day and not fulfil an ordinary web order,
+  --         refused by a message naming neither orders nor discounting.
+  --
+  --     Check 20's member, who holds pos.access and NOTHING else.
+  --
+  --     (a) they complete a tax-inclusive sale at the 5% shop: 2400 collected,
+  --         114 carved out, exactly as check 26a's owner gets.
+  --     (b) THE SAME MEMBER IS STILL REFUSED AN UNDERCUT through
+  --         `agreed_unit_price_cents`, by name. Without (b) this check would
+  --         also pass against a build that had simply stopped asking
+  --         permissions at all, which is a far worse defect than the one being
+  --         removed. Check 20 asserts the same refusal earlier in the script;
+  --         this repeats it here so the two live and die together.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
+
+  -- Restated rather than assumed: if this member ever acquired
+  -- discounts.manual, (a) would pass against the gate it exists to prove gone.
+  if public.has_shop_permission(v_shop_id, 'discounts.manual') then
+    raise exception 'FAIL 31: the fixture member must NOT hold discounts.manual, or this check asserts nothing';
+  end if;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 2400, 'tendered_cents', 2400)),
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+  exception
+    when others then
+      raise exception 'FAIL 31a: a member holding pos.access and nothing else must be able to complete a tax-inclusive sale -- this is how Task 4 fulfils every storefront order at a tax-charging shop -- and it was refused. complete_sale said: % (the discounts.manual gate on the flag is back)', sqlerrm;
+  end;
+
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 2400 or v_int <> 114 then
+    raise exception 'FAIL 31a: expected 2400 / 114 as in check 26a, got % / %', v_amount, v_int;
+  end if;
+
+  -- (b) The same member, the same shop, an UNDERCUT: still refused, by name.
   begin
     v_sale_id := public.complete_sale(
       p_shop_id     => v_shop_id,
       p_items       => jsonb_build_array(jsonb_build_object(
-                         'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 9999)),
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 100)),
       p_payments    => jsonb_build_array(jsonb_build_object(
-                         'method', 'cash', 'amount_cents', 1260, 'tendered_cents', 1260)),
+                         'method', 'cash', 'amount_cents', 100, 'tendered_cents', 100)),
       p_location_id => v_loc_id);
+    select total_cents into v_amount from public.sales where id = v_sale_id;
+    raise exception 'FAIL 31b: ungating the tax flag ungated the UNDERCUT as well -- a member without discounts.manual filed a 3000 line at an agreed 100 and the sale totalled %', v_amount;
   exception
     when others then
-      raise exception 'FAIL 30c: the gate is on the FLAG, not on the member -- an ordinary till sale by the same cashier was refused. complete_sale said: %', sqlerrm;
+      if sqlerrm like 'FAIL 31b:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'not authorized to file a line below the shelf price%' then
+        raise exception 'FAIL 31b: expected a refusal naming the missing discount permission, got: %', sqlerrm;
+      end if;
   end;
-
-  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
-  if v_amount <> 1260 or v_int <> 60 then
-    raise exception 'FAIL 30c: expected 1260 / 60 on an ordinary 5%% till sale, got % / %', v_amount, v_int;
-  end if;
 
   perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
 
   select count(*) into v_count from public.sales where shop_id = v_shop_id;
   if v_count <> 26 then
-    raise exception 'FAIL 30: expected 26 sales in this fixture, got %', v_count;
+    raise exception 'FAIL 31: expected 26 sales in this fixture, got % -- 31b''s refusal left a sale behind', v_count;
   end if;
 
-  raise notice 'OK 30: extracting tax needs discounts.manual, and asks nothing where there is no tax to extract';
+  raise notice 'OK 31: the tax-inclusive flag needs no discount permission, and the undercut still does';
 
-  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (12 more) + the tax-inclusive quote (5 more)';
+  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (12 more) + the tax-inclusive quote (6 more)';
   raise exception 'rollback_marker';
 exception
   when others then
