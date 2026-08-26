@@ -787,6 +787,41 @@ const CLOSE_ACCOUNTING_PERIOD_EDITS: Edit[] = [
     'if v_lines is null then'],
   ['20261002000100', 'a month that broke even gets no 3900 line', 'if v_sum <> 0 then'],
   ['20261002000100', "the entry is dated the period's last day", 'v_period.ends_on'],
+  // ── Task 3 (20261003000100) added these three and nothing pinned them ────
+  //
+  // p_force shipped ACCEPTED AND UNREAD in 20261002000100, so a copy taken from
+  // that ancestor still compiles, still takes the parameter, and silently
+  // closes over every outstanding item without ever refusing -- which is the
+  // whole of the 'ask' mode gone, with no error anywhere.
+  ['20261003000100', 'an un-forced close REFUSES while anything is outstanding',
+    'if v_exceptions is not null and not p_force then'],
+  // KNOWN LIMIT, stated rather than left to be discovered: this token, the
+  // 'event' one and the 'forced' one each appear TWICE in the function -- once
+  // in the no-trading branch and once in the ordinary one -- so an entry here
+  // catches a copy that lost them ALTOGETHER and not a copy that lost one
+  // branch's. The per-branch guard is verify-period-exceptions-and-auto-close
+  // H1/H2, which closes a month that never traded and asserts the exceptions
+  // and the audit row it wrote. Pinning them per-branch would mean pinning
+  // indentation, which a reformat would turn red for no reason.
+  ['20261003000100', 'what was outstanding is recorded against the period',
+    'exceptions = v_exceptions'],
+  // 'event' is what tells the explicit audit row apart from the trigger's
+  // row-diff twin. Without it listPeriodCloseEvents() matches both, every closed
+  // month appears twice, and the By column on the Close a Period screen picks
+  // whichever came back first.
+  ['20261003000100', 'the explicit audit row says which event it records',
+    "'event', 'close'"],
+  ['20261003000100', 'the audit row records whether the close was forced', "'forced', p_force"],
+  // ── The final review of phase 3b (20261005000000) ───────────────────────
+  //
+  // A month that has not ENDED must not close. Closing the current month stops
+  // the till: phase 2b's escape from a closed month is to redate the posting to
+  // today, and when the closed month is the current month, today is inside it
+  // and open_period_for raises. Pinned on the comparison itself -- `ends_on`
+  // alone appears four times in this function, and `shop_local_date` would
+  // survive a mutation to now()::date only if it were spelled out with it.
+  ['20261005000000', 'a period that has not ended cannot be closed',
+    'v_period.ends_on >= public.shop_local_date()'],
 ];
 
 // list_accounting_periods joins at its SECOND definition, which is the point at

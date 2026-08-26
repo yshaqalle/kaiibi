@@ -48,11 +48,25 @@ declare
   v_book    uuid := gen_random_uuid();
   v_strange uuid := gen_random_uuid();
   v_owner_b uuid := gen_random_uuid();
+  -- Shop C exists only for check 12, whose subject is the CLOCK: its periods
+  -- are measured from shop_local_date() rather than from the fixed 2026 dates
+  -- the rest of this file is built on.
+  v_owner_c uuid := gen_random_uuid();
+  -- Shop D carries the two hand-built periods that sit ON the boundary -- one
+  -- ending today, one ending yesterday. On its own shop so that neither can
+  -- become the month shop C's sale opens.
+  v_owner_d uuid := gen_random_uuid();
   v_role    uuid;
   v_shop    uuid;
   v_loc     uuid;
   v_shop_b  uuid;
   v_loc_b   uuid;
+  v_shop_c  uuid;
+  v_loc_c   uuid;
+  v_shop_d  uuid;
+  v_per_now uuid;
+  v_per_today uuid;
+  v_per_yest  uuid;
   v_mar     uuid;
   v_apr     uuid;
   v_may     uuid;
@@ -814,6 +828,137 @@ begin
          join public.journal_entries e on e.id = l.entry_id
          join public.accounts a on a.id = l.account_id
         where e.shop_id = v_shop_b and a.code = '3900');
+  end if;
+
+  -- =====================================================================
+  -- 12. A MONTH THAT HAS NOT ENDED CANNOT BE CLOSED.
+  --
+  --     This is the Critical the final review of phase 3b found: nothing
+  --     stopped close_accounting_period() shutting the CURRENT month, and the
+  --     screen's primary button did exactly that. A closed month is not merely
+  --     shut -- phase 2b's escape from one is to REDATE the posting to today,
+  --     and when the closed month is the current month "today" is inside it, so
+  --     open_period_for raises and the till stops. Sales, expenses, bills,
+  --     deliveries and payroll all fail at once.
+  --
+  --     Shop C, with periods measured from shop_local_date() rather than from
+  --     the fixed 2026 dates above, because this rule is about the clock.
+  --     TIMEZONE: shop_local_date() and never now()::date -- the shop's day is
+  --     Africa/Mogadishu, and between midnight and 03:00 the two disagree about
+  --     what day it is, and on the 1st about what MONTH it is.
+  --
+  --     MUTATIONS:
+  --       * delete the ends_on guard          → 12a and 12b both close. Red.
+  --       * `ends_on > shop_local_date()`     → 12b closes on its own last day.
+  --                                             Red. (12a stays green, which is
+  --                                             why 12b is here at all.)
+  --       * `ends_on >= shop_local_date() + 1`→ 12c refuses. Red.
+  --       * now()::date instead of the shop's → silent for 21 hours a day and
+  --                                             wrong for three; not asserted
+  --                                             here, see verify-shop-local-date.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+           'verify-period-close-' || u || '@example.test', '', now(), now(), now()
+      from unnest(array[v_owner_c, v_owner_d]) u;
+  insert into public.shops (owner_id, name) values (v_owner_c, 'This Month''s Books') returning id into v_shop_c;
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_c, 'Main', true)
+    returning id into v_loc_c;
+  insert into public.shops (owner_id, name) values (v_owner_d, 'The Boundary Itself') returning id into v_shop_d;
+
+  --   SHOP D's two periods are shapes no calendar month could produce, inserted
+  --   by hand so the boundary can be stood on exactly: one ending TODAY and one
+  --   ending YESTERDAY. A real month's end lands on today only once a month, so
+  --   a fixture built from open_period_for() alone could never test the `>=`.
+  --   They are on their own shop so that neither can become the month shop C's
+  --   sale below opens.
+  insert into public.accounting_periods (shop_id, starts_on, ends_on)
+    values (v_shop_d, public.shop_local_date() - 20, public.shop_local_date())
+    returning id into v_per_today;
+  insert into public.accounting_periods (shop_id, starts_on, ends_on)
+    values (v_shop_d, public.shop_local_date() - 60, public.shop_local_date() - 1)
+    returning id into v_per_yest;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_c)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  --   The CURRENT month, opened the way anything opens one: by posting into it.
+  perform public.post_journal_entry(v_shop_c, public.shop_local_date(), 'A sale today',
+    jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  9100),
+                      jsonb_build_object('code', '4000', 'amount_cents', -9100)),
+    v_loc_c, 'sale');
+  select id into v_per_now from public.accounting_periods
+   where shop_id = v_shop_c and public.shop_local_date() between starts_on and ends_on;
+  if v_per_now is null then
+    raise exception 'FAIL: posting today did not open a current month for shop C, so 12a tests nothing';
+  end if;
+
+  -- 12a. The current month refuses, and says when it can be closed.
+  v_ctx := null;
+  begin
+    perform public.close_accounting_period(v_shop_c, v_per_now);
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null or v_ctx not like '%has not ended yet%' then
+    raise exception 'FAIL: closing the CURRENT month was allowed (or refused for another reason): %', coalesce(v_ctx, 'no error at all');
+  end if;
+  --   ...and it names the day it CAN be closed, which is the whole difference
+  --   between a refusal and a dead end.
+  if v_ctx not like '%' || to_char((select ends_on + 1 from public.accounting_periods where id = v_per_now), 'FMDD FMMonth YYYY') || '%' then
+    raise exception 'FAIL: the refusal does not name the day the month can be closed: %', v_ctx;
+  end if;
+
+  --   ...and p_force DOES NOT OVERRIDE IT. force is about closing over an
+  --   outstanding checklist; there is no reading of "anyway" that makes a month
+  --   which can still take a sale final.
+  --   MUTATION: put the guard below the `if v_exceptions is not null and not
+  --   p_force` block and gate it on p_force. Reddens here.
+  v_ctx := null;
+  begin
+    perform public.close_accounting_period(v_shop_c, v_per_now, true);
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null or v_ctx not like '%has not ended yet%' then
+    raise exception 'FAIL: p_force closed the current month: %', coalesce(v_ctx, 'no error at all');
+  end if;
+
+  --   ...AND THE TILL STILL WORKS, which is the consequence the guard exists
+  --   for. Without this the two refusals above could be green on a function
+  --   that had simply stopped closing anything.
+  perform public.post_journal_entry(v_shop_c, public.shop_local_date(), 'Another sale today',
+    jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  4400),
+                      jsonb_build_object('code', '4000', 'amount_cents', -4400)),
+    v_loc_c, 'sale');
+
+  -- 12b. A period ending TODAY refuses too: today can still take a sale.
+  --      Shop D, whose two periods were built to sit on the boundary.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_d)::text, true);
+  v_ctx := null;
+  begin
+    perform public.close_accounting_period(v_shop_d, v_per_today);
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null or v_ctx not like '%has not ended yet%' then
+    raise exception 'FAIL: a period ending TODAY was closed: %', coalesce(v_ctx, 'no error at all');
+  end if;
+
+  -- 12c. A period ending YESTERDAY closes. The guard is a boundary, not a ban.
+  perform public.close_accounting_period(v_shop_d, v_per_yest);
+  if (select status from public.accounting_periods where id = v_per_yest) <> 'closed' then
+    raise exception 'FAIL: a period that ended yesterday did not close';
+  end if;
+  --   ...and the period ending TODAY, on the same shop, is still open: 12b
+  --   refused it rather than the close simply having stopped working.
+  if (select status from public.accounting_periods where id = v_per_today) <> 'open' then
+    raise exception 'FAIL: the period ending today is no longer open';
+  end if;
+
+  --   ...and shop A's own months are untouched by any of it.
+  if (select status from public.accounting_periods where id = v_mar) <> 'closed'
+     or (select count(*) from public.journal_entries where shop_id = v_shop_c and source = 'close') <> 0 then
+    raise exception 'FAIL: shop C''s boundary checks reached shop A''s books';
   end if;
 
   perform set_config('role', 'postgres', true);
