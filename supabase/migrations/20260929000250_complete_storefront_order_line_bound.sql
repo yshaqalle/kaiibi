@@ -212,7 +212,7 @@ begin
   -- `authenticated`, has row level security on and no policy, and is written
   -- here only because this function is SECURITY DEFINER and runs as its owner.
   -- The xact_id stamped on it is what stops a row left behind by an earlier
-  -- call authorising anything later. The full argument is in this migration's
+  -- call authorising anything later. The full argument is in 20260929000200's
   -- header; the same posture, one level over, is
   -- 20260928000500_order_completion_provenance.sql.
   --
@@ -275,7 +275,7 @@ begin
          or v_msg like 'payments total % is more than sale total %' then
         -- ── THE GUARD STAYS; ITS MEANING NARROWS ──────────────────────────
         --
-        -- It used to catch two things, and this migration has removed both:
+        -- It used to catch two things, and 20260929000200 removed both:
         -- a shop that RE-PRICED a product between checkout and hand-over (the
         -- line is now filed at the agreed price, so the arithmetic no longer
         -- moves), and a shop that CHARGES TAX the storefront never showed (the

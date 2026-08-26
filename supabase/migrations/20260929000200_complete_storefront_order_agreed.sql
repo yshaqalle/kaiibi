@@ -471,12 +471,12 @@ begin
   --
   -- 20260929000100 put a `discounts.manual` check on this exact spot -- refusing
   -- a tax-inclusive sale at a tax-charging shop unless the caller could type a
-  -- manual discount -- and this migration removed it. The flag is not a
+  -- manual discount -- and 20260929000150 removed it. The flag is not a
   -- discount: it states how the price was QUOTED, and the payments-equality
   -- guard below means a caller who sets it must actually collect the lower
   -- figure, so nothing is skimmable. Task 4's storefront fulfilment sets this
   -- flag on EVERY order at a tax-charging shop, so a gate here makes ordinary
-  -- online fulfilment need a discounting permission. See this migration's
+  -- online fulfilment need a discounting permission. See 20260929000150's
   -- header for the full argument, and put any such rule in
   -- complete_storefront_order, which knows the sale is a quote the shop itself
   -- published. Baseline check 31 is the behavioural half.

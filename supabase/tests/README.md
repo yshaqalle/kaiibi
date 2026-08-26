@@ -133,12 +133,24 @@ question being asked of a back office that can see every customer.
 
 ## What `verify-complete-sale-baseline.sql` covers
 
-A **characterisation** of `complete_sale`, not a specification of it. Nothing in
-it is new behaviour; every figure was read off the function as it stands and
-written down so that the next change to it can be shown not to have moved the
-register. `complete_sale` is the write path every counter sale in every shop
-goes through, and it is re-created in full by every migration that touches it —
-so the cheapest way to lose a rule is to change something next to it.
+The file has two halves, and the distinction is the point of it.
+
+**Checks 1–13 are a characterisation** of `complete_sale`, not a specification of
+it. Nothing in them is new behaviour; every figure was read off the function as it
+stood before the agreed-price work and written down so that the next change to it
+can be shown not to have moved the register. They have been byte-identical since
+they were written, and they must stay that way — a regression net edited to
+accommodate a change is not a regression net. If one goes red, the register moved.
+
+**Checks 14–31 assert new behaviour** added by the agreed-price branch: a line
+filed at the price a customer was quoted (`agreed_unit_price_cents`), a total that
+already includes tax (`p_prices_include_tax`), the `discounts.manual` gate on
+filing below the shelf price, and the bounds on both. These are a specification,
+and they may be changed when the behaviour they describe is deliberately changed.
+
+`complete_sale` is the write path every counter sale in every shop goes through,
+and it is re-created in full by every migration that touches it — so the cheapest
+way to lose a rule is to change something next to it.
 
 1. A **plain cash sale**, the whole shape at once: the `sales` row, its single
    `sale_items` row column by column, the stock movement and all four journal
