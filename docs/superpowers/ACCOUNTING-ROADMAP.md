@@ -15,8 +15,8 @@ _Last verified 2026-08-25 against `main` and the linked project._
 | **2a** A permitted cost formula | ✅ merged & deployed — #73, a moving weighted average |
 | **2b** Auto-posting | ✅ merged & deployed — #74, plus #76 and #78 |
 | **3a** The statements | ✅ merged & deployed — #80, income statement / balance sheet / cash flow |
-| **3b** Period close | ✏️ needs a plan — **read the warning below before writing it** |
-| **3c** New transactions | ✏️ needs a plan — `transfer_funds`, fixed assets, depreciation |
+| **3b** Period close | 📋 **plan ready**, not built — read the warning below first |
+| **3c** New transactions | 📋 **plan ready**, not built — independent of 3b |
 | **Reports hub** | 📋 plan ready, not built — independent of everything else |
 | **4** The remaining reports | ✏️ needs a plan — sixteen; several need 3b |
 | **5** The small gaps | ✏️ needs a plan — `refunds.reason`, `tax_filings` |
@@ -100,6 +100,8 @@ Plan: [`plans/2026-08-25-financial-statements.md`](plans/2026-08-25-financial-st
 
 ## Step 4b — Period close (3b)
 
+**Plan written:** [`plans/2026-08-25-period-close.md`](plans/2026-08-25-period-close.md). Read it and execute; the prompt below is kept only for a fresh re-plan.
+
 **Read "Before writing 3b" above first — this breaks the cash flow's proof, and how you handle that is the interesting part of the task.**
 
 ```
@@ -133,6 +135,8 @@ do not add a residual line.
 ```
 
 ## Step 4c — New transactions (3c)
+
+**Plan written:** [`plans/2026-08-25-transfers-assets-depreciation.md`](plans/2026-08-25-transfers-assets-depreciation.md). Read it and execute; the prompt below is kept only for a fresh re-plan.
 
 ```
 Write the implementation plan for phase 3c of the kaiibi accounting work --
