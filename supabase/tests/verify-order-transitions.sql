@@ -58,9 +58,12 @@
 --   17.   the cancellation-reason CHECK constraint is real on its own, not
 --         merely implied by the trigger -- proven the same disable-trigger
 --         way as check 15.
---   18.   the trigger, not just the function, is what actually enforces the
---         table: a shop member's own direct UPDATE (the plain RLS path,
---         nothing to do with this function) is refused an illegal edge too.
+--   18.   the table is honest in two independent layers: a shop member's own
+--         direct UPDATE (the plain RLS path, nothing to do with this
+--         function) is refused OUTRIGHT now that authenticated holds no
+--         write privilege on `orders` at all (20260928000300), and even a
+--         writer that bypasses that grant is still refused an illegal edge
+--         by the trigger itself -- the belt behind that grant's braces.
 --   19.   an unknown order id is refused, distinctly from an existing one
 --         belonging to someone else.
 --   20.   a shop member of a DIFFERENT shop may not move this order.
@@ -120,12 +123,15 @@
 --         arithmetic complaint about a pricing fact. The same code covers a
 --         tax-charging shop, whose storefront quotes tax-exclusive totals;
 --         see the migration header.
---   35.   THE TRIGGER, NOT THE FUNCTION, IS WHAT HOLDS THE LINE. A shop
---         member's plain RLS `update ... set status = 'completed'` is still
---         refused, because it attaches no sale; a sale link already set
---         cannot be re-pointed at a different sale; and the
---         orders_sale_only_when_completed CHECK is real on its own, proven
---         with the same disable-trigger technique as checks 15 and 17.
+--   35.   TWO INDEPENDENT LAYERS HOLD THE LINE, NOT JUST THE FUNCTION. A shop
+--         member's plain RLS `update ... set status = 'completed'` is
+--         refused outright now (20260928000300 revoked the grant), and --
+--         belt and braces -- a writer that bypassed the grant would still be
+--         refused because it attaches no sale; a sale link already set
+--         cannot be re-pointed at a different sale, refused the same two
+--         ways; and the orders_sale_only_when_completed CHECK is real on its
+--         own, proven with the same disable-trigger technique as checks 15
+--         and 17.
 --   36.   the grant on complete_storefront_order: authenticated holds
 --         EXECUTE, anon does not, on paper and for real.
 --
@@ -156,15 +162,56 @@
 --         forced-empty row like check 15's v_forced_id -- cannot be
 --         cancelled, through either door (transition_order or a plain RLS
 --         update), and the attempt leaves the sale's entry exactly as
---         posted: same status, same balance. Check 15 already proves the
---         state machine refuses completed -> cancelled in the abstract;
---         this proves the refusal holds for a real posting and that nothing
---         about it moves when the refusal fires -- the concern this
---         migration's brief names by name: "a cancellation that silently
---         unposted a sale would leave the books wrong in a way nobody would
---         notice until a P&L looked odd."
+--         posted: same status, same balance, AND (belt and braces beneath
+--         those two) the same NUMBER of entries at the shop. The status and
+--         balance assertions alone are real but toothless on their own: a
+--         BALANCED entry sums to zero whether it was touched or not, and
+--         status/balance checks that only ever look AT v_entry_collect
+--         cannot see a second, mirroring reversal entry a regression might
+--         append beside it. The shop-wide journal_entries count,
+--         snapshotted immediately before the two refused attempts and
+--         compared immediately after, is what would actually catch that.
+--         Check 15 already proves the state machine refuses completed ->
+--         cancelled in the abstract; this proves the refusal holds for a
+--         real posting and that nothing about it moves when the refusal
+--         fires -- the concern this migration's brief names by name: "a
+--         cancellation that silently unposted a sale would leave the books
+--         wrong in a way nobody would notice until a P&L looked odd."
 --
---   39.   a shop whose plan no longer includes storefront may neither move
+-- ── The money-handling review's Critical finding ──────────────────────────
+--
+-- Checks 18/35/38 above prove `authenticated` cannot write `orders` directly
+-- at all now. These two prove the deeper claim: even a writer that bypasses
+-- that grant entirely -- run here as postgres, the same way the review's own
+-- reproduction did -- is refused by the TRIGGER's own invariants, which is
+-- what actually closes the hole rather than the grant alone.
+--
+--   39.   THE EXACT REPRODUCTION. A ready order, an unrelated sale
+--         belonging to a DIFFERENT shop, one direct `update ... set status =
+--         'completed', sale_id = ...` -- refused, the order left exactly as
+--         it was, and the shop's journal_entries count unmoved. This is also
+--         the same-shop rule proven in isolation: the sale used here has
+--         never been attached to anything, so there is no reuse for the
+--         refusal to be ambiguous about.
+--   40.   ONE SALE SETTLES AT MOST ONE ORDER, proven independently of check
+--         39: the sale attached here already belongs to THIS shop (it is
+--         already sitting on a different order of it), so the same-shop rule
+--         has nothing to say and the partial unique index on
+--         orders.sale_id is what refuses it.
+--
+-- ── The review's IMPORTANT finding 1 ──────────────────────────────────────
+--
+--   41.   DELETING A STOREFRONT SALE REVERSES THE DELIVERY FEE TOO, not just
+--         the goods. 20260928000400_delivery_fee_reversal_link.sql gave the
+--         fee entry a real link (orders.delivery_entry_id) rather than only
+--         a description string naming its sale, and taught delete_sale a
+--         fourth branch. Both entries are asserted reversed BY NAME (a
+--         half-fix that reverses only the goods says exactly which one it
+--         forgot), and 4300's net effect across the fee's original entry and
+--         its mirror is asserted to be exactly zero -- not merely "some
+--         entry somewhere changed status".
+--
+--   42.   a shop whose plan no longer includes storefront may neither move
 --         an order NOR complete one, even one already sitting in its queue.
 --         Left last, same reason verify-orders.sql leaves its own version
 --         last: it moves the shop off the plan every check above depends on.
@@ -230,6 +277,26 @@ declare
   v_entry_status_after  text;
   v_line_sum_before      bigint;
   v_line_sum_after       bigint;
+  -- v_collect_id's OWN entry, kept apart from v_entry_sale -- which check 26
+  -- onward reassigns to v_sale_deliver's entry -- so check 38, which runs
+  -- long after that reassignment, tests the entry it actually claims to.
+  v_entry_collect        uuid;
+  v_je_shop_before38     integer;
+  v_je_shop_after38      integer;
+
+  -- ── Checks 39-40: the Critical fix -- same-shop and one-sale-one-order ──
+  v_other_sale_id  uuid;  -- belongs to v_other_shop_id, never attached to anything
+  v_other_loc_id   uuid;  -- a location for v_other_shop_id -- sales.location_id is not null
+  v_je_before_39   integer;
+  v_je_after_39    integer;
+
+  -- ── Check 41: deleting a storefront sale reverses the delivery fee too ──
+  v_prod_delfee     uuid;
+  v_delfee_id       uuid;
+  v_sale_delfee     uuid;
+  v_entry_goods_del uuid;  -- the sale's own entry (4000/5000/1200/the tender)
+  v_entry_fee_del   uuid;  -- the fee's entry (4300/the tender), from orders.delivery_entry_id
+  v_bad             text;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -517,6 +584,15 @@ begin
   -- Same override orders_copy_payment_mode already applies to payment_mode
   -- (verify-orders.sql check 7), extended to status: whatever a caller sends
   -- at insert time, the row lands 'pending' with no cancellation reason.
+  --
+  -- As postgres, not authenticated: 20260928000300_orders_write_lockdown.sql
+  -- revoked authenticated's INSERT on `orders` entirely (verify-orders.sql
+  -- check 15 proves that directly), so there is no supported direct-insert
+  -- door left for a shop member to try this through -- place_storefront_order
+  -- is the only insert door and accepts no status/cancellation_reason of its
+  -- own to override. This is belt and braces: the trigger's own INSERT
+  -- override still holds for a writer that bypasses the grant.
+  perform set_config('role', 'postgres', true);
   declare
     v_new_id uuid;
   begin
@@ -531,6 +607,7 @@ begin
       raise exception 'FAIL: a client-supplied cancellation_reason at insert was kept';
     end if;
   end;
+  perform set_config('role', 'authenticated', true);
 
   -- ------------------------------------------------ 17. the cancellation-reason CHECK is real on its own
   perform set_config('role', 'postgres', true);
@@ -546,21 +623,39 @@ begin
     raise exception 'FAIL: a cancelled order with no reason was accepted at the CHECK level';
   end if;
 
-  -- ------------------------------------------------ 18. the trigger enforces the table itself, not just this function
-  -- A shop member's own plain UPDATE (RLS, nothing to do with transition_order)
-  -- attempting an illegal edge is refused the same way.
+  -- ------------------------------------------------ 18. the table itself is honest, in two independent layers
+  -- (a) 20260928000300_orders_write_lockdown.sql revoked authenticated's
+  --     insert/update/delete on `orders`, so a shop member's own plain
+  --     UPDATE (RLS, nothing to do with transition_order) is refused before
+  --     it ever reaches the trigger -- insufficient_privilege, not
+  --     invalid_order_transition.
+  v_raised := false;
   begin
-    v_raised := false;
-    begin
-      update public.orders set status = 'ready' where id = v_cancel2_id; -- v_cancel2_id is 'cancelled'
-    exception
-      when others then
-        if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
-    end;
-    if not v_raised then
-      raise exception 'FAIL: a direct UPDATE bypassed the transition guard';
-    end if;
+    update public.orders set status = 'ready' where id = v_cancel2_id; -- v_cancel2_id is 'cancelled'
+  exception when insufficient_privilege then v_raised := true;
   end;
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE as authenticated bypassed the revoked grant';
+  end if;
+
+  -- (b) Belt and braces: even a writer that DOES hold the table privilege --
+  --     a future migration that re-grants it, or postgres itself -- is still
+  --     refused by the trigger, because the trigger fires for every writer
+  --     regardless of grant. This is what actually enforces the
+  --     permitted-moves table; (a) merely closes the door most callers would
+  --     have used to reach it.
+  perform set_config('role', 'postgres', true);
+  v_raised := false;
+  begin
+    update public.orders set status = 'ready' where id = v_cancel2_id; -- v_cancel2_id is 'cancelled'
+  exception
+    when others then
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  perform set_config('role', 'authenticated', true);
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE bypassed the transition guard';
+  end if;
 
   -- ------------------------------------------------ 19. an unknown order id is refused
   v_raised := false;
@@ -672,6 +767,10 @@ begin
   if v_entry_sale is null then
     raise exception 'FAIL: the sale posted no journal entry';
   end if;
+  -- Kept apart from v_entry_sale, which check 26 onward reassigns to
+  -- v_sale_deliver's own entry -- see the declaration's comment. Check 38
+  -- needs v_collect_id's entry specifically, long after that reassignment.
+  v_entry_collect := v_entry_sale;
 
   select coalesce(sum(amount_cents), 0) into v_amount
     from public.journal_lines where entry_id = v_entry_sale;
@@ -944,11 +1043,25 @@ begin
     raise exception 'FAIL: a refused completion left the order at % with sale %', v_detail, v_result.sale_id;
   end if;
 
-  -- ------------------------------------------------ 35. the trigger, not the function, is what holds the line
-  -- (a) A shop member's plain RLS update to 'completed' attaches no sale and
-  --     is still refused -- the exact property 20260928000100 exists for,
-  --     re-proven now that the edge exists at all.
+  -- ------------------------------------------------ 35. two independent layers hold the line, not just the function
+  -- (a) A shop member's plain RLS update to 'completed' attaches no sale.
+  --     Refused OUTRIGHT now: authenticated holds no UPDATE privilege on
+  --     `orders` at all (20260928000300_orders_write_lockdown.sql). Belt and
+  --     braces beneath that: even a writer that bypassed the grant would
+  --     still be refused by the trigger -- the exact property
+  --     20260928000100 exists for, re-proven now that the edge exists at
+  --     all.
   perform set_config('role', 'authenticated', true);
+  v_raised := false;
+  begin
+    update public.orders set status = 'completed' where id = v_short_id;  -- 'ready'
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE as authenticated bypassed the revoked grant';
+  end if;
+
+  perform set_config('role', 'postgres', true);
   v_raised := false;
   begin
     update public.orders set status = 'completed' where id = v_short_id;  -- 'ready'
@@ -962,6 +1075,18 @@ begin
 
   -- (b) A sale link already set cannot be re-pointed at a different sale --
   --     that is how one sale's money could be made to settle two orders.
+  --     Same two layers.
+  perform set_config('role', 'authenticated', true);
+  v_raised := false;
+  begin
+    update public.orders set sale_id = v_sale_collect where id = v_deliver_id;
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE as authenticated bypassed the revoked grant';
+  end if;
+
+  perform set_config('role', 'postgres', true);
   v_raised := false;
   begin
     update public.orders set sale_id = v_sale_collect where id = v_deliver_id;
@@ -972,7 +1097,6 @@ begin
   if not v_raised then
     raise exception 'FAIL: a completed order''s sale link was re-pointed at another sale';
   end if;
-  perform set_config('role', 'postgres', true);
 
   -- (c) The CHECK is real on its own, not merely implied by the trigger --
   --     same disable-trigger technique as checks 15 and 17.
@@ -1066,14 +1190,28 @@ begin
 
   -- ------------------------------------------------ 38. a REAL completed order cannot be cancelled, and its posting survives the attempt
   -- v_collect_id has been 'completed' since check 23, with a real sale
-  -- (v_sale_collect) and a posted, balanced journal entry (v_entry_sale,
-  -- established at check 25). Check 15 already proves the state machine
-  -- refuses completed -> cancelled in the abstract, on an order forced into
-  -- 'completed' with no sale behind it at all; this proves the refusal
-  -- holds for a real posting, through both doors, and that the posting is
-  -- untouched by the attempt -- not merely that the attempt failed.
-  select status into v_entry_status_before from public.journal_entries where id = v_entry_sale;
-  select coalesce(sum(amount_cents), 0) into v_line_sum_before from public.journal_lines where entry_id = v_entry_sale;
+  -- (v_sale_collect) and a posted, balanced journal entry (v_entry_collect,
+  -- established at check 25 and kept apart from v_entry_sale, which check 26
+  -- onward reassigns to v_sale_deliver's own entry). Check 15 already proves
+  -- the state machine refuses completed -> cancelled in the abstract, on an
+  -- order forced into 'completed' with no sale behind it at all; this proves
+  -- the refusal holds for a real posting, through both doors, and that the
+  -- posting is untouched by the attempt -- not merely that the attempt
+  -- failed.
+  --
+  -- The line-sum-balances assertion below is real but cannot, on its own,
+  -- fail: a BALANCED entry sums to zero before the refused cancellation and
+  -- after it, whether or not anything touched the entry, because a second,
+  -- MIRRORING reversal entry would also sum to zero and the check would
+  -- never see it -- it only ever looks at v_entry_collect's own lines. The
+  -- shop-wide journal_entries COUNT, snapshotted here and compared after, is
+  -- what actually catches that: a regression where a refused cancellation
+  -- appended a reversal entry instead of merely being refused would move
+  -- this count and fail here even though every balance check above it still
+  -- passed.
+  select status into v_entry_status_before from public.journal_entries where id = v_entry_collect;
+  select coalesce(sum(amount_cents), 0) into v_line_sum_before from public.journal_lines where entry_id = v_entry_collect;
+  select count(*) into v_je_shop_before38 from public.journal_entries where shop_id = v_shop_id;
 
   v_raised := false;
   begin
@@ -1091,10 +1229,21 @@ begin
     raise exception 'FAIL: a refused cancellation still moved the completed order (status %, sale %)', v_detail, v_result.sale_id;
   end if;
 
-  -- The plain RLS door too, not just transition_order -- same posture as
-  -- checks 18 and 35(a): the trigger holds the line regardless of which
-  -- writer reaches the row.
+  -- The plain RLS door too, not just transition_order -- same two-layer
+  -- posture as checks 18 and 35(a): the revoked grant closes it outright for
+  -- authenticated, and the trigger holds the line regardless of which writer
+  -- reaches the row for anyone who bypasses that grant.
   perform set_config('role', 'authenticated', true);
+  v_raised := false;
+  begin
+    update public.orders set status = 'cancelled', cancellation_reason = 'Direct update attempt' where id = v_collect_id;
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE as authenticated bypassed the revoked grant';
+  end if;
+
+  perform set_config('role', 'postgres', true);
   v_raised := false;
   begin
     update public.orders set status = 'cancelled', cancellation_reason = 'Direct update attempt' where id = v_collect_id;
@@ -1102,32 +1251,205 @@ begin
     when others then
       if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
   end;
-  perform set_config('role', 'postgres', true);
   if not v_raised then
     raise exception 'FAIL: a direct UPDATE cancelled a completed order';
   end if;
 
-  -- Nothing about the posting moved: same status, same balance. This is the
-  -- assertion that would catch a "cancellation" that quietly reversed or
+  -- Nothing about the posting moved: same status, same balance, and (the
+  -- assertion that actually bites, see above) the same NUMBER of entries.
+  -- This is what would catch a "cancellation" that quietly reversed or
   -- edited the sale's entry instead of merely being refused -- the exact
   -- concern this task's brief names: a cancellation that silently unposted
   -- a sale would leave the books wrong in a way nobody notices until a P&L
   -- looks odd.
-  select status into v_entry_status_after from public.journal_entries where id = v_entry_sale;
+  select status into v_entry_status_after from public.journal_entries where id = v_entry_collect;
   if v_entry_status_after <> v_entry_status_before then
     raise exception 'FAIL: the sale''s journal entry status moved from % to % after a refused cancellation',
       v_entry_status_before, v_entry_status_after;
   end if;
-  select coalesce(sum(amount_cents), 0) into v_line_sum_after from public.journal_lines where entry_id = v_entry_sale;
+  select coalesce(sum(amount_cents), 0) into v_line_sum_after from public.journal_lines where entry_id = v_entry_collect;
   if v_line_sum_after <> v_line_sum_before then
     raise exception 'FAIL: the sale''s journal entry no longer balances the same way after a refused cancellation (% -> %)',
       v_line_sum_before, v_line_sum_after;
   end if;
+  select count(*) into v_je_shop_after38 from public.journal_entries where shop_id = v_shop_id;
+  if v_je_shop_after38 <> v_je_shop_before38 then
+    raise exception 'FAIL: a refused cancellation changed the shop''s journal_entries count (% -> %) -- something posted (or reversed) despite being refused',
+      v_je_shop_before38, v_je_shop_after38;
+  end if;
 
-  -- ------------------------------------------------ 39. a de-entitled shop stops moving AND completing its own orders
+  -- ══════════════════════════════════════════════════════════════════════
+  -- The money-handling review's Critical finding: an order could reach
+  -- 'completed' with nothing posted, by attaching a sale the trigger never
+  -- checked anything about. Reproduced here exactly as the review found it
+  -- -- AS POSTGRES, bypassing every grant, because the point of these two
+  -- checks is that the TRIGGER itself is what closes the hole
+  -- (20260928000300_orders_write_lockdown.sql), not merely the revoked
+  -- grant checks 18/35/38 above already prove for `authenticated`. A grant
+  -- is one future `grant ... to authenticated` away from being silently
+  -- reintroduced; the trigger is not.
+  -- ══════════════════════════════════════════════════════════════════════
+
+  -- ------------------------------------------------ 39. THE EXACT REPRODUCTION: an unrelated sale, from another shop, marks nothing complete
+  -- v_short_id is 'ready' with no sale attached (its shortfall on rice was
+  -- never resolved -- see check 29). v_other_sale_id belongs to
+  -- v_other_shop_id, a shop this order has nothing to do with, and has never
+  -- been attached to any order -- so this check isolates the SAME-SHOP rule
+  -- on its own, with no reuse of an already-settled sale to confound it.
+  --
+  -- This is word for word what the review reported: "attaching an arbitrary
+  -- unrelated sale to a ready order marked it completed, with zero journal
+  -- entries for that shop." The shop-wide journal_entries count is
+  -- snapshotted before and compared after, the same by-count discipline
+  -- check 37 uses, so a regression that let SOME posting slip through on the
+  -- refused path would fail this check even if the order's own status/sale_id
+  -- happened to look untouched.
+  -- As postgres: v_other_shop_id belongs to v_outsider_id, not the owner the
+  -- current JWT claims, so the fixture itself needs to bypass RLS the same
+  -- way the file's very first fixtures did.
+  perform set_config('role', 'postgres', true);
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_other_shop_id, 'Main', true)
+    returning id into v_other_loc_id;
+  insert into public.sales (shop_id, location_id, payment_method) values (v_other_shop_id, v_other_loc_id, 'cash')
+    returning id into v_other_sale_id;
+
+  select count(*) into v_je_before_39 from public.journal_entries where shop_id = v_shop_id;
+
+  v_raised := false;
+  v_detail := null;
+  begin
+    update public.orders set status = 'completed', sale_id = v_other_sale_id where id = v_short_id;
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  perform set_config('role', 'authenticated', true);
+  if not v_raised then
+    raise exception 'FAIL: a ready order was completed by attaching another shop''s sale (refused with %, expected invalid_order_transition)', v_detail;
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_short_id;
+  if v_detail <> 'ready' or v_result.sale_id is not null then
+    raise exception 'FAIL: a refused cross-shop sale attach still left the order at % with sale %', v_detail, v_result.sale_id;
+  end if;
+
+  select count(*) into v_je_after_39 from public.journal_entries where shop_id = v_shop_id;
+  if v_je_after_39 <> v_je_before_39 then
+    raise exception 'FAIL: the refused attach still posted to the shop''s ledger (% -> % journal entries)',
+      v_je_before_39, v_je_after_39;
+  end if;
+
+  -- ------------------------------------------------ 40. ONE SALE SETTLES AT MOST ONE ORDER, independently of the same-shop rule
+  -- v_sale_collect already belongs to v_shop_id AND is already sitting on
+  -- v_collect_id (check 23) -- so the same-shop rule above is satisfied and
+  -- has nothing to say here. What refuses this is
+  -- 20260928000300_orders_write_lockdown.sql's partial unique index on
+  -- orders.sale_id: the same sale id cannot be written onto a SECOND order,
+  -- which is how one sale's money could otherwise be made to look like it
+  -- settled two orders' worth of goods.
+  perform set_config('role', 'postgres', true);
+  v_raised := false;
+  begin
+    update public.orders set status = 'completed', sale_id = v_sale_collect where id = v_short_id;
+  exception
+    when unique_violation then v_raised := true;
+  end;
+  perform set_config('role', 'authenticated', true);
+  if not v_raised then
+    raise exception 'FAIL: the same sale settled two different orders';
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_short_id;
+  if v_detail <> 'ready' or v_result.sale_id is not null then
+    raise exception 'FAIL: a refused sale reuse still left the order at % with sale %', v_detail, v_result.sale_id;
+  end if;
+
+  -- ══════════════════════════════════════════════════════════════════════
+  -- IMPORTANT finding 1: the delivery-fee entry was invisible to every
+  -- reversal path. 20260928000400_delivery_fee_reversal_link.sql gave it a
+  -- real link (orders.delivery_entry_id) and taught delete_sale about it.
+  -- ══════════════════════════════════════════════════════════════════════
+
+  -- ------------------------------------------------ 41. deleting a storefront sale reverses the delivery fee too, not just the goods
+  -- A fresh order and fresh product, deliberately not reusing v_deliver_id --
+  -- that one is still needed, untouched, by checks above and (via
+  -- v_sale_deliver) is not safe to delete out from under them.
+  --
+  -- MUTATION THIS WOULD CATCH: delete_sale's UNION ALL missing the fourth
+  -- (delivery-fee) branch -- exactly the state before
+  -- 20260928000400_delivery_fee_reversal_link.sql, where deleting a
+  -- completed storefront sale reversed the goods (4000/5000/1200/the tender)
+  -- and left 4300's credit and its matching asset debit standing for a sale
+  -- that no longer exists.
+  -- As postgres: authenticated holds no INSERT on `orders` (or `products`'s
+  -- own fixture setup here follows the same convention the rest of this
+  -- file's fixtures use -- built as postgres, then handed to authenticated
+  -- through the RPCs).
+  perform set_config('role', 'postgres', true);
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Storefront Delivery Fee Test', 1000, 400) returning id into v_prod_delfee;
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod_delfee, v_loc_id, 50);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Delete Fee Customer', '+252634100017', 'deliver', 'Xero Awr', 'Near the well', 1000, 600, 1600)
+    returning id into v_delfee_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_delfee_id, v_prod_delfee, 'Storefront Delivery Fee Test', 1000, 1, 1000);
+  perform set_config('role', 'authenticated', true);
+
+  perform public.transition_order(v_delfee_id, 'accepted', null);
+  perform public.transition_order(v_delfee_id, 'ready', null);
+  v_sale_delfee := public.complete_storefront_order(v_delfee_id, 'cash');
+
+  select journal_entry_id into v_entry_goods_del from public.sales where id = v_sale_delfee;
+  select delivery_entry_id into v_entry_fee_del from public.orders where id = v_delfee_id;
+  if v_entry_goods_del is null or v_entry_fee_del is null then
+    raise exception 'FAIL: FIXTURE -- the sale (%) or its delivery-fee entry (%) did not post', v_entry_goods_del, v_entry_fee_del;
+  end if;
+
+  perform public.delete_sale(v_sale_delfee);
+
+  if exists (select 1 from public.sales where id = v_sale_delfee) then
+    raise exception 'FAIL: delete_sale did not delete the sale';
+  end if;
+
+  -- Both entries reversed, named individually so a half-fix (goods reversed,
+  -- fee forgotten) says exactly which one it forgot.
+  select string_agg(x.what || ' is ' || e.status, ', ' order by x.what) into v_bad
+    from (values (v_entry_goods_del, 'the goods entry'),
+                 (v_entry_fee_del,   'the delivery-fee entry')) as x(id, what)
+    join public.journal_entries e on e.id = x.id
+   where e.status <> 'reversed';
+  if v_bad is not null then
+    raise exception 'FAIL: deleting the sale left an entry posted over a source row that no longer exists -- %', v_bad;
+  end if;
+
+  -- The 4300 credit is actually gone, net -- not merely "some entry got
+  -- reversed somewhere". Summed across the fee's original entry and its
+  -- mirror: a real reversal cancels to zero; a mutation that reversed the
+  -- WRONG entry (the goods entry twice, say) would leave 4300's net nonzero.
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl
+    join public.accounts a on a.id = jl.account_id
+   where a.code = '4300'
+     and jl.entry_id in (v_entry_fee_del, (select reverses_entry_id from public.journal_entries where id = v_entry_fee_del));
+  if v_amount <> 0 then
+    raise exception 'FAIL: 4300''s net effect from this order is % (should be 0 -- fully reversed)', v_amount;
+  end if;
+
+  -- ══════════════════════════════════════════════════════════════════════
+  -- The money-handling review's Critical finding continues to check 39/40
+  -- above; this is the plan-downgrade check, unrelated to it, kept last.
+  -- ══════════════════════════════════════════════════════════════════════
+
+  -- ------------------------------------------------ 42. a de-entitled shop stops moving AND completing its own orders
   -- Last on purpose, same reason verify-orders.sql leaves its own version
   -- last: it moves the shop under test off the plan every check above
-  -- depends on.
+  -- depends on. As postgres: authenticated holds no grant on
+  -- shop_subscriptions, the same posture as `orders` itself now.
+  perform set_config('role', 'postgres', true);
   select id into v_free_id from public.plans where key = 'free';
   update public.shop_subscriptions
   set plan_id = v_free_id, current_period_end = now() + interval '30 days'

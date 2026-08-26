@@ -44,16 +44,56 @@ export type OrderShortfall = {
 // quantity -- including exactly at it, the boundary this is easiest to get
 // wrong at -- is left out entirely: this is a list of problems, not a
 // line-by-line report card.
+//
+// SUMMED PER PRODUCT FIRST. place_storefront_order never aggregates the
+// cart (20260927000000_place_order.sql builds one order_items row per cart
+// line) and order_items carries no `unique(order_id, product_id)`, so one
+// order can legitimately hold two lines for the same product -- an
+// impatient customer who tapped "add" twice on two separate visits to the
+// product page, say. Each line's `available` is the SAME stock figure (both
+// read product_location_stock for the same product/location), so comparing
+// them one at a time tests each line against the whole shelf rather than
+// against what is left after the other line takes its share: stock 5, lines
+// of 3 and 4, both pass individually and the shop is told the order is
+// fillable -- then complete_sale, which decrements CUMULATIVELY, runs out on
+// the second line and the hand-over fails on an order the shop already told
+// the customer "yes" to. Grouping by productId first and comparing the
+// GROUP's total is what checkOrderFulfilment's own maths already assumes.
+//
+// A line whose product has been deleted (productId null) groups on its own,
+// never merged with another null line -- there is no shared identity two
+// different discontinued products' lines have in common, and summing them
+// together would report one invented shortfall for two unrelated products.
 export function findShortfalls(lines: OrderFulfilmentLine[]): OrderShortfall[] {
-  const shortfalls: OrderShortfall[] = [];
+  type Group = { productId: string | null; productName: string; quantity: number; available: number };
+
+  const groups: Group[] = [];
+  const byProductId = new Map<string, Group>();
+
   for (const line of lines) {
-    if (line.available < line.quantity) {
+    if (line.productId === null) {
+      groups.push({ ...line });
+      continue;
+    }
+    const existing = byProductId.get(line.productId);
+    if (existing) {
+      existing.quantity += line.quantity;
+    } else {
+      const group: Group = { ...line, productId: line.productId };
+      byProductId.set(line.productId, group);
+      groups.push(group);
+    }
+  }
+
+  const shortfalls: OrderShortfall[] = [];
+  for (const group of groups) {
+    if (group.available < group.quantity) {
       shortfalls.push({
-        productId: line.productId,
-        productName: line.productName,
-        quantity: line.quantity,
-        available: line.available,
-        shortBy: line.quantity - line.available,
+        productId: group.productId,
+        productName: group.productName,
+        quantity: group.quantity,
+        available: group.available,
+        shortBy: group.quantity - group.available,
       });
     }
   }

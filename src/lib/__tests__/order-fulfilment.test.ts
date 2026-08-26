@@ -118,6 +118,44 @@ describe('findShortfalls', () => {
       { productId: null, productName: 'Gone', quantity: 1, available: 0, shortBy: 1 },
     ]);
   });
+
+  // place_storefront_order never aggregates the cart and order_items carries
+  // no unique(order_id, product_id), so one order can carry two lines for
+  // the same product. Stock 5, lines of 3 and 4: each line alone is under 5
+  // and would slip through a per-line comparison, but complete_sale
+  // decrements the SAME stock cumulatively when the order is handed over --
+  // 3 and then 4 against a shelf of 5 is short by 2, and the shop must be
+  // told that before "accept" is offered, not after hand-over fails.
+  it('sums two lines of the same product before comparing to the shared stock figure', () => {
+    const lines: OrderFulfilmentLine[] = [
+      { productId: 'p1', productName: 'Kettle', quantity: 3, available: 5 },
+      { productId: 'p1', productName: 'Kettle', quantity: 4, available: 5 },
+    ];
+    expect(findShortfalls(lines)).toEqual([
+      { productId: 'p1', productName: 'Kettle', quantity: 7, available: 5, shortBy: 2 },
+    ]);
+  });
+
+  it('does not flag two lines of the same product whose SUM is still within stock', () => {
+    const lines: OrderFulfilmentLine[] = [
+      { productId: 'p1', productName: 'Kettle', quantity: 2, available: 5 },
+      { productId: 'p1', productName: 'Kettle', quantity: 3, available: 5 },
+    ];
+    expect(findShortfalls(lines)).toEqual([]);
+  });
+
+  // Two DIFFERENT deleted products both carry productId: null -- they must
+  // not be summed together as though they were the same missing product.
+  it('keeps two deleted-product lines separate rather than summing them', () => {
+    const lines: OrderFulfilmentLine[] = [
+      { productId: null, productName: 'Discontinued mug', quantity: 2, available: 0 },
+      { productId: null, productName: 'Discontinued kettle', quantity: 1, available: 0 },
+    ];
+    expect(findShortfalls(lines)).toEqual([
+      { productId: null, productName: 'Discontinued mug', quantity: 2, available: 0, shortBy: 2 },
+      { productId: null, productName: 'Discontinued kettle', quantity: 1, available: 0, shortBy: 1 },
+    ]);
+  });
 });
 
 // checkOrderFulfilment is the query layer: resolves the same location
@@ -217,5 +255,29 @@ describe('checkOrderFulfilment', () => {
     fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
     fake.results.order_items = { data: null, error: { message: 'boom' } };
     await expect(checkOrderFulfilment('shop-1', 'order-1')).rejects.toEqual({ message: 'boom' });
+  });
+
+  // The end-to-end shape of the aggregation bug: two order_items rows naming
+  // the same product (place_storefront_order never aggregates the cart), a
+  // shelf of 5, lines of 3 and 4. A per-line comparison passes both; the
+  // real shortfall of 2 only shows up once the lines are summed first.
+  it('sums two order_items rows for the same product before comparing to stock', async () => {
+    fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
+    fake.results.order_items = {
+      data: [
+        { product_id: 'p1', product_name: 'Kettle', quantity: 3 },
+        { product_id: 'p1', product_name: 'Kettle', quantity: 4 },
+      ],
+      error: null,
+    };
+    fake.results.product_location_stock = {
+      data: [{ product_id: 'p1', stock: 5 }],
+      error: null,
+    };
+
+    const shortfalls = await checkOrderFulfilment('shop-1', 'order-1');
+    expect(shortfalls).toEqual([
+      { productId: 'p1', productName: 'Kettle', quantity: 7, available: 5, shortBy: 2 },
+    ]);
   });
 });
