@@ -494,9 +494,21 @@ begin
   -- against the LIVE definition rather than against migration text, because
   -- this repo has migrations that rewrite functions by text substitution and a
   -- grep of the .sql files would not see them.
-  select pg_get_functiondef(
-           'public.post_journal_entry(uuid, date, text, jsonb, uuid, text)'::regprocedure)
-    into v_text;
+  --
+  -- Looked up BY NAME rather than by a written-out signature. The signature was
+  -- spelled here in full and 20261002000100 added `p_adjusting` to it -- so this
+  -- check failed with `function ... does not exist`, which reads like the
+  -- function was deleted rather than like an argument was added to it. By name
+  -- it survives the next argument too, and there is only ever one
+  -- post_journal_entry: the same migration DROPS the old signature precisely so
+  -- that a six-argument call cannot resolve to a stale overload.
+  if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'post_journal_entry') <> 1 then
+    raise exception 'FAIL: there is not exactly one public.post_journal_entry -- an overload makes every existing call site ambiguous';
+  end if;
+  select pg_get_functiondef(p.oid) into v_text
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'post_journal_entry';
   if position('count(*) + 1' in v_text) > 0 then
     raise exception 'FAIL: post_journal_entry still allocates its reference with count(*) + 1, which races two concurrent sales in one shop';
   end if;

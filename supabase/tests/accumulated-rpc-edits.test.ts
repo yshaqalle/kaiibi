@@ -720,8 +720,80 @@ const DELETE_INVOICE_PAYMENT_EDITS: Edit[] = [
   ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
 ];
 
+// post_journal_entry and open_period_for join this file at their SECOND and
+// THIRD definitions respectively, which is the point at which a copy-forward
+// can start losing things.
+//
+// post_journal_entry is the only door into the ledger and every posting RPC
+// calls it. 20260908000150 replaced its racing `count(*) + 1` reference with a
+// counter; 20261002000100 gave it `p_adjusting`. A copy taken from
+// 20260904000500 restores the race at the till, and a copy taken from
+// 20260908000150 silently removes the only way an owner can post a late bill
+// into a month that has closed -- with no test in this file to say so until
+// now.
+const POST_JOURNAL_ENTRY_EDITS: Edit[] = [
+  ['20260904000500', 'manual entries need ledger.post, and only manual ones',
+    "p_source = 'manual' and not has_shop_permission(p_shop_id, 'ledger.post')"],
+  ['20260904000500', 'an entry that does not balance is refused, naming the difference',
+    'debits and credits differ by'],
+  ['20260904000500', 'an unknown account code is named back to the caller', 'No such account'],
+  ['20260904000500', 'the period gate decides whether the month accepts it', 'open_period_for'],
+  // The PROPERTY, not merely a mention of the table: the counter is read and
+  // incremented in ONE statement, which is what serialises two concurrent
+  // posts. A read followed by a write is the race all over again.
+  ['20260908000150', 'the reference comes from a counter, in one statement',
+    'on conflict (shop_id, year) do update set next_number'],
+  // Specific to the FORWARDING, not to the parameter existing. A copy that
+  // declares p_adjusting and then calls open_period_for with two arguments
+  // compiles, gates nothing, and refuses every adjusting entry.
+  ['20261002000100', 'a deliberate adjusting entry reaches the period gate',
+    'public.open_period_for(p_shop_id, p_entry_date, p_adjusting)'],
+];
+
+const OPEN_PERIOD_FOR_EDITS: Edit[] = [
+  ['20260904000200', 'a month is opened on first use rather than seeded',
+    'on conflict (shop_id, starts_on) do update'],
+  // Locked is checked FIRST and SEPARATELY. Folded into the closed branch it
+  // becomes re-openable by an adjusting entry, which is the one thing locked
+  // exists to prevent.
+  ['20261002000100', 'locked refuses everything, ahead of and apart from closed',
+    "if v_status = 'locked' then"],
+  ['20261002000100', 'a closed month still accepts a deliberate adjusting entry', 'p_adjusting'],
+  // ledger.close, never ledger.post: ordinary posting is precisely what a
+  // closed period refuses, so gating the adjusting door on it permits everyone
+  // who could already post.
+  ['20261002000100', 'and only from somebody who may close the month',
+    "has_shop_permission(p_shop_id, 'ledger.close')"],
+];
+
+const CLOSE_ACCOUNTING_PERIOD_EDITS: Edit[] = [
+  ['20261002000100', 'gated on ledger.close', "has_shop_permission(p_shop_id, 'ledger.close')"],
+  ['20261002000100', 'serialised per shop, so two taps write one entry',
+    'pg_advisory_xact_lock(74922'],
+  ['20261002000100', 'the period is scoped to the shop', 'id = p_period_id and shop_id = p_shop_id'],
+  ['20261002000100', 'a locked period refuses harder than a closed one', "v_period.status = 'locked'"],
+  ['20261002000100', 'closing a closed period is an error, not a no-op', "v_period.status = 'closed'"],
+  // Each line is MINUS the balance, for every P&L type alike. Two branches that
+  // are algebraically identical is a mutation that cannot redden anything.
+  ['20261002000100', 'every closing line is minus the account balance',
+    '(-sum(l.amount_cents))::bigint as amt'],
+  // An account that traded and was fully reversed nets to zero, and
+  // journal_lines refuses a zero amount.
+  ['20261002000100', 'an account with a zero balance gets no line',
+    'having sum(l.amount_cents) <> 0'],
+  ['20261002000100', 'the close reads only posted and reversed lines, never drafts',
+    "e.status in ('posted', 'reversed')"],
+  ['20261002000100', 'a month that did not trade closes with no entry at all',
+    'if v_lines is null then'],
+  ['20261002000100', 'a month that broke even gets no 3900 line', 'if v_sum <> 0 then'],
+  ['20261002000100', "the entry is dated the period's last day", 'v_period.ends_on'],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
+  ['post_journal_entry', POST_JOURNAL_ENTRY_EDITS],
+  ['open_period_for', OPEN_PERIOD_FOR_EDITS],
+  ['close_accounting_period', CLOSE_ACCOUNTING_PERIOD_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
   ['delete_sale', DELETE_SALE_EDITS],
   ['refund_sale_items', REFUND_SALE_ITEMS_EDITS],
