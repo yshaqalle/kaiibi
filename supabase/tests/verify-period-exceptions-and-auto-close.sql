@@ -62,6 +62,11 @@ declare
   v_own_g   uuid := gen_random_uuid();
   v_own_h   uuid := gen_random_uuid();
   v_viewer  uuid := gen_random_uuid();
+  -- The MIRROR of v_viewer: ledger.close and NOT ledger.view. Nothing makes one
+  -- of those permissions imply the other, so this role is one insert away from
+  -- existing in a real shop -- and it is exactly the role the Close a Period
+  -- screen is gated on. See G5-bis.
+  v_closer  uuid := gen_random_uuid();
   v_strange uuid := gen_random_uuid();
   v_role    uuid;
 
@@ -94,7 +99,7 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'verify-period-exceptions-' || u || '@example.test', '', now(), now(), now()
-      from unnest(array[v_own_e, v_own_f, v_own_g, v_own_h, v_viewer, v_strange]) u;
+      from unnest(array[v_own_e, v_own_f, v_own_g, v_own_h, v_viewer, v_closer, v_strange]) u;
 
   insert into public.shops (owner_id, name) values (v_own_e, 'Exception Books') returning id into v_e;
   insert into public.shops (owner_id, name) values (v_own_f, 'Next Door Exceptions') returning id into v_f;
@@ -216,6 +221,18 @@ begin
     returning id into v_role;
   insert into public.shop_members (shop_id, user_id, role_id, active)
     values (v_g, v_viewer, v_role, true);
+
+  -- ── E: the other way round -- ledger.close and NOT ledger.view ──────────
+  --
+  -- In E rather than G on purpose: E is on 'never', so this member's read
+  -- cannot close anything, and G5-bis is about whether the read is ANSWERED.
+  -- Put in G, the same check would also be triggering G's lazy close and a
+  -- failure could not be read.
+  insert into public.roles (shop_id, name, permissions)
+    values (v_e, 'Closer only', array['ledger.close'])
+    returning id into v_role;
+  insert into public.shop_members (shop_id, user_id, role_id, active)
+    values (v_e, v_closer, v_role, true);
 
   -- ── H's hand-made period, ending exactly seven days ago ─────────────────
   --
@@ -745,6 +762,45 @@ begin
   if v_n <> 0 then
     raise exception 'FAIL: a stranger''s close_due_periods closed % of G''s months', v_n;
   end if;
+
+  -- =====================================================================
+  -- G5-bis. AND THE GATE IS ledger.view OR ledger.close, NOT ledger.view
+  --     ALONE. E's "Closer only" member holds ledger.close and NOT
+  --     ledger.view -- the mirror of G's viewer -- and this is the FIRST call
+  --     the Close a Period screen makes. The screen's card is gated on
+  --     ledger.close (Task 5), so gating this read on ledger.view alone hands
+  --     that reader a refusal on the one screen their permission is for.
+  --
+  --     The same predicate period_exceptions() already uses, and E1 already
+  --     proves the other direction of it.
+  --
+  --     MUTATION: narrow the gate back to
+  --     `has_shop_permission(p_shop_id, 'ledger.view')`, which is what
+  --     20261003000100 shipped. Reddens here and nowhere else.
+  -- =====================================================================
+  perform set_config('request.jwt.claims', json_build_object('sub', v_closer)::text, true);
+  select count(*)::integer into v_n from public.list_accounting_periods(v_e) p;
+  if v_n < 2 then
+    raise exception 'FAIL: a member holding ledger.close and not ledger.view read % of E''s periods, expected E''s March and April', v_n;
+  end if;
+  --   ...and the row really is E's March, not some other shop's leaking
+  --   through: the gate passing is not the same fact as the list being right.
+  if not exists (select 1 from public.list_accounting_periods(v_e) p where p.id = v_e_mar) then
+    raise exception 'FAIL: the closer''s list of E''s periods does not contain E''s March';
+  end if;
+  --   ...and it closed nothing on the way past. E's March was re-opened at E11
+  --   and is months past any grace, so the shop's 'never' is the ONLY thing
+  --   standing between this reader and a lazy close -- and unlike G's viewer,
+  --   this one does hold ledger.close, so close_due_periods' own gate lets them
+  --   through. Read back through the definer function: a ledger.close-only
+  --   member does not satisfy accounting_periods' RLS read policy, and reading
+  --   the table directly here would come back null and assert nothing.
+  if (select p.status from public.list_accounting_periods(v_e) p where p.id = v_e_mar) <> 'open' then
+    raise exception 'FAIL: the closer''s read closed E''s re-opened March, on a shop set to ''never''';
+  end if;
+  --   ...and E's OWN exceptions door answers them too, which is the other half
+  --   of the screen's first paint.
+  perform * from public.period_exceptions(v_e, v_e_apr);
 
   -- =====================================================================
   -- G6. A RE-OPENED MONTH ROLLED NOTHING. E's March was closed and re-opened

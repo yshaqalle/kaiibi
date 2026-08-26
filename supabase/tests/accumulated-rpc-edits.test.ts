@@ -789,8 +789,38 @@ const CLOSE_ACCOUNTING_PERIOD_EDITS: Edit[] = [
   ['20261002000100', "the entry is dated the period's last day", 'v_period.ends_on'],
 ];
 
+// list_accounting_periods joins at its SECOND definition, which is the point at
+// which a copy-forward can start losing things. It is the ONLY door through
+// which anything reads a shop's periods, and it is also where auto-close lives:
+// a copy taken from 20261003000100 restores a read gate that refuses the very
+// role the Close a Period screen is gated on, and a copy that drops the
+// `perform close_due_periods` line turns auto-close off entirely with every
+// other check in this repo still green -- there being no scheduler, that line is
+// the whole feature.
+const LIST_ACCOUNTING_PERIODS_EDITS: Edit[] = [
+  ['20261003000100', 'the read is what closes a due period, there being no scheduler',
+    'perform public.close_due_periods(p_shop_id)'],
+  ['20261003000100', 'the grace date is null unless the shop is on automatic',
+    "s.auto_close_periods = 'automatic'"],
+  ['20261003000100', 'outstanding is computed for open periods only',
+    "case when p.status = 'open'"],
+  // The STANDING entry: a re-opened month's closing entry is 'reversed', and a
+  // copy that drops either half reports a rolled profit for a month that rolled
+  // nothing.
+  ['20261003000100', 'only a closing entry still standing counts as the roll',
+    "e.status = 'posted'"],
+  ['20261003000100', 'a reversal is not itself the roll', 'e.reverses_entry_id is null'],
+  ['20261003000100', 'the periods are scoped to the shop', 'where p.shop_id = p_shop_id'],
+  // ledger.view ALONE refused a role holding only ledger.close -- which is the
+  // permission the screen calling this is gated on. Pinned as the OR predicate,
+  // not merely as a mention of the permission.
+  ['20261004000000', 'a role holding only ledger.close can read the list it may close',
+    "has_any_shop_permission(p_shop_id, array['ledger.view', 'ledger.close'])"],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
+  ['list_accounting_periods', LIST_ACCOUNTING_PERIODS_EDITS],
   ['post_journal_entry', POST_JOURNAL_ENTRY_EDITS],
   ['open_period_for', OPEN_PERIOD_FOR_EDITS],
   ['close_accounting_period', CLOSE_ACCOUNTING_PERIOD_EDITS],
