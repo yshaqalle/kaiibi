@@ -11,6 +11,7 @@ import { StatementEmpty, StatementHeading, StatementRow, type StatementVariant }
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { extractErrorMessage } from '@/lib/checkout-errors';
 import { toDateColumn } from '@/lib/period';
 import { getCashFlow, hasFigures, type CashFlowLine } from '@/lib/statements';
 
@@ -57,6 +58,12 @@ export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; 
   const { shop } = useAuth();
   const [rows, setRows] = useState<CashFlowLine[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // See income-statement-view.tsx for why the three statement screens carry an
+  // error state and the six ledger views beside them do not: cash_flow() is
+  // `security definer` and RAISES without `ledger.view` where a table read
+  // under RLS would return nothing. Uncaught, that left the screen on
+  // "Loading…" permanently.
+  const [error, setError] = useState<string | null>(null);
 
   // Date COLUMNS, not Dates: `new Date(dateColumn)` parses as UTC midnight and
   // toDateColumn is the ledger screens' one place to get this right.
@@ -66,8 +73,17 @@ export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; 
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setRows(await getCashFlow(shop.id, from, to));
-    setLoaded(true);
+    try {
+      setRows(await getCashFlow(shop.id, from, to));
+      setError(null);
+    } catch (err) {
+      // The rows go with it. A statement left on screen beside a note saying it
+      // could not be read gets read anyway.
+      setRows([]);
+      setError(extractErrorMessage(err));
+    } finally {
+      setLoaded(true);
+    }
   }, [shop, from, to]);
 
   // See the note in chart-of-accounts-view.tsx: use-refresh-on-focus does not
@@ -84,10 +100,23 @@ export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; 
   useTabRefresh(setRefresh, reload);
 
   const rangeLabel = formatRangeLabel(dateRange);
-  const anything = hasFigures(rows);
 
   const statement = useMemo(() => rows.filter((row) => STATEMENT_SECTIONS.includes(row.section)), [rows]);
   const proof = useMemo(() => rows.filter((row) => row.section === 'proof'), [rows]);
+
+  // OVER THE STATEMENT ONLY, NEVER THE PROOF ROWS.
+  //
+  // "Cash at 31 Jul" and "Cash at 21 Aug" are absolute BALANCES, not
+  // movements: a shop with $400 in the till that traded nothing this morning
+  // has a completely flat cash flow and two proof rows reading $400. Tested
+  // across all rows, `hasFigures` saw those two, called the statement
+  // non-empty, and drew twelve lines of $0.00 -- which is precisely the wall of
+  // zeroes the empty state exists to prevent, on the most ordinary morning a
+  // shop has.
+  //
+  // The proof still renders whenever the statement does; this only decides
+  // whether there is a statement to render at all.
+  const anything = !error && hasFigures(statement);
   const headings = useMemo(() => {
     const seen = new Set<string>();
     return statement.map((row) => {
@@ -103,6 +132,11 @@ export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; 
         <BentoCard title="Cash flow — indirect method" scope={rangeLabel}>
           {!loaded ? (
             <Text style={styles.loading}>Loading…</Text>
+          ) : error ? (
+            // 'partial', not 'wrong': nothing here is fixable by the reader,
+            // and a 'wrong' caveat with no action trains people to skip them
+            // all. The database's own message is shown as it arrived.
+            <Caveat tone="partial">{error}</Caveat>
           ) : (
             <StatementEmpty>
               No cash moved in this window and nothing was posted against it, so there is no cash flow to draw. Sales,

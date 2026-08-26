@@ -38,7 +38,7 @@
 -- balance: 6800's movement is already inside net profit as a cost, so it is
 -- added back at its ledger sign. Numerically that equals -(1590's movement),
 -- since depreciation posts Dr 6800 / Cr 1590 as a pair, which is why 1590 is
--- excluded from investing below rather than counted twice.
+-- excluded BY NAME from investing below rather than counted twice.
 --
 -- ## Depreciation is normally zero, and that is correct rather than missing
 --
@@ -66,9 +66,12 @@
 --
 --   operating   6800 depreciation, 1100 receivables, 1200 inventory,
 --               2000 payables, 2100 + 2200 tax and wages
---   investing   1500-1589, fixed assets AT COST. 1590 Accumulated
---               Depreciation is deliberately outside the range: it is not a
---               cash movement and it is already in the add-back.
+--   investing   1500-1599 EXCEPT 1590, fixed assets AT COST. It is exactly
+--               the range balance_sheet() calls fixed assets, less the one
+--               account that is not a cash movement: 1590 Accumulated
+--               Depreciation, which is already in the add-back. The two
+--               statements MUST agree on the range or the proof stops tying
+--               for any shop that numbers an asset in the 1590s.
 --   financing   3000 capital introduced, 3100 owner drawings
 --
 -- **These are named codes, and that is a departure from the rule the other two
@@ -183,9 +186,18 @@ begin
     -coalesce(sum(m.mv_amt) filter (where m.acct_code = '1200'), 0)::bigint,
     -coalesce(sum(m.mv_amt) filter (where m.acct_code = '2000'), 0)::bigint,
     -coalesce(sum(m.mv_amt) filter (where m.acct_code in ('2100', '2200')), 0)::bigint,
-    -- 1500-1589: fixed assets at cost. '1590' sorts after '1589' as text, so
-    -- accumulated depreciation is outside this range by construction.
-    -coalesce(sum(m.mv_amt) filter (where m.acct_code between '1500' and '1589'), 0)::bigint,
+    -- 1500-1599 EXCLUDING 1590, which must be the SAME range balance_sheet()
+    -- calls fixed assets, minus the one account that is not a cash movement.
+    --
+    -- It was written as 1500-1589 and that was a real defect rather than a
+    -- stylistic one: balance_sheet() takes 1500-1599, so a shop numbering its
+    -- van 1595 got fixed assets of 50000 on the balance sheet and investing of
+    -- 0 here, and the proof below stopped tying by exactly the van. Excluding
+    -- 1590 by NAME says what is meant -- accumulated depreciation is not a cash
+    -- movement and is already inside the add-back above -- where an upper bound
+    -- of '1589' only said it by accident of text ordering.
+    -coalesce(sum(m.mv_amt) filter (
+       where m.acct_code between '1500' and '1599' and m.acct_code <> '1590'), 0)::bigint,
     -coalesce(sum(m.mv_amt) filter (where m.acct_code = '3000'), 0)::bigint,
     -coalesce(sum(m.mv_amt) filter (where m.acct_code = '3100'), 0)::bigint,
     -- The observed cash, which no part of the arithmetic above touches.
@@ -232,4 +244,4 @@ $$;
 grant execute on function public.cash_flow(uuid, date, date) to authenticated;
 
 comment on function public.cash_flow(uuid, date, date) is
-  'The cash flow between p_from and p_to, indirect method: net profit from statement_lines(), plus the depreciation added back, plus the working-capital movements, then investing and financing. An increase in an asset consumes cash and presents negative; an increase in a liability provides it and presents positive -- both are the negation of the ledger movement, because every entry sums to zero. Every movement is a balance at p_to less a balance at p_from - 1 day, both read with no lower bound exactly as balance_sheet() reads one. The proof section carries the OBSERVED movement in 1000/1010/1020/1021, which net change must equal; it is reached by none of the arithmetic above it and it is what catches a sign slip. Gated on ledger.view, which is the only protection: security definer bypasses RLS.';
+  'The cash flow between p_from and p_to, indirect method: net profit from statement_lines(), plus the depreciation added back, plus the working-capital movements, then investing (fixed assets 1500-1599 except 1590, the same range balance_sheet() calls fixed assets) and financing. An increase in an asset consumes cash and presents negative; an increase in a liability provides it and presents positive -- both are the negation of the ledger movement, because every entry sums to zero. Every movement is a balance at p_to less a balance at p_from - 1 day, both read with no lower bound exactly as balance_sheet() reads one. The proof section carries the OBSERVED movement in 1000/1010/1020/1021, which net change must equal; it is reached by none of the arithmetic above it and it is what catches a sign slip. Gated on ledger.view, which is the only protection: security definer bypasses RLS.';

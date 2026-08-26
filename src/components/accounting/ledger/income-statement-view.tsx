@@ -11,6 +11,7 @@ import { TabPills } from '@/components/ui/tab-pills';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { extractErrorMessage } from '@/lib/checkout-errors';
 import { toDateColumn } from '@/lib/period';
 import { hasFigures, listStatementLines, type StatementLine } from '@/lib/statements';
 
@@ -67,6 +68,16 @@ export function IncomeStatementView({ dateRange, setRefresh }: { dateRange: Date
   const { shop } = useAuth();
   const [rows, setRows] = useState<StatementLine[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // WHY THIS SCREEN NEEDS AN ERROR STATE WHEN THE SIX LEDGER VIEWS BESIDE IT
+  // DO NOT. Those read tables under RLS, so a reader without `ledger.view`
+  // gets no rows and an honest empty state. statement_lines() is `security
+  // definer` and RAISES P0001 instead. Without the catch below the await threw
+  // out of a floating promise, `setLoaded(true)` never ran, and the screen sat
+  // on "Loading…" for ever -- pull-to-refresh included, because refreshing
+  // threw in exactly the same place. The seeded Manager role reaches
+  // /accounting on `sales.view` and holds no `ledger.view`, so that was the
+  // default second role in every shop.
+  const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
 
   // Date COLUMNS, not Dates: `new Date(dateColumn)` parses as UTC midnight and
@@ -79,8 +90,18 @@ export function IncomeStatementView({ dateRange, setRefresh }: { dateRange: Date
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setRows(await listStatementLines(shop.id, from, to, detail));
-    setLoaded(true);
+    try {
+      setRows(await listStatementLines(shop.id, from, to, detail));
+      setError(null);
+    } catch (err) {
+      // The rows go with it. Leaving the last successful statement on screen
+      // beside a message saying it could not be read is the one outcome worse
+      // than either -- a reader takes the figures and ignores the note.
+      setRows([]);
+      setError(extractErrorMessage(err));
+    } finally {
+      setLoaded(true);
+    }
   }, [shop, from, to, detail]);
 
   // See the note in chart-of-accounts-view.tsx: use-refresh-on-focus does not
@@ -97,7 +118,7 @@ export function IncomeStatementView({ dateRange, setRefresh }: { dateRange: Date
   useTabRefresh(setRefresh, reload);
 
   const rangeLabel = formatRangeLabel(dateRange);
-  const anything = hasFigures(rows);
+  const anything = !error && hasFigures(rows);
 
   // Which rows open a block of per-account lines, so the heading is drawn once
   // above the first of them. Precomputed rather than worked out inside the map,
@@ -124,6 +145,13 @@ export function IncomeStatementView({ dateRange, setRefresh }: { dateRange: Date
       <BentoCard title="Profit &amp; loss" scope={rangeLabel}>
         {!loaded ? (
           <Text style={styles.loading}>Loading…</Text>
+        ) : error ? (
+          // 'partial', not 'wrong': there is nothing here the reader can fix,
+          // and a 'wrong' caveat without an action trains people to skip the
+          // whole family. The database's own words are shown -- "You do not
+          // have permission to see the books." says more than any wording this
+          // screen could invent, and any OTHER failure says what it was.
+          <Caveat tone="partial">{error}</Caveat>
         ) : !anything ? (
           <StatementEmpty>
             Nothing has been posted in this window, so there is no income statement to draw. Sales, refunds and bills

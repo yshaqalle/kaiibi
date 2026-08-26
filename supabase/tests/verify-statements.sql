@@ -16,6 +16,9 @@ declare
   v_other  uuid := gen_random_uuid();   -- check 9: somebody else's owner
   v_shop   uuid;
   v_loc    uuid;
+  v_shop_b uuid;   -- check 27: the second shop, which IS the tenant boundary
+  v_loc_b  uuid;
+  v_draft  uuid;   -- check 9b: a draft no statement may see
   v_prod_a uuid;   -- cost 300, sells 1000
   v_prod_b uuid;   -- cost 700, sells 2500
   v_cust   uuid;
@@ -47,6 +50,65 @@ begin
     values (v_shop, 'Widget B', 2500, 700, 100) returning id into v_prod_b;
   -- public.customers has no `name` column: it is first_name / last_name.
   insert into public.customers (shop_id, first_name) values (v_shop, 'Faduma') returning id into v_cust;
+
+  -- ---------------------------------------------------------------------
+  -- A SECOND SHOP, WITH ITS OWN BOOKS. This is the multi-tenant boundary,
+  -- and until it existed there was nothing here to test.
+  --
+  -- All three functions are `security definer`, so RLS on journal_lines and
+  -- accounts does not apply inside them: `shop_id` scoping IS the boundary.
+  -- With one shop in the fixture, removing the scoping from all three at once
+  -- left this file printing ALL CHECKS PASSED -- there was simply no other
+  -- shop's data to leak.
+  --
+  -- Every figure below is deliberately UNLIKE shop A's and much larger, so a
+  -- leak in either direction moves a number rather than hiding inside a
+  -- rounding. Shop A's figures are pinned to the cent by checks 1-26; those
+  -- checks are the leak detector, and check 27 asserts shop B's own figures so
+  -- that a leak the other way is caught too.
+  --
+  -- Owned by v_other, who was already the stranger of checks 9/18/25 -- which
+  -- makes those checks stronger as well: the stranger is now a real shop owner
+  -- with real books, not a user who has never seen a ledger.
+  insert into public.shops (owner_id, name) values (v_other, 'The Other Shop') returning id into v_shop_b;
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_b, 'Main', true)
+    returning id into v_loc_b;
+
+  -- 1595 Vehicles, which the seeded chart does not carry and a shop that buys
+  -- a van adds for itself. It is here because balance_sheet() calls
+  -- 1500-1599 fixed assets while cash_flow()'s investing section was written
+  -- 1500-1589: a shop with an account in the 1590s got fixed assets of 50000
+  -- on one statement, investing of 0 on the other, and a cash flow that
+  -- stopped proving out. Nothing in the seeded chart sits in that gap, so the
+  -- fixture has to put something there. See check 27.
+  insert into public.accounts (shop_id, code, name, type)
+    values (v_shop_b, '1595', 'Vehicles', 'asset');
+
+  -- ---------------------------------------------------------------------
+  -- A DRAFT ENTRY IN SHOP A, left in place for the whole file.
+  --
+  -- journal_entries.status DEFAULTS to 'draft', so a half-written entry is
+  -- the easiest thing in this database to produce -- and all three statements
+  -- read `status in ('posted','reversed')`, which is a filter nothing tested:
+  -- adding 'draft' to that list was a no-op in every one of them, because no
+  -- fixture had ever written one.
+  --
+  -- 999000 is chosen to be unmissable. If any statement counted it, net
+  -- revenue, cash, total assets and the cash flow's every total would each be
+  -- wrong by a figure larger than the whole fixture. Check 9b says so
+  -- explicitly; checks 1, 10, 11 and 20 would all redden anyway.
+  --
+  -- Written by hand rather than through post_journal_entry, which posts. This
+  -- runs before `set role authenticated`, so RLS is not yet in the way.
+  insert into public.journal_entries
+      (shop_id, period_id, entry_date, description, source, status, created_by)
+    values (v_shop, public.open_period_for(v_shop, public.shop_local_date()),
+            public.shop_local_date(), 'A draft nobody has posted', 'manual', 'draft', v_user)
+    returning id into v_draft;
+  insert into public.journal_lines (entry_id, account_id, amount_cents)
+    select v_draft, a.id, 999000 from public.accounts a where a.shop_id = v_shop and a.code = '1000';
+  insert into public.journal_lines (entry_id, account_id, amount_cents)
+    select v_draft, a.id, -999000 from public.accounts a where a.shop_id = v_shop and a.code = '4000';
 
   perform set_config('request.jwt.claims', json_build_object('sub', v_user)::text, true);
   perform set_config('role', 'authenticated', true);
@@ -199,6 +261,43 @@ begin
       jsonb_build_object('code', '2200', 'amount_cents', -4000)),
     v_loc, 'payroll');
 
+  -- ---------------------------------------------------------------------
+  -- SHOP B'S BOOKS, posted by its own owner. Three entries, sized so that
+  -- every one of shop A's figures moves if either shop's ledger reaches the
+  -- other's statements.
+  --
+  --   45 days back   Dr 1000  77000 / Cr 3000  77000   opening capital, in cash
+  --   40 days back   Dr 6000   9100 / Cr 1000   9100   a month's rent, PAID
+  --   today          Dr 1595  50000 / Cr 1000  50000   a van, bought for cash
+  --
+  -- The rent is DATED IN THE PAST on purpose and it is the only P&L entry in
+  -- this file that is. balance_sheet() reads statement_lines('-infinity',
+  -- p_as_of) and every P&L entry in shop A is dated today, so narrowing that
+  -- lower bound to p_as_of changed nothing at all and was a no-op mutation.
+  -- Shop B's rent is what makes it bite: see check 27.
+  --
+  -- The van is in the 1590s, which is the gap between balance_sheet()'s
+  -- 1500-1599 and the 1500-1589 cash_flow() was first written with.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_other)::text, true);
+
+  perform public.post_journal_entry(v_shop_b, v_open - 5, 'Opening capital',
+    jsonb_build_array(
+      jsonb_build_object('code', '1000', 'amount_cents',  77000),
+      jsonb_build_object('code', '3000', 'amount_cents', -77000)),
+    v_loc_b, 'opening');
+  perform public.post_journal_entry(v_shop_b, v_open, 'Rent, paid',
+    jsonb_build_array(
+      jsonb_build_object('code', '6000', 'amount_cents',  9100),
+      jsonb_build_object('code', '1000', 'amount_cents', -9100)),
+    v_loc_b);
+  perform public.post_journal_entry(v_shop_b, public.shop_local_date(), 'A van, for cash',
+    jsonb_build_array(
+      jsonb_build_object('code', '1595', 'amount_cents',  50000),
+      jsonb_build_object('code', '1000', 'amount_cents', -50000)),
+    v_loc_b, 'asset');
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user)::text, true);
+
   -- 1. Revenue is NET of returns and discounts, and excludes sales tax.
   --    9000 at list less the 500 discount = 8500, plus 3000 sold on credit --
   --    and NOT the 450 of tax on it, which is owed rather than earned.
@@ -292,6 +391,37 @@ begin
   if not exists (select 1 from public.journal_entries e
                   where e.shop_id = v_shop and e.status = 'posted' and e.reverses_entry_id is not null) then
     raise exception 'FAIL: the fixture posted no reversal, so the status filter is untested';
+  end if;
+
+  -- 8b. NO STATEMENT SEES A DRAFT. `status in ('posted','reversed')` excludes
+  --     'draft', which is journal_entries' DEFAULT status and therefore the
+  --     easiest state in the database to reach: any half-written entry sits
+  --     there. Adding 'draft' to the filter in any of the three functions was
+  --     a silent no-op until this fixture wrote one.
+  --
+  --     Asserted on all three statements, in one place, because the failure is
+  --     one defect with three faces: a shop would see revenue it has not
+  --     earned, cash it does not have, and a cash flow that still proves out
+  --     because the draft balances like any other entry.
+  if not exists (select 1 from public.journal_entries e
+                  where e.shop_id = v_shop and e.status = 'draft') then
+    raise exception 'FAIL: the fixture holds no draft entry, so the draft exclusion is untested in all three statements';
+  end if;
+  if (select amount_cents from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'revenue' and is_total) <> 11500 then
+    raise exception 'FAIL: net revenue reads % -- either the 999000 draft was counted, or the other shop''s books have leaked in',
+      (select amount_cents from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
+        where section = 'revenue' and is_total);
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop, public.shop_local_date())
+       where code = '1000') <> 1950 then
+    raise exception 'FAIL: cash reads % -- either the 999000 draft was counted, or the other shop''s books have leaked in',
+      (select amount_cents from public.balance_sheet(v_shop, public.shop_local_date()) where code = '1000');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'net_change') <> 1950 then
+    raise exception 'FAIL: net change reads % -- either the 999000 draft was counted, or the other shop''s books have leaked in',
+      (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01') where section = 'net_change');
   end if;
 
   -- 9. THE GATE. statement_lines is security definer, so RLS on journal_lines
@@ -511,20 +641,19 @@ begin
   end;
   perform set_config('request.jwt.claims', json_build_object('sub', v_user)::text, true);
 
-  --     ...and the check above CANNOT tell whose gate refused them, because
+  --     ...and the check above CANNOT tell WHOSE gate refused them, because
   --     balance_sheet calls statement_lines, statement_lines gates on the same
   --     permission with the same message, and security definer does not change
-  --     auth.uid(). Deleting balance_sheet's own gate leaves the behavioural
-  --     check green. So the gate is asserted to EXIST as well -- the only
-  --     assertion in this file that reads source rather than behaviour, and it
-  --     is here because the behavioural one provably cannot bite.
-  if not exists (
-    select 1 from pg_proc p
-     where p.proname = 'balance_sheet'
-       and p.pronamespace = 'public'::regnamespace
-       and pg_get_functiondef(p.oid) like '%has_shop_permission(p_shop_id, ''ledger.view'')%') then
-    raise exception 'FAIL: balance_sheet does not gate on ledger.view itself';
-  end if;
+  --     auth.uid(). Deleting balance_sheet's own gate leaves this check green.
+  --
+  --     That is answered in verify-statement-permissions.sql, which reads
+  --     PG_EXCEPTION_CONTEXT's innermost frame and so names the function that
+  --     actually raised. A pg_get_functiondef assertion used to sit here as a
+  --     stand-in; it has been REMOVED rather than kept alongside, because it
+  --     matched the function's source TEXT including its comments and so stayed
+  --     green against a gate that had been commented out -- which the final
+  --     review demonstrated. A weak check beside a strong one reads as extra
+  --     assurance and is the opposite.
 
   -- =====================================================================
   -- THE CASH FLOW (task 3), indirect method.
@@ -758,15 +887,9 @@ begin
 
   --     ...and, exactly as for balance_sheet, the behavioural check above
   --     cannot tell whose gate refused them: cash_flow calls statement_lines,
-  --     which gates on the same permission with the same message. So the gate
-  --     is asserted to EXIST as well.
-  if not exists (
-    select 1 from pg_proc p
-     where p.proname = 'cash_flow'
-       and p.pronamespace = 'public'::regnamespace
-       and pg_get_functiondef(p.oid) like '%has_shop_permission(p_shop_id, ''ledger.view'')%') then
-    raise exception 'FAIL: cash_flow does not gate on ledger.view itself';
-  end if;
+  --     which gates on the same permission with the same message. That is
+  --     answered by the frame assertion in verify-statement-permissions.sql,
+  --     not by reading this function's source.
 
   -- =====================================================================
   -- 26. THE FIVE RECONCILIATIONS, ASSERTED TOGETHER (task 5).
@@ -898,6 +1021,162 @@ begin
   end if;
   if v_cf_cash <> 1950 then
     raise exception 'FAIL: both statements agree cash is %, but the fixture holds 1950', v_cf_cash;
+  end if;
+
+  -- =====================================================================
+  -- 27. THE SECOND SHOP: the tenant boundary, the balance sheet's missing
+  --     lower bound, and the fixed-asset range the two statements must share.
+  --
+  --     Three findings meet in one fixture because they need the same thing --
+  --     books that are not shop A's:
+  --
+  --     (a) TENANCY. All three functions are security definer, so RLS does not
+  --         apply inside them and `shop_id` scoping is the only boundary. The
+  --         detector is checks 1-26: shop B's figures are an order of
+  --         magnitude away from shop A's, so any leak moves a pinned number.
+  --         Worth stating precisely, because two of the three functions are
+  --         scoped TWICE and neither filter is individually observable.
+  --         balance_sheet() and cash_flow() filter the ledger on
+  --         `e.shop_id = p_shop_id` AND join `accounts` filtered on
+  --         `a.shop_id = p_shop_id`, then LEFT JOIN the two on `account_id`.
+  --         An account belongs to exactly one shop, so either filter alone
+  --         confines the result: deleting `e.shop_id` leaves the account join
+  --         holding the line, deleting `a.shop_id` merges another shop's
+  --         account rows in at zero, which changes no total. Delete BOTH and
+  --         shop B's cash lands in shop A's balance sheet -- verified, and it
+  --         reddens. That is defence in depth rather than a hole here, but it
+  --         is worth writing down: a reviewer mutating one filter at a time
+  --         will read the green as "untested" and be wrong.
+  --         statement_lines() has only the entry-level filter, and removing
+  --         that one alone reddens check 4.
+  --
+  --     (b) THE LOWER BOUND. balance_sheet() reads
+  --         statement_lines('-infinity', p_as_of). Every P&L entry in shop A
+  --         is dated today, so narrowing that to (p_as_of, p_as_of) changed
+  --         nothing. Shop B's rent is 40 days old, and profit this period must
+  --         still carry it.
+  --
+  --     (c) THE RANGE. balance_sheet() calls 1500-1599 fixed; cash_flow()'s
+  --         investing section was written 1500-1589. Shop B's van is 1595, so
+  --         the two disagreed by 50000 and the proof stopped tying.
+  --
+  --     Shop B's books, and every figure they produce:
+  --
+  --       1000 Cash    77000 - 9100 - 50000 = 17900
+  --       1595 Vehicles                       50000
+  --       TOTAL ASSETS                        67900
+  --       3000 Capital                        77000
+  --       Profit this period                  -9100   the rent, 40 days back
+  --       TOTAL L + E                         67900
+  --
+  --       Cash flow, all time: operations -9100, investing -50000,
+  --       financing +77000, net change 17900 = the cash it holds.
+  -- =====================================================================
+  perform set_config('request.jwt.claims', json_build_object('sub', v_other)::text, true);
+
+  select amount_cents into v_amount from public.statement_lines(v_shop_b, '2000-01-01', '2100-01-01')
+   where section = 'net_profit';
+  if v_amount is distinct from -9100 then
+    raise exception 'FAIL: the other shop''s net profit is %, expected -9100 -- shop A''s books have reached it', v_amount;
+  end if;
+
+  --  (b) THE LOWER BOUND BITES. The rent is 40 days old and is the only P&L
+  --      entry in this file that is not dated today. A balance sheet that
+  --      windowed its profit to p_as_of reads 0 here and still balances -- at
+  --      77000 instead of 67900, which is why the total is asserted too.
+  select amount_cents into v_amount from public.balance_sheet(v_shop_b, public.shop_local_date())
+   where section = 'equity' and label = 'Profit this period';
+  if v_amount is distinct from -9100 then
+    raise exception 'FAIL: the other shop''s profit this period is %, expected -9100 -- the rent 40 days back must still count, so the lower bound must be -infinity', v_amount;
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_b, public.shop_local_date())
+       where section = 'total_assets') is distinct from 67900 then
+    raise exception 'FAIL: the other shop''s total assets is %, expected 67900',
+      (select amount_cents from public.balance_sheet(v_shop_b, public.shop_local_date()) where section = 'total_assets');
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_b, public.shop_local_date())
+       where section = 'total_assets')
+     is distinct from (select amount_cents from public.balance_sheet(v_shop_b, public.shop_local_date())
+          where section = 'total_liabilities_equity') then
+    raise exception 'FAIL: the other shop''s balance sheet does not balance -- % against %',
+      (select amount_cents from public.balance_sheet(v_shop_b, public.shop_local_date()) where section = 'total_assets'),
+      (select amount_cents from public.balance_sheet(v_shop_b, public.shop_local_date()) where section = 'total_liabilities_equity');
+  end if;
+
+  --  (c) THE RANGE. 1595 is fixed on the balance sheet AND investing on the
+  --      cash flow, or the proof does not tie. A cash flow reading 1500-1589
+  --      reports investing of 0 and a net change of 67900 against an observed
+  --      movement of 17900.
+  if not exists (select 1 from public.balance_sheet(v_shop_b, public.shop_local_date())
+                  where code = '1595' and section = 'fixed_assets') then
+    raise exception 'FAIL: 1595 Vehicles is not under fixed assets (it is %)',
+      coalesce((select section from public.balance_sheet(v_shop_b, public.shop_local_date()) where code = '1595'), 'absent');
+  end if;
+  select amount_cents into v_amount from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01')
+   where section = 'investing' and is_total;
+  if v_amount is distinct from -50000 then
+    raise exception 'FAIL: the other shop''s investing is %, expected -50000 (0 = the van at 1595 fell outside cash_flow''s fixed-asset range while balance_sheet counted it)', v_amount;
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01') where section = 'net_change')
+     is distinct from (select amount_cents from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01')
+          where section = 'proof' and label = 'Movement in cash accounts') then
+    raise exception 'FAIL: the other shop''s cash flow does not prove out -- net change % against observed movement %',
+      (select amount_cents from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01') where section = 'net_change'),
+      (select amount_cents from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01')
+        where section = 'proof' and label = 'Movement in cash accounts');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01')
+       where section = 'net_change') is distinct from 17900 then
+    raise exception 'FAIL: the other shop''s net change in cash is %, expected 17900',
+      (select amount_cents from public.cash_flow(v_shop_b, '2000-01-01', '2100-01-01') where section = 'net_change');
+  end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user)::text, true);
+
+  -- =====================================================================
+  -- 28. THE PROOF FAILS WHEN AN UNACCOUNTED ACCOUNT MOVES. LAST, because it
+  --     posts an entry the checks above must not see.
+  --
+  --     cash_flow() names the accounts each section reads, so an account that
+  --     is neither cash, nor P&L, nor in one of those lists is UNACCOUNTED
+  --     FOR: today that set is {2300 Loyalty Points Liability, 3900 Retained
+  --     Earnings} plus anything a shop adds itself. The design's position is
+  --     that the proof row is the right place for this to surface, and that a
+  --     residual "other movements" line would be worse -- it would make the
+  --     statement tie by construction and destroy the only check that can
+  --     catch a sign error.
+  --
+  --     That is an argument, and until now it was only an argument: nothing
+  --     demonstrated the proof CAN fail. Here it is. Dr 6100 / Cr 2300 for
+  --     1200 puts 1200 into net profit as a cost and 1200 into a liability no
+  --     section reads, so net change falls by 1200 while the observed cash
+  --     movement -- which no part of the arithmetic touches -- does not move
+  --     at all.
+  --
+  --     This is also 3b's collision, in miniature: the period close posts to
+  --     3900, and any cash-flow window spanning a close will fail here by
+  --     exactly the amount closed until the statement gains a section for it.
+  perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Loyalty points accrued',
+    jsonb_build_array(
+      jsonb_build_object('code', '6100', 'amount_cents',  1200),
+      jsonb_build_object('code', '2300', 'amount_cents', -1200)),
+    v_loc);
+
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'proof' and label = 'Movement in cash accounts') is distinct from 1950 then
+    raise exception 'FAIL: the OBSERVED cash movement changed when 2300 moved -- it is read straight off the cash accounts and nothing here touched them; it reads %',
+      (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+        where section = 'proof' and label = 'Movement in cash accounts');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'net_change') is distinct from 750 then
+    raise exception 'FAIL: net change should have fallen to 750 when 1200 went into an unaccounted liability, it reads %',
+      (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01') where section = 'net_change');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01') where section = 'net_change')
+     = (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+         where section = 'proof' and label = 'Movement in cash accounts') then
+    raise exception 'FAIL: 1200 moved through 2300, which NO cash-flow section reads, and the statement still proved out. Either a residual line has been added -- which makes the proof tautological -- or 2300 has quietly been folded into a section.';
   end if;
 
   perform set_config('role', 'postgres', true);

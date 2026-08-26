@@ -91,10 +91,10 @@ describe('Post History is gated on ledger.close', () => {
     expect(visibleLedgerViews(holding()).map((v) => v.key)).not.toContain('backfill');
   });
 
-  it('hides only that card, leaving the rest of the hub intact', () => {
+  it('hides only that card, leaving the rest of its group intact', () => {
     // A gate that took the group with it would strip Chart of Accounts, the
     // journals and the trial balance from every reader who is not an owner.
-    expect(visibleLedgerViews(holding()).map((v) => v.key)).toEqual([
+    expect(visibleLedgerViews(holding('ledger.view')).map((v) => v.key)).toEqual([
       'hub',
       'accounts',
       'entry',
@@ -110,9 +110,77 @@ describe('Post History is gated on ledger.close', () => {
   it('names ledger.close on the card itself, so the gate and the RPC cannot drift apart', () => {
     expect(LEDGER_VIEWS.find((v) => v.key === 'backfill')?.requires).toBe('ledger.close');
   });
+});
 
-  it('leaves every other card ungated', () => {
-    expect(LEDGER_VIEWS.filter((v) => v.requires !== null).map((v) => v.key)).toEqual(['backfill']);
+describe('the three statements are gated on ledger.view', () => {
+  // THE DEFAULT MANAGER, ON DAY ONE, IN EVERY SHOP. /accounting is gated on
+  // `sales.view` (permissions.ts) and the seeded Manager role (0020) holds
+  // sales.view and NOT ledger.view -- so this is the second role every shop
+  // starts with, not a corner case.
+  //
+  // statement_lines(), balance_sheet() and cash_flow() are all `security
+  // definer` and RAISE P0001 without ledger.view. That is what separates the
+  // three statements from the six older cards, which read tables under RLS and
+  // answer a reader without the permission with an honest empty state. A card
+  // that opens a screen saying "you do not have permission" is worse than a
+  // card that is not offered.
+  const MANAGER: Permission[] = ['pos.access', 'inventory.view', 'inventory.edit', 'sales.view', 'sales.edit', 'dashboard.view'];
+
+  it('shows all three to a reader holding ledger.view', () => {
+    const keys = visibleLedgerViews(holding('ledger.view')).map((v) => v.key);
+    expect(keys).toEqual(expect.arrayContaining(['income', 'balance', 'cashflow']));
+  });
+
+  it('hides all three from the seeded Manager role', () => {
+    const keys = visibleLedgerViews(holding(...MANAGER)).map((v) => v.key);
+    expect(keys).not.toContain('income');
+    expect(keys).not.toContain('balance');
+    expect(keys).not.toContain('cashflow');
+  });
+
+  it('takes the whole Financial statements group with them rather than leaving an empty heading', () => {
+    const groups = new Set(visibleLedgerViews(holding(...MANAGER)).map((v) => v.group));
+    expect(groups.has('Financial statements')).toBe(false);
+    // ...and leaves the other two groups standing, so the hub is not emptied.
+    expect(groups.has('Ledger and journals')).toBe(true);
+    expect(groups.has('Oversight')).toBe(true);
+  });
+
+  it('names ledger.view on each card, so the gate and the three RPCs cannot drift apart', () => {
+    for (const key of ['income', 'balance', 'cashflow']) {
+      expect(LEDGER_VIEWS.find((v) => v.key === key)?.requires).toBe('ledger.view');
+    }
+  });
+
+  it('gates exactly the four cards whose RPC raises, and no others', () => {
+    // The six ungated cards read TABLES under RLS: a reader without the
+    // permission gets no rows and an empty state, not an exception. Gating
+    // those too would be a different decision and is not this one.
+    expect(LEDGER_VIEWS.filter((v) => v.requires !== null).map((v) => v.key)).toEqual([
+      'backfill',
+      'income',
+      'balance',
+      'cashflow',
+    ]);
+  });
+});
+
+describe('the hub cards say what window their screen actually uses', () => {
+  // A scope is not decoration: a reader who believes "7 days" will misread a
+  // report they have set to 30. Seven days is only the range selector's OPENING
+  // preset -- it also offers 30 and a custom pair -- and all three statement
+  // screens follow whatever is chosen.
+  it('does not promise a fixed window for the two statements that follow the range', () => {
+    for (const key of ['income', 'cashflow']) {
+      expect(LEDGER_VIEWS.find((v) => v.key === key)?.scope).toBe('The chosen range');
+    }
+  });
+
+  it('says the balance sheet is as at the range END, which is not always today', () => {
+    // A position read at an instant, and the instant is the window's end: a
+    // custom range ending last month gives last month's balance sheet. The card
+    // said "As of today", which was true only of the default preset.
+    expect(LEDGER_VIEWS.find((v) => v.key === 'balance')?.scope).toBe('As at the range end');
   });
 });
 

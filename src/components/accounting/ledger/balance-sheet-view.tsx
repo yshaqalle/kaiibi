@@ -10,6 +10,7 @@ import { StatementEmpty, StatementHeading, StatementRow, type StatementVariant }
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { extractErrorMessage } from '@/lib/checkout-errors';
 import { formatAccountingCents } from '@/lib/currency';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import { getBalanceSheet, hasFigures, type StatementLine } from '@/lib/statements';
@@ -22,7 +23,10 @@ const theme = Colors.light;
 // AS AT ONE DATE, NOT OVER A RANGE. There is no such thing as a balance sheet
 // "for the last 7 days" — it is a position, read at an instant. The shell hands
 // every ledger screen the shared window, and this one takes its END and ignores
-// the start. That is why the hub card says "As of today" rather than "7 days".
+// the start. That is why the hub card says "As at the range end" rather than
+// "The chosen range" -- and not "As of today", which it used to and which was
+// true only of the default preset: a custom window ending last month gives last
+// month's balance sheet.
 //
 // THIS SCREEN DOES NO ARITHMETIC. Every subtotal, both grand totals and the
 // profit-this-period line are rows balance_sheet() returned. It does not even
@@ -85,6 +89,12 @@ export function BalanceSheetView({ dateRange, setRefresh }: { dateRange: DateRan
   const { shop } = useAuth();
   const [rows, setRows] = useState<StatementLine[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // See income-statement-view.tsx for why the three statement screens carry an
+  // error state and the six ledger views beside them do not: balance_sheet()
+  // is `security definer` and RAISES without `ledger.view` where a table read
+  // under RLS would return nothing. Uncaught, that left the screen on
+  // "Loading…" permanently.
+  const [error, setError] = useState<string | null>(null);
 
   // The END of the window, and only the end. `until` is optional and means
   // "through today" — range-selector.tsx:22. toDateColumn, not toISOString:
@@ -94,8 +104,17 @@ export function BalanceSheetView({ dateRange, setRefresh }: { dateRange: DateRan
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setRows(await getBalanceSheet(shop.id, asOf));
-    setLoaded(true);
+    try {
+      setRows(await getBalanceSheet(shop.id, asOf));
+      setError(null);
+    } catch (err) {
+      // The rows go with it: half a balance sheet beside a note saying it could
+      // not be read is worse than neither, because the halves still balance.
+      setRows([]);
+      setError(extractErrorMessage(err));
+    } finally {
+      setLoaded(true);
+    }
   }, [shop, asOf]);
 
   // See the note in chart-of-accounts-view.tsx: use-refresh-on-focus does not
@@ -114,7 +133,7 @@ export function BalanceSheetView({ dateRange, setRefresh }: { dateRange: DateRan
   // fromDateColumn, never `new Date(asOf)`: a date-only string parses as UTC
   // midnight and renders a day early for every reader west of Greenwich.
   const scope = `As at ${fromDateColumn(asOf).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
-  const anything = hasFigures(rows);
+  const anything = !error && hasFigures(rows);
 
   const assets = useMemo(() => half(rows, ASSET_SECTIONS), [rows]);
   const claims = useMemo(() => half(rows, CLAIM_SECTIONS), [rows]);
@@ -128,6 +147,11 @@ export function BalanceSheetView({ dateRange, setRefresh }: { dateRange: DateRan
         <BentoCard title="Balance sheet" scope={scope}>
           {!loaded ? (
             <Text style={styles.loading}>Loading…</Text>
+          ) : error ? (
+            // 'partial', not 'wrong': nothing here is fixable by the reader,
+            // and a 'wrong' caveat with no action trains people to skip them
+            // all. The database's own message is shown as it arrived.
+            <Caveat tone="partial">{error}</Caveat>
           ) : (
             <StatementEmpty>
               Nothing has been posted as at this date, so there is no balance sheet to draw. Sales, deliveries and bills
