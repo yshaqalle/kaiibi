@@ -1,3 +1,5 @@
+import { findShortfalls, type OrderShortfall } from '@/lib/order-fulfilment';
+import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
@@ -341,11 +343,14 @@ export async function unpublish(shopId: string): Promise<void> {
   if (error) throw error;
 }
 
-// Task 9: the one read a shop gets of its own orders (20260926000050_orders.sql)
-// for now -- read-only, because Plan 4 owns accepting, readying and completing
-// them and a half-working control here would be worse than none. `status` is
-// deliberately not read: this list makes an order visible, it does not judge
-// where an order is in its life, which is exactly the line Plan 4 draws.
+// Task 9 built this as a read-only list, and its comment used to say status
+// was "deliberately not read". Task 6 turns the list into an inbox a shop
+// works from, and every state that list has to be a tab of needs `status` on
+// the row -- see orders.tsx for the actions that now change it, each guarded
+// to exactly the moves 20260928000100_order_transitions.sql /
+// 20260928000200_complete_storefront_order.sql permit.
+export type OrderStatus = 'pending' | 'accepted' | 'ready' | 'completed' | 'cancelled';
+
 export type ShopOrder = {
   id: string;
   number: number;
@@ -363,10 +368,27 @@ export type ShopOrder = {
   // customer to find out where to actually go. Null for collect, same as
   // deliveryArea.
   deliveryLandmark: string | null;
+  // Free text the customer left at checkout. Null when they left nothing --
+  // shown only in the detail view, never worth a list column of its own.
+  note: string | null;
+  status: OrderStatus;
+  // Non-null only once status is 'cancelled' -- orders_cancellation_reason_
+  // required (20260928000100) guarantees the two travel together server-side.
+  cancellationReason: string | null;
   // Total UNITS across every line, not the number of lines -- what a shop
   // actually has to pull off the shelf. sales.item_count (0001_init.sql) is
   // computed the same way, by summing quantity.
   itemCount: number;
+  // The three money columns 20260926000050_orders.sql's own CHECK
+  // (orders_total_is_subtotal_plus_delivery) guarantees add up: subtotal is
+  // goods only, deliveryFee is 0 on a collect order (the sibling CHECK,
+  // orders_delivery_matches_fulfilment, enforces that server-side), total is
+  // their sum -- the exact figure the customer agreed to pay at checkout
+  // (checkout-form.tsx's own Goods/Delivery/Total breakdown). The order
+  // detail sheet reads all three so a shop sees the SAME numbers the
+  // customer did, not just the goods subtotal.
+  subtotalCents: number;
+  deliveryFeeCents: number;
   totalCents: number;
   createdAt: string;
 };
@@ -379,6 +401,11 @@ function mapOrderRow(row: {
   fulfilment: string;
   delivery_area: string | null;
   delivery_landmark: string | null;
+  note: string | null;
+  status: string;
+  cancellation_reason: string | null;
+  subtotal_cents: number;
+  delivery_fee_cents: number;
   total_cents: number;
   created_at: string;
   order_items: { quantity: number }[] | null;
@@ -391,11 +418,21 @@ function mapOrderRow(row: {
     fulfilment: row.fulfilment as 'collect' | 'deliver',
     deliveryArea: row.delivery_area ?? null,
     deliveryLandmark: row.delivery_landmark ?? null,
+    note: row.note ?? null,
+    status: row.status as OrderStatus,
+    cancellationReason: row.cancellation_reason ?? null,
     itemCount: (row.order_items ?? []).reduce((sum, item) => sum + item.quantity, 0),
+    subtotalCents: row.subtotal_cents,
+    deliveryFeeCents: row.delivery_fee_cents,
     totalCents: row.total_cents,
     createdAt: row.created_at,
   };
 }
+
+// Task 7: what a shop still owes an order. Lives in ./order-status, not here
+// -- see that file's own comment for why -- and is re-exported so existing
+// importers of storefront-admin.ts see no change.
+export { ORDERS_NEEDING_ACTION };
 
 // RLS ("own orders", 20260926000050) already narrows this to the caller's own
 // shop; the `eq` here is what makes the QUERY itself scoped rather than
@@ -406,10 +443,278 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)'
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, created_at, order_items(quantity)'
     )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((row) => mapOrderRow(row as never));
+}
+
+// N3: the badge on Settings -> Orders and the attention row on the dashboard
+// both used to be `listOrders(shopId).length` after a client-side filter --
+// every column, every order the shop has EVER placed, all its nested
+// order_items, fetched on every focus, to produce one integer. This is the
+// same count, read as a count: PostgREST's `head: true` skips the row
+// payload entirely and returns only Content-Range, so the response is a
+// number, not a table. `.in()` does the ORDERS_NEEDING_ACTION filtering
+// server-side rather than client-side, so there is no array here to dedupe
+// against the three places that used to re-inline it (attention.ts,
+// settings-sidebar.tsx, orders.tsx's own unconfirmedOrders) -- two of those
+// three now call this instead, and orders.tsx's is a different question (the
+// SUM of unconfirmed totals, not merely their count), which still needs the
+// full rows this function deliberately no longer fetches.
+export async function countOrdersNeedingAction(shopId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('shop_id', shopId)
+    .in('status', ORDERS_NEEDING_ACTION);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+// Task 6: the lines a shop must pull off the shelf, at the price the customer
+// actually agreed to -- order_items snapshots product_name and
+// unit_price_cents at checkout (20260926000050's own header), never joined
+// live against today's `products` row. Ordered by product_name, the same
+// tie-break complete_storefront_order uses when it assembles this same table
+// for complete_sale (20260928000200:307-324), so the detail view lists lines
+// in the order the shop will see them posted.
+export type OrderLine = {
+  id: string;
+  // Null when the product has since been deleted (`on delete set null`,
+  // 20260926000050) -- the line stays readable off its own snapshot.
+  productId: string | null;
+  productName: string;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+};
+
+function mapOrderLineRow(row: {
+  id: string;
+  product_id: string | null;
+  product_name: string;
+  unit_price_cents: number;
+  quantity: number;
+  line_total_cents: number;
+}): OrderLine {
+  return {
+    id: row.id,
+    productId: row.product_id ?? null,
+    productName: row.product_name,
+    unitPriceCents: row.unit_price_cents,
+    quantity: row.quantity,
+    lineTotalCents: row.line_total_cents,
+  };
+}
+
+export async function getOrderItems(orderId: string): Promise<OrderLine[]> {
+  const { data, error } = await supabase
+    .from('order_items')
+    .select('id, product_id, product_name, unit_price_cents, quantity, line_total_cents')
+    .eq('order_id', orderId)
+    .order('product_name', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => mapOrderLineRow(row as never));
+}
+
+// ── Transitions ─────────────────────────────────────────────────────────
+//
+// Thin wrappers around the two doors the database actually opens --
+// transition_order and complete_storefront_order
+// (20260928000100_order_transitions.sql / 20260928000200_complete_storefront_
+// order.sql). Neither the permitted-moves table nor the payment-method list
+// is re-encoded here: a move this file did not anticipate is left to the
+// RPC's own `invalid_order_transition` / `invalid_payment_method`, the same
+// posture transition_order's own header takes about not duplicating the
+// trigger that is the real enforcement. orders.tsx is what only offers a
+// button for a move the order's CURRENT status actually permits -- these
+// four exist so that decision has something honest to call.
+
+export async function acceptOrder(orderId: string): Promise<void> {
+  const { error } = await supabase.rpc('transition_order', { p_order_id: orderId, p_status: 'accepted' });
+  if (error) throw error;
+}
+
+export async function markOrderReady(orderId: string): Promise<void> {
+  const { error } = await supabase.rpc('transition_order', { p_order_id: orderId, p_status: 'ready' });
+  if (error) throw error;
+}
+
+// `reason` is required by the caller's own form before this is ever called,
+// and orders_cancellation_reason_required (20260928000100) holds the same
+// line server-side regardless -- this does not re-validate it, only carries
+// it through.
+export async function cancelOrder(orderId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('transition_order', {
+    p_order_id: orderId,
+    p_status: 'cancelled',
+    p_cancellation_reason: reason,
+  });
+  if (error) throw error;
+}
+
+// complete_storefront_order's own permitted list (20260928000200:277) is
+// complete_sale's list minus 'unpaid' -- an order handed over at the door has
+// been paid for, and there is no customer record here to leave a balance
+// against.
+export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
+
+export async function completeOrder(orderId: string, paymentMethod: PaymentMethod): Promise<void> {
+  const { error } = await supabase.rpc('complete_storefront_order', {
+    p_order_id: orderId,
+    p_payment_method: paymentMethod,
+  });
+  if (error) throw error;
+}
+
+// The sentence a shopkeeper reads when an order move is refused.
+//
+// transition_order and complete_storefront_order (20260928000100 /
+// 20260928000200 / 20260928000600) raise a short snake_case code plus a JSON
+// `detail` -- built for a client to translate, not for a shop to read
+// verbatim. Before this, orders.tsx's runAction passed `err.message` straight
+// through, so a shop saw the literal token: `insufficient_stock`,
+// `order_total_changed`, `invalid_order_transition`. This is the translation,
+// the same role checkoutErrorMessage (checkout-errors.ts) plays for
+// complete_sale's own refusals and describePlanError (entitlements.ts) plays
+// for a plan/module refusal -- each says what the shop can DO, not what went
+// wrong.
+//
+// `module_not_included` is deliberately NOT handled here: describePlanError
+// already recognises it (parseModuleNotIncluded) and runAction chains this
+// AFTER that call, the house pattern at entitlements.ts:273 --
+// `describePlanError(err) ?? orderErrorMessage(err) ?? extractErrorMessage(err, fallback)`.
+// A second case for the same code here would just be a second copy of that
+// wording, waiting to drift from the first.
+//
+// Returns null for anything unrecognised, so a caller keeps its existing
+// fallback intact -- a network drop or a code this function does not yet
+// know about must not be swallowed into a generic sentence that hides what
+// actually happened from whoever reads the next bug report.
+export function orderErrorMessage(err: unknown): string | null {
+  const e = err as { message?: unknown; details?: unknown; detail?: unknown } | null;
+  if (!e || typeof e !== 'object' || typeof e.message !== 'string') return null;
+
+  // PostgREST surfaces a raised exception's DETAIL as `details` (parseLimitReached,
+  // entitlements.ts, established this shape first) -- `detail` is read too, in
+  // case a future PostgREST version or a differently-shaped client renames it.
+  const raw = typeof e.details === 'string' ? e.details : typeof e.detail === 'string' ? e.detail : null;
+  let detail: Record<string, unknown> | null = null;
+  if (raw) {
+    try {
+      detail = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      detail = null;
+    }
+  }
+
+  switch (e.message) {
+    case 'insufficient_stock':
+      // The short items are already named per-line, above this message
+      // (order-detail.tsx's own shortfall rows) -- this only says what to do
+      // about them.
+      return "There isn't enough stock to complete this order. Restock the short item(s) above, or cancel the order if you can't get more in time.";
+
+    case 'order_total_changed':
+      // B1's known, accepted limitation: complete_sale re-prices from today's
+      // products.price_cents and adds the shop's own tax, while the order was
+      // quoted tax-exclusive at checkout time -- so a tax-charging shop hits
+      // this on every order until a later branch teaches checkout about tax.
+      // Said as "these prices have moved", never the raw code.
+      return "This order's total no longer matches what the customer was quoted at checkout -- most likely a price changed, or your shop charges tax that the storefront didn't add at checkout. Confirm the amount with the customer before completing it.";
+
+    case 'order_product_deleted': {
+      const products = typeof detail?.products === 'string' ? detail.products : 'A product on this order';
+      return `${products} no longer exists in your catalogue, so this order can't be completed as it stands. Cancel it and ask the customer to reorder, or add the product back first.`;
+    }
+
+    case 'order_has_no_items':
+      return "This order has nothing left to complete. Cancel it instead.";
+
+    case 'invalid_payment_method':
+      return 'Pick a payment method before completing this order.';
+
+    case 'invalid_order_transition':
+      // The likeliest real cause named directly, per the review: someone else
+      // on the team already acted on this order (another phone, another
+      // till) -- including a completion that committed while a response
+      // timed out, which makes a retry read as "already done", not "failed".
+      return "This order has already moved on -- most likely someone else on your team already acted on it, or this exact action already went through a moment ago. Close this and check its current status before trying again.";
+
+    case 'cancellation_reason_required':
+      return 'Enter a reason before cancelling this order.';
+
+    case 'pos_access_required':
+      return "Completing an order needs POS access, which your account doesn't have. Ask an owner or manager to complete it, or to grant you POS access.";
+
+    default:
+      return null;
+  }
+}
+
+// Task 3: what a shop needs to know before "accept" is offered -- which
+// lines of this order it cannot currently fill, and by how much. `orders`
+// carries no location_id of its own, so this resolves the same location
+// complete_sale defaults to when none is given: primary first, then oldest
+// (20260908000300_sale_entry_date.sql:182-189). Stock is then read from
+// product_location_stock there -- the exact table and location complete_sale
+// checks at payment time -- never products.stock, which is a column a
+// trigger recomputes and silently reverts direct reads of any staleness
+// assumption against (20260810000000_stock_by_location.sql:168; plan 3 lost
+// a test to exactly that mistake).
+//
+// A line whose product_id has gone `on delete set null`
+// (20260926000050_orders.sql) is treated as fully unavailable -- there is no
+// stock row left to read -- rather than skipped, so a deleted product still
+// shows up as something the shop must resolve, not something silently
+// dropped from the count.
+//
+// The comparison itself is delegated to findShortfalls (order-fulfilment.ts)
+// so the "never auto-resolve a shortfall" rule lives in exactly one place,
+// provable without a database.
+export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
+  const { data: location, error: locationError } = await supabase
+    .from('shop_locations')
+    .select('id')
+    .eq('shop_id', shopId)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (locationError) throw locationError;
+  if (!location) throw new Error(`shop ${shopId} has no location to check stock against`);
+
+  const { data: items, error: itemsError } = await supabase
+    .from('order_items')
+    .select('product_id, product_name, quantity')
+    .eq('order_id', orderId);
+  if (itemsError) throw itemsError;
+
+  const rows = (items ?? []) as { product_id: string | null; product_name: string; quantity: number }[];
+  const productIds = [...new Set(rows.map((row) => row.product_id).filter((id): id is string => id !== null))];
+
+  const stockByProduct = new Map<string, number>();
+  if (productIds.length > 0) {
+    const { data: stockRows, error: stockError } = await supabase
+      .from('product_location_stock')
+      .select('product_id, stock')
+      .eq('location_id', (location as { id: string }).id)
+      .in('product_id', productIds);
+    if (stockError) throw stockError;
+    for (const row of (stockRows ?? []) as { product_id: string; stock: number }[]) {
+      stockByProduct.set(row.product_id, row.stock);
+    }
+  }
+
+  return findShortfalls(
+    rows.map((row) => ({
+      productId: row.product_id,
+      productName: row.product_name,
+      quantity: row.quantity,
+      available: row.product_id ? stockByProduct.get(row.product_id) ?? 0 : 0,
+    }))
+  );
 }

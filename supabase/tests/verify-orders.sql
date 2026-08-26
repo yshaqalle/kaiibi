@@ -22,9 +22,14 @@
 --   12.  status starts 'pending' and is CHECK-constrained.
 --   13.  customer_phone must be E.164.
 --   14/15. the grants this whole feature has twice shipped without: anon gets
---        nothing, authenticated gets select+insert on both tables, and (belt
---        and braces, matching verify-storefront.sql's own check 8) anon is
---        actually refused by Postgres, not merely un-granted on paper.
+--        nothing on either table, authenticated gets SELECT ONLY --
+--        20260928000300_orders_write_lockdown.sql revoked insert/update/
+--        delete after the money-handling review found a shop member could
+--        reach `orders` through the "own orders" RLS policy directly and
+--        complete an order with an arbitrary sale attached and nothing
+--        posted -- and (belt and braces, matching verify-storefront.sql's
+--        own check 8) both anon's refusal and authenticated's are proven for
+--        real against Postgres, not merely un-granted on paper.
 --   16.  anon holds no privilege at all on order_number_counters -- the same
 --        class of gap as 14/15, for the table backing the order number that
 --        Task 2's rate-limit lock (20260927000000_place_order.sql) now takes
@@ -315,18 +320,61 @@ begin
     raise exception 'FAIL: anon could read the orders table directly';
   end if;
 
-  -- ------------------------------------------------ 15. authenticated has select and insert on both
+  -- ------------------------------------------------ 15. authenticated can only SELECT -- every write goes through a security-definer function
+  -- 20260928000300_orders_write_lockdown.sql (the money-handling review's
+  -- Critical fix): a shop member could otherwise reach `orders` through the
+  -- "own orders" RLS policy directly and mark an order 'completed' with an
+  -- arbitrary sale attached and nothing posted to the ledger --
+  -- verify-order-transitions.sql checks 40-42 reproduce that hole and prove
+  -- it is now refused. listOrders (src/lib/storefront-admin.ts) is the
+  -- app's only touch on this table and it only ever selects, so SELECT is
+  -- the only grant with anything real depending on it.
   if not has_table_privilege('authenticated', 'public.orders', 'SELECT') then
     raise exception 'FAIL: authenticated cannot select from orders -- RLS policies without a table grant are decorative';
   end if;
-  if not has_table_privilege('authenticated', 'public.orders', 'INSERT') then
-    raise exception 'FAIL: authenticated cannot insert into orders';
+  if has_table_privilege('authenticated', 'public.orders', 'INSERT') then
+    raise exception 'FAIL: authenticated can insert into orders directly -- place_storefront_order is the only insert door and needs no grant of its own (it is security definer)';
+  end if;
+  if has_table_privilege('authenticated', 'public.orders', 'UPDATE') then
+    raise exception 'FAIL: authenticated can update orders directly -- transition_order/complete_storefront_order are the only doors and need no grant of their own (both security definer)';
+  end if;
+  if has_table_privilege('authenticated', 'public.orders', 'DELETE') then
+    raise exception 'FAIL: authenticated can delete from orders directly';
   end if;
   if not has_table_privilege('authenticated', 'public.order_items', 'SELECT') then
     raise exception 'FAIL: authenticated cannot select from order_items';
   end if;
-  if not has_table_privilege('authenticated', 'public.order_items', 'INSERT') then
-    raise exception 'FAIL: authenticated cannot insert into order_items';
+  if has_table_privilege('authenticated', 'public.order_items', 'INSERT')
+     or has_table_privilege('authenticated', 'public.order_items', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.order_items', 'DELETE') then
+    raise exception 'FAIL: authenticated holds a write privilege on order_items -- place_storefront_order is the only writer and needs no grant of its own';
+  end if;
+
+  -- Belt and braces, same technique as check 14's anon proof: a grant that
+  -- is somehow still effective (a future migration re-adding it, say) would
+  -- pass the has_table_privilege checks above being absent and still fail
+  -- here, for real, against Postgres itself.
+  set local role authenticated;
+  v_raised := false;
+  begin
+    insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, total_cents)
+      values (v_shop_id, 'Direct Insert Attempt', '+252634199999', 'collect', 100, 100);
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  reset role;
+  if not v_raised then
+    raise exception 'FAIL: authenticated could insert into orders directly';
+  end if;
+
+  set local role authenticated;
+  v_raised := false;
+  begin
+    update public.orders set customer_name = 'Direct Update Attempt' where id = v_order1_id;
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  reset role;
+  if not v_raised then
+    raise exception 'FAIL: authenticated could update orders directly';
   end if;
 
   -- ------------------------------------------------ 16. anon holds no privilege at all on order_number_counters

@@ -54,6 +54,7 @@ import { profitAndLoss } from '@/lib/pnl';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
 import { formatRangeLabel } from '@/lib/range-label';
 import { WEEK_ORDER, type OpeningHours } from '@/lib/store-hours';
+import { countOrdersNeedingAction } from '@/lib/storefront-admin';
 import type { SearchResult } from '@/lib/search';
 import { getDailyTotalsCents, getMonthToDateRevenueCents, getSalesAndRefundsInRange, listSales } from '@/lib/sales';
 import {
@@ -186,13 +187,17 @@ type MoneySnapshot = {
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { shop, can, locations, activeLocation } = useAuth();
+  const { shop, can, hasModule, locations, activeLocation } = useAuth();
   // Time and leave data is RLS-protected; without these the queries would just
   // fail, so the rows are left out rather than erroring the whole screen.
   const canSeeTeam = can('people.timesheet.view');
   const canApproveTimeOff = can('people.timeoff.approve');
   const canSeeExpenses = can('expenses.view');
   const canSeeCustomers = can('customers.view');
+  // Task 7: a shop without the module was never offered a way to take
+  // orders in the first place, so there is nothing here for it to miss --
+  // same gate the Storefront/Orders nav entries use (settings-sidebar.tsx).
+  const canSeeOrders = hasModule('storefront');
   // Gates the accrued-wages line on the P&L card. Same permission Reports
   // uses, so the two screens include or exclude labour together -- a reader
   // who sees the accrual there must see it here, or the same shop shows two
@@ -226,6 +231,12 @@ export default function DashboardScreen() {
   // into weeks after the fact.
   const [monthDaily, setMonthDaily] = useState<DailyBucket[]>([]);
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
+  // Task 7 / N3. Used to be every order the shop ever placed, all columns
+  // plus nested order_items, fetched on every focus to feed one filter in
+  // buildAttentionItems -- countOrdersNeedingAction (storefront-admin.ts)
+  // does that filtering server-side and returns the integer this screen
+  // actually needs.
+  const [ordersNeedingActionCount, setOrdersNeedingActionCount] = useState(0);
   // Only sessions that closed out of balance ever land here — see the note in
   // buildAttentionItems for why a balanced day shows nothing at all.
   const [closedSessions, setClosedSessions] = useState<
@@ -431,6 +442,15 @@ export default function DashboardScreen() {
       });
     }
 
+    // Task 7. Its own attempt(), like every other section here -- a shop
+    // without the module skips this entirely (canSeeOrders is false), and a
+    // shop with it but a failed fetch loses only this row, not the screen.
+    if (canSeeOrders) {
+      await attempt('orders', async () => {
+        setOrdersNeedingActionCount(await countOrdersNeedingAction(shop.id));
+      });
+    }
+
     if (canSeeTeam) {
       await attempt('team', async () => {
         const todayStart = new Date();
@@ -458,7 +478,7 @@ export default function DashboardScreen() {
     // locationFilter is a dependency because every figure above is scoped to
   // it -- switching store must re-fetch, not leave the previous store's
   // numbers on screen under a new label.
-  }, [shop, dateRange, locationFilter, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff, canSeeLabor]);
+  }, [shop, dateRange, locationFilter, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff, canSeeLabor, canSeeOrders]);
 
   useEffect(() => { reload(); }, [reload]);
   // Coming back to this screen on a phone, where the tab shell never unmounted
@@ -715,6 +735,7 @@ export default function DashboardScreen() {
     lowStock,
     expiringSoon,
     dormant,
+    ordersNeedingActionCount,
   });
 
   // Where a global-search hit goes. Each kind lands on the screen that owns
@@ -785,6 +806,10 @@ export default function DashboardScreen() {
     }
     if (item.key === 'dormant') {
       router.push({ pathname: '/people', params: { tab: 'customers' } });
+      return;
+    }
+    if (item.key === 'storefront-orders') {
+      router.push('/orders');
       return;
     }
     router.push({ pathname: '/people', params: { tab: 'team' } });
