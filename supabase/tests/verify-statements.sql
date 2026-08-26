@@ -682,7 +682,14 @@ begin
   --     days back, so the window that bites is TODAY TO TODAY -- opening cash
   --     is 0 the day before and 1950 on the day itself.
   --
-  --       Operating   -250 + 200 + 3500 + 6400          =  9850
+  --       Operating   net profit          -1250
+  --                   depreciation         +200
+  --                   receivables         -3450
+  --                   inventory           +3500   (stock FELL today)
+  --                   payables            +6400
+  --                   tax & wages         +4450
+  --                                     -------
+  --                                       9850
   --       Investing   -6400        Financing  -1500
   --       Net change   9850 - 6400 - 1500               =  1950
   --
