@@ -22,6 +22,17 @@ declare
   v_sale   uuid;
   v_amount bigint;
   v_open   date;    -- the opening entry's date, 40 days back
+  -- Check 26, the five reconciliations. Every one is asserted between two
+  -- named figures so the failure message can print both and their difference.
+  v_is_profit  bigint;   -- income statement, net profit
+  v_bs_profit  bigint;   -- balance sheet, "Profit this period"
+  v_cf_profit  bigint;   -- cash flow, the operating opening line
+  v_tb_profit  bigint;   -- the trial balance, netted here from journal_lines
+  v_tb_lines   bigint;   -- how many lines that derivation actually saw
+  v_bs_assets  bigint;
+  v_bs_credits bigint;   -- total liabilities and equity
+  v_bs_cash    bigint;
+  v_cf_cash    bigint;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -755,6 +766,138 @@ begin
        and p.pronamespace = 'public'::regnamespace
        and pg_get_functiondef(p.oid) like '%has_shop_permission(p_shop_id, ''ledger.view'')%') then
     raise exception 'FAIL: cash_flow does not gate on ledger.view itself';
+  end if;
+
+  -- =====================================================================
+  -- 26. THE FIVE RECONCILIATIONS, ASSERTED TOGETHER (task 5).
+  --
+  -- Checks 1-25 each assert ONE statement. Every one of them can pass while
+  -- the three reports contradict each other, because each report balances on
+  -- its own: an income statement that is internally consistent, a balance
+  -- sheet that balances, and a cash flow that proves out are three separate
+  -- facts, and none of them is the fact that the three agree. A totals check
+  -- cannot see the difference. This is the block that can.
+  --
+  -- Stated as the mockup states them to the reader:
+  --
+  --   1. income statement net profit  =  balance sheet "Profit this period"
+  --   2. income statement net profit  =  cash flow's operating opening line
+  --   3. income statement net profit  =  revenue + cost_of_sales + expense,
+  --                                      netted straight off journal_lines
+  --   4. balance sheet total assets   =  total liabilities and equity
+  --   5. cash flow closing cash       =  balance sheet cash
+  --
+  -- Note the window. balance_sheet() reads statement_lines('-infinity', p_as_of)
+  -- and cash_flow() reads statement_lines(p_from, p_to), so the income
+  -- statement here is taken over the all-time window that contains every entry
+  -- in this fixture -- the same rows all three functions see. A narrower
+  -- window would make reconciliations 1 and 2 fail for a reason that is not a
+  -- defect.
+  --
+  -- Expected, against the fixture as it now stands: net profit -1250, total
+  -- assets 108100 = total liabilities and equity, cash 1950.
+  -- =====================================================================
+
+  select amount_cents into v_is_profit from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'net_profit';
+
+  select amount_cents into v_bs_profit from public.balance_sheet(v_shop, public.shop_local_date())
+   where section = 'equity' and label = 'Profit this period';
+
+  select amount_cents into v_cf_profit from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Net profit';
+
+  --   RECONCILIATION 3'S DERIVATION, and the reason this block is worth
+  --   writing. It is computed HERE, off journal_lines, and never calls
+  --   statement_lines(): a check that asks the same function twice and finds
+  --   it agrees with itself proves nothing at all. This is the trial balance's
+  --   arithmetic, done the other way round -- one sum over all three P&L
+  --   types, negated once, rather than a revenue flip plus two cost sections.
+  --
+  --   journal_lines is debit-positive, so revenue sums negative and costs sum
+  --   positive; the net of all three, negated, is profit. If this and
+  --   statement_lines() disagree, statement_lines() is wrong.
+  select -coalesce(sum(l.amount_cents), 0)::bigint, count(*)
+    into v_tb_profit, v_tb_lines
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where e.shop_id = v_shop
+     and e.status in ('posted', 'reversed')
+     and e.entry_date between '2000-01-01' and '2100-01-01'
+     and a.type in ('revenue', 'cost_of_sales', 'expense');
+
+  --   ...and the derivation is only worth anything if it saw rows. Under
+  --   `set role authenticated` this select is subject to RLS on journal_lines,
+  --   accounts and journal_entries; a policy change that hid them all would
+  --   leave v_tb_profit at 0 and this reconciliation would then be asserting
+  --   that zero equals zero for a shop that trades.
+  if v_tb_lines = 0 then
+    raise exception 'FAIL: the independent derivation read no journal lines at all, so reconciliation 3 is vacuous';
+  end if;
+
+  select amount_cents into v_bs_assets from public.balance_sheet(v_shop, public.shop_local_date())
+   where section = 'total_assets';
+  select amount_cents into v_bs_credits from public.balance_sheet(v_shop, public.shop_local_date())
+   where section = 'total_liabilities_equity';
+  select coalesce(sum(amount_cents), 0) into v_bs_cash from public.balance_sheet(v_shop, public.shop_local_date())
+   where code in ('1000', '1010', '1020', '1021');
+  select amount_cents into v_cf_cash from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'proof' and label like 'Cash at%' order by sort_order desc limit 1;
+
+  --   Nothing below can reconcile a NULL against a NULL and call it agreement.
+  if v_is_profit is null or v_bs_profit is null or v_cf_profit is null
+     or v_bs_assets is null or v_bs_credits is null or v_cf_cash is null then
+    raise exception 'FAIL: a figure the reconciliations need is missing -- income %, balance sheet %, cash flow %, assets %, liabilities+equity %, closing cash %',
+      v_is_profit, v_bs_profit, v_cf_profit, v_bs_assets, v_bs_credits, v_cf_cash;
+  end if;
+
+  -- 26.1 Income statement net profit = balance sheet "Profit this period".
+  if v_is_profit <> v_bs_profit then
+    raise exception 'FAIL: reconciliation 1 -- income statement net profit % against balance sheet profit this period %, off by %',
+      v_is_profit, v_bs_profit, v_is_profit - v_bs_profit;
+  end if;
+
+  -- 26.2 Income statement net profit = the cash flow's operating opening line.
+  if v_is_profit <> v_cf_profit then
+    raise exception 'FAIL: reconciliation 2 -- income statement net profit % against cash flow net profit %, off by %',
+      v_is_profit, v_cf_profit, v_is_profit - v_cf_profit;
+  end if;
+
+  -- 26.3 Income statement net profit = the trial balance's revenue,
+  --      cost_of_sales and expense accounts netted. THE ONE WITH TEETH:
+  --      26.1 and 26.2 compare statement_lines() against two functions that
+  --      CALL statement_lines(), by design, so they hold by construction and
+  --      go green against any net profit whatsoever. This one does not.
+  if v_is_profit <> v_tb_profit then
+    raise exception 'FAIL: reconciliation 3 -- income statement net profit % against the trial balance netted independently %, off by % (over % journal lines)',
+      v_is_profit, v_tb_profit, v_is_profit - v_tb_profit, v_tb_lines;
+  end if;
+
+  --      ...and it reconciles at the fixture's figure, not at zero. Two
+  --      derivations that are both empty agree perfectly.
+  if v_is_profit <> -1250 then
+    raise exception 'FAIL: the three statements agree on a net profit of %, but the fixture makes a loss of -1250', v_is_profit;
+  end if;
+
+  -- 26.4 Balance sheet total assets = total liabilities and equity.
+  if v_bs_assets <> v_bs_credits then
+    raise exception 'FAIL: reconciliation 4 -- total assets % against total liabilities and equity %, off by %',
+      v_bs_assets, v_bs_credits, v_bs_assets - v_bs_credits;
+  end if;
+  if v_bs_assets <> 108100 then
+    raise exception 'FAIL: the balance sheet balances at %, but the fixture''s assets are 108100', v_bs_assets;
+  end if;
+
+  -- 26.5 Cash flow closing cash = balance sheet cash. The two statements are
+  --      read side by side on the same screen and this is the figure a reader
+  --      compares by eye first.
+  if v_cf_cash <> v_bs_cash then
+    raise exception 'FAIL: reconciliation 5 -- cash flow closing cash % against balance sheet cash %, off by %',
+      v_cf_cash, v_bs_cash, v_cf_cash - v_bs_cash;
+  end if;
+  if v_cf_cash <> 1950 then
+    raise exception 'FAIL: both statements agree cash is %, but the fixture holds 1950', v_cf_cash;
   end if;
 
   perform set_config('role', 'postgres', true);
