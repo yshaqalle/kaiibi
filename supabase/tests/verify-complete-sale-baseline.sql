@@ -81,6 +81,31 @@
 --      `case when v_agreed > 0 ...`, which would silently charge 3000 for the
 --      item the shop promised to give away.
 --
+-- CHECKS 20-22 WERE ADDED BY TASK 2'S FIRST FIX WAVE (20260929000050), and they
+-- close three holes 14-19 left open. Appended after 19 for the same reason 14
+-- was appended after 13: 16, 17 and 18 count this shop's sales, so a new sale
+-- rung up before them would move a figure they assert.
+--
+--  20. AN UNDERCUT NEEDS discounts.manual. The first version of the agreed
+--      price was ungated, so a cashier who may not take ONE CENT off through
+--      `discount_cents` -- refused since 0024 -- could file the whole line at
+--      ONE CENT through `agreed_unit_price_cents`. This is the only check in
+--      this script that does not run as the shop's owner, and it is the only
+--      one that can see the gate at all: the owner short-circuits every
+--      permission in user_has_shop_permission.
+--  21. THE GATE IS ON THE UNDERCUT, NOT ON THE FIELD, and an agreed price ABOVE
+--      list is PERMITTED on purpose. Same un-privileged member: at list is
+--      accepted, above list is accepted and filed as sent. The second half is a
+--      recorded decision -- a shop that CUT its price after quoting still owes
+--      the quote -- pinned here so it stays a decision rather than a gap.
+--  22. THE CEILING PREVENTS WHAT IT CLAIMS TO. Check 18's two figures both
+--      survive being read into an integer and are both caught by a bound on ONE
+--      line. 3,000,000,000 a unit did not survive the parse and produced a
+--      Postgres cast error naming a type; three lines of 1,000,000,000 each
+--      passed the per-line bound and overflowed the accumulation with a bare
+--      `integer out of range` from mid-function -- the exact failure the bound's
+--      own comment claimed to prevent.
+--
 -- AGREED_UNIT_PRICE_CENTS IS A NEW FIELD, and it had to be. Carts have carried
 -- a `unit_price_cents` since 0001 and complete_sale has always ignored it --
 -- that is the very thing every payload above sends 9999 to prove. Making it
@@ -138,6 +163,12 @@ declare
   v_promo_id    uuid;
   v_promo_odd   uuid;
   v_customer_id uuid;
+  -- A member holding pos.access and NOTHING else, and the role that gives it to
+  -- them. Only checks 20 and 21 use them: every check before those runs as the
+  -- shop's OWNER, who short-circuits has_shop_permission entirely and so cannot
+  -- see a permission gate at all.
+  v_staff_id    uuid := gen_random_uuid();
+  v_role_id     uuid;
   v_sale_id     uuid;
   v_entry       uuid;
   v_amount      bigint;
@@ -1676,7 +1707,256 @@ begin
 
   raise notice 'OK 19: an agreed price of 0 is honoured on its own line and the other line prices from the product';
 
-  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (6 more)';
+  ---------------------------------------------------------------------------
+  -- 20. AN AGREED PRICE BELOW THE SHELF PRICE NEEDS discounts.manual.
+  --
+  --     Every check above runs as the shop's OWNER, who short-circuits every
+  --     permission in user_has_shop_permission -- so nothing above this line
+  --     can see a gate at all. This one rings up as a member holding
+  --     `pos.access` and NOTHING else.
+  --
+  --     The regression it pins is a straight bypass: `discount_cents` with no
+  --     promotion behind it has needed `discounts.manual` since 0024, and the
+  --     first version of the agreed price let the same cashier reach the same
+  --     figure through a different field. One cent off through `discount_cents`
+  --     is refused; the whole line at one cent through `agreed_unit_price_cents`
+  --     went through.
+  --
+  --     Coffee is 3000. The agreed price is 100, so this is an undercut of 2900
+  --     by a member who may not discount at all, and it must be refused by name.
+  ---------------------------------------------------------------------------
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_staff_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-complete-sale-baseline-staff-' || v_staff_id || '@example.test', '', now(), now(), now());
+
+  -- pos.access ALONE. Not a copy of the seeded Cashier role, which
+  -- 20260826000100 gives discounts.manual -- that is the whole point of this
+  -- check, and building the role from a default would make it assert nothing.
+  insert into public.roles (shop_id, name, permissions)
+    values (v_shop_id, 'Baseline Till Only', array['pos.access'])
+    returning id into v_role_id;
+  -- No shop_member_locations rows, so can_access_location resolves to every
+  -- store in the shop and the refusal below cannot be about the location.
+  insert into public.shop_members (shop_id, user_id, role_id, active)
+    values (v_shop_id, v_staff_id, v_role_id, true);
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
+
+  -- The gate is real for this member: they can ring up, and they cannot
+  -- discount. Asserted directly, so a failure below can only be about the
+  -- agreed price rather than about the fixture.
+  if not public.has_shop_permission(v_shop_id, 'pos.access') then
+    raise exception 'FAIL 20: the fixture member should hold pos.access';
+  end if;
+  if public.has_shop_permission(v_shop_id, 'discounts.manual') then
+    raise exception 'FAIL 20: the fixture member must NOT hold discounts.manual, or this check asserts nothing';
+  end if;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 100)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 100, 'tendered_cents', 100)),
+      p_location_id => v_loc_id);
+    select total_cents into v_amount from public.sales where id = v_sale_id;
+    raise exception 'FAIL 20: a member WITHOUT discounts.manual filed a 3000 line at an agreed 100 and the sale totalled % -- the agreed price is a way around the discount permission', v_amount;
+  exception
+    when others then
+      if sqlerrm like 'FAIL 20:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'not authorized to file a line below the shelf price%' then
+        raise exception 'FAIL 20: expected a refusal naming the missing discount permission, got: %', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 15 then
+    raise exception 'FAIL 20: expected 15 sales after a REFUSED one, got % -- the refusal left a sale behind', v_count;
+  end if;
+
+  raise notice 'OK 20: a member without discounts.manual cannot undercut the shelf price through an agreed price';
+
+  ---------------------------------------------------------------------------
+  -- 21. THE GATE IS ON THE UNDERCUT, NOT ON THE FIELD -- and an agreed price
+  --     ABOVE list is PERMITTED, deliberately.
+  --
+  --     Still the same pos.access-only member from check 20, which is what
+  --     makes both halves mean something.
+  --
+  --     a) AT the shelf price. 1 Coffee, agreed 3000, list 3000. Nothing is
+  --        leaving the shop, so nothing is asked for. A gate written on
+  --        `v_agreed_price is not null` rather than on the direction refuses
+  --        this and takes the whole feature away from every shop that has ever
+  --        revoked discounts.manual -- which is 20260929000000's own stated
+  --        objection to gating, and it is answered by the shape of the
+  --        condition rather than by leaving the gate out.
+  --
+  --     b) ABOVE the shelf price. 1 Tea, list 1200, agreed 1500. Accepted, and
+  --        filed at 1500 with revenue credited 1500.
+  --
+  --        THIS IS A DECISION, not an omission, and it is pinned here so it
+  --        stays one. A shop that CUTS a price after quoting leaves the customer
+  --        holding a quote above today's shelf price, and that quote is still
+  --        what they agreed to -- refusing it would break storefront fulfilment
+  --        in the mirror of the case the agreed price exists for. Nothing in
+  --        this system gates charging MORE (a cashier could always ring up an
+  --        extra unit), an overcharge cannot happen without the customer handing
+  --        over the money the payments-equality check demands, and unlike a
+  --        discount it leaves its own trace: 1500 on the receipt and 1500 in
+  --        revenue. Bounded only by the ceiling check 22 exercises.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 3000)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 3000, 'tendered_cents', 3000)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 21a: an agreed price EQUAL to the 3000 shelf price takes nothing out of the shop and must not need discounts.manual, and it was refused (the gate is on the field rather than on the undercut). complete_sale said: %', sqlerrm;
+  end;
+
+  select unit_price_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 3000 then
+    raise exception 'FAIL 21a: expected sale_items.unit_price_cents 3000, got %', v_int;
+  end if;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_tea, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 1500)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1500, 'tendered_cents', 1500)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 21b: an agreed price of 1500 ABOVE the 1200 shelf price is permitted on purpose -- a shop that CUT its price after quoting still owes the quote -- and it was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 1500 then
+    raise exception 'FAIL 21b: expected total_cents 1500 (the AGREED price, above the 1200 shelf price), got %', v_amount;
+  end if;
+  select unit_price_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 1500 then
+    raise exception 'FAIL 21b: expected sale_items.unit_price_cents 1500, got % (1200 = an above-list agreed price silently clamped to the shelf price)', v_int;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -1500 then
+    raise exception 'FAIL 21b: expected Cr 4000 Revenue -1500 at the agreed price, got %', v_amount;
+  end if;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 17 then
+    raise exception 'FAIL 21: expected 17 sales after two ACCEPTED ones, got %', v_count;
+  end if;
+
+  -- Back to the owner for what remains, so check 22 is measuring the ceiling
+  -- rather than the permission check 20 just installed.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+
+  raise notice 'OK 21: an agreed price at or above the shelf price needs no discount permission and is filed as sent';
+
+  ---------------------------------------------------------------------------
+  -- 22. THE CEILING PREVENTS WHAT IT SAYS IT PREVENTS -- both ways.
+  --
+  --     Check 18 already refuses 2,000,000,000 on a unit and 3 x 1,000,000,000
+  --     on a line. Both of those figures happen to survive being READ into an
+  --     integer and happen to be caught by a bound on ONE line, and that is why
+  --     they left two holes open:
+  --
+  --     a) 3,000,000,000 A UNIT does not survive being read. As
+  --        `v_agreed_price integer` the parse itself raised
+  --        `value "3000000000" is out of range for type integer` -- a Postgres
+  --        cast error naming a type, from one statement BEFORE the bound written
+  --        to catch it. The caller was told about a column type instead of about
+  --        a price. Asserted on the message: it must be the sentence, and it
+  --        must NOT be the cast error.
+  --
+  --     b) THREE LINES OF 1,000,000,000 each pass the per-line bound -- that is
+  --        what per-line means -- and then overflow `v_gross_cents integer` in
+  --        the accumulation, which is a bare `integer out of range` raised from
+  --        the middle of the register's write path: exactly the failure the
+  --        line bound's own comment claimed to have prevented. Every line here
+  --        is individually legal, so nothing but a bound on the RUNNING TOTAL
+  --        can refuse this cart.
+  --
+  --        Three DIFFERENT products, because the loop orders by product id and
+  --        the same product three times would take the same row lock three
+  --        times; and 1000 units of stock each, so the refusal cannot be
+  --        insufficient stock wearing a different hat.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 3000000000)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+      p_location_id => v_loc_id);
+    raise exception 'FAIL 22a: an agreed price of 3000000000 was ACCEPTED';
+  exception
+    when others then
+      if sqlerrm like 'FAIL 22a:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'agreed price for % is out of range%' then
+        raise exception 'FAIL 22a: expected the out-of-range SENTENCE, got: % (a message about type integer means the value died at the parse, one statement before the bound meant to catch it)', sqlerrm;
+      end if;
+  end;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(
+                         jsonb_build_object('product_id', v_prod_coffee, 'quantity', 1,
+                                            'unit_price_cents', 9999,
+                                            'agreed_unit_price_cents', 1000000000),
+                         jsonb_build_object('product_id', v_prod_tea, 'quantity', 1,
+                                            'unit_price_cents', 9999,
+                                            'agreed_unit_price_cents', 1000000000),
+                         jsonb_build_object('product_id', v_prod_cake, 'quantity', 1,
+                                            'unit_price_cents', 9999,
+                                            'agreed_unit_price_cents', 1000000000)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+      p_location_id => v_loc_id);
+    raise exception 'FAIL 22b: three lines of 1000000000 -- each individually legal -- were ACCEPTED';
+  exception
+    when others then
+      if sqlerrm like 'FAIL 22b:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'this sale is out of range%' then
+        raise exception 'FAIL 22b: expected the running total to be refused as out of range BEFORE it overflowed, got: % (integer out of range = the bound is on the line only, so an accumulation across lines still overflows mid-sale)', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 17 then
+    raise exception 'FAIL 22: expected 17 sales after two REFUSED ones, got %', v_count;
+  end if;
+
+  raise notice 'OK 22: a unit past the 32-bit ceiling and an accumulation past it are both refused by name';
+
+  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (9 more)';
   raise exception 'rollback_marker';
 exception
   when others then

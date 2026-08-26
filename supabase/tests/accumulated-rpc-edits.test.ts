@@ -177,6 +177,48 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // sitting BESIDE the agreed price rather than merely being mentioned.
   ['20260929000000', 'the frozen cost still comes from the product, never the agreed price',
     'v_line, v_line_discount, v_product.cost_cents,'],
+  // 20260929000050. THE ONE THAT WAS ALREADY A HOLE. 20260929000000 shipped the
+  // agreed price ungated, arguing complete_sale had no signal to gate it on --
+  // while calling has_shop_permission(p_shop_id, 'discounts.manual') twelve
+  // statements above the block, in the same loop, for a line discount with no
+  // promotion behind it. So a cashier who could not take one cent off through
+  // `discount_cents` could file the whole line at one cent through
+  // `agreed_unit_price_cents`: same money, same till, same person, gate gone.
+  //
+  // TWO TOKENS JOINED INTO ONE, because the property is the PAIRING. The
+  // permission call alone already appears twice in this function and would be
+  // green against a version that lost this check entirely; the comparison alone
+  // is satisfiable by a rewrite that tests the direction and then does nothing
+  // with the answer.
+  ['20260929000050', 'an agreed price below the shelf price needs discounts.manual',
+    "v_agreed_price < v_product.price_cents\n         and not public.has_shop_permission(p_shop_id, 'discounts.manual')"],
+  // ...and it is refused BY NAME. complete_sale raises plain P0001, so the text
+  // is a caller's only handle -- and Task 4's storefront fulfilment is the
+  // caller that will meet it, when a shop raised a price after an order was
+  // placed. The product name is last so the prefix stays matchable.
+  ['20260929000050', 'the undercut refusal names itself so a client can say it',
+    "'not authorized to file a line below the shelf price (%)'"],
+  // BIGINT AT THE PARSE. As `::integer` this line raised
+  // `value "3000000000" is out of range for type integer` -- a Postgres cast
+  // error naming a type -- one statement BEFORE the bound that exists to turn
+  // exactly that into a sentence. The bound was unreachable for every value it
+  // was written to catch.
+  ['20260929000050', 'the agreed price is parsed wide enough for its own bound to be reached',
+    "nullif(v_item->>'agreed_unit_price_cents', '')::bigint"],
+  // ...and narrowed only AFTER the bound has passed. The token carries the cast
+  // rather than the coalesce alone (which the 20260929000000 entry above already
+  // pins), because a rewrite that moves the narrowing back up to the parse
+  // satisfies the coalesce and restores the defect.
+  ['20260929000050', 'and narrowed to integer only after the bound has passed',
+    'coalesce(v_agreed_price, v_product.price_cents)::integer'],
+  // THE PER-LINE BOUND IS NOT THE SALE'S. Three lines of 1,000,000,000 each pass
+  // the line bound individually -- that is what per-line means -- and then
+  // overflow `v_gross_cents integer` in the accumulation, giving the caller the
+  // bare `integer out of range` from mid-function that the line bound's own
+  // comment claimed to prevent. The token is the widened comparison: the bare
+  // constant survives a rewrite that declares it and never tests against it.
+  ['20260929000050', 'the running total cannot overflow either',
+    'v_gross_cents::bigint + v_line > c_max_sale_cents'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
