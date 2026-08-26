@@ -515,12 +515,22 @@ begin
   -- Nothing is lost from the P&L: 1200 is an asset, and its cost reaches the
   -- P&L as COGS when the goods sell. That is the whole difference between this
   -- row and check 6's rent, which has no other door at all.
+  -- THE DOOR IS DISABLED AROUND THIS INSERT, AND THAT IS THE POINT OF THE ROW.
+  -- 20260908001900's guard_invoice_delivery_link refuses a goods bill that names
+  -- no delivery, so this shape can no longer be created -- but every shop's
+  -- history is full of it, and the branch has to keep treating those rows
+  -- exactly as it did. What changed is what the branch CLAIMS: it is an admitted
+  -- gap for rows entered before the door existed, not an assertion that a
+  -- delivery recognised anything. Check 6b below is the arm that carries the
+  -- claim now; the door itself lives in verify-posting-bills.sql, check 24.
   select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+  alter table public.invoices disable trigger invoices_guard_delivery_link;
   insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
                                category, issued_on, due_on, amount_cents)
     values (v_shop_id, v_loc_id, 'Expenses Vendor', 'EXP-2', 'inventory_purchase',
             public.shop_local_date() - 5, public.shop_local_date() + 10, 47119)
     returning id into v_invoice_id;
+  alter table public.invoices enable trigger invoices_guard_delivery_link;
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
   if v_rows <> v_before then
     raise exception 'FAIL: a bill for goods wrote % journal entries -- receive_stock already put the delivery into 1200 against 2000', v_rows - v_before;

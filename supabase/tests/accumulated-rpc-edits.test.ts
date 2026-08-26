@@ -221,6 +221,21 @@ const RECEIVE_STOCK_EDITS: Edit[] = [
   // The PROPERTY, not a variable name -- the same discipline the edit_sale
   // entry above applies. now()::date resolves in UTC and Somalia is UTC+3.
   ['20260908000400', 'the entry is dated in shop-local time', 'shop_local_date'],
+  // Costing a product that ALREADY HELD STOCK is a revaluation: the delivery
+  // prices the whole holding (there is nothing to average against), so the
+  // units on the shelf acquire a value the ledger has never carried a cent of
+  // and that nothing else will ever put there. Without this entry, 50 uncosted
+  // units + a delivery of 10 @ 100 + selling all 60 leaves 1200 at -5,000.
+  //
+  // The token is the ARITHMETIC -- the shop-wide prior quantity at the new
+  // cost -- not a variable name and not `v_reval_cents`, which a copy-forward
+  // could keep as a declaration while dropping the accumulation that fills it.
+  ['20260908001800', 'stock costed after it was already on the shelf is revalued', 'v_prior_qty::bigint * v_new_cost'],
+  // And the counterpart, which is the half a build gets wrong. These goods are
+  // not owed to a supplier (2000), not a loss (5100) and not income (4xxx) --
+  // they are the owner's own stock, measurable for the first time, exactly as
+  // the opening balance in 20260908001300 treats it.
+  ['20260908001800', "the revaluation credits 3000 Owner's Capital", "'code', '3000'"],
 ];
 
 // The five that follow, plus delete_sale, joined this file at the phase 2b
@@ -460,6 +475,38 @@ const POST_EXPENSE_TO_LEDGER_EDITS: Edit[] = [
   // ...and the one bill that still posts nothing, because receive_stock already
   // debited 1200 against 2000 for the same goods.
   ['20260908000800', 'an inventory_purchase bill posts nothing', "new.category = 'inventory_purchase' then return null"],
+  // 20260908001900. The category was a GUESS about something the database was
+  // never told, and it is wrong in both directions -- a goods bill with no
+  // delivery drives Accounts Payable into debit, and a bill FOR goods entered
+  // under `supplies` posts its cost on top of the delivery's and doubles the
+  // payable. Both close by asking the bill which delivery it pays for.
+  ['20260908001900', 'a bill is asked which delivery it pays for', 'select i.stock_receipt_id into v_bill_receipt'],
+  // AND THE ANSWER IS TAKEN BEFORE THE CATEGORY IS LOOKED AT. That ordering is
+  // the whole of the over-stated fix: whatever was tapped on the picker, a bill
+  // that names a delivery is for that delivery. Losing this line puts Dr 6400 /
+  // Cr 2000 back on top of every mis-categorised goods bill, balanced, with the
+  // trial balance still at zero.
+  ['20260908001900', 'a bill that names its delivery posts nothing, whatever its category', 'if v_bill_receipt is not null then return null; end if;'],
+];
+
+// The door, added by 20260908001900. It is the reason the arm above it can be an
+// ADMITTED GAP rather than a claim: an inventory_purchase bill that names no
+// delivery cannot be created any more, so the rows that reach that arm are only
+// ones entered before it existed. Every raise here is load-bearing and each one
+// fails silently in a different way if it goes.
+const GUARD_INVOICE_DELIVERY_LINK_EDITS: Edit[] = [
+  // Gated on the module first, or a shop that cannot record a delivery at all
+  // would be unable to enter a stock-purchase bill it really does owe.
+  ['20260908001900', 'a goods bill must name a delivery, where deliveries are possible', "new.category = 'inventory_purchase' and public.shop_has_module(new.shop_id, 'inventory')"],
+  // SECURITY DEFINER, so without the shop test a caller who guessed a uuid could
+  // probe another tenant's deliveries through the error messages.
+  ['20260908001900', "the delivery must belong to the bill's own shop", 'v_receipt_shop is distinct from new.shop_id'],
+  // An uncosted delivery reached no book, so there is no payable for the bill to
+  // settle -- the closed defect, reached through the new column.
+  ['20260908001900', 'an uncosted delivery cannot be named', 'if v_value_cents = 0 then'],
+  // THE LINK IS FINAL. If it could move, the live entry was written under one
+  // answer while the replay reads another, for the same row.
+  ['20260908001900', 'the link cannot be changed after the bill is entered', "if tg_op = 'UPDATE' then"],
 ];
 
 // backfill_shop_ledger is guarded for the same reason and one stronger: THE
@@ -491,8 +538,23 @@ const BACKFILL_SHOP_LEDGER_EDITS: Edit[] = [
   // The C4 pair, and the two halves must move together: the row is replayed
   // (the filter) AND it credits 2000 rather than the 1010 Bank its literal
   // 'other' payment_method maps to (the branch).
-  ['20260908000700', "a bill's mirrored expense row IS replayed", "and not (e.invoice_id is not null and e.category = 'inventory_purchase')"],
+  // TWO TOKENS, because the property is the NARROWING and the opening of the
+  // exclusion does not carry it. 20260908001900 widened what is inside the
+  // brackets, so the whole original token no longer appears -- but the opening
+  // on its own (`and not (e.invoice_id is not null`) is satisfied by
+  // `and not (e.invoice_id is not null)`, which excludes EVERY bill from the
+  // replay: the exact opposite of what this entry is here to pin, and green.
+  // The second token is the narrowing half, and it is the one that fails if the
+  // brackets ever collapse back to "no bill is replayed".
+  ['20260908000700', "a bill's mirrored expense row IS replayed", 'and not (e.invoice_id is not null'],
+  ['20260908000700', 'and the exclusion stays NARROW -- some bills, not every bill', "and (e.category = 'inventory_purchase'"],
   ['20260908000700', 'a replayed bill credits 2000 Accounts Payable, not a wallet', "when e.invoice_id is not null then '2000'"],
+  // 20260908001900, and its twin lives in post_expense_to_ledger above. THE
+  // REPLAY AND THE LIVE PATH MUST AGREE: a bill that names its delivery posts
+  // nothing live, so replaying it would give a migrated shop a 6400 and a second
+  // 2000 that a shop trading today does not have. Both entries balance either
+  // way. verify-backfill check 22 builds the same shop twice and compares them.
+  ['20260908001900', 'a bill that names its delivery is not replayed either', 'bi.stock_receipt_id is not null'],
   // The per-shop lock and the eight back-link re-checks are asserted from the
   // LIVE function source by verify-backfill.sql check 14, which is the stronger
   // home for them. This one entry is here because it is the cheapest to lose in
@@ -670,6 +732,7 @@ describe.each([
   ['receive_stock', RECEIVE_STOCK_EDITS],
   ['save_stock_count', SAVE_STOCK_COUNT_EDITS],
   ['post_expense_to_ledger', POST_EXPENSE_TO_LEDGER_EDITS],
+  ['guard_invoice_delivery_link', GUARD_INVOICE_DELIVERY_LINK_EDITS],
   ['reverse_expense_entry', REVERSE_EXPENSE_ENTRY_EDITS],
   ['reverse_invoice_payment_entry', REVERSE_INVOICE_PAYMENT_ENTRY_EDITS],
   ['reverse_stock_receipt_entry', REVERSE_STOCK_RECEIPT_ENTRY_EDITS],
