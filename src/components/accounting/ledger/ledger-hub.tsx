@@ -8,7 +8,17 @@ import type { Permission } from '@/lib/permissions';
 
 const theme = Colors.light;
 
-export type LedgerView = 'hub' | 'accounts' | 'entry' | 'journals' | 'trial' | 'audit' | 'backfill';
+export type LedgerView =
+  | 'hub'
+  | 'accounts'
+  | 'entry'
+  | 'journals'
+  | 'trial'
+  | 'audit'
+  | 'backfill'
+  | 'income'
+  | 'balance'
+  | 'cashflow';
 
 // The catalogue, in one place, because four things read it: the hub's cards,
 // the shell's title row, the shell's "is this a view I know" guard, and the nav
@@ -24,9 +34,30 @@ export type LedgerView = 'hub' | 'accounts' | 'entry' | 'journals' | 'trial' | '
 // button and a plus; a card you only read gets the quiet one.
 //
 // `requires` is the permission the card's own door needs. Null means the tab's
-// own gate is the whole gate -- which is true of five of the six. It exists for
-// Post History, whose RPC refuses anyone without ledger.close, and a card that
-// offers a button that raises is worse than no card.
+// own gate is the whole gate. It exists for the cards whose RPC REFUSES rather
+// than returning nothing:
+//
+//   * Post History      backfill_shop_ledger raises without ledger.close.
+//   * the three
+//     statements        statement_lines(), balance_sheet() and cash_flow() are
+//                       security definer and RAISE P0001 without ledger.view.
+//
+// That distinction is the whole rule, and it is worth stating because the six
+// older cards look like counter-examples and are not. Chart of Accounts,
+// Journals, the Trial Balance and the Audit Log read TABLES under RLS: a reader
+// without ledger.view gets an empty result and an honest empty state. The three
+// statements are the first screens in Accounting whose door raises.
+//
+// /accounting itself is gated on `sales.view` (permissions.ts), and the SEEDED
+// Manager role holds sales.view and not ledger.view -- so this is not a corner
+// case, it is the default second role in every shop on day one. A card that
+// opens a screen saying "you do not have permission" is worse than a card that
+// is not offered.
+//
+// The screens still handle the refusal themselves. This gate stops an honest
+// reader reaching a dead end; it is not the enforcement, and it cannot be --
+// the view is reachable by its ?view= parameter and a role can change while a
+// session is open.
 export const LEDGER_VIEWS: {
   key: LedgerView;
   label: string;
@@ -113,6 +144,54 @@ export const LEDGER_VIEWS: {
     // and the RPC says so in its own first ten lines.
     requires: 'ledger.close',
   },
+  // The three statements, in the group the design names them in. They share one
+  // ledger, so the profit on the income statement, the profit-this-period line
+  // on the balance sheet and the opening line of the cash flow are guaranteed
+  // to agree -- each of the latter two CALLS statement_lines() rather than
+  // re-deriving it.
+  {
+    key: 'income',
+    label: 'Income Statement',
+    blurb: 'Revenue, cost of sales and expenses, down to net profit.',
+    group: 'Financial statements',
+    icon: 'trending-up-outline',
+    // "The chosen range", not "7 days". Seven days is only the range
+    // selector's OPENING preset -- it also offers 30 days and a custom pair of
+    // dates, and the screen follows whichever is chosen. A card that promises
+    // a window the screen does not honour is a card that will be believed.
+    scope: 'The chosen range',
+    action: 'Run report',
+    creates: false,
+    requires: 'ledger.view',
+  },
+  {
+    key: 'balance',
+    // A balance sheet is a POSITION read at an instant -- there is no such
+    // thing as one for the last seven days -- and the card has to say so,
+    // because a reader who assumes it follows the range will misread it. But
+    // the instant is the range's END, not today: pick a custom window ending
+    // last month and the sheet is as at last month. It said "As of today",
+    // which was true only of the default.
+    label: 'Balance Sheet',
+    blurb: "What the shop owns, what it owes, and what's left over.",
+    group: 'Financial statements',
+    icon: 'scale-outline',
+    scope: 'As at the range end',
+    action: 'Run report',
+    creates: false,
+    requires: 'ledger.view',
+  },
+  {
+    key: 'cashflow',
+    label: 'Cash Flow',
+    blurb: 'Where cash actually came from and went. Profit and cash are not the same thing.',
+    group: 'Financial statements',
+    icon: 'water-outline',
+    scope: 'The chosen range',
+    action: 'Run report',
+    creates: false,
+    requires: 'ledger.view',
+  },
   {
     key: 'audit',
     label: 'Audit Log',
@@ -130,10 +209,14 @@ export const LEDGER_VIEWS: {
  * The cards this user may actually open.
  *
  * A card whose door refuses them is dropped, not greyed. The hub has no
- * vocabulary for a locked card, and inventing one for a single case would ask
- * "why can't I?" on every visit while answering nothing. The permission is
- * still enforced in the database -- this only stops an honest reader reaching a
- * button that raises.
+ * vocabulary for a locked card, and inventing one would ask "why can't I?" on
+ * every visit while answering nothing. The permission is still enforced in the
+ * database -- this only stops an honest reader reaching a button that raises.
+ *
+ * Dropping a whole GROUP is possible and correct: a reader without ledger.view
+ * loses all three statements, and 'Financial statements' disappears with them
+ * rather than leaving an empty heading. That falls out of the grouping below,
+ * which only sees the views that survive this filter.
  */
 export function visibleLedgerViews(can: (permission: Permission) => boolean): typeof LEDGER_VIEWS {
   return LEDGER_VIEWS.filter((view) => view.requires === null || can(view.requires));
