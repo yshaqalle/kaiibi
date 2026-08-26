@@ -6,7 +6,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
 import { AuditLogView } from '@/components/accounting/ledger/audit-log-view';
 import { BackfillView } from '@/components/accounting/ledger/backfill-view';
+import { BalanceSheetView } from '@/components/accounting/ledger/balance-sheet-view';
+import { CashFlowView } from '@/components/accounting/ledger/cash-flow-view';
 import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
+import { IncomeStatementView } from '@/components/accounting/ledger/income-statement-view';
 import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-view';
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
@@ -253,6 +256,12 @@ export default function AccountingScreen() {
             {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'entry' && <JournalEntryView onPosted={() => setView('journals')} setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'backfill' && <BackfillView setRefresh={setTabRefresh} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'income' && <IncomeStatementView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {/* The balance sheet takes the range's END and ignores its start:
+                it is a position read at an instant, not a window. Its hub card
+                says "As of today" for that reason. */}
+            {tab === 'accounting' && view === 'balance' && <BalanceSheetView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'cashflow' && <CashFlowView dateRange={dateRange} setRefresh={setTabRefresh} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}

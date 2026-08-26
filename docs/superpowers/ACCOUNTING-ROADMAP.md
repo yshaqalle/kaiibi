@@ -126,12 +126,36 @@ Two decisions already made that the plan must honour:
   - Months close automatically 10 days after they end, and close even when
     the human checklist is not clean, marked "closed with exceptions".
 
-One still open, and it belongs in the plan's Open section: whether
-shrinkage sits in cost of sales or operating expenses. Recommended: leave
-it in operating expenses, where the Count door already puts it.
+A third, RESOLVED on 2026-08-23 and no longer open: shrinkage sits in
+COST OF SALES, not operating expenses. `5100 Inventory Shrinkage` shipped
+seeded as `type = 'cost_of_sales'` and `statement_lines()` groups it there,
+because it groups by `accounts.type`. A unit that is stolen or breaks is
+never sold, so its cost reaches COGS by no other path, and gross profit
+otherwise reads high by exactly that amount every month, invisibly.
+
+Expect the visible consequence and do not re-open it as a bug: against the
+old numbers gross profit FALLS by the shrinkage, operating expenses FALL by
+the same amount, and net profit is UNCHANGED.
 ```
 
 Then execute with the same shape as 3b.
+
+**Phase 3a shipped** (`statement_lines()`, `balance_sheet()`, `cash_flow()`). One thing 3b inherits from it: **the period close posts to `3900 Retained Earnings`, and `cash_flow()` has no section that reads 3900.** Any cash-flow window that SPANS a close will therefore fail its own proof by exactly the amount closed — `statement_lines()`'s windowed net profit cancels to roughly zero for the closed portion while the real cash movement does not. 3b must give the cash flow a section for it. A residual "other movements" line was deliberately NOT added in 3a: it would make the proof tie by construction and destroy the only check that can catch a sign error.
+
+---
+
+## Migration numbering — `202610*` belongs to accounting
+
+Accounting work numbers its migrations from `20261001000000` upward. Storefront and fulfilment own `202609*`.
+
+The failure mode this prevents, in one sentence: **two branches each picking "tomorrow" produce the same version number for different files, and `supabase db push` keys on version, so whichever merges second never runs — silently, on production.** It has happened three times on this repo (`db17dc8` first; phase 3a twice, once against `20260927000000_place_order.sql` and once against the fulfilment worktree's `20260928000000`/`20260928000100`).
+
+Before choosing a number, check every branch **and** every worktree, not just `main`:
+
+```
+for b in $(git branch -r --format='%(refname:short)' | grep -v HEAD); do git ls-tree --name-only "$b" supabase/migrations/; done
+for w in .claude/worktrees/*/; do ls "$w/supabase/migrations/" 2>/dev/null; done
+```
 
 ---
 

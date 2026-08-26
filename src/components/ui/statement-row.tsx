@@ -109,7 +109,41 @@ export function StatementRow({
   );
 }
 
+/**
+ * The name of a block of lines — "Current assets", "Operating expenses".
+ *
+ * Carries no figure on purpose: the block's figure is its subtotal, which is a
+ * row the statement function returned and is drawn as an `emphasis` line at the
+ * foot of the block. A heading with an amount beside it would be a second place
+ * for the same number to live.
+ */
+export function StatementHeading({ children }: { children: string }) {
+  return <Text style={styles.heading}>{children}</Text>;
+}
+
+/**
+ * What a statement shows a shop that has nothing to put on it.
+ *
+ * NOT a column of $0.00. The three statement functions always emit their total
+ * rows, so a shop that has never traded gets a complete and correctly-shaped
+ * balance sheet in which every figure is zero — which is indistinguishable, to
+ * the person reading it, from the app being unable to add up. A sentence that
+ * says why there is nothing there is the honest version of the same screen.
+ *
+ * The `testID` is fixed rather than per-screen so a test can ask "did this
+ * statement fall back?" without knowing which of the three it is looking at.
+ */
+export function StatementEmpty({ children }: { children: string }) {
+  return (
+    <Text testID="statement-empty" style={styles.empty}>
+      {children}
+    </Text>
+  );
+}
+
 const styles = StyleSheet.create({
+  empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 18, textAlign: 'center', lineHeight: 19 },
+  heading: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, color: theme.bentoMuted, marginTop: 14, marginBottom: 2 },
   // A hairline under every row, so the statement reads as ruled lines rather
   // than as floating pairs of text.
   row: {
