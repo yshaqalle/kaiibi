@@ -70,7 +70,12 @@ declare
   v_strange uuid := gen_random_uuid();
   v_role    uuid;
 
-  v_e uuid; v_f uuid; v_g uuid; v_h uuid;
+  v_e uuid; v_f uuid; v_g uuid; v_h uuid; v_i uuid;
+  -- Shop I exists only for the grace BOUNDARY: two hand-built periods, one
+  -- due exactly today and one due tomorrow.
+  v_own_i   uuid := gen_random_uuid();
+  v_i_due   uuid := gen_random_uuid();
+  v_i_soon  uuid := gen_random_uuid();
   v_e_front uuid; v_e_back uuid; v_e_new uuid; v_e_old uuid;
   v_f_loc uuid; v_g_loc uuid; v_h_loc uuid;
   v_reg  uuid;
@@ -114,6 +119,13 @@ begin
   -- here instead, on E's March, which is the wrong place to learn about it.
   update public.shops set auto_close_periods = 'never' where id = v_e;
   update public.shops set auto_close_periods = 'never' where id = v_f;
+  -- G IS SET EXPLICITLY, and used to rely on the shipped default. Since
+  -- 20261005000200 that default is 'ask' -- a shop's books must not close
+  -- themselves on the first read after a deploy -- so a G that says nothing
+  -- would close nothing and every G check would pass on a feature that had
+  -- stopped working. H is the shop that asserts what the DEFAULT is; G is the
+  -- shop that asserts what 'automatic' DOES, and they must not be the same row.
+  update public.shops set auto_close_periods = 'automatic' where id = v_g;
 
   -- ── E's four locations, each present for a reason ───────────────────────
   --   Front     counted in March, so it must NOT be reported. Without a counted
@@ -838,9 +850,26 @@ begin
   if (select s.period_close_grace_days from public.shops s where s.id = v_h) <> 10 then
     raise exception 'FAIL: the shipped default grace is not ten days';
   end if;
-  if (select s.auto_close_periods from public.shops s where s.id = v_h) <> 'automatic' then
-    raise exception 'FAIL: the shipped default is not to close automatically';
+  --   THE SHIPPED DEFAULT IS 'ask', NOT 'automatic' (20261005000200). Closing
+  --   by itself switches on phase 2b's sixty-six "redate a posting out of a
+  --   closed month" branches, which have never fired for a real shop, and a
+  --   backdated CSV import would then book historical entries into the current
+  --   month with everything still balancing. A shop's books must not close
+  --   themselves on the first read after a deploy.
+  --   MUTATION: put the column default back to 'automatic'. Reddens.
+  if (select s.auto_close_periods from public.shops s where s.id = v_h) <> 'ask' then
+    raise exception 'FAIL: the shipped default is not to ask first (it is %)',
+      (select s.auto_close_periods from public.shops s where s.id = v_h);
   end if;
+  --   ...and nothing closes while it says so, which is what 'ask' means at the
+  --   moment of the deploy: H's period is 7 days past its end and would close
+  --   under a 5-day grace, and does not.
+  update public.shops set period_close_grace_days = 5 where id = v_h;
+  select public.close_due_periods(v_h) into v_n;
+  if v_n <> 0 then
+    raise exception 'FAIL: a shop on the shipped default closed % months by itself', v_n;
+  end if;
+  update public.shops set period_close_grace_days = 10, auto_close_periods = 'automatic' where id = v_h;
 
   select public.close_due_periods(v_h) into v_n;
   if v_n <> 0 then
@@ -935,6 +964,95 @@ begin
   select p.status into v_status from public.list_accounting_periods(v_h) p where p.id = v_h_per;
   if v_status <> 'closed' then
     raise exception 'FAIL: reading the period list did not close a month past its grace (it reads %)', v_status;
+  end if;
+
+  -- =====================================================================
+  -- I1. THE GRACE BOUNDARY IS THE DAY ITSELF.
+  --
+  --     20261003000100's header states it -- "`<= v_today` and not `<`: ten
+  --     days after a month ending on the 31st is the 10th, and the 10th is the
+  --     day it closes" -- and nothing held it. Mutating `<=` to `<` left this
+  --     whole file green: H's period is 7 days past its end under a 5-day
+  --     grace, which is two days INSIDE the boundary, and every other shop is
+  --     months past it. A rule stated in a header and nowhere asserted is a
+  --     rule that survives being deleted.
+  --
+  --     Shop I, with two hand-built periods and a 10-day grace: one that ends
+  --     exactly ten days ago (due TODAY, to the day) and one that ends nine
+  --     (due tomorrow). Hand-built for the reason H's is: no calendar month
+  --     ends a fixed number of days before today.
+  --
+  --     MUTATIONS:
+  --       * `<` instead of `<=`       → I's due period does not close. Red.
+  --       * `+ grace - 1`, or any
+  --         widening by a day         → I's second period closes too. Red.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_own_i, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-period-exceptions-' || v_own_i || '@example.test', '', now(), now(), now());
+  insert into public.shops (owner_id, name) values (v_own_i, 'Boundary Books') returning id into v_i;
+  update public.shops set auto_close_periods = 'automatic', period_close_grace_days = 10 where id = v_i;
+  insert into public.accounting_periods (id, shop_id, starts_on, ends_on)
+    values (v_i_due, v_i, v_today - 40, v_today - 10);
+  insert into public.accounting_periods (id, shop_id, starts_on, ends_on)
+    values (v_i_soon, v_i, v_today - 9, v_today - 9);
+
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_own_i)::text, true);
+  select public.close_due_periods(v_i) into v_n;
+  if v_n <> 1 then
+    raise exception 'FAIL: on the day a grace expires exactly, % of I''s two periods closed, expected 1', v_n;
+  end if;
+  if (select p.status from public.accounting_periods p where p.id = v_i_due) <> 'closed' then
+    raise exception 'FAIL: a period whose grace expires TODAY did not close -- the boundary is a day late';
+  end if;
+  if (select p.status from public.accounting_periods p where p.id = v_i_soon) <> 'open' then
+    raise exception 'FAIL: a period whose grace expires TOMORROW closed today -- the boundary is a day early';
+  end if;
+
+  -- =====================================================================
+  -- I2. A ledger.close-ONLY MEMBER CAN READ THE CLOSE THEY MADE.
+  --
+  --     20261004000000 widened list_accounting_periods() to ledger.view OR
+  --     ledger.close, because the Close a Period screen is gated on the latter.
+  --     It did not widen accounting_audit_log, whose only policy was
+  --     ledger.view -- and RLS FILTERS SILENTLY rather than raising, so that
+  --     reader got zero rows, an empty event map, and '—' in every By cell on
+  --     the screen the migration was written for. 20261005000300 makes the two
+  --     gates agree.
+  --
+  --     Read through RLS deliberately -- `set role authenticated` with the
+  --     closer's claims -- because the policy IS the thing under test and a
+  --     superuser read would return the row whatever the policy said.
+  --
+  --     MUTATIONS:
+  --       * put the policy back to ledger.view alone → the closer reads
+  --         nothing. Red.
+  --       * widen it to every subject_table          → the closer reads the
+  --         journal-entry rows too. Red.
+  -- =====================================================================
+  --   The closer holds ledger.close and NOT ledger.view -- asserted at G5's
+  --   fixture -- and E's April is a month they can see closed.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_closer)::text, true);
+  if not exists (
+    select 1 from public.accounting_audit_log a
+     where a.shop_id = v_e and a.subject_table = 'accounting_periods'
+       and a.subject_id = v_e_apr and a.after->>'event' = 'close') then
+    raise exception 'FAIL: a member holding ledger.close alone cannot read the close of a month they may close';
+  end if;
+  --   ...AND NO WIDER. journal_entries' audit rows are ledger.view's to give,
+  --   and E has plenty of them.
+  if exists (
+    select 1 from public.accounting_audit_log a
+     where a.shop_id = v_e and a.subject_table <> 'accounting_periods') then
+    raise exception 'FAIL: widening the audit-log gate for a closer handed them the whole audit log';
+  end if;
+  --   ...and the same reader still sees nothing of shop F, which they are not
+  --   a member of at all.
+  if exists (select 1 from public.accounting_audit_log a where a.shop_id = v_f) then
+    raise exception 'FAIL: the closer read shop F''s audit log';
   end if;
 
   -- =====================================================================
