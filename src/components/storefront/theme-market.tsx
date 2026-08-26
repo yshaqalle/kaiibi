@@ -59,8 +59,8 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
-      <View style={styles.nav}>
-        <View>
+      <View style={styles.nav} testID="storefront-header">
+        <View style={styles.nameBlock}>
           <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName}</Text>
           {storefront.city ? <Text style={[styles.sub, { color: colors.muted }]}>{storefront.city}</Text> : null}
         </View>
@@ -124,8 +124,20 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
 }
 
 const styles = StyleSheet.create({
-  nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, gap: 12 },
-  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // B10: no fixed-width child here can outrun a 320px phone -- `flexWrap`
+  // lets the actions drop to their own line the moment the shop name and
+  // the WhatsApp/Basket pair no longer both fit on one, rather than the row
+  // running off the edge of the screen. `nameBlock`'s `flexShrink` is what
+  // makes that possible for the name specifically: an unshrinkable View
+  // would just overflow the wrapped line instead of wrapping its own text.
+  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: 14, gap: 12 },
+  nameBlock: { flexShrink: 1 },
+  // `marginLeft: 'auto'` -- not `justifyContent: 'space-between'` on `nav`
+  // -- is what keeps this pair pinned to the row's trailing edge whether it
+  // shares line one with the name or has wrapped to a line of its own:
+  // space-between only pushes a *second* item on the line away from the
+  // first, so a lone wrapped item would land back at the left margin.
+  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
   shopName: { fontSize: 19, fontWeight: '800', letterSpacing: -0.4 },
   sub: { fontSize: 11.5 },
   headline: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, paddingHorizontal: 14, paddingTop: 4 },

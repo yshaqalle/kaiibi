@@ -74,8 +74,8 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
-      <View style={[styles.nav, { borderBottomColor: colors.ink }]}>
-        <View>
+      <View style={[styles.nav, { borderBottomColor: colors.ink }]} testID="storefront-header">
+        <View style={styles.nameBlock}>
           <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName}</Text>
           {storefront.city ? <Text style={[styles.sub, { color: colors.muted }]}>{storefront.city}</Text> : null}
         </View>
@@ -157,8 +157,14 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
 }
 
 const styles = StyleSheet.create({
-  nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, gap: 12, borderBottomWidth: 2 },
-  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // See theme-market.tsx's identical comment: `flexWrap` lets WhatsApp +
+  // Basket drop to their own line instead of overrunning a phone screen,
+  // and `marginLeft: 'auto'` on `navActions` keeps that pair right-aligned
+  // either way. `borderBottomWidth` is Counter's own treatment (Market and
+  // Window have no border here) and stays untouched by this fix.
+  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: 14, gap: 12, borderBottomWidth: 2 },
+  nameBlock: { flexShrink: 1 },
+  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24 },
   scrollContentWithCheckoutBar: { paddingBottom: 24 + CHECKOUT_BAR_CLEARANCE },

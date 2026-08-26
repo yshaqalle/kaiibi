@@ -59,7 +59,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
-      <View style={styles.nav}>
+      <View style={styles.nav} testID="storefront-header">
         <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName.toUpperCase()}</Text>
         <View style={styles.navActions}>
           <WhatsAppButton storefront={storefront} />
@@ -123,9 +123,17 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
 }
 
 const styles = StyleSheet.create({
-  nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, gap: 12 },
-  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  shopName: { fontSize: 15, fontWeight: '800', letterSpacing: 2 },
+  // See theme-market.tsx's identical comment on `nav`/`navActions`: `flexWrap`
+  // is what lets WhatsApp + Basket drop to their own line rather than run
+  // the row off a phone's edge, and `marginLeft: 'auto'` (not
+  // `justifyContent: 'space-between'`) is what keeps that pair pinned to
+  // the trailing edge whether it shares line one with the name or not.
+  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: 16, gap: 12 },
+  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
+  // Window has no separate name wrapper (no city line under it, unlike
+  // Market/Counter) -- `shopName` is the Text node itself, so it takes the
+  // `flexShrink` Market puts on a wrapping View instead.
+  shopName: { fontSize: 15, fontWeight: '800', letterSpacing: 2, flexShrink: 1 },
   hero: { marginHorizontal: 16, borderRadius: 20, padding: 24, overflow: 'hidden' },
   heroImage: { ...StyleSheet.absoluteFill },
   heroHead: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, lineHeight: 31 },
