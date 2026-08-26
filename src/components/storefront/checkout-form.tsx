@@ -26,6 +26,12 @@ export type CheckoutDetails = {
   fulfilment: 'collect' | 'deliver';
   deliveryArea: string | null;
   deliveryLandmark: string | null;
+  // B5: optional, unlike name/phone/landmark -- "anything else they should
+  // know" is a courtesy field, and place_storefront_order (p_customer->>'note',
+  // c_max_note = 1000) already accepts and stores it either way. Null, never
+  // an empty string, when the customer leaves it blank -- the same
+  // null-over-empty-string convention deliveryLandmark above follows.
+  note: string | null;
 };
 
 type Props = {
@@ -33,10 +39,15 @@ type Props = {
   colors: PaletteColors;
   offersDelivery: boolean;
   areas: PublicDeliveryArea[];
+  // B1: disables the submit Pressable and its own re-entry guard's UI half
+  // -- the guard itself lives in useCheckoutFlow's submit() (theme-shared.tsx),
+  // which is the one that actually stops a second RPC call; this only stops
+  // a second call from originating here in the first place.
+  submitting: boolean;
   onSubmit: (details: CheckoutDetails) => void;
 };
 
-export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: Props) {
+export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, onSubmit }: Props) {
   // Property 4: collection-only unless the shop BOTH offers delivery AND has
   // listed at least one area. A shop with delivery on and nothing priced
   // would otherwise show a "Deliver" choice that leads nowhere.
@@ -53,6 +64,12 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
   const [areaError, setAreaError] = useState<string | null>(null);
   const [landmark, setLandmark] = useState('');
   const [landmarkError, setLandmarkError] = useState<string | null>(null);
+
+  // B5: no error state -- there is nothing to validate client-side that the
+  // server doesn't already enforce more strictly (c_max_note), and an
+  // optional field the customer is free to ignore should never grow a red
+  // message under it.
+  const [note, setNote] = useState('');
 
   const goodsCents = cartSubtotalCents(cart);
   const selectedArea = fulfilment === 'deliver' ? areas.find((a) => a.name === areaName) ?? null : null;
@@ -134,6 +151,7 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
       fulfilment: wantsDelivery ? 'deliver' : 'collect',
       deliveryArea: wantsDelivery ? areaName : null,
       deliveryLandmark: wantsDelivery ? trimmedLandmark : null,
+      note: note.trim() || null,
     });
   }
 
@@ -262,6 +280,20 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
         </>
       ) : null}
 
+      {/* B5: available to every order, collect or deliver -- a courtesy note
+          ("ring the bell, don't call") is just as useful picking up in
+          person as it is at the door. */}
+      <Text style={[styles.label, styles.spaced, { color: colors.ink }]}>Anything else? (optional)</Text>
+      <TextInput
+        testID="checkout-form-note-input"
+        style={[styles.input, { borderColor: colors.soft, color: colors.ink }]}
+        value={note}
+        onChangeText={setNote}
+        placeholder="e.g. call when you arrive"
+        placeholderTextColor={colors.muted}
+        multiline
+      />
+
       <View style={[styles.breakdown, { borderTopColor: colors.soft }]}>
         <View style={styles.breakdownRow}>
           <Text style={[styles.breakdownLabel, { color: colors.muted }]}>Goods</Text>
@@ -290,10 +322,11 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
       <Pressable
         testID="checkout-form-submit"
         accessibilityRole="button"
+        disabled={submitting}
         onPress={handleSubmit}
-        style={[styles.submit, { backgroundColor: colors.accent }]}
+        style={[styles.submit, { backgroundColor: colors.accent }, submitting && styles.submitDisabled]}
       >
-        <Text style={[styles.submitText, { color: colors.ground }]}>Place order</Text>
+        <Text style={[styles.submitText, { color: colors.ground }]}>{submitting ? 'Placing order…' : 'Place order'}</Text>
       </Pressable>
     </View>
   );
@@ -336,5 +369,6 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 16, fontWeight: '800' },
   caveat: { fontSize: 12, marginTop: 10, lineHeight: 16 },
   submit: { marginTop: 14, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
+  submitDisabled: { opacity: 0.6 },
   submitText: { fontSize: 14, fontWeight: '800' },
 });

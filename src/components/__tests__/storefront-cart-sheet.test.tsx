@@ -22,9 +22,13 @@ const oil = { productId: 'p2', name: 'Oil', unitPriceCents: 1200, quantity: 1 };
 const cartWithLines: StorefrontCart = { slug: 'xamdi', lines: [soap, oil] };
 const emptyCart: StorefrontCart = { slug: 'xamdi', lines: [] };
 
-function renderSheet(cart: StorefrontCart, opts?: { visible?: boolean; onChangeQuantity?: jest.Mock; onClose?: jest.Mock }) {
+function renderSheet(
+  cart: StorefrontCart,
+  opts?: { visible?: boolean; onChangeQuantity?: jest.Mock; onClose?: jest.Mock; onCheckout?: jest.Mock }
+) {
   const onChangeQuantity = opts?.onChangeQuantity ?? jest.fn();
   const onClose = opts?.onClose ?? jest.fn();
+  const onCheckout = opts?.onCheckout ?? jest.fn();
   let tree!: ReturnType<typeof create>;
   act(() => {
     tree = create(
@@ -34,10 +38,11 @@ function renderSheet(cart: StorefrontCart, opts?: { visible?: boolean; onChangeQ
         cart={cart}
         colors={colors}
         onChangeQuantity={onChangeQuantity}
+        onCheckout={onCheckout}
       />
     );
   });
-  return { tree, onChangeQuantity, onClose };
+  return { tree, onChangeQuantity, onClose, onCheckout };
 }
 
 describe('CartSheet', () => {
@@ -119,5 +124,27 @@ describe('CartSheet', () => {
     const close = tree.root.findAll((node) => node.props?.testID === 'cart-sheet-close');
     act(() => close[0].props.onPress());
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // ── B7: checking out from inside the basket ─────────────────────────────
+  // Before this, reviewing the basket was a dead end -- the only way onward
+  // was closing the sheet and finding the theme's own sticky bar underneath.
+
+  it('offers a way to check out from inside the basket', () => {
+    const { tree, onCheckout } = renderSheet(cartWithLines);
+    // Pressable is composite and forwards testID down through a forwardRef
+    // View to its own host node, so one on-screen button surfaces as
+    // several matches -- same as `close` and the steppers above, which take
+    // `[0]` rather than asserting an exact count for the same reason.
+    const checkout = tree.root.findAll((node) => node.props?.testID === 'cart-sheet-checkout');
+    expect(checkout.length).toBeGreaterThan(0);
+    act(() => checkout[0].props.onPress());
+    expect(onCheckout).toHaveBeenCalled();
+  });
+
+  it('offers no checkout action for an empty basket', () => {
+    const { tree } = renderSheet(emptyCart);
+    const checkout = tree.root.findAll((node) => node.props?.testID === 'cart-sheet-checkout');
+    expect(checkout).toHaveLength(0);
   });
 });

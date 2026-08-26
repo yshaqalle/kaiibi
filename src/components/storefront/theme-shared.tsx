@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
@@ -49,9 +49,9 @@ type ProductActionsProps = {
   product: StorefrontProduct;
   colors: PaletteColors;
   // See the identical comment on ProductTile's Props in product-tile.tsx --
-  // Ask stays visible without a number (WhatsAppButton above hides itself
-  // instead, because it's a single nav button; a per-product action can't
-  // hide one of a pair without looking broken) and simply becomes inert.
+  // Ask does not render without a number, the same rule WhatsAppButton
+  // above follows: lose the button rather than render one that opens a
+  // chat with nobody.
   shopName?: string;
   whatsappE164?: string | null;
   onAdd?: (product: StorefrontProduct) => void;
@@ -203,6 +203,19 @@ export function useStorefrontCart(slug: string) {
 // gained no checkout affordance of its own, so this sticky bar is what every
 // theme renders instead: named after the subtotal, gone the moment the
 // basket is empty, so it can never invite a checkout with nothing in it.
+// B6: the bar itself is `position: absolute`, so it takes no space in the
+// document flow it floats over -- nothing pushes the browsing view's own
+// content up to make room for it. Each theme's scrollable container adds
+// this much bottom padding of its own, but ONLY while `itemCount > 0` (the
+// same condition CheckoutBar below uses to render at all): an empty basket
+// must not carry dead space at the bottom of a page with no bar to clear.
+// Sized to the bar's own layout -- paddingVertical 14 top and bottom plus a
+// ~17px line of 14px/800-weight text is ~45px, plus the 14px gap the bar
+// itself sits above the screen edge -- rounded up with headroom rather than
+// tuned to the pixel, so a future tweak to the bar's own padding does not
+// also require re-measuring this constant.
+export const CHECKOUT_BAR_CLEARANCE = 76;
+
 export function CheckoutBar({
   colors, itemCount, subtotalCents, onPress,
 }: { colors: PaletteColors; itemCount: number; subtotalCents: number; onPress: () => void }) {
@@ -220,6 +233,56 @@ export function CheckoutBar({
 }
 
 export type CheckoutStage = 'browse' | 'checkout' | 'confirmation';
+
+// place_storefront_order's own client-error vocabulary
+// (20260927000000_place_order.sql's `c_client_errors`) exists precisely so a
+// rejection tells the customer what they can fix -- property 9 of the
+// checkout brief. supabase-js surfaces a rejected RPC as an error whose
+// `message` IS that fixed code word (e.g. 'unavailable_item'), never prose,
+// so this is a lookup table from code to a sentence a shopkeeper's customer
+// can act on. Anything not in this table -- an unrecognised code, a network
+// error with no `message` at all, `order_failed` itself (the fallback the
+// RPC degrades an unanticipated server error to) -- keeps the old generic
+// sentence, which is still honest for those cases: there really is nothing
+// more specific to say.
+const GENERIC_ORDER_ERROR = "We couldn't place your order. Check your connection and try again.";
+
+const ORDER_ERROR_MESSAGES: Record<string, string> = {
+  shop_unavailable: "This shop isn't taking orders right now.",
+  rate_limited: "This shop has had a lot of orders in the last hour. Please try again shortly.",
+  name_required: 'Add your name so the shop knows who is ordering.',
+  invalid_name: "That name isn't valid. Check it and try again.",
+  invalid_phone: "We couldn't recognise that phone number. Check it and try again.",
+  invalid_fulfilment: 'Choose collection or delivery and try again.',
+  invalid_landmark: 'Describe the landmark near you and try again.',
+  invalid_note: 'Shorten your note and try again.',
+  delivery_unavailable: "This shop doesn't offer delivery. Choose collection instead.",
+  unknown_delivery_area: "That delivery area isn't available any more. Pick another one.",
+  empty_cart: 'Your basket is empty. Add something before checking out.',
+  cart_too_large: 'There are too many items in your basket. Remove a few and try again.',
+  invalid_quantity: 'One of the quantities in your basket looks wrong. Adjust it and try again.',
+  // The one code the brief calls out by name: the action is to remove the
+  // item, not just be told about it -- CheckoutScreen below renders an
+  // "Edit basket" action whenever this exact code comes back, wired to
+  // reopen CartSheet on top of the same basket rather than merely saying so.
+  unavailable_item: 'One of the items in your basket is no longer available. Remove it to continue.',
+};
+
+// The RPC's error surfaces as `error.message` set to the fixed code word
+// itself (a thrown PostgrestError, never a plain string) -- this is the one
+// place that assumption lives, so a change to how the RPC is called only
+// has to update here.
+function orderErrorCode(err: unknown): string | null {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return null;
+}
+
+function orderErrorMessage(code: string | null): string {
+  return (code && ORDER_ERROR_MESSAGES[code]) || GENERIC_ORDER_ERROR;
+}
 
 // Owns everything past "browsing" that every theme needs, and nothing a
 // theme should have to get right on its own: filling in checkout, submitting
@@ -247,10 +310,20 @@ export function useCheckoutFlow(opts: {
   const [stage, setStage] = useState<CheckoutStage>('browse');
   const [order, setOrder] = useState<PlacedOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // B1: a `submitting` STATE guard is not enough. React applies the
+  // `setSubmitting(true)` from a first tap's handler on the next render; a
+  // second tap landing before that render -- a double tap, not two separate
+  // user decisions -- would still close over the pre-update `submitting`
+  // value and sail through submit() a second time, placing two orders
+  // against the same rate limit. A ref is written synchronously, before any
+  // `await`, so a re-entrant call always sees it regardless of render timing.
+  const submittingRef = useRef(false);
 
   function openCheckout() {
     setError(null);
+    setErrorCode(null);
     setStage('checkout');
   }
 
@@ -259,8 +332,11 @@ export function useCheckoutFlow(opts: {
   }
 
   async function submit(cart: StorefrontCart, details: CheckoutDetails) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
+    setErrorCode(null);
     try {
       const placed = opts.whatsappE164
         ? await placeOrderViaWhatsApp(opts.slug, cart, details, opts.shopName, opts.whatsappE164)
@@ -268,19 +344,25 @@ export function useCheckoutFlow(opts: {
       opts.onOrderPlaced();
       setOrder(placed);
       setStage('confirmation');
-    } catch {
+    } catch (err) {
       // A rejected order (a stale product, a full basket, a rate limit)
       // leaves the cart exactly as placeOrder left it -- untouched, since
       // onOrderPlaced above is never reached -- and keeps the customer on
       // 'checkout' rather than bouncing them back to an empty-looking basket,
-      // so what they typed is still on screen to retry with.
-      setError("We couldn't place your order. Check your connection and try again.");
+      // so what they typed is still on screen to retry with. B2: the message
+      // itself is now the RPC's own client-error code translated into a
+      // sentence the customer can act on (see ORDER_ERROR_MESSAGES above),
+      // not a one-size-fits-all "check your connection".
+      const code = orderErrorCode(err);
+      setErrorCode(code);
+      setError(orderErrorMessage(code));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
-  return { stage, order, error, submitting, openCheckout, backToBrowse, submit };
+  return { stage, order, error, errorCode, submitting, openCheckout, backToBrowse, submit };
 }
 
 // Rendered by every theme in place of its own browsing UI once checkout
@@ -288,7 +370,7 @@ export function useCheckoutFlow(opts: {
 // address means the same thing on a photo grid or a price list, and only the
 // palette should differ between them -- `colors` already carries that.
 export function CheckoutScreen({
-  storefront, cart, areas, colors, submitting, error, onBack, onSubmit,
+  storefront, cart, areas, colors, submitting, error, errorCode, onBack, onSubmit, onEditBasket,
 }: {
   storefront: PublicStorefront;
   cart: StorefrontCart;
@@ -296,8 +378,17 @@ export function CheckoutScreen({
   colors: PaletteColors;
   submitting: boolean;
   error: string | null;
+  // B2: which client-error code (if any) `error` was translated from -- only
+  // 'unavailable_item' changes what renders below the message, everything
+  // else is just the sentence.
+  errorCode?: string | null;
   onBack: () => void;
   onSubmit: (details: CheckoutDetails) => void;
+  // B2/B7: reopens the basket on 'unavailable_item' so removing the stale
+  // line is one tap away, not a message the customer has to act on by
+  // guessing where to go. Optional so a caller mid-migration (and every
+  // existing test that predates this) still type-checks.
+  onEditBasket?: () => void;
 }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
@@ -309,7 +400,27 @@ export function CheckoutScreen({
       </View>
       <ScrollView contentContainerStyle={styles.screenBody}>
         {error ? <Text style={[styles.screenError, { color: colors.danger }]}>{error}</Text> : null}
-        <CheckoutForm cart={cart} colors={colors} offersDelivery={storefront.offersDelivery} areas={areas} onSubmit={onSubmit} />
+        {/* B2: "remove the item" is the action -- so make it possible from
+            right here, not just say it and leave the customer to work out
+            that the basket is back through the nav bar. */}
+        {errorCode === 'unavailable_item' && onEditBasket ? (
+          <Pressable
+            testID="storefront-checkout-edit-basket"
+            accessibilityRole="button"
+            onPress={onEditBasket}
+            style={[styles.editBasket, { borderColor: colors.danger }]}
+          >
+            <Text style={[styles.editBasketText, { color: colors.danger }]}>Edit basket</Text>
+          </Pressable>
+        ) : null}
+        <CheckoutForm
+          cart={cart}
+          colors={colors}
+          offersDelivery={storefront.offersDelivery}
+          areas={areas}
+          submitting={submitting}
+          onSubmit={onSubmit}
+        />
         {submitting ? <Text style={[styles.screenHint, { color: colors.muted }]}>Placing your order…</Text> : null}
       </ScrollView>
     </View>
@@ -372,6 +483,8 @@ const styles = StyleSheet.create({
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
+  editBasket: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  editBasketText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
   continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
   continueText: { fontSize: 14, fontWeight: '800' },

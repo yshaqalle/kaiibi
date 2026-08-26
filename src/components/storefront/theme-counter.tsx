@@ -3,8 +3,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import {
-  CartButton, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, ProductActions, WhatsAppButton,
-  useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, ProductActions,
+  WhatsAppButton, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
@@ -50,8 +50,13 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
         colors={colors}
         submitting={checkout.submitting}
         error={checkout.error}
+        errorCode={checkout.errorCode}
         onBack={checkout.backToBrowse}
         onSubmit={(details) => checkout.submit(cart, details)}
+        onEditBasket={() => {
+          checkout.backToBrowse();
+          setCartOpen(true);
+        }}
       />
     );
   }
@@ -85,7 +90,13 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
           viewport is unreachable without an explicit scroll container. This is
           the theme built for a long, photo-free price list, so it is the one
           most likely to overflow. */}
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      {/* B6: the sticky CheckoutBar below floats over this scroll view and
+          reserves no space of its own -- see theme-market.tsx's identical
+          comment. */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, itemCount > 0 && styles.scrollContentWithCheckoutBar]}
+      >
         {storefront.headline ? (
           <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
         ) : null}
@@ -134,6 +145,10 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
         cart={cart}
         colors={colors}
         onChangeQuantity={changeQuantity}
+        onCheckout={() => {
+          setCartOpen(false);
+          checkout.openCheckout();
+        }}
       />
 
       <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
@@ -146,6 +161,7 @@ const styles = StyleSheet.create({
   navActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24 },
+  scrollContentWithCheckoutBar: { paddingBottom: 24 + CHECKOUT_BAR_CLEARANCE },
   shopName: { fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
   sub: { fontSize: 11.5 },
   headline: { fontSize: 19, fontWeight: '700', paddingHorizontal: 14, paddingTop: 12 },

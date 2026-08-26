@@ -46,6 +46,7 @@ const details: CheckoutDetails = {
   fulfilment: 'collect',
   deliveryArea: null,
   deliveryLandmark: null,
+  note: null,
 };
 
 const deliveryDetails: CheckoutDetails = {
@@ -54,6 +55,7 @@ const deliveryDetails: CheckoutDetails = {
   fulfilment: 'deliver',
   deliveryArea: "Ga'an Libaax",
   deliveryLandmark: 'Behind Maansoor Hotel, blue gate',
+  note: null,
 };
 
 // The RPC's exact response shape, per 20260927000000_place_order.sql's
@@ -103,12 +105,28 @@ describe('placeOrder', () => {
         fulfilment: 'collect',
         delivery_area: null,
         delivery_landmark: null,
+        note: null,
       },
       p_items: [
         { product_id: 'p1', quantity: 2 },
         { product_id: 'p2', quantity: 1 },
       ],
     });
+  });
+
+  // B5: orders.note is dead end to end until this ships -- the column exists,
+  // the RPC reads p_customer->>'note' and has its own invalid_note code, and
+  // checkout-form.tsx now collects it, but placeOrder is the one call site
+  // that actually has to put it on the wire.
+  it('forwards a customer note to the RPC', async () => {
+    rpc.mockResolvedValue({ data: collectResponse, error: null });
+
+    await placeOrder(SLUG, cartWithLines(), { ...details, note: 'Ring the bell, please' });
+
+    expect(rpc).toHaveBeenCalledWith(
+      'place_storefront_order',
+      expect.objectContaining({ p_customer: expect.objectContaining({ note: 'Ring the bell, please' }) })
+    );
   });
 
   // Property 1: the client never computes the total it displays.

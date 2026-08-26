@@ -4,7 +4,7 @@ import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-nat
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
-  CartButton, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, WhatsAppButton,
+  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, WhatsAppButton,
   gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 
@@ -35,8 +35,13 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
         colors={colors}
         submitting={checkout.submitting}
         error={checkout.error}
+        errorCode={checkout.errorCode}
         onBack={checkout.backToBrowse}
         onSubmit={(details) => checkout.submit(cart, details)}
+        onEditBasket={() => {
+          checkout.backToBrowse();
+          setCartOpen(true);
+        }}
       />
     );
   }
@@ -83,7 +88,10 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
           numColumns={numColumns}
           keyExtractor={(p) => p.id}
           columnWrapperStyle={styles.row}
-          contentContainerStyle={styles.grid}
+          // B6: the sticky CheckoutBar below is `position: absolute` and so
+          // reserves no space of its own -- without this, its last row sits
+          // underneath the bar the moment the basket is non-empty.
+          contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
           renderItem={({ item }) => (
             <View style={styles.cell}>
               <ProductTile
@@ -104,6 +112,10 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
         cart={cart}
         colors={colors}
         onChangeQuantity={changeQuantity}
+        onCheckout={() => {
+          setCartOpen(false);
+          checkout.openCheckout();
+        }}
       />
 
       <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
@@ -119,6 +131,7 @@ const styles = StyleSheet.create({
   headline: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, paddingHorizontal: 14, paddingTop: 4 },
   about: { fontSize: 13, paddingHorizontal: 14, paddingTop: 5 },
   grid: { padding: 14, gap: 12 },
+  gridWithCheckoutBar: { paddingBottom: 14 + CHECKOUT_BAR_CLEARANCE },
   row: { gap: 12 },
   cell: { flex: 1 },
 });

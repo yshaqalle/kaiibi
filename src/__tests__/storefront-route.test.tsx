@@ -306,5 +306,168 @@ describe('storefront route', () => {
       const second = await render();
       expect(textsIn(second.toJSON() as ReactTestRendererJSON)).not.toContain('Basket · 1');
     });
+
+    // B1: a double tap must place exactly one order. `press` calls the
+    // Pressable's own onPress prop directly (see findByTestId above), which
+    // bypasses RN's gesture responder and its own disabled-state gating --
+    // exactly the race a real double tap can win if the guard lived only in
+    // React state: setSubmitting(true) from the first tap is not applied
+    // until the next render, so a second call landing before that render
+    // would still see the pre-update value. Calling onPress twice back to
+    // back, synchronously, before either promise resolves, is the sharpest
+    // version of that race and is what actually proves the ref-based guard
+    // in useCheckoutFlow's submit() (theme-shared.tsx), not just the
+    // Pressable's `disabled` prop.
+    it('places exactly one order for two rapid taps of Place order', async () => {
+      let resolveOrder!: (value: typeof placedOrder) => void;
+      (placeOrderViaWhatsApp as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveOrder = resolve;
+        })
+      );
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+
+      press(tree, 'checkout-form-submit');
+      press(tree, 'checkout-form-submit');
+
+      resolveOrder(placedOrder);
+      await flush(tree);
+
+      expect(placeOrderViaWhatsApp).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // B2: the RPC's own client-error vocabulary
+  // (20260927000000_place_order.sql's c_client_errors) translated into
+  // sentences the customer can act on, instead of one generic
+  // "check your connection" for every rejection.
+  describe('order errors', () => {
+    beforeEach(() => {
+      (getPublicStorefront as jest.Mock).mockResolvedValue(shop);
+      (getPublicStorefrontProducts as jest.Mock).mockResolvedValue(products);
+    });
+
+    it.each([
+      ['unavailable_item', /no longer available/i],
+      ['unknown_delivery_area', /available any more/i],
+      ['invalid_phone', /couldn.t recognise that phone number/i],
+      ['rate_limited', /had a lot of orders/i],
+    ])('turns the %s code into a sentence the customer can act on', async (code, expected) => {
+      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: code });
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+      press(tree, 'checkout-form-submit');
+      await flush(tree);
+
+      const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+      expect(texts).toMatch(expected);
+      expect(texts).not.toContain("We couldn't place your order. Check your connection and try again.");
+    });
+
+    // The RPC degrades any error it did not anticipate to `order_failed`
+    // (20260927000000's own comment on why) -- an unrecognised code must
+    // still land somewhere honest rather than crash or show nothing.
+    it('falls back to the generic message for a code with no mapping', async () => {
+      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: 'a_future_code_this_client_predates' });
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+      press(tree, 'checkout-form-submit');
+      await flush(tree);
+
+      const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+      expect(texts).toContain("We couldn't place your order. Check your connection and try again.");
+    });
+
+    // The action, not just the sentence: a delisted product stuck in a
+    // persisted cart must not fail checkout forever.
+    it('lets the customer remove the unavailable item, from right there, rather than only being told to', async () => {
+      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: 'unavailable_item' });
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+      press(tree, 'checkout-form-submit');
+      await flush(tree);
+
+      press(tree, 'storefront-checkout-edit-basket');
+      await flush(tree);
+
+      // Back on the basket, not still stuck on checkout -- testID-based,
+      // not text-based: CartSheet's own new Checkout button (B7) also says
+      // the word "Checkout", so the absence of CheckoutScreen is proven by
+      // its own nav (`storefront-checkout-back`) being gone, not by the
+      // word "Checkout" being gone from the tree entirely.
+      const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
+      expect(texts).toContain('Your basket');
+      expect(tree.root.findAll((n) => n.props?.testID === 'storefront-checkout-back')).toHaveLength(0);
+    });
+
+    it('offers no edit-basket action for an error other than unavailable_item', async () => {
+      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: 'rate_limited' });
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+      press(tree, 'checkout-form-submit');
+      await flush(tree);
+
+      expect(findByTestId(tree, 'storefront-checkout-edit-basket')).toHaveLength(0);
+    });
+  });
+
+  // B7: reviewing the basket used to be a dead end -- the only way forward
+  // was closing the sheet and finding the theme's own sticky bar underneath.
+  describe('checkout from inside the basket', () => {
+    beforeEach(() => {
+      (getPublicStorefront as jest.Mock).mockResolvedValue(shop);
+      (getPublicStorefrontProducts as jest.Mock).mockResolvedValue(products);
+    });
+
+    it('reaches checkout from the basket sheet, not only the sticky bar', async () => {
+      const tree = await render();
+      await addOneToCart(tree);
+
+      press(tree, 'storefront-cart-button');
+      await flush(tree);
+      press(tree, 'cart-sheet-checkout');
+      await flush(tree);
+
+      expect(textsIn(tree.toJSON() as ReactTestRendererJSON)).toContain('Checkout');
+    });
+  });
+
+  // B3: the delivery-areas read is not essential -- this file's own comment
+  // on the essential Promise.all already says an empty area list reads
+  // identically to collection-only, so a blip on this one read must not
+  // drag a published, working shop down to the same page an unknown slug
+  // gets.
+  describe('a failed delivery-areas read', () => {
+    it('keeps a live shop live, falling back to collection-only, rather than rendering the missing page', async () => {
+      (getPublicStorefront as jest.Mock).mockResolvedValue(shop); // shop.offersDelivery is true
+      (getPublicStorefrontProducts as jest.Mock).mockResolvedValue(products);
+      (getPublicDeliveryAreas as jest.Mock).mockRejectedValue(new Error('areas rpc down'));
+
+      const tree = await render();
+
+      const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
+      expect(texts).toContain('Xamdi Electronics');
+      expect(texts).not.toContain("There's no shop at this address.");
+    });
+
+    it('does not call the areas read at all for a shop that does not offer delivery', async () => {
+      (getPublicStorefront as jest.Mock).mockResolvedValue({ ...shop, offersDelivery: false });
+      (getPublicStorefrontProducts as jest.Mock).mockResolvedValue(products);
+
+      await render();
+
+      expect(getPublicDeliveryAreas).not.toHaveBeenCalled();
+    });
   });
 });

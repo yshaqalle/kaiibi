@@ -75,6 +75,7 @@ export async function placeOrder(
       fulfilment: details.fulfilment,
       delivery_area: details.deliveryArea,
       delivery_landmark: details.deliveryLandmark,
+      note: details.note,
     },
     p_items: cart.lines.map((line) => ({ product_id: line.productId, quantity: line.quantity })),
   });

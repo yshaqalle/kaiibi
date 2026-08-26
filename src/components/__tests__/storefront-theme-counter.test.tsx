@@ -1,3 +1,4 @@
+import { ScrollView } from 'react-native';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ThemeCounter } from '@/components/storefront/theme-counter';
@@ -97,6 +98,28 @@ describe('ThemeCounter', () => {
     expect(askButtons).toHaveLength(2);
   });
 
+  // B6: the sticky CheckoutBar is `position: absolute` and reserves no
+  // space of its own -- without this, its last-row content sits underneath
+  // it the moment the basket goes from empty to non-empty.
+  //
+  // storefront-cart.ts's native-platform cache is a module-level Map with no
+  // reset hook by design -- a slug this test does not share with any other
+  // test in this file (rather than the shared `shop.slug`) keeps this one's
+  // basket from leaking into, or being polluted by, another's.
+  it('reserves extra bottom space for the sticky checkout bar once the basket is non-empty', () => {
+    const tree = renderCounter({ ...shop, slug: 'xamdi-counter-b6' });
+    const flatStyle = (style: unknown) =>
+      [style].flat(Infinity).reduce((acc, s) => ({ ...(acc as object), ...(s as object) }), {}) as { paddingBottom: number };
+
+    const before = flatStyle(tree.root.findByType(ScrollView).props.contentContainerStyle);
+
+    const addButtons = findByTestId(tree, 'product-tile-add');
+    act(() => addButtons[0].props.onPress());
+
+    const after = flatStyle(tree.root.findByType(ScrollView).props.contentContainerStyle);
+    expect(after.paddingBottom).toBeGreaterThan(before.paddingBottom);
+  });
+
   it('pressing Add on a row adds that product to the basket', () => {
     const tree = renderCounter(shop);
     const addButtons = findByTestId(tree, 'product-tile-add');
@@ -117,9 +140,8 @@ describe('ThemeCounter', () => {
     expect(openMock).toHaveBeenCalledWith(expected);
   });
 
-  // No number to reach means nothing to open, but the property is that Ask
-  // stays VISIBLE regardless -- same as ProductTile -- it just becomes
-  // inert. Add still works without a WhatsApp number.
+  // No number to reach means nothing to open, so Ask does not render at all
+  // (same as ProductTile) -- Add still works without a WhatsApp number.
   it('drops Ask when the shop has no WhatsApp number, but Add still works', () => {
     // Same rule as WhatsAppButton in theme-shared: lose the button rather than
     // render one that opens a chat with nobody. Selling is unaffected -- only

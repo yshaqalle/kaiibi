@@ -15,6 +15,12 @@ type Props = {
   // storefront-cart.ts's setQuantity, one call away in the theme that owns
   // the cart's state.
   onChangeQuantity: (productId: string, quantity: number) => void;
+  // B7: opening this sheet used to be a dead end -- a customer reviewing
+  // their basket had no way onward except closing it again and finding the
+  // theme's own sticky bar underneath. The caller decides what "go to
+  // checkout" means (every theme both closes this sheet and opens its own
+  // checkout stage), this component only has to offer the action.
+  onCheckout: () => void;
 };
 
 // What a stranger's basket has to say, and just as importantly what it must
@@ -28,7 +34,7 @@ type Props = {
 //     of a pay button. This is a stranger's first contact with the fact that
 //     a kaiibi storefront takes an ORDER, not a payment -- checkout happens
 //     on collection or delivery.
-export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity }: Props) {
+export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, onCheckout }: Props) {
   return (
     <AppModal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -98,6 +104,18 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity }: 
               <Text style={[styles.caveat, { color: colors.muted }]}>
                 Nothing is charged now. You pay on collection or delivery.
               </Text>
+
+              {/* B7: the way onward, from right here -- reviewing the basket
+                  used to be a dead end that only closing this sheet and
+                  finding the theme's own sticky bar could get past. */}
+              <Pressable
+                testID="cart-sheet-checkout"
+                accessibilityRole="button"
+                onPress={onCheckout}
+                style={[styles.checkout, { backgroundColor: colors.accent }]}
+              >
+                <Text style={[styles.checkoutText, { color: colors.ground }]}>Checkout</Text>
+              </Pressable>
             </>
           )}
         </View>
@@ -126,4 +144,6 @@ const styles = StyleSheet.create({
   subtotalLabel: { fontSize: 14, fontWeight: '800' },
   subtotalValue: { fontSize: 16, fontWeight: '800' },
   caveat: { fontSize: 12, marginTop: 8, lineHeight: 16 },
+  checkout: { marginTop: 16, borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
+  checkoutText: { fontSize: 14, fontWeight: '800' },
 });

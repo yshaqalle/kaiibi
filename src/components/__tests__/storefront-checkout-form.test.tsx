@@ -29,7 +29,12 @@ const areas: PublicDeliveryArea[] = [
   { name: 'Outside town', feeCents: 800 },
 ];
 
-function renderForm(opts?: { offersDelivery?: boolean; areas?: PublicDeliveryArea[]; onSubmit?: jest.Mock }) {
+function renderForm(opts?: {
+  offersDelivery?: boolean;
+  areas?: PublicDeliveryArea[];
+  onSubmit?: jest.Mock;
+  submitting?: boolean;
+}) {
   const onSubmit = opts?.onSubmit ?? jest.fn();
   let tree!: ReactTestRenderer;
   act(() => {
@@ -39,6 +44,7 @@ function renderForm(opts?: { offersDelivery?: boolean; areas?: PublicDeliveryAre
         colors={colors}
         offersDelivery={opts?.offersDelivery ?? true}
         areas={opts?.areas ?? areas}
+        submitting={opts?.submitting ?? false}
         onSubmit={onSubmit}
       />,
     );
@@ -270,6 +276,7 @@ describe('CheckoutForm', () => {
           colors={saffron}
           offersDelivery={true}
           areas={areas}
+          submitting={false}
           onSubmit={jest.fn()}
         />,
       );
@@ -284,5 +291,50 @@ describe('CheckoutForm', () => {
     expect(flatStyle.color).toBe(saffron.danger);
     expect(flatStyle.color).not.toBe('#98452a');
     expect(flatStyle.color).not.toBe(saffron.accent); // saffron's accent IS the out-of-stock amber
+  });
+
+  // ── B1: a double tap must not place two orders ──────────────────────────
+
+  it('disables the submit control while an order is being placed', () => {
+    const { tree } = renderForm({ submitting: true });
+    const [submit] = findByTestId(tree, 'checkout-form-submit');
+    expect(submit.props.disabled).toBe(true);
+  });
+
+  it('leaves the submit control enabled when nothing is in flight', () => {
+    const { tree } = renderForm({ submitting: false });
+    const [submit] = findByTestId(tree, 'checkout-form-submit');
+    expect(submit.props.disabled).toBe(false);
+  });
+
+  // ── B5: the optional note ────────────────────────────────────────────────
+  // place_storefront_order already reads p_customer->>'note' and has its own
+  // invalid_note code (20260927000000_place_order.sql) -- this only proves
+  // the form collects it and hands it to onSubmit, trimmed, the same
+  // convention deliveryLandmark follows.
+
+  it('submits a trimmed note when the customer writes one', () => {
+    const { tree, onSubmit } = renderForm();
+    fillName(tree);
+    fillPhone(tree);
+    setText(tree, 'checkout-form-note-input', '  Ring the bell, don\'t call  ');
+    press(tree, 'checkout-form-submit');
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ note: "Ring the bell, don't call" }));
+  });
+
+  it('submits a null note, not an empty string, when the customer leaves it blank', () => {
+    const { tree, onSubmit } = renderForm();
+    fillName(tree);
+    fillPhone(tree);
+    press(tree, 'checkout-form-submit');
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ note: null }));
+  });
+
+  it('never requires a note before it will submit', () => {
+    const { tree, onSubmit } = renderForm();
+    fillName(tree);
+    fillPhone(tree);
+    press(tree, 'checkout-form-submit');
+    expect(onSubmit).toHaveBeenCalled();
   });
 });
