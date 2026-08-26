@@ -5,12 +5,16 @@ import type { Permission } from '@/lib/permissions';
 const holding = (...granted: Permission[]) => (permission: Permission) => granted.includes(permission);
 
 describe('the ledger hub catalogue', () => {
-  it('lists exactly the ten views the shell can route to', () => {
+  it('lists exactly the eleven views the shell can route to', () => {
     // In hub order, which is also the order the groups render in: the ledger
     // and its journals, then the three statements they add up to, then
     // oversight. The three statements sit between Post History and the Audit
     // Log rather than at the end, so that 'Financial statements' is a group
     // between the other two rather than after them.
+    //
+    // Close a Period joins Oversight, ahead of the Audit Log: closing is
+    // control of the books rather than a way of writing to them, and every
+    // close and re-open lands in the log next door.
     expect(LEDGER_VIEWS.map((v) => v.key)).toEqual([
       'hub',
       'accounts',
@@ -21,6 +25,7 @@ describe('the ledger hub catalogue', () => {
       'income',
       'balance',
       'cashflow',
+      'close',
       'audit',
     ]);
   });
@@ -53,7 +58,9 @@ describe('the ledger hub catalogue', () => {
     // The distinction the footer's two button styles rest on. Reading a report
     // and writing to the ledger should not look like the same act.
     // Post History joins it: replaying a shop's history writes to the books.
-    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual(['entry', 'backfill']);
+    // So does Close a Period: a close posts a journal entry that zeroes every
+    // P&L account into 3900 Retained Earnings.
+    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual(['entry', 'backfill', 'close']);
   });
 
   it('starts a creating action with a plus and a reading action without one', () => {
@@ -94,6 +101,8 @@ describe('Post History is gated on ledger.close', () => {
   it('hides only that card, leaving the rest of its group intact', () => {
     // A gate that took the group with it would strip Chart of Accounts, the
     // journals and the trial balance from every reader who is not an owner.
+    // Close a Period is absent for the same reason Post History is -- it is
+    // gated on ledger.close too -- while the Audit Log keeps Oversight standing.
     expect(visibleLedgerViews(holding('ledger.view')).map((v) => v.key)).toEqual([
       'hub',
       'accounts',
@@ -109,6 +118,56 @@ describe('Post History is gated on ledger.close', () => {
 
   it('names ledger.close on the card itself, so the gate and the RPC cannot drift apart', () => {
     expect(LEDGER_VIEWS.find((v) => v.key === 'backfill')?.requires).toBe('ledger.close');
+  });
+});
+
+describe('Close a Period is gated on ledger.close, not on the ledger.view it reads with', () => {
+  // The screen reads through list_accounting_periods(), which gates on
+  // ledger.view -- but every ACTION on it (close, close anyway, re-open) runs
+  // close_accounting_period() or reopen_accounting_period(), and both raise
+  // without ledger.close.
+  //
+  // So ledger.view is the wrong gate, and the counter-example is not a corner
+  // case: migration 20260904000000 gives the SEEDED MANAGER ledger.view and not
+  // ledger.close. Gated on ledger.view, every shop's second role would be
+  // offered a screen whose every button refuses.
+  it('shows the card to a user holding ledger.close', () => {
+    expect(visibleLedgerViews(holding('ledger.close')).map((v) => v.key)).toContain('close');
+  });
+
+  it('hides it from the seeded Manager, who holds ledger.view and cannot close', () => {
+    // The exact permission set migration 20260904000000 seeds for the Manager
+    // role. It holds ledger.view -- so a gate on ledger.view would show them
+    // this card -- and it does not hold ledger.close.
+    const SEEDED_MANAGER: Permission[] = [
+      'pos.access', 'inventory.view', 'inventory.edit', 'inventory.count', 'inventory.transfer',
+      'sales.view', 'sales.edit', 'customers.view', 'customers.edit', 'dashboard.view',
+      'expenses.view', 'expenses.manage', 'invoices.view', 'invoices.manage',
+      'budgets.manage', 'registers.manage', 'discounts.apply', 'discounts.manual',
+      'ledger.view',
+    ];
+    expect(visibleLedgerViews(holding(...SEEDED_MANAGER)).map((v) => v.key)).not.toContain('close');
+  });
+
+  it('hides it from a bookkeeper who may post entries but not close a month', () => {
+    // The near miss. ledger.post writes one entry; ledger.close shuts a month
+    // and re-opens it, and close_accounting_period says so at its own door.
+    expect(visibleLedgerViews(holding('ledger.view', 'ledger.post')).map((v) => v.key)).not.toContain('close');
+  });
+
+  it('leaves Oversight standing when the card goes, because the Audit Log is ungated', () => {
+    const groups = new Set(visibleLedgerViews(holding('ledger.view')).map((v) => v.group));
+    expect(groups.has('Oversight')).toBe(true);
+  });
+
+  it('names ledger.close on the card, so the gate and the two RPCs cannot drift apart', () => {
+    expect(LEDGER_VIEWS.find((v) => v.key === 'close')?.requires).toBe('ledger.close');
+  });
+
+  it('does not promise the shell date range it ignores', () => {
+    // The screen lists every period a shop has, newest first, and never reads
+    // the picker. A card that named a window would be believed.
+    expect(LEDGER_VIEWS.find((v) => v.key === 'close')?.scope).toBe('Every month');
   });
 });
 
@@ -152,7 +211,7 @@ describe('the three statements are gated on ledger.view', () => {
     }
   });
 
-  it('gates exactly the four cards whose RPC raises, and no others', () => {
+  it('gates exactly the five cards whose RPC raises, and no others', () => {
     // The six ungated cards read TABLES under RLS: a reader without the
     // permission gets no rows and an empty state, not an exception. Gating
     // those too would be a different decision and is not this one.
@@ -161,6 +220,7 @@ describe('the three statements are gated on ledger.view', () => {
       'income',
       'balance',
       'cashflow',
+      'close',
     ]);
   });
 });
