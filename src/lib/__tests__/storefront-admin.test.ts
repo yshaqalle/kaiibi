@@ -425,16 +425,21 @@ describe('orderErrorMessage', () => {
     expect(msg).toMatch(/stock/i);
   });
 
-  // The known, accepted limitation named in the review: a tax-charging shop
-  // hits this on every order until checkout learns about tax. Must read as
-  // "these prices have moved", never the raw code.
-  it('maps order_total_changed to a sentence about prices moving, not an arithmetic-bug-sounding code', () => {
+  // NARROWED BY 20260929000200. This code no longer means "a price moved" or
+  // "your shop charges tax" -- both of those now complete normally. It means
+  // the order's stored total is not the sum of its own lines, which is why the
+  // detail carries `lines_cents` beside `quoted_cents`. Must still read as a
+  // sentence, never the raw code, and must not go back to blaming a price
+  // change: a shopkeeper sent to re-check their prices would find nothing
+  // wrong with them.
+  it('maps order_total_changed to a sentence about the order not adding up, not an arithmetic-bug-sounding code', () => {
     const msg = orderErrorMessage({
       message: 'order_total_changed',
-      details: JSON.stringify({ quoted_cents: 1000, message: 'payments total 1200 does not match sale total 1000' }),
+      details: JSON.stringify({ quoted_cents: 900, lines_cents: 800, message: 'payments total 900 is more than sale total 800' }),
     });
-    expect(msg).toMatch(/price|total/i);
+    expect(msg).toMatch(/total/i);
     expect(msg).not.toBe('order_total_changed');
+    expect(msg).not.toMatch(/tax/i);
   });
 
   it('maps order_product_deleted, naming the product from the detail payload', () => {

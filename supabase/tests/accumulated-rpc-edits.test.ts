@@ -325,6 +325,36 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // UNDERCUT through `agreed_unit_price_cents`, two entries above
   // ('20260929000050'). That one is about a cashier inventing a figure at the
   // counter and it stays.
+  //
+  // 20260929000200. ...WITH ONE EXEMPTION, AND ONLY ONE: the shop honouring a
+  // quote it published itself. A shop that RAISES a price after a customer
+  // ordered makes every fulfilment of that order an undercut, so without this
+  // the ordinary act of handing over a web order needs a discounting
+  // permission -- the same category error 20260929000150 removed from the tax
+  // flag. An order's frozen price is not a caller's number:
+  // place_storefront_order reads it off products.price_cents server-side
+  // (20260927000000:409).
+  //
+  // The token is the EXEMPTION JOINED TO THE GATE IT QUALIFIES, so it cannot
+  // be satisfied by a version that keeps the table and stops asking the
+  // permission question first -- which would make the lookup run for every
+  // till sale and, worse, read as the primary rule.
+  ['20260929000200', 'a storefront fulfilment may honour its own quote without discounts.manual',
+    "and not public.has_shop_permission(p_shop_id, 'discounts.manual')\n         and not exists (\n           select 1\n             from public.storefront_order_fulfilments f"],
+  // AND THE MARK IS THIS TRANSACTION'S, which is the whole reason the
+  // exemption is safe to grant. Transaction ids are monotonic and never
+  // reused, so a mark left behind by an earlier call authorises nothing later.
+  // Lose this line and any row that survived in that table -- by a dropped
+  // delete, a restore, a superuser's hand -- becomes a standing permission to
+  // undercut. verify-order-transitions check 52b is the behavioural half.
+  ['20260929000200', 'the fulfilment mark must be stamped by THIS transaction',
+    'where f.xact_id = pg_current_xact_id()'],
+  // AND IT IS PER LINE, NOT PER CALL. The order must actually carry this
+  // product at exactly this price, so a fulfilment in flight excuses the prices
+  // that order quoted and nothing beside them. Without this join a marked
+  // transaction could file ANY line at ANY price below the shelf.
+  ['20260929000200', 'the exemption covers only the product and price that order quoted',
+    'and oi.product_id = v_product.id\n              and oi.unit_price_cents = v_agreed_price'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [

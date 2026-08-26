@@ -619,12 +619,18 @@ export function orderErrorMessage(err: unknown): string | null {
       return "There isn't enough stock to complete this order. Restock the short item(s) above, or cancel the order if you can't get more in time.";
 
     case 'order_total_changed':
-      // B1's known, accepted limitation: complete_sale re-prices from today's
-      // products.price_cents and adds the shop's own tax, while the order was
-      // quoted tax-exclusive at checkout time -- so a tax-charging shop hits
-      // this on every order until a later branch teaches checkout about tax.
-      // Said as "these prices have moved", never the raw code.
-      return "This order's total no longer matches what the customer was quoted at checkout -- most likely a price changed, or your shop charges tax that the storefront didn't add at checkout. Confirm the amount with the customer before completing it.";
+      // NARROWED BY 20260929000200, and the sentence with it. This used to be
+      // B1's known limitation -- complete_sale re-priced from today's
+      // products.price_cents and added the shop's tax on top of a quote taken
+      // before it, so a re-priced product stranded its order and a
+      // tax-charging shop hit this on EVERY order. Both are fixed: the order's
+      // own snapshot is what the sale is filed at, and the tax comes out of the
+      // quoted total rather than being added to it.
+      // What is left is an order whose stored total is not the sum of its own
+      // lines -- which the storefront cannot produce and no app screen can
+      // write -- so the sentence no longer blames a price change or tax, and
+      // says the one thing a shopkeeper can actually do about it.
+      return "This order's own total doesn't add up to the items on it, so it can't be completed as it stands. Check the order with the customer and re-take it, or get in touch with support.";
 
     case 'order_product_deleted': {
       const products = typeof detail?.products === 'string' ? detail.products : 'A product on this order';
