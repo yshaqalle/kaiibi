@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { formatCents } from '@/lib/currency';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
-import type { PaletteColors } from '@/lib/storefront-catalog';
+import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea } from '@/types/models';
 
 // A public page component: data and callbacks only, the same seam every
@@ -39,15 +39,25 @@ type Props = {
   colors: PaletteColors;
   offersDelivery: boolean;
   areas: PublicDeliveryArea[];
-  // B1: disables the submit Pressable and its own re-entry guard's UI half
+  // B1: disables the submit Pressables and its own re-entry guard's UI half
   // -- the guard itself lives in useCheckoutFlow's submit() (theme-shared.tsx),
   // which is the one that actually stops a second RPC call; this only stops
-  // a second call from originating here in the first place.
+  // a second call from originating here in the first place. Both controls
+  // below share this one flag, so pressing either disables the other too.
   submitting: boolean;
-  onSubmit: (details: CheckoutDetails) => void;
+  // Regression guard (the defect this shape fixes): a shop having a number
+  // is what makes the second button RENDER, never what the order does.
+  // "Place order" always calls onSubmit(details, 'direct'); the WhatsApp
+  // button, which only exists when this is set, calls onSubmit(details,
+  // 'whatsapp'). The caller (useCheckoutFlow's submit) is the one place that
+  // reads `via` to pick placeOrder vs placeOrderViaWhatsApp -- it must never
+  // re-derive that choice from whether a number exists, or the two controls
+  // collapse back into one silent redirect.
+  whatsappE164?: string | null;
+  onSubmit: (details: CheckoutDetails, via: 'direct' | 'whatsapp') => void;
 };
 
-export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, onSubmit }: Props) {
+export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, whatsappE164, onSubmit }: Props) {
   // Property 4: collection-only unless the shop BOTH offers delivery AND has
   // listed at least one area. A shop with delivery on and nothing priced
   // would otherwise show a "Deliver" choice that leads nowhere.
@@ -107,7 +117,7 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, 
     setAreaError(null);
   }
 
-  function handleSubmit() {
+  function handleSubmit(via: 'direct' | 'whatsapp') {
     const trimmedName = name.trim();
     const normalisedPhone = toE164(phone);
     const wantsDelivery = canDeliver && fulfilment === 'deliver';
@@ -145,14 +155,17 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, 
 
     if (!ok) return;
 
-    onSubmit({
-      name: trimmedName,
-      phone: normalisedPhone as string,
-      fulfilment: wantsDelivery ? 'deliver' : 'collect',
-      deliveryArea: wantsDelivery ? areaName : null,
-      deliveryLandmark: wantsDelivery ? trimmedLandmark : null,
-      note: note.trim() || null,
-    });
+    onSubmit(
+      {
+        name: trimmedName,
+        phone: normalisedPhone as string,
+        fulfilment: wantsDelivery ? 'deliver' : 'collect',
+        deliveryArea: wantsDelivery ? areaName : null,
+        deliveryLandmark: wantsDelivery ? trimmedLandmark : null,
+        note: note.trim() || null,
+      },
+      via
+    );
   }
 
   // Property 3, the single most important rule on this screen: a total only
@@ -323,11 +336,33 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, 
         testID="checkout-form-submit"
         accessibilityRole="button"
         disabled={submitting}
-        onPress={handleSubmit}
+        onPress={() => handleSubmit('direct')}
         style={[styles.submit, { backgroundColor: colors.accent }, submitting && styles.submitDisabled]}
       >
         <Text style={[styles.submitText, { color: colors.ground }]}>{submitting ? 'Placing order…' : 'Place order'}</Text>
       </Pressable>
+
+      {/* Task 7's property 2, and the fix for the defect that shipped without
+          it: TWO controls when the shop has a number, both writing the same
+          order -- this one writes it, then opens wa.me prefilled with it.
+          Rendered only from `whatsappE164`, exactly like WhatsAppButton and
+          Ask elsewhere in this theme set -- lose the button rather than open
+          a chat with nobody. Never the only way to order: "Place order"
+          above always remains, so selling never depends on the question
+          channel. */}
+      {whatsappE164 ? (
+        <Pressable
+          testID="checkout-form-submit-whatsapp"
+          accessibilityRole="button"
+          disabled={submitting}
+          onPress={() => handleSubmit('whatsapp')}
+          style={[styles.submitWhatsapp, { backgroundColor: WHATSAPP_BUTTON_GREEN }, submitting && styles.submitDisabled]}
+        >
+          <Text style={[styles.submitWhatsappText, { color: WHATSAPP_INK }]}>
+            {submitting ? 'Placing order…' : 'Send this order on WhatsApp'}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -371,4 +406,8 @@ const styles = StyleSheet.create({
   submit: { marginTop: 14, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
   submitDisabled: { opacity: 0.6 },
   submitText: { fontSize: 14, fontWeight: '800' },
+  // WhatsApp's own fixed brand colours -- never the shop's palette, the same
+  // rule ProductActions' Ask button and WhatsAppButton follow (theme-shared.tsx).
+  submitWhatsapp: { marginTop: 10, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
+  submitWhatsappText: { fontSize: 14, fontWeight: '800' },
 });

@@ -37,7 +37,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
         error={checkout.error}
         errorCode={checkout.errorCode}
         onBack={checkout.backToBrowse}
-        onSubmit={(details) => checkout.submit(cart, details)}
+        onSubmit={(details, via) => checkout.submit(cart, details, via)}
         onEditBasket={() => {
           checkout.backToBrowse();
           setCartOpen(true);

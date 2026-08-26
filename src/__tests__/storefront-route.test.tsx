@@ -222,7 +222,7 @@ describe('storefront route', () => {
     });
 
     it('goes from browsing to a placed order on the same screen, with no route change', async () => {
-      (placeOrderViaWhatsApp as jest.Mock).mockResolvedValue(placedOrder);
+      (placeOrder as jest.Mock).mockResolvedValue(placedOrder);
       const tree = await render();
 
       await goToCheckout(tree);
@@ -238,6 +238,50 @@ describe('storefront route', () => {
       // without expo-router ever being asked for a different route.
       const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
       expect(texts).toContain('42');
+      expect(placeOrder).toHaveBeenCalledWith(
+        'xamdi',
+        expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ productId: 'p1', quantity: 1 })]) }),
+        expect.objectContaining({ name: 'Amina Warsame', phone: '+252634456789' })
+      );
+      expect(placeOrderViaWhatsApp).not.toHaveBeenCalled();
+    });
+
+    // THE REGRESSION GUARD: this shop HAS a WhatsApp number (see `shop`
+    // above), and "Place order" must still write through placeOrder, never
+    // placeOrderViaWhatsApp -- the defect that shipped branched on whether
+    // opts.whatsappE164 existed rather than on which control the customer
+    // pressed, so every order at a shop with a number was silently redirected
+    // into WhatsApp. See storefront-checkout-whatsapp-choice.test.tsx for the
+    // sibling assertion on openExternalUrl itself, through the real
+    // placeOrder/placeOrderViaWhatsApp implementations rather than this
+    // file's wholesale mock of the module.
+    it('never calls placeOrderViaWhatsApp for "Place order", even though the shop has a WhatsApp number', async () => {
+      (placeOrder as jest.Mock).mockResolvedValue(placedOrder);
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+      press(tree, 'checkout-form-submit');
+      await flush(tree);
+
+      expect(placeOrder).toHaveBeenCalledTimes(1);
+      expect(placeOrderViaWhatsApp).not.toHaveBeenCalled();
+    });
+
+    // The other half of property 2: a second, explicit control that writes
+    // the SAME order and then opens WhatsApp -- offered alongside "Place
+    // order", never instead of it.
+    it('calls placeOrderViaWhatsApp when the customer chooses "Send this order on WhatsApp"', async () => {
+      (placeOrderViaWhatsApp as jest.Mock).mockResolvedValue(placedOrder);
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+      press(tree, 'checkout-form-submit-whatsapp');
+      await flush(tree);
+
+      const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+      expect(texts).toContain('42');
       expect(placeOrderViaWhatsApp).toHaveBeenCalledWith(
         'xamdi',
         expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ productId: 'p1', quantity: 1 })]) }),
@@ -246,6 +290,33 @@ describe('storefront route', () => {
         '+252634456789'
       );
       expect(placeOrder).not.toHaveBeenCalled();
+    });
+
+    // Two rapid taps ACROSS the two controls, not just two taps of the same
+    // one -- the shared submittingRef guard in useCheckoutFlow's submit()
+    // (theme-shared.tsx) is checked before either function is chosen, so a
+    // second tap of the OTHER button while the first is still in flight must
+    // be swallowed exactly like a second tap of the same button.
+    it('places exactly one order for two rapid taps across both controls', async () => {
+      let resolveOrder!: (value: typeof placedOrder) => void;
+      (placeOrder as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveOrder = resolve;
+        })
+      );
+      const tree = await render();
+
+      await goToCheckout(tree);
+      fillRequiredCheckoutFields(tree);
+
+      press(tree, 'checkout-form-submit');
+      press(tree, 'checkout-form-submit-whatsapp');
+
+      resolveOrder(placedOrder);
+      await flush(tree);
+
+      expect(placeOrder).toHaveBeenCalledTimes(1);
+      expect(placeOrderViaWhatsApp).not.toHaveBeenCalled();
     });
 
     // Property 4. Only Ask disappears without a number -- selling never
@@ -266,8 +337,18 @@ describe('storefront route', () => {
       expect(placeOrderViaWhatsApp).not.toHaveBeenCalled();
     });
 
+    // Property 4, and the same B4 rule as WhatsAppButton/Ask: no number, no
+    // second control at all.
+    it('offers no "Send this order on WhatsApp" control when the shop has no WhatsApp number', async () => {
+      (getPublicStorefront as jest.Mock).mockResolvedValue({ ...shop, whatsappE164: null });
+      const tree = await render();
+
+      await goToCheckout(tree);
+      expect(findByTestId(tree, 'checkout-form-submit-whatsapp')).toHaveLength(0);
+    });
+
     it('keeps the cart and reports the failure rather than losing the basket on a rejected order', async () => {
-      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue(new Error('rate limited'));
+      (placeOrder as jest.Mock).mockRejectedValue(new Error('rate limited'));
       const tree = await render();
 
       await goToCheckout(tree);
@@ -317,10 +398,12 @@ describe('storefront route', () => {
     // back, synchronously, before either promise resolves, is the sharpest
     // version of that race and is what actually proves the ref-based guard
     // in useCheckoutFlow's submit() (theme-shared.tsx), not just the
-    // Pressable's `disabled` prop.
+    // Pressable's `disabled` prop. (The cross-button version of this same
+    // race is 'places exactly one order for two rapid taps across both
+    // controls' above.)
     it('places exactly one order for two rapid taps of Place order', async () => {
       let resolveOrder!: (value: typeof placedOrder) => void;
-      (placeOrderViaWhatsApp as jest.Mock).mockReturnValue(
+      (placeOrder as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveOrder = resolve;
         })
@@ -336,7 +419,7 @@ describe('storefront route', () => {
       resolveOrder(placedOrder);
       await flush(tree);
 
-      expect(placeOrderViaWhatsApp).toHaveBeenCalledTimes(1);
+      expect(placeOrder).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -356,7 +439,7 @@ describe('storefront route', () => {
       ['invalid_phone', /couldn.t recognise that phone number/i],
       ['rate_limited', /had a lot of orders/i],
     ])('turns the %s code into a sentence the customer can act on', async (code, expected) => {
-      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: code });
+      (placeOrder as jest.Mock).mockRejectedValue({ message: code });
       const tree = await render();
 
       await goToCheckout(tree);
@@ -373,7 +456,7 @@ describe('storefront route', () => {
     // (20260927000000's own comment on why) -- an unrecognised code must
     // still land somewhere honest rather than crash or show nothing.
     it('falls back to the generic message for a code with no mapping', async () => {
-      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: 'a_future_code_this_client_predates' });
+      (placeOrder as jest.Mock).mockRejectedValue({ message: 'a_future_code_this_client_predates' });
       const tree = await render();
 
       await goToCheckout(tree);
@@ -388,7 +471,7 @@ describe('storefront route', () => {
     // The action, not just the sentence: a delisted product stuck in a
     // persisted cart must not fail checkout forever.
     it('lets the customer remove the unavailable item, from right there, rather than only being told to', async () => {
-      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: 'unavailable_item' });
+      (placeOrder as jest.Mock).mockRejectedValue({ message: 'unavailable_item' });
       const tree = await render();
 
       await goToCheckout(tree);
@@ -410,7 +493,7 @@ describe('storefront route', () => {
     });
 
     it('offers no edit-basket action for an error other than unavailable_item', async () => {
-      (placeOrderViaWhatsApp as jest.Mock).mockRejectedValue({ message: 'rate_limited' });
+      (placeOrder as jest.Mock).mockRejectedValue({ message: 'rate_limited' });
       const tree = await render();
 
       await goToCheckout(tree);

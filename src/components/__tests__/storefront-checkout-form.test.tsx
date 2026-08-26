@@ -34,6 +34,7 @@ function renderForm(opts?: {
   areas?: PublicDeliveryArea[];
   onSubmit?: jest.Mock;
   submitting?: boolean;
+  whatsappE164?: string | null;
 }) {
   const onSubmit = opts?.onSubmit ?? jest.fn();
   let tree!: ReactTestRenderer;
@@ -45,6 +46,7 @@ function renderForm(opts?: {
         offersDelivery={opts?.offersDelivery ?? true}
         areas={opts?.areas ?? areas}
         submitting={opts?.submitting ?? false}
+        whatsappE164={opts?.whatsappE164 ?? null}
         onSubmit={onSubmit}
       />,
     );
@@ -102,7 +104,7 @@ describe('CheckoutForm', () => {
     fillName(tree);
     fillPhone(tree, '0634456789');
     press(tree, 'checkout-form-submit');
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ phone: '+252634456789' }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ phone: '+252634456789' }), 'direct');
   });
 
   it('displays a normalised phone through formatE164ForDisplay once it recognises the number', () => {
@@ -187,6 +189,7 @@ describe('CheckoutForm', () => {
         deliveryArea: 'Near the stadium',
         deliveryLandmark: 'Behind the blue gate',
       }),
+      'direct',
     );
   });
 
@@ -197,6 +200,7 @@ describe('CheckoutForm', () => {
     press(tree, 'checkout-form-submit');
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ fulfilment: 'collect', deliveryArea: null, deliveryLandmark: null }),
+      'direct',
     );
   });
 
@@ -250,7 +254,7 @@ describe('CheckoutForm', () => {
     fillName(tree);
     fillPhone(tree);
     press(tree, 'checkout-form-submit');
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ fulfilment: 'collect' }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ fulfilment: 'collect' }), 'direct');
   });
 
   // ── Property 6: payment is on collection or delivery ────────────────────
@@ -307,6 +311,70 @@ describe('CheckoutForm', () => {
     expect(submit.props.disabled).toBe(false);
   });
 
+  // ── Task 10 regression: two controls, one order, customer's choice ─────
+  // The defect: theme-shared.tsx chose which order function to call from
+  // whether the SHOP had a WhatsApp number, but this form only ever rendered
+  // ONE submit control -- so at any shop with a number, "Place order" was
+  // the only button on screen and every tap of it was silently redirected
+  // into WhatsApp. The fix offers a genuine second control instead, and
+  // this form's only job is to say truthfully which one was pressed.
+
+  it('renders only "Place order" when the shop has no WhatsApp number', () => {
+    const { tree } = renderForm({ whatsappE164: null });
+    expect(findByTestId(tree, 'checkout-form-submit').length).toBeGreaterThan(0);
+    expect(findByTestId(tree, 'checkout-form-submit-whatsapp')).toHaveLength(0);
+  });
+
+  it('offers both "Place order" and "Send this order on WhatsApp" when the shop has a number', () => {
+    const { tree } = renderForm({ whatsappE164: '+252634456789' });
+    expect(findByTestId(tree, 'checkout-form-submit').length).toBeGreaterThan(0);
+    expect(findByTestId(tree, 'checkout-form-submit-whatsapp').length).toBeGreaterThan(0);
+    expect(texts(tree)).toContain('Place order');
+    expect(texts(tree)).toContain('Send this order on WhatsApp');
+  });
+
+  // THE case that shipped broken: a shop WITH a number, "Place order"
+  // pressed -- must call onSubmit with 'direct', never 'whatsapp', so the
+  // caller (useCheckoutFlow) reaches placeOrder, never placeOrderViaWhatsApp.
+  it('calls onSubmit with \'direct\' for "Place order", even when the shop has a WhatsApp number', () => {
+    const { tree, onSubmit } = renderForm({ whatsappE164: '+252634456789' });
+    fillName(tree);
+    fillPhone(tree);
+    press(tree, 'checkout-form-submit');
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Amina Warsame' }), 'direct');
+  });
+
+  it('calls onSubmit with \'whatsapp\' for "Send this order on WhatsApp"', () => {
+    const { tree, onSubmit } = renderForm({ whatsappE164: '+252634456789' });
+    fillName(tree);
+    fillPhone(tree);
+    press(tree, 'checkout-form-submit-whatsapp');
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Amina Warsame' }), 'whatsapp');
+  });
+
+  it('validates before either control submits -- an incomplete form presses neither through', () => {
+    const { tree, onSubmit } = renderForm({ whatsappE164: '+252634456789' });
+    press(tree, 'checkout-form-submit-whatsapp'); // no name, no phone
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // B1's guard covers both controls, and pressing one disables the other --
+  // a re-entrant tap on the OTHER button while one order is already in
+  // flight must be blocked exactly like a second tap of the same button.
+  it('disables "Send this order on WhatsApp" too while an order is being placed', () => {
+    const { tree } = renderForm({ whatsappE164: '+252634456789', submitting: true });
+    const [direct] = findByTestId(tree, 'checkout-form-submit');
+    const [whatsapp] = findByTestId(tree, 'checkout-form-submit-whatsapp');
+    expect(direct.props.disabled).toBe(true);
+    expect(whatsapp.props.disabled).toBe(true);
+  });
+
+  it('leaves "Send this order on WhatsApp" enabled when nothing is in flight', () => {
+    const { tree } = renderForm({ whatsappE164: '+252634456789', submitting: false });
+    const [whatsapp] = findByTestId(tree, 'checkout-form-submit-whatsapp');
+    expect(whatsapp.props.disabled).toBe(false);
+  });
+
   // ── B5: the optional note ────────────────────────────────────────────────
   // place_storefront_order already reads p_customer->>'note' and has its own
   // invalid_note code (20260927000000_place_order.sql) -- this only proves
@@ -319,7 +387,7 @@ describe('CheckoutForm', () => {
     fillPhone(tree);
     setText(tree, 'checkout-form-note-input', '  Ring the bell, don\'t call  ');
     press(tree, 'checkout-form-submit');
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ note: "Ring the bell, don't call" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ note: "Ring the bell, don't call" }), 'direct');
   });
 
   it('submits a null note, not an empty string, when the customer leaves it blank', () => {
@@ -327,7 +395,7 @@ describe('CheckoutForm', () => {
     fillName(tree);
     fillPhone(tree);
     press(tree, 'checkout-form-submit');
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ note: null }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ note: null }), 'direct');
   });
 
   it('never requires a note before it will submit', () => {

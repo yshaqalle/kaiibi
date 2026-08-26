@@ -294,11 +294,16 @@ function orderErrorMessage(code: string | null): string {
 // storefront-order.ts's own comments on why that ordering is structural
 // there, not just tested behaviour here).
 //
-// Property 4: a shop with no WhatsApp number still takes orders. The choice
-// between the two order functions is made ONCE, here, from
-// `whatsappE164` -- never from whether a customer happened to type
-// something -- mirroring the same guard WhatsAppButton and ProductActions
-// already apply to Ask.
+// Property 4: a shop with no WhatsApp number still takes orders -- and
+// property 2: a shop WITH one offers a genuine choice, not a redirect. The
+// choice between the two order functions is made by `via`, the argument
+// CheckoutForm's onSubmit hands back to say which of its two controls the
+// customer actually pressed -- never re-derived here from whether
+// `opts.whatsappE164` merely exists. (It shipped once as exactly that
+// re-derivation -- `opts.whatsappE164 ? viaWhatsApp : placeOrder` with no
+// `via` at all -- which silently sent every order at a shop with a number
+// through WhatsApp, because CheckoutForm only ever rendered the one button
+// that could reach here. See submit() below for the fix.)
 export function useCheckoutFlow(opts: {
   slug: string;
   shopName: string;
@@ -331,14 +336,19 @@ export function useCheckoutFlow(opts: {
     setStage('browse');
   }
 
-  async function submit(cart: StorefrontCart, details: CheckoutDetails) {
+  async function submit(cart: StorefrontCart, details: CheckoutDetails, via: 'direct' | 'whatsapp') {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     setErrorCode(null);
     try {
-      const placed = opts.whatsappE164
+      // Branches on `via` -- what the customer pressed -- not on whether
+      // `opts.whatsappE164` exists. The `&& opts.whatsappE164` here is only
+      // a type narrow for placeOrderViaWhatsApp's required string param: the
+      // WhatsApp control in CheckoutForm cannot render, and so `via` cannot
+      // be 'whatsapp', unless a number is already present.
+      const placed = via === 'whatsapp' && opts.whatsappE164
         ? await placeOrderViaWhatsApp(opts.slug, cart, details, opts.shopName, opts.whatsappE164)
         : await placeOrder(opts.slug, cart, details);
       opts.onOrderPlaced();
@@ -383,7 +393,7 @@ export function CheckoutScreen({
   // else is just the sentence.
   errorCode?: string | null;
   onBack: () => void;
-  onSubmit: (details: CheckoutDetails) => void;
+  onSubmit: (details: CheckoutDetails, via: 'direct' | 'whatsapp') => void;
   // B2/B7: reopens the basket on 'unavailable_item' so removing the stale
   // line is one tap away, not a message the customer has to act on by
   // guessing where to go. Optional so a caller mid-migration (and every
@@ -419,6 +429,7 @@ export function CheckoutScreen({
           offersDelivery={storefront.offersDelivery}
           areas={areas}
           submitting={submitting}
+          whatsappE164={storefront.whatsappE164}
           onSubmit={onSubmit}
         />
         {submitting ? <Text style={[styles.screenHint, { color: colors.muted }]}>Placing your order…</Text> : null}
