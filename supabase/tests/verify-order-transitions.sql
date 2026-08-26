@@ -297,6 +297,12 @@ declare
   v_entry_goods_del uuid;  -- the sale's own entry (4000/5000/1200/the tender)
   v_entry_fee_del   uuid;  -- the fee's entry (4300/the tender), from orders.delivery_entry_id
   v_bad             text;
+
+  -- ── Checks 43-44: the residual half of the Critical fix -- provenance ──
+  v_counter_sale_id    uuid;  -- a REAL counter sale, v_shop_id's own, never attached to any order
+  v_je_before_43       integer;
+  v_je_after_counter43 integer;
+  v_je_after_43        integer;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -1348,13 +1354,26 @@ begin
   -- orders.sale_id: the same sale id cannot be written onto a SECOND order,
   -- which is how one sale's money could otherwise be made to look like it
   -- settled two orders' worth of goods.
+  --
+  -- 20260928000500_order_completion_provenance.sql's own guard would ALSO
+  -- refuse this raw update (no storefront_order_completions row names this
+  -- (order, sale) pair), and would refuse it earlier, at invalid_order_
+  -- transition -- which would mean the unique index below is never actually
+  -- reached, and this check would stop isolating what it claims to. A
+  -- provenance row is manufactured by hand here (as postgres -- the only
+  -- role that could ever write one) naming exactly this pair, so the
+  -- provenance guard passes and the unique index is what the row is left to
+  -- fail on, same as before that migration existed.
   perform set_config('role', 'postgres', true);
+  insert into public.storefront_order_completions (order_id, sale_id)
+    values (v_short_id, v_sale_collect);
   v_raised := false;
   begin
     update public.orders set status = 'completed', sale_id = v_sale_collect where id = v_short_id;
   exception
     when unique_violation then v_raised := true;
   end;
+  delete from public.storefront_order_completions where order_id = v_short_id;
   perform set_config('role', 'authenticated', true);
   if not v_raised then
     raise exception 'FAIL: the same sale settled two different orders';
@@ -1440,11 +1459,118 @@ begin
   end if;
 
   -- ══════════════════════════════════════════════════════════════════════
-  -- The money-handling review's Critical finding continues to check 39/40
-  -- above; this is the plan-downgrade check, unrelated to it, kept last.
+  -- The money-handling review's Critical finding continues to checks 39/40
+  -- above and 42/43 below -- placed here, before the plan-downgrade check,
+  -- because both need a raw write to `orders` to reach the trigger at all,
+  -- and 44 below moves the shop off the storefront plan, at which point
+  -- orders_module (20260926000050_orders.sql) refuses EVERY write to
+  -- `orders`, direct or through an RPC, before enforce_order_transition ever
+  -- runs. That would refuse checks 42/43 too, but with module_not_included
+  -- instead of invalid_order_transition -- the right verdict for the wrong
+  -- reason, which is not what either check claims to prove.
   -- ══════════════════════════════════════════════════════════════════════
 
-  -- ------------------------------------------------ 42. a de-entitled shop stops moving AND completing its own orders
+  -- ------------------------------------------------ 42. THE EXACT REPRODUCTION: a shop's OWN genuine, never-used sale marks nothing complete
+  -- Checks 39/40 each isolate ONE of the two guards 20260928000300 added --
+  -- another shop's sale (39), the same sale twice (40) -- and neither uses a
+  -- sale that is simultaneously the order's own shop's AND unused. That
+  -- combination is exactly what the review's own reproduction used, and it
+  -- is what checks 39/40 could not catch: both of THEIR guards pass a sale
+  -- that is this shop's own and has never settled anything.
+  --
+  -- v_short_id is still 'ready' with no sale attached -- checks 39/40 both
+  -- left it refused there. v_counter_sale_id is a REAL counter sale, rung up
+  -- the ordinary way through complete_sale (the same function
+  -- complete_storefront_order itself calls), posting its own genuine journal
+  -- entry, with nothing to do with any order.
+  select count(*) into v_je_before_43 from public.journal_entries where shop_id = v_shop_id;
+  v_counter_sale_id := public.complete_sale(
+    p_shop_id      => v_shop_id,
+    p_items        => jsonb_build_array(jsonb_build_object(
+                        'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 2000)),
+    p_payments     => jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000)),
+    p_location_id  => v_loc_id);
+  select count(*) into v_je_after_counter43 from public.journal_entries where shop_id = v_shop_id;
+  if v_je_after_counter43 <> v_je_before_43 + 1 then
+    raise exception 'FAIL: FIXTURE -- the counter sale did not post its own entry';
+  end if;
+
+  -- The attack, word for word: attach that sale and mark the order
+  -- 'completed' with nothing else in the statement. As postgres -- this
+  -- file's own stand-in throughout (see check 15) for "authenticated with
+  -- orders' revoked grant restored" -- because the point of this migration
+  -- is that revoking the grant on `orders` was never the only thing holding
+  -- this shut, and closing the residual hole must not depend on it either.
+  perform set_config('role', 'postgres', true);
+  v_raised := false;
+  v_detail := null;
+  begin
+    update public.orders set status = 'completed', sale_id = v_counter_sale_id where id = v_short_id;
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  perform set_config('role', 'authenticated', true);
+  if not v_raised then
+    raise exception 'FAIL: a ready order was completed by attaching the shop''s OWN genuine, unused sale directly (refused with %, expected invalid_order_transition)', v_detail;
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_short_id;
+  if v_detail <> 'ready' or v_result.sale_id is not null then
+    raise exception 'FAIL: a refused same-shop sale attach still left the order at % with sale %', v_detail, v_result.sale_id;
+  end if;
+
+  -- And nothing extra reached the ledger: the counter sale's own entry from
+  -- above is the only one this attempt could have added to, and it did not.
+  select count(*) into v_je_after_43 from public.journal_entries where shop_id = v_shop_id;
+  if v_je_after_43 <> v_je_after_counter43 then
+    raise exception 'FAIL: the refused attach still posted to the shop''s ledger (% -> % journal entries)',
+      v_je_after_counter43, v_je_after_43;
+  end if;
+
+  -- ------------------------------------------------ 43. a completion mark from a DIFFERENT transaction does not authorise this one
+  -- 20260928000500_order_completion_provenance.sql's guard does not just
+  -- check that SOME row in storefront_order_completions names this order and
+  -- this sale -- it requires that row's xact_id to be the CURRENT
+  -- transaction's, which is what stops a mark left behind by an earlier,
+  -- already-finished transaction from authorising an unrelated statement
+  -- later. Manufactured directly here (as postgres -- the table grants
+  -- nothing to `authenticated`, not even SELECT, regardless of what is
+  -- granted on `orders` itself) with an xact_id nowhere near
+  -- pg_current_xact_id()'s real value, standing in for "written by some
+  -- other, already-committed transaction" without this self-contained,
+  -- single-transaction file needing a second real connection to prove it.
+  --
+  -- v_short_id is still 'ready' with no sale attached; v_counter_sale_id is
+  -- still unused (check 42's own attempt was refused before ever writing
+  -- anything). Both are safe to reuse for a second, differently-shaped
+  -- attack.
+  perform set_config('role', 'postgres', true);
+  insert into public.storefront_order_completions (order_id, sale_id, xact_id)
+    values (v_short_id, v_counter_sale_id, '1'::xid8);
+
+  v_raised := false;
+  v_detail := null;
+  begin
+    update public.orders set status = 'completed', sale_id = v_counter_sale_id where id = v_short_id;
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  delete from public.storefront_order_completions where order_id = v_short_id;
+  perform set_config('role', 'authenticated', true);
+  if not v_raised then
+    raise exception 'FAIL: a completion mark stamped by a different transaction still authorised this one (refused with %, expected invalid_order_transition)', v_detail;
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_short_id;
+  if v_detail <> 'ready' or v_result.sale_id is not null then
+    raise exception 'FAIL: a refused stale-provenance attach still left the order at % with sale %', v_detail, v_result.sale_id;
+  end if;
+
+  -- ------------------------------------------------ 44. a de-entitled shop stops moving AND completing its own orders
   -- Last on purpose, same reason verify-orders.sql leaves its own version
   -- last: it moves the shop under test off the plan every check above
   -- depends on. As postgres: authenticated holds no grant on

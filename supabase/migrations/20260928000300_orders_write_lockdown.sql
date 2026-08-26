@@ -73,7 +73,30 @@
 -- orders_status_transition's INSERT branch being the only thing stopping
 -- them -- the same class of gap this migration exists to close, just moved
 -- one verb over. So all three go.
-
+--
+-- ── What breaks if a future migration re-grants this ────────────────────
+--
+-- These two lines are the ENTIRE reason `transition_order` and
+-- `complete_storefront_order` are the only doors onto this table. Undo them
+-- -- even innocuously, by a future migration that copies an old
+-- `grant insert, update, delete on public.orders to authenticated` pattern
+-- without reading this far -- and Layer 1 is gone: any shop member can once
+-- again write `orders`/`order_items` directly, through the "own orders" RLS
+-- policy this migration deliberately left standing (it was never the real
+-- defence, this revoke was).
+--
+-- Layer 2 does NOT fully cover for that. The same-shop and one-sale-one-order
+-- checks below stop a re-granted `authenticated` from attaching another
+-- shop's sale, or the same sale twice -- but NOT from attaching one of the
+-- shop's OWN, never-used sales to mark a `ready` order 'completed' with
+-- nothing posted for the order's own goods. That residual hole -- the exact
+-- reproduction from the money-handling review -- is what
+-- 20260928000500_order_completion_provenance.sql closes, with a check that
+-- does not depend on any grant here either. Restoring the grant on `orders`
+-- still degrades this table back to plain-RLS reachability for everything
+-- Layer 2 does NOT independently re-derive (see that migration's header for
+-- the rest), so restoring it is still a real regression, not a harmless
+-- convenience -- just no longer a way to complete an order for free.
 revoke insert, update, delete on public.orders from authenticated;
 revoke insert, update, delete on public.order_items from authenticated;
 
