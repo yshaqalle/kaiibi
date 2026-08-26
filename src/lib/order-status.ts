@@ -15,6 +15,15 @@ import type { OrderStatus } from './storefront-admin';
 // (`jest.mock('@/lib/storefront-admin')`, no factory), which silently
 // replaces a plain array export with an empty one. Pulling OrderStatus in as
 // a `type` import keeps this file itself free of both problems, so every
-// consumer -- storefront-admin.ts, attention.ts, orders.tsx -- can import the
-// one real value instead of hand-keeping a copy in sync by comment.
+// consumer can import the one real value instead of hand-keeping a copy in
+// sync by comment.
+//
+// N3 narrowed who that is: storefront-admin.ts uses this array itself, in
+// countOrdersNeedingAction's own `.in('status', ORDERS_NEEDING_ACTION)`, and
+// re-exports it for orders.tsx's own unconfirmedOrders filter (which needs
+// the actual matching rows, to sum their totals -- not just a count).
+// attention.ts, dashboard.tsx and settings-sidebar.tsx no longer import this
+// at all: the filtering they needed moved server-side, into
+// countOrdersNeedingAction, so what reaches them is already the integer they
+// were computing this array down to.
 export const ORDERS_NEEDING_ACTION: OrderStatus[] = ['pending', 'accepted', 'ready'];

@@ -434,10 +434,6 @@ function mapOrderRow(row: {
 // importers of storefront-admin.ts see no change.
 export { ORDERS_NEEDING_ACTION };
 
-export function ordersNeedingActionCount(orders: ShopOrder[]): number {
-  return orders.filter((order) => ORDERS_NEEDING_ACTION.includes(order.status)).length;
-}
-
 // RLS ("own orders", 20260926000050) already narrows this to the caller's own
 // shop; the `eq` here is what makes the QUERY itself scoped rather than
 // relying on RLS alone to filter a table-wide select. Newest first -- the
@@ -453,6 +449,29 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((row) => mapOrderRow(row as never));
+}
+
+// N3: the badge on Settings -> Orders and the attention row on the dashboard
+// both used to be `listOrders(shopId).length` after a client-side filter --
+// every column, every order the shop has EVER placed, all its nested
+// order_items, fetched on every focus, to produce one integer. This is the
+// same count, read as a count: PostgREST's `head: true` skips the row
+// payload entirely and returns only Content-Range, so the response is a
+// number, not a table. `.in()` does the ORDERS_NEEDING_ACTION filtering
+// server-side rather than client-side, so there is no array here to dedupe
+// against the three places that used to re-inline it (attention.ts,
+// settings-sidebar.tsx, orders.tsx's own unconfirmedOrders) -- two of those
+// three now call this instead, and orders.tsx's is a different question (the
+// SUM of unconfirmed totals, not merely their count), which still needs the
+// full rows this function deliberately no longer fetches.
+export async function countOrdersNeedingAction(shopId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('shop_id', shopId)
+    .in('status', ORDERS_NEEDING_ACTION);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 // Task 6: the lines a shop must pull off the shelf, at the price the customer
@@ -549,6 +568,91 @@ export async function completeOrder(orderId: string, paymentMethod: PaymentMetho
     p_payment_method: paymentMethod,
   });
   if (error) throw error;
+}
+
+// The sentence a shopkeeper reads when an order move is refused.
+//
+// transition_order and complete_storefront_order (20260928000100 /
+// 20260928000200 / 20260928000600) raise a short snake_case code plus a JSON
+// `detail` -- built for a client to translate, not for a shop to read
+// verbatim. Before this, orders.tsx's runAction passed `err.message` straight
+// through, so a shop saw the literal token: `insufficient_stock`,
+// `order_total_changed`, `invalid_order_transition`. This is the translation,
+// the same role checkoutErrorMessage (checkout-errors.ts) plays for
+// complete_sale's own refusals and describePlanError (entitlements.ts) plays
+// for a plan/module refusal -- each says what the shop can DO, not what went
+// wrong.
+//
+// `module_not_included` is deliberately NOT handled here: describePlanError
+// already recognises it (parseModuleNotIncluded) and runAction chains this
+// AFTER that call, the house pattern at entitlements.ts:273 --
+// `describePlanError(err) ?? orderErrorMessage(err) ?? extractErrorMessage(err, fallback)`.
+// A second case for the same code here would just be a second copy of that
+// wording, waiting to drift from the first.
+//
+// Returns null for anything unrecognised, so a caller keeps its existing
+// fallback intact -- a network drop or a code this function does not yet
+// know about must not be swallowed into a generic sentence that hides what
+// actually happened from whoever reads the next bug report.
+export function orderErrorMessage(err: unknown): string | null {
+  const e = err as { message?: unknown; details?: unknown; detail?: unknown } | null;
+  if (!e || typeof e !== 'object' || typeof e.message !== 'string') return null;
+
+  // PostgREST surfaces a raised exception's DETAIL as `details` (parseLimitReached,
+  // entitlements.ts, established this shape first) -- `detail` is read too, in
+  // case a future PostgREST version or a differently-shaped client renames it.
+  const raw = typeof e.details === 'string' ? e.details : typeof e.detail === 'string' ? e.detail : null;
+  let detail: Record<string, unknown> | null = null;
+  if (raw) {
+    try {
+      detail = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      detail = null;
+    }
+  }
+
+  switch (e.message) {
+    case 'insufficient_stock':
+      // The short items are already named per-line, above this message
+      // (order-detail.tsx's own shortfall rows) -- this only says what to do
+      // about them.
+      return "There isn't enough stock to complete this order. Restock the short item(s) above, or cancel the order if you can't get more in time.";
+
+    case 'order_total_changed':
+      // B1's known, accepted limitation: complete_sale re-prices from today's
+      // products.price_cents and adds the shop's own tax, while the order was
+      // quoted tax-exclusive at checkout time -- so a tax-charging shop hits
+      // this on every order until a later branch teaches checkout about tax.
+      // Said as "these prices have moved", never the raw code.
+      return "This order's total no longer matches what the customer was quoted at checkout -- most likely a price changed, or your shop charges tax that the storefront didn't add at checkout. Confirm the amount with the customer before completing it.";
+
+    case 'order_product_deleted': {
+      const products = typeof detail?.products === 'string' ? detail.products : 'A product on this order';
+      return `${products} no longer exists in your catalogue, so this order can't be completed as it stands. Cancel it and ask the customer to reorder, or add the product back first.`;
+    }
+
+    case 'order_has_no_items':
+      return "This order has nothing left to complete. Cancel it instead.";
+
+    case 'invalid_payment_method':
+      return 'Pick a payment method before completing this order.';
+
+    case 'invalid_order_transition':
+      // The likeliest real cause named directly, per the review: someone else
+      // on the team already acted on this order (another phone, another
+      // till) -- including a completion that committed while a response
+      // timed out, which makes a retry read as "already done", not "failed".
+      return "This order has already moved on -- most likely someone else on your team already acted on it, or this exact action already went through a moment ago. Close this and check its current status before trying again.";
+
+    case 'cancellation_reason_required':
+      return 'Enter a reason before cancelling this order.';
+
+    case 'pos_access_required':
+      return "Completing an order needs POS access, which your account doesn't have. Ask an owner or manager to complete it, or to grant you POS access.";
+
+    default:
+      return null;
+  }
 }
 
 // Task 3: what a shop needs to know before "accept" is offered -- which

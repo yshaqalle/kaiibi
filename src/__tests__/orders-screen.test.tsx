@@ -13,7 +13,7 @@ jest.mock('@/lib/storefront-admin');
 // fetch of its own for WHICH shop it is showing orders for, same as every
 // other (admin) route.
 jest.mock('@/hooks/use-auth', () => ({
-  useAuth: jest.fn(() => ({ shop: { id: 'shop-1' } })),
+  useAuth: jest.fn(() => ({ shop: { id: 'shop-1' }, can: () => true })),
 }));
 
 import { OrderDetail } from '@/components/orders/order-detail';
@@ -27,6 +27,7 @@ import {
   getOrderItems,
   listOrders,
   markOrderReady,
+  orderErrorMessage,
   type ShopOrder,
 } from '@/lib/storefront-admin';
 import OrdersScreen from '@/app/(admin)/orders';
@@ -95,7 +96,7 @@ const ORDER: ShopOrder = {
 describe('Orders screen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 'shop-1' } });
+    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 'shop-1' }, can: () => true });
     (getOrderItems as jest.Mock).mockResolvedValue([]);
     (checkOrderFulfilment as jest.Mock).mockResolvedValue([]);
   });
@@ -356,6 +357,86 @@ describe('Orders screen', () => {
       });
       expect(tree.root.findAllByType(OrderDetail)).toHaveLength(1);
       expect(tree.root.findByType(OrderDetail).props.actionError).toBeTruthy();
+    });
+
+    // B1: runAction chains orderErrorMessage (storefront-admin.ts) ahead of
+    // its own per-action fallback, so a typed database code reaches the shop
+    // as a sentence, not `err.message` verbatim. storefront-admin.ts is
+    // automocked in this file (see the header comment) -- content coverage
+    // for every code lives in storefront-admin.test.ts; this proves the
+    // WIRING, that whatever orderErrorMessage returns wins over the fallback.
+    it("uses orderErrorMessage's mapped sentence instead of the raw code or the generic fallback", async () => {
+      (listOrders as jest.Mock).mockResolvedValue([ORDER]);
+      (acceptOrder as jest.Mock).mockRejectedValue({ message: 'invalid_order_transition' });
+      (orderErrorMessage as jest.Mock).mockReturnValue('Someone else on your team already moved this order.');
+      const tree = await renderScreen();
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onRowPress(ORDER);
+      });
+      await act(async () => {
+        tree.root.findByType(OrderDetail).props.onAccept();
+      });
+      expect(tree.root.findByType(OrderDetail).props.actionError).toBe('Someone else on your team already moved this order.');
+    });
+
+    // N1: a shortfall check is only meaningful while an order still needs
+    // filling -- a completed order's own completion already decremented that
+    // exact stock, so there is nothing left to check.
+    it('does not check fulfilment for a completed order -- there is nothing left to fill', async () => {
+      const done = { ...ORDER, status: 'completed' as const };
+      (listOrders as jest.Mock).mockResolvedValue([done]);
+      const tree = await renderScreen();
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onRowPress(done);
+      });
+      expect(checkOrderFulfilment).not.toHaveBeenCalled();
+      expect(tree.root.findByType(OrderDetail).props.shortfalls).toEqual([]);
+    });
+
+    it('does not check fulfilment for a cancelled order either', async () => {
+      const cancelled = { ...ORDER, status: 'cancelled' as const, cancellationReason: 'Out of stock' };
+      (listOrders as jest.Mock).mockResolvedValue([cancelled]);
+      const tree = await renderScreen();
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onRowPress(cancelled);
+      });
+      expect(checkOrderFulfilment).not.toHaveBeenCalled();
+    });
+
+    it('still checks fulfilment for an order that needs action', async () => {
+      (listOrders as jest.Mock).mockResolvedValue([ORDER]);
+      const tree = await renderScreen();
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onRowPress(ORDER);
+      });
+      expect(checkOrderFulfilment).toHaveBeenCalledWith('shop-1', 'order-1');
+    });
+
+    // B2: /orders is gated on settings.access, but completing an order needs
+    // pos.access. This screen owns the one call to can() -- OrderDetail gets
+    // told, not asked.
+    describe('pos.access reaches OrderDetail', () => {
+      it("passes hasPosAccess through from can('pos.access')", async () => {
+        (useAuth as jest.Mock).mockReturnValue({
+          shop: { id: 'shop-1' },
+          can: (permission: string) => permission !== 'pos.access',
+        });
+        (listOrders as jest.Mock).mockResolvedValue([ORDER]);
+        const tree = await renderScreen();
+        await act(async () => {
+          tree.root.findByType(DataTable).props.onRowPress(ORDER);
+        });
+        expect(tree.root.findByType(OrderDetail).props.hasPosAccess).toBe(false);
+      });
+
+      it("passes hasPosAccess=true through when the member does have it", async () => {
+        (listOrders as jest.Mock).mockResolvedValue([ORDER]);
+        const tree = await renderScreen();
+        await act(async () => {
+          tree.root.findByType(DataTable).props.onRowPress(ORDER);
+        });
+        expect(tree.root.findByType(OrderDetail).props.hasPosAccess).toBe(true);
+      });
     });
   });
 });

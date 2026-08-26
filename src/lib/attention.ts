@@ -1,16 +1,7 @@
 import { billDueState } from '@/lib/cash-budget-reporting';
 import { balanceCents, invoiceStatus } from '@/lib/invoice-reporting';
 import type { BudgetRow } from '@/lib/cash-budget-reporting';
-import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { varianceTone } from '@/lib/register-sessions';
-// Type-only: a runtime import of storefront-admin.ts would drag in
-// lib/supabase.ts, which throws at import time without live env vars (see
-// that file's own guard) -- every test that imports attention.ts, directly
-// or through dashboard.tsx, would need a supabase mock it has no other
-// reason to carry. `type` keeps this to a compile-time reference; the actual
-// value -- ORDERS_NEEDING_ACTION, imported above -- lives in
-// lib/order-status.ts instead, which has no such dependency.
-import type { OrderStatus } from '@/lib/storefront-admin';
 import type { Customer, Invoice, Product, RecurringBill, RegisterSession, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // What needs attention right now, as pure functions over already-fetched rows.
@@ -64,11 +55,16 @@ export type AttentionInput = {
   expiringSoon: Product[];
   // Customers
   dormant: { customer: Customer; lastOrderAt: string }[];
-  // Storefront (Task 7). Every order the shop has, not pre-filtered -- same
-  // convention as openInvoices/closedSessions: buildAttentionItems below
-  // decides which ones count, so that decision lives in one place next to
-  // its own test rather than in every caller.
-  storefrontOrders: { status: OrderStatus }[];
+  // Storefront (Task 7). N3: this used to be every order the shop has ever
+  // placed (storefrontOrders: { status: OrderStatus }[]), filtered right
+  // here -- the same rule ORDERS_NEEDING_ACTION (order-status.ts) names, and
+  // the same one orders.tsx and settings-sidebar.tsx each re-inlined their
+  // own copy of. Callers now do that filtering AT THE QUERY
+  // (countOrdersNeedingAction, storefront-admin.ts, `.in('status', ...)`
+  // server-side) rather than fetching every column of every order just to
+  // find one integer, so what arrives here is already the count, not
+  // something left for this function to re-derive.
+  ordersNeedingActionCount: number;
   today?: Date;
 };
 
@@ -181,17 +177,16 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
   // the same call the dormant-customers row below makes, and for the same
   // reason: a shop with five new orders needs to know that, not read past
   // five rows on the way to the register-drawer variance.
-  const ordersNeedingAction = input.storefrontOrders.filter((order) => ORDERS_NEEDING_ACTION.includes(order.status));
-  if (ordersNeedingAction.length > 0) {
+  if (input.ordersNeedingActionCount > 0) {
     items.push({
       key: 'storefront-orders',
       severity: 'act',
       area: 'orders',
       action: 'Review',
       title:
-        ordersNeedingAction.length === 1
+        input.ordersNeedingActionCount === 1
           ? '1 storefront order needs action'
-          : `${ordersNeedingAction.length} storefront orders need action`,
+          : `${input.ordersNeedingActionCount} storefront orders need action`,
       detail: 'New orders wait to be accepted, prepped ones wait to be handed over.',
     });
   }

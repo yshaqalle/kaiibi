@@ -51,6 +51,7 @@ function renderDetail(props: Partial<Parameters<typeof OrderDetail>[0]> = {}): R
         itemsLoading={false}
         itemsError={null}
         shortfalls={[]}
+        hasPosAccess
         onClose={jest.fn()}
         onAccept={jest.fn()}
         onMarkReady={jest.fn()}
@@ -157,6 +158,40 @@ describe('OrderDetail', () => {
     expect(texts(renderDetail({ shortfalls: [] }))).not.toMatch(/short by/i);
   });
 
+  // N1: a shortfall is what the shop still cannot fill -- it stops meaning
+  // that once the order is resolved. A just-completed order shows this for
+  // the exact stock its OWN completion decremented; a cancelled order was
+  // never going to be filled at all. Both the per-line text and the summary
+  // caveat must be gated the same way, not just the summary.
+  describe('shortfalls stop showing once the order is resolved', () => {
+    const shortfalls: OrderShortfall[] = [{ productId: 'p1', productName: 'Rice 5kg', quantity: 2, available: 0, shortBy: 2 }];
+
+    it('hides the per-line shortfall text on a completed order, even if the shortfall data is still there', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'completed' }, shortfalls }));
+      expect(t).not.toMatch(/short by/i);
+    });
+
+    it('hides the per-line shortfall text on a cancelled order', () => {
+      const t = texts(
+        renderDetail({ order: { ...ORDER, status: 'cancelled', cancellationReason: 'Out of stock' }, shortfalls })
+      );
+      expect(t).not.toMatch(/short by/i);
+    });
+
+    it('still shows the shortfall text on a pending order -- resolved orders only', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'pending' }, shortfalls }));
+      expect(t).toMatch(/short by/i);
+    });
+
+    it('hides a deleted-product shortfall row on a completed order too', () => {
+      const nullProductShortfalls: OrderShortfall[] = [
+        { productId: null, productName: 'Discontinued kettle', quantity: 1, available: 0, shortBy: 1 },
+      ];
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'completed' }, shortfalls: nullProductShortfalls }));
+      expect(t).not.toContain('Discontinued kettle');
+    });
+  });
+
   // Property 4: actions match the state machine exactly -- pending -> accepted
   // is the only legal move (20260928000100_order_transitions.sql), plus
   // cancellation, which is legal from pending/accepted/ready alike.
@@ -200,6 +235,45 @@ describe('OrderDetail', () => {
       expect(find(tree, 'Complete')).toBeFalsy();
       expect(find(tree, 'Cancel order')).toBeFalsy();
       expect(texts(tree)).toContain('Out of stock');
+    });
+  });
+
+  // B2: /orders is gated on settings.access, but completing an order needs
+  // pos.access (complete_sale's own rule). A member who lacks it must not
+  // see a Complete button that always fails -- "a button that fails is worse
+  // than no button" applies here exactly as it does to canAccept/canMarkReady
+  // for a status the order itself refuses.
+  describe('pos.access gates Complete', () => {
+    it('offers Complete on a ready order when the member has pos.access', () => {
+      const tree = renderDetail({ order: { ...ORDER, status: 'ready' }, hasPosAccess: true });
+      expect(find(tree, 'Complete')).toBeTruthy();
+    });
+
+    it('hides Complete on a ready order when the member lacks pos.access', () => {
+      const tree = renderDetail({ order: { ...ORDER, status: 'ready' }, hasPosAccess: false });
+      expect(find(tree, 'Complete')).toBeFalsy();
+    });
+
+    // Says briefly why, so the member knows to ask someone rather than
+    // assume the app is broken -- the review's own requirement.
+    it('says why there is no Complete button, rather than nothing at all', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'ready' }, hasPosAccess: false }));
+      expect(t).toMatch(/pos access/i);
+    });
+
+    // Cancel must still be offered -- lacking pos.access is not the same as
+    // lacking every permission over this order.
+    it('still offers Cancel on a ready order with no pos.access', () => {
+      const tree = renderDetail({ order: { ...ORDER, status: 'ready' }, hasPosAccess: false });
+      expect(find(tree, 'Cancel order')).toBeTruthy();
+    });
+
+    // No explanatory note on a status where Complete was never going to be
+    // offered anyway -- that would be noise, not an answer to anything the
+    // member asked.
+    it('says nothing about pos.access on a pending order', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'pending' }, hasPosAccess: false }));
+      expect(t).not.toMatch(/pos access/i);
     });
   });
 

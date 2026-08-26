@@ -54,7 +54,7 @@ import { profitAndLoss } from '@/lib/pnl';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
 import { formatRangeLabel } from '@/lib/range-label';
 import { WEEK_ORDER, type OpeningHours } from '@/lib/store-hours';
-import { listOrders, type ShopOrder } from '@/lib/storefront-admin';
+import { countOrdersNeedingAction } from '@/lib/storefront-admin';
 import type { SearchResult } from '@/lib/search';
 import { getDailyTotalsCents, getMonthToDateRevenueCents, getSalesAndRefundsInRange, listSales } from '@/lib/sales';
 import {
@@ -231,10 +231,12 @@ export default function DashboardScreen() {
   // into weeks after the fact.
   const [monthDaily, setMonthDaily] = useState<DailyBucket[]>([]);
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
-  // Task 7. Every order, unfiltered -- buildAttentionItems decides which
-  // ones still need the shop, the same convention every other section here
-  // already follows (see its own comment on storefrontOrders).
-  const [storefrontOrders, setStorefrontOrders] = useState<ShopOrder[]>([]);
+  // Task 7 / N3. Used to be every order the shop ever placed, all columns
+  // plus nested order_items, fetched on every focus to feed one filter in
+  // buildAttentionItems -- countOrdersNeedingAction (storefront-admin.ts)
+  // does that filtering server-side and returns the integer this screen
+  // actually needs.
+  const [ordersNeedingActionCount, setOrdersNeedingActionCount] = useState(0);
   // Only sessions that closed out of balance ever land here — see the note in
   // buildAttentionItems for why a balanced day shows nothing at all.
   const [closedSessions, setClosedSessions] = useState<
@@ -445,7 +447,7 @@ export default function DashboardScreen() {
     // shop with it but a failed fetch loses only this row, not the screen.
     if (canSeeOrders) {
       await attempt('orders', async () => {
-        setStorefrontOrders(await listOrders(shop.id));
+        setOrdersNeedingActionCount(await countOrdersNeedingAction(shop.id));
       });
     }
 
@@ -733,7 +735,7 @@ export default function DashboardScreen() {
     lowStock,
     expiringSoon,
     dormant,
-    storefrontOrders,
+    ordersNeedingActionCount,
   });
 
   // Where a global-search hit goes. Each kind lands on the screen that owns

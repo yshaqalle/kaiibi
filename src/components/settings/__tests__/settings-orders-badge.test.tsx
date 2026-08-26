@@ -13,15 +13,16 @@ jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 // invoices-payable-caveat.test.tsx uses for the same reason.
 jest.mock('expo-router', () => ({ useFocusEffect: () => {} }));
 
-let mockOrderStatuses: string[] = [];
-const mockListOrders = jest.fn((_shopId: string) => Promise.resolve(mockOrderStatuses.map((status, i) => ({ id: `o${i}`, status }))));
-// A factory, not a bare `jest.mock('@/lib/storefront-admin')` automock --
-// automock silently replaces ORDERS_NEEDING_ACTION (a plain array export)
-// with an empty one, which is exactly the trap storefront-admin.ts's own
-// comment on that constant documents.
+// N3: this badge used to read `listOrders(shopId).length` after a
+// client-side filter -- every order the shop has ever placed, filtered here.
+// countOrdersNeedingAction (storefront-admin.ts) does that filtering
+// server-side (`.in('status', ORDERS_NEEDING_ACTION)`) and returns the
+// integer this badge actually needs, so the mock below returns a count
+// directly rather than a list of statuses to filter.
+let mockCount = 0;
+const mockCountOrdersNeedingAction = jest.fn((_shopId: string) => Promise.resolve(mockCount));
 jest.mock('@/lib/storefront-admin', () => ({
-  listOrders: (shopId: string) => mockListOrders(shopId),
-  ORDERS_NEEDING_ACTION: ['pending', 'accepted', 'ready'],
+  countOrdersNeedingAction: (shopId: string) => mockCountOrdersNeedingAction(shopId),
 }));
 
 let mockHasModule = true;
@@ -46,9 +47,9 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
 }
 
 beforeEach(() => {
-  mockOrderStatuses = [];
+  mockCount = 0;
   mockHasModule = true;
-  mockListOrders.mockClear();
+  mockCountOrdersNeedingAction.mockClear();
 });
 
 async function renderSidebar() {
@@ -69,33 +70,31 @@ async function renderNavList() {
 
 describe('SettingsSidebar — orders badge', () => {
   it('badges the Orders nav item with the count of orders needing action', async () => {
-    mockOrderStatuses = ['pending', 'accepted', 'completed'];
+    mockCount = 2;
     const tree = await renderSidebar();
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
     expect(texts).toContain('Orders');
-    // 'completed' does not count -- property 2, a count of orders needing
-    // action, not all orders.
     expect(texts).toContain('2');
   });
 
   it('shows no badge when nothing needs action', async () => {
-    mockOrderStatuses = ['completed', 'cancelled'];
+    mockCount = 0;
     const tree = await renderSidebar();
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
     expect(texts).not.toContain('1');
     expect(texts).not.toContain('0');
   });
 
-  it('never fetches orders for a shop without the storefront module -- property 4', async () => {
+  it('never fetches the count for a shop without the storefront module -- property 4', async () => {
     mockHasModule = false;
     await renderSidebar();
-    expect(mockListOrders).not.toHaveBeenCalled();
+    expect(mockCountOrdersNeedingAction).not.toHaveBeenCalled();
   });
 });
 
 describe('SettingsNavList — orders badge', () => {
   it('badges the Orders row on the phone sheet too', async () => {
-    mockOrderStatuses = ['ready'];
+    mockCount = 1;
     const tree = await renderNavList();
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
     expect(texts).toContain('Orders');

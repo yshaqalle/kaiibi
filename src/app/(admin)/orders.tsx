@@ -12,6 +12,7 @@ import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/dat
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
+import { describePlanError } from '@/lib/entitlements';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
 // The states a shop still has something to do about -- what "unconfirmed"
 // means for the caveat below. Deliberately NOT `pending` alone: an accepted
@@ -31,6 +32,7 @@ import {
   getOrderItems,
   listOrders,
   markOrderReady,
+  orderErrorMessage,
   type OrderLine,
   type OrderStatus,
   type PaymentMethod,
@@ -114,7 +116,7 @@ const COLUMNS: Column<ShopOrder>[] = [
 ];
 
 export default function OrdersScreen() {
-  const { shop } = useAuth();
+  const { shop, can } = useAuth();
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +166,16 @@ export default function OrdersScreen() {
       setShortfalls([]);
       setActionError(null);
       setDetailLoading(true);
-      Promise.all([getOrderItems(order.id), checkOrderFulfilment(shop.id, order.id)])
+      // N1: a shortfall check is only meaningful while the order still needs
+      // filling -- a completed order already had its stock decremented by
+      // its own completion, and a cancelled order was never going to be
+      // filled at all. Skipping the query entirely (rather than fetching and
+      // letting order-detail.tsx's own gate hide it) is what actually saves
+      // the round trip, not just the render.
+      const fulfilmentCheck = UNCONFIRMED.includes(order.status)
+        ? checkOrderFulfilment(shop.id, order.id)
+        : Promise.resolve([]);
+      Promise.all([getOrderItems(order.id), fulfilmentCheck])
         .then(([items, shortfallRows]) => {
           setDetailItems(items);
           setShortfalls(shortfallRows);
@@ -194,7 +205,14 @@ export default function OrdersScreen() {
         await reload();
         closeDetail();
       } catch (err) {
-        setActionError(extractErrorMessage(err, fallback));
+        // B1: every typed error the database raises (transition_order,
+        // complete_storefront_order) reaches this catch as a raw snake_case
+        // token in `err.message` -- describePlanError first, the house
+        // pattern (entitlements.ts:273), for the two refusals that are a
+        // plan/module problem rather than an order one; orderErrorMessage
+        // second, for the order-specific codes this feature raises; the
+        // per-action fallback last, for anything neither recognises.
+        setActionError(describePlanError(err) ?? orderErrorMessage(err) ?? extractErrorMessage(err, fallback));
       } finally {
         setActionSubmitting(false);
       }
@@ -269,6 +287,7 @@ export default function OrdersScreen() {
           itemsLoading={detailLoading}
           itemsError={detailError}
           shortfalls={shortfalls}
+          hasPosAccess={can('pos.access')}
           onClose={closeDetail}
           onAccept={() => runAction(() => acceptOrder(selectedOrder.id), 'Could not accept this order.')}
           onMarkReady={() => runAction(() => markOrderReady(selectedOrder.id), 'Could not mark this order ready.')}

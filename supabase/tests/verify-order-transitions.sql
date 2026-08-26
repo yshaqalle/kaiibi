@@ -211,7 +211,12 @@
 --         its mirror is asserted to be exactly zero -- not merely "some
 --         entry somewhere changed status".
 --
---   42.   a shop whose plan no longer includes storefront may neither move
+--   44.   20260928000600: pos.access is required to COMPLETE an order, even
+--         though transition_order needs none -- a settings-only manager
+--         (settings.access, no pos.access, on a role of its own) can still
+--         accept an order but is refused by name at completion, before
+--         complete_sale is ever reached.
+--   45.   a shop whose plan no longer includes storefront may neither move
 --         an order NOR complete one, even one already sitting in its queue.
 --         Left last, same reason verify-orders.sql leaves its own version
 --         last: it moves the shop off the plan every check above depends on.
@@ -223,9 +228,16 @@ declare
   v_owner_id    uuid := gen_random_uuid();
   v_staff_id    uuid := gen_random_uuid();
   v_outsider_id uuid := gen_random_uuid();
+  -- Check 44: a member of THIS shop, active, module included -- everything
+  -- transition_order/complete_storefront_order's own membership and module
+  -- gates already wave through -- but holding a role with no `pos.access`.
+  -- 20260928000600's whole point is that this member is refused for a
+  -- reason of its own rather than by a check borrowed from complete_sale.
+  v_manager_id  uuid := gen_random_uuid();
   v_shop_id     uuid;
   v_other_shop_id uuid;
   v_role_id     uuid;
+  v_manager_role_id uuid;  -- check 44: settings.access only, no pos.access
   v_free_id     uuid;
 
   v_order_id    uuid;  -- the main fixture, walked pending -> accepted -> ready
@@ -307,7 +319,7 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'verify-order-transitions-' || u || '@example.test', '', now(), now(), now()
-      from unnest(array[v_owner_id, v_staff_id, v_outsider_id]) u;
+      from unnest(array[v_owner_id, v_staff_id, v_outsider_id, v_manager_id]) u;
 
   insert into public.shops (owner_id, name) values (v_owner_id, 'Order Transitions Shop')
     returning id into v_shop_id;
@@ -322,6 +334,17 @@ begin
   select id into v_role_id from public.roles where shop_id = v_shop_id and name = 'Cashier';
   insert into public.shop_members (shop_id, user_id, role_id, full_name, active)
     values (v_shop_id, v_staff_id, v_role_id, 'Staff Member', true);
+
+  -- Check 44: a real role, granting exactly `settings.access` -- the same
+  -- permission /orders itself is gated on client-side (permissions.ts) --
+  -- and deliberately no `pos.access`. This is the settings-only manager the
+  -- migration's own header describes: can open the order, cannot ring up
+  -- the sale it would become.
+  insert into public.roles (shop_id, name, permissions)
+    values (v_shop_id, 'Settings-only Manager', array['settings.access'])
+    returning id into v_manager_role_id;
+  insert into public.shop_members (shop_id, user_id, role_id, full_name, active)
+    values (v_shop_id, v_manager_id, v_manager_role_id, 'Settings Manager', true);
 
   -- Fixtures inserted as postgres (bypasses RLS, same as verify-orders.sql's
   -- own checks 1-13) so their starting state is exactly what each check
@@ -1462,7 +1485,7 @@ begin
   -- The money-handling review's Critical finding continues to checks 39/40
   -- above and 42/43 below -- placed here, before the plan-downgrade check,
   -- because both need a raw write to `orders` to reach the trigger at all,
-  -- and 44 below moves the shop off the storefront plan, at which point
+  -- and 45 below moves the shop off the storefront plan, at which point
   -- orders_module (20260926000050_orders.sql) refuses EVERY write to
   -- `orders`, direct or through an RPC, before enforce_order_transition ever
   -- runs. That would refuse checks 42/43 too, but with module_not_included
@@ -1570,7 +1593,54 @@ begin
     raise exception 'FAIL: a refused stale-provenance attach still left the order at % with sale %', v_detail, v_result.sale_id;
   end if;
 
-  -- ------------------------------------------------ 44. a de-entitled shop stops moving AND completing its own orders
+  -- ------------------------------------------------ 44. pos.access is required to COMPLETE an order -- not merely to move it
+  -- 20260928000600_complete_storefront_order_pos_access.sql: /orders is
+  -- gated client-side on `settings.access` alone (permissions.ts), so a
+  -- member who can open this order and work every OTHER step of it must
+  -- still be refused, by its own code, at the one move that reaches the
+  -- books. v_manager_id holds `settings.access` and nothing else, on a role
+  -- of its own -- not the owner, who bypasses every permission check by
+  -- ownership alone (user_has_shop_permission, 0024_permission_gates.sql).
+  perform set_config('request.jwt.claims', json_build_object('sub', v_manager_id)::text, true);
+
+  -- First, the negative control: transition_order needs no pos.access at
+  -- all, and this migration must not have widened it to require any. A
+  -- settings-only manager can still accept an order same as anyone with
+  -- storefront access -- v_pending_id (unused since check 31, still
+  -- 'pending') proves the ordinary moves are untouched.
+  v_result := public.transition_order(v_pending_id, 'accepted', null);
+  if v_result.status <> 'accepted' then
+    raise exception 'FAIL: a settings-only manager could not accept an order -- pos.access must not gate transition_order';
+  end if;
+
+  -- Then: completion is refused, by its own typed code, before complete_sale
+  -- is ever called.
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_short_id, 'cash');
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if sqlerrm = 'pos_access_required' then v_raised := true; else raise; end if;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+  if not v_raised then
+    raise exception 'FAIL: a settings-only manager with no pos.access completed an order (refused with %, expected pos_access_required)', v_detail;
+  end if;
+
+  -- No half-completion: v_short_id is exactly where checks 39/40/42/43 left
+  -- it, and nothing extra reached the ledger.
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_short_id;
+  if v_detail <> 'ready' or v_result.sale_id is not null then
+    raise exception 'FAIL: a refused pos.access-less completion still left the order at % with sale %', v_detail, v_result.sale_id;
+  end if;
+  select count(*) into v_count from public.journal_entries where shop_id = v_shop_id;
+  if v_count <> v_je_after_43 then
+    raise exception 'FAIL: a refused pos.access-less completion still posted to the ledger (% -> % journal entries)', v_je_after_43, v_count;
+  end if;
+
+  -- ------------------------------------------------ 45. a de-entitled shop stops moving AND completing its own orders
   -- Last on purpose, same reason verify-orders.sql leaves its own version
   -- last: it moves the shop under test off the plan every check above
   -- depends on. As postgres: authenticated holds no grant on

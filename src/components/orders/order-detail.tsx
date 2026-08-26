@@ -38,6 +38,15 @@ export type OrderDetailProps = {
   // even accepts. Empty when the order is fully fillable, or when the shop
   // has already moved past a state where filling it still matters.
   shortfalls: OrderShortfall[];
+  // B2: /orders is gated on `settings.access` (permissions.ts), but
+  // completing an order delegates to complete_sale, which requires
+  // `pos.access` (20260908000300_sale_entry_date.sql) -- a settings-only
+  // manager could open this sheet and see a Complete button that always
+  // failed, with a raw error naming a shop uuid. `can('pos.access')`,
+  // read by orders.tsx and passed straight through: this component owns no
+  // query of its own, the same posture it takes for every other permission
+  // or entitlement check.
+  hasPosAccess: boolean;
   onClose: () => void;
   onAccept: () => void;
   onMarkReady: () => void;
@@ -84,6 +93,7 @@ export function OrderDetail({
   itemsLoading,
   itemsError,
   shortfalls,
+  hasPosAccess,
   onClose,
   onAccept,
   onMarkReady,
@@ -99,11 +109,26 @@ export function OrderDetail({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
 
   const badge = ORDER_STATUS_BADGE[order.status];
-  const nullProductShortfalls = shortfalls.filter((s) => s.productId === null);
+  // N1: a shortfall is what the shop still cannot fill -- it stops meaning
+  // that the moment the order is completed or cancelled. A just-completed
+  // order shows this for the exact stock its own completion decremented, and
+  // a cancelled order was never going to be filled at all. Gates both the
+  // per-line rows below and the null-product rows the same way the summary
+  // caveat already does.
+  const orderNeedsAction = order.status !== 'completed' && order.status !== 'cancelled';
+  const nullProductShortfalls = orderNeedsAction ? shortfalls.filter((s) => s.productId === null) : [];
 
   const canAccept = order.status === 'pending';
   const canMarkReady = order.status === 'accepted';
-  const canComplete = order.status === 'ready';
+  // B2: folded with hasPosAccess rather than gated separately -- a member who
+  // cannot ring up a sale must never see a Complete button at all, the same
+  // "a button that fails is worse than no button" rule canAccept/canMarkReady
+  // already follow for a status the order itself refuses.
+  const canComplete = order.status === 'ready' && hasPosAccess;
+  // Order is ready to hand over, but THIS member is the reason there is no
+  // button for it -- distinct from canComplete being false because the order
+  // itself isn't ready yet, which needs no explanation at all.
+  const blockedOnPosAccess = order.status === 'ready' && !hasPosAccess;
   const canCancel = order.status === 'pending' || order.status === 'accepted' || order.status === 'ready';
 
   const confirmCancel = () => {
@@ -161,7 +186,7 @@ export function OrderDetail({
               ) : (
                 <>
                   {items.map((item) => {
-                    const shortfall = shortfallFor(shortfalls, item.productId);
+                    const shortfall = orderNeedsAction ? shortfallFor(shortfalls, item.productId) : undefined;
                     return (
                       <View key={item.id} style={styles.itemRow}>
                         <View style={styles.itemNameCol}>
@@ -212,7 +237,7 @@ export function OrderDetail({
                 so it is offered directly rather than dressed as an action on
                 a Caveat this component cannot itself judge is the right one --
                 a shop might still choose to source more or part-fill by hand. */}
-            {shortfalls.length > 0 && order.status !== 'completed' && order.status !== 'cancelled' ? (
+            {shortfalls.length > 0 && orderNeedsAction ? (
               <Text style={styles.shortfallSummary}>
                 This order cannot be filled in full right now. Source more stock, or cancel it below.
               </Text>
@@ -299,6 +324,16 @@ export function OrderDetail({
                   </Pressable>
                 </View>
               </Section>
+            ) : null}
+
+            {/* B2: says why there is no Complete button here, rather than
+                leaving a settings-only manager to assume the app is broken --
+                the same reasoning the shortfall summary above already gives
+                for why there's no button to fill a shortage. */}
+            {blockedOnPosAccess && mode === 'idle' ? (
+              <Text style={styles.posAccessNote}>
+                This order is ready to hand over, but completing it needs POS access, which your account doesn't have. Ask an owner or manager.
+              </Text>
             ) : null}
 
             {mode === 'idle' ? (
@@ -392,6 +427,7 @@ const styles = StyleSheet.create({
   breakdown: { marginTop: 6 },
   shortfallText: { fontSize: 11.5, color: theme.bentoLoss, marginTop: 2, fontWeight: '600' },
   shortfallSummary: { fontSize: 12.5, color: theme.bentoLoss, fontWeight: '600', marginBottom: 16, lineHeight: 18 },
+  posAccessNote: { fontSize: 12.5, color: theme.bentoMuted, fontWeight: '600', marginBottom: 16, lineHeight: 18 },
 
   errorText: { fontSize: 12.5, color: theme.bentoLoss, fontWeight: '600', marginBottom: 12 },
 

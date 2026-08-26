@@ -15,7 +15,7 @@ function emptyInput(): AttentionInput {
     expiringSoon: [],
     dormant: [],
     closedSessions: [],
-    storefrontOrders: [],
+    ordersNeedingActionCount: 0,
     today: TODAY,
   };
 }
@@ -246,12 +246,18 @@ describe('attentionCounts', () => {
 // the half that puts it in front of the shop unasked, on the screen
 // attention.ts's own header already calls "what a shop owner sees first
 // thing in the morning".
+//
+// N3: this used to take every storefront order and filter here
+// (`ORDERS_NEEDING_ACTION.includes(order.status)`) -- the exact filter
+// countOrdersNeedingAction (storefront-admin.ts) now does at the query, so
+// what this function receives is already the count. 'pending' and 'accepted'
+// being the moves the shop itself has not made yet, 'ready' still counting,
+// and 'completed'/'cancelled' never counting is proved once, at the query
+// layer (storefront-admin.test.ts) -- this only proves the count becomes the
+// right row.
 describe('buildAttentionItems — storefront orders', () => {
   it('flags orders the shop still has to do something about', () => {
-    const items = buildAttentionItems({
-      ...emptyInput(),
-      storefrontOrders: [{ status: 'pending' }, { status: 'accepted' }, { status: 'ready' }],
-    });
+    const items = buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 3 });
     const row = items.find((i) => i.key === 'storefront-orders')!;
     expect(row).toBeDefined();
     expect(row.severity).toBe('act');
@@ -259,26 +265,13 @@ describe('buildAttentionItems — storefront orders', () => {
     expect(row.title).toContain('3');
   });
 
-  // completed and cancelled are terminal -- counting them is exactly the
-  // "badge that never clears" property 2 rules out.
-  it('does not count completed or cancelled orders', () => {
-    const items = buildAttentionItems({
-      ...emptyInput(),
-      storefrontOrders: [{ status: 'completed' }, { status: 'cancelled' }],
-    });
-    expect(items.find((i) => i.key === 'storefront-orders')).toBeUndefined();
-  });
-
-  it('says nothing when there are no storefront orders at all', () => {
-    expect(buildAttentionItems({ ...emptyInput(), storefrontOrders: [] })).toEqual([]);
+  it('says nothing when nothing needs action', () => {
+    expect(buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 0 })).toEqual([]);
   });
 
   it('pluralises the title for one order versus several', () => {
-    const one = buildAttentionItems({ ...emptyInput(), storefrontOrders: [{ status: 'pending' }] });
-    const two = buildAttentionItems({
-      ...emptyInput(),
-      storefrontOrders: [{ status: 'pending' }, { status: 'accepted' }],
-    });
+    const one = buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 1 });
+    const two = buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 2 });
     expect(one.find((i) => i.key === 'storefront-orders')!.title).toContain('1 storefront order needs');
     expect(two.find((i) => i.key === 'storefront-orders')!.title).toContain('2 storefront orders need');
   });
@@ -286,7 +279,7 @@ describe('buildAttentionItems — storefront orders', () => {
   it('ranks alongside the other things today needs, ahead of anything merely worth knowing', () => {
     const items = buildAttentionItems({
       ...emptyInput(),
-      storefrontOrders: [{ status: 'pending' }],
+      ordersNeedingActionCount: 1,
       dormant: [{ customer: { firstName: 'Ayaan', lastName: 'H.' } as Customer, lastOrderAt: '2026-06-03' }],
     });
     expect(items.map((i) => i.severity)).toEqual(['act', 'info']);

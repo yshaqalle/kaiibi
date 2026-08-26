@@ -4,9 +4,10 @@ type FakeState = {
   updateCalls: { table: string; payload: unknown }[];
   updateResult: { error: unknown };
   eqCalls: [string, unknown][];
+  inCalls: [string, unknown][];
   orderCalls: [string, unknown][];
-  selectCalls: { table: string; columns: string }[];
-  selectResult: { data: unknown; error: unknown };
+  selectCalls: { table: string; columns: string; options?: unknown }[];
+  selectResult: { data: unknown; error: unknown; count?: number | null };
 };
 
 // Hoisted above the imports by babel-plugin-jest-hoist -- storefront-admin.ts
@@ -19,7 +20,10 @@ type FakeState = {
 // support-queue.test.ts uses for a query with no fixed terminal call.
 // listOrders DOES end in `.order()` (newest first), so that method is on the
 // chain too, and it stays thenable rather than becoming a fixed terminal
-// call -- the same reasoning, one method further along.
+// call -- the same reasoning, one method further along. countOrdersNeedingAction
+// ends in `.in()` (N3) rather than `.order()`, and its own select() carries a
+// second argument ({count: 'exact', head: true}) that no earlier query here
+// used -- both captured for that test alone.
 jest.mock('@/lib/supabase', () => {
   const state: FakeState = {
     rpcCalls: [],
@@ -27,6 +31,7 @@ jest.mock('@/lib/supabase', () => {
     updateCalls: [],
     updateResult: { error: null },
     eqCalls: [],
+    inCalls: [],
     orderCalls: [],
     selectCalls: [],
     selectResult: { data: [], error: null },
@@ -46,11 +51,15 @@ jest.mock('@/lib/supabase', () => {
           },
         };
       },
-      select: (columns: string) => {
-        state.selectCalls.push({ table, columns });
+      select: (columns: string, options?: unknown) => {
+        state.selectCalls.push({ table, columns, options });
         const chain = {
           eq: (column: string, value: unknown) => {
             state.eqCalls.push([column, value]);
+            return chain;
+          },
+          in: (column: string, values: unknown) => {
+            state.inCalls.push([column, values]);
             return chain;
           },
           order: (column: string, opts: unknown) => {
@@ -73,17 +82,16 @@ import {
   acceptOrder,
   cancelOrder,
   completeOrder,
+  countOrdersNeedingAction,
   discardDraft,
   getOrderItems,
   getStorefrontPreviewProducts,
   listOrders,
   markOrderReady,
-  ordersNeedingActionCount,
+  orderErrorMessage,
   publishBlockers,
   publishDraft,
   saveDraft,
-  type OrderStatus,
-  type ShopOrder,
 } from '@/lib/storefront-admin';
 
 beforeEach(() => {
@@ -92,6 +100,7 @@ beforeEach(() => {
   fake.updateCalls.length = 0;
   fake.updateResult = { error: null };
   fake.eqCalls.length = 0;
+  fake.inCalls.length = 0;
   fake.orderCalls.length = 0;
   fake.selectCalls.length = 0;
   fake.selectResult = { data: [], error: null };
@@ -358,46 +367,129 @@ describe('listOrders', () => {
   });
 });
 
-// Task 7: what Settings' Orders badge and the Dashboard's attention row both
-// count. 'pending' and 'accepted' are the two moves the shop itself has not
-// made yet; 'ready' still counts -- a prepped order nobody has handed over
-// or collected is just as unfinished, the same reading orders.tsx's own
-// UNCONFIRMED filter already gives it. 'completed' and 'cancelled' are the
-// two terminal states, deliberately excluded: a count that never reaches
-// zero is a badge nobody trusts by the second week.
-function order(status: OrderStatus): ShopOrder {
-  return {
-    id: `o-${status}`,
-    number: 1,
-    customerName: 'Amina Yusuf',
-    customerPhone: '+252634456789',
-    fulfilment: 'collect',
-    deliveryArea: null,
-    deliveryLandmark: null,
-    note: null,
-    status,
-    cancellationReason: status === 'cancelled' ? 'Out of stock' : null,
-    itemCount: 1,
-    subtotalCents: 500,
-    deliveryFeeCents: 0,
-    totalCents: 500,
-    createdAt: '2026-08-20T09:00:00Z',
-  };
-}
-
-describe('ordersNeedingActionCount', () => {
-  it('counts pending, accepted and ready orders', () => {
-    const orders = [order('pending'), order('accepted'), order('ready')];
-    expect(ordersNeedingActionCount(orders)).toBe(3);
+// N3: what Settings' Orders badge and the Dashboard's attention row both
+// count -- read as a count now, not derived from a full fetch. 'pending' and
+// 'accepted' are the two moves the shop itself has not made yet; 'ready'
+// still counts -- a prepped order nobody has handed over or collected is
+// just as unfinished, the same reading orders.tsx's own UNCONFIRMED filter
+// gives it. 'completed' and 'cancelled' are the two terminal states,
+// deliberately excluded server-side via `.in('status', ORDERS_NEEDING_ACTION)`
+// -- a count that never reaches zero is a badge nobody trusts by the second
+// week.
+describe('countOrdersNeedingAction', () => {
+  it("asks for a count only -- head:true, no rows -- filtered to the shop's own pending/accepted/ready orders", async () => {
+    fake.selectResult = { data: null, error: null, count: 3 };
+    const count = await countOrdersNeedingAction('shop-1');
+    expect(fake.selectCalls).toEqual([{ table: 'orders', columns: 'id', options: { count: 'exact', head: true } }]);
+    expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
+    expect(fake.inCalls).toEqual([['status', ['pending', 'accepted', 'ready']]]);
+    expect(count).toBe(3);
   });
 
-  it('excludes completed and cancelled orders', () => {
-    const orders = [order('completed'), order('cancelled')];
-    expect(ordersNeedingActionCount(orders)).toBe(0);
+  it('is zero when nothing needs action', async () => {
+    fake.selectResult = { data: null, error: null, count: 0 };
+    expect(await countOrdersNeedingAction('shop-1')).toBe(0);
   });
 
-  it('is zero for an empty list', () => {
-    expect(ordersNeedingActionCount([])).toBe(0);
+  // count comes back null on some failure shapes even without `error` set --
+  // same defensive fallback listOrders' own `data ?? []` takes.
+  it('treats a null count as zero rather than throwing', async () => {
+    fake.selectResult = { data: null, error: null, count: null };
+    expect(await countOrdersNeedingAction('shop-1')).toBe(0);
+  });
+
+  it('throws on failure rather than swallowing it', async () => {
+    fake.selectResult = { data: null, error: { message: 'boom' }, count: null };
+    await expect(countOrdersNeedingAction('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// B1: the sentence a shopkeeper reads instead of a raw snake_case token.
+// Every code transition_order / complete_storefront_order / (20260928000600)
+// actually raise, per the migrations themselves -- not a re-derived guess at
+// the list.
+describe('orderErrorMessage', () => {
+  it('returns null for an error with no string message, so callers keep their existing fallback', () => {
+    expect(orderErrorMessage(null)).toBeNull();
+    expect(orderErrorMessage({})).toBeNull();
+    expect(orderErrorMessage({ message: 42 })).toBeNull();
+  });
+
+  it('returns null for a code it does not recognise -- e.g. a network drop', () => {
+    expect(orderErrorMessage({ message: 'Network request failed' })).toBeNull();
+  });
+
+  it('maps insufficient_stock to a sentence that says what to do, not the code', () => {
+    const msg = orderErrorMessage({ message: 'insufficient_stock' });
+    expect(msg).not.toBe('insufficient_stock');
+    expect(msg).toMatch(/stock/i);
+  });
+
+  // The known, accepted limitation named in the review: a tax-charging shop
+  // hits this on every order until checkout learns about tax. Must read as
+  // "these prices have moved", never the raw code.
+  it('maps order_total_changed to a sentence about prices moving, not an arithmetic-bug-sounding code', () => {
+    const msg = orderErrorMessage({
+      message: 'order_total_changed',
+      details: JSON.stringify({ quoted_cents: 1000, message: 'payments total 1200 does not match sale total 1000' }),
+    });
+    expect(msg).toMatch(/price|total/i);
+    expect(msg).not.toBe('order_total_changed');
+  });
+
+  it('maps order_product_deleted, naming the product from the detail payload', () => {
+    const msg = orderErrorMessage({ message: 'order_product_deleted', details: JSON.stringify({ products: 'Rice 5kg' }) });
+    expect(msg).toContain('Rice 5kg');
+  });
+
+  it('maps order_product_deleted even with no parseable detail', () => {
+    const msg = orderErrorMessage({ message: 'order_product_deleted' });
+    expect(msg).toMatch(/catalogue/i);
+  });
+
+  it('maps order_has_no_items', () => {
+    expect(orderErrorMessage({ message: 'order_has_no_items' })).toMatch(/cancel/i);
+  });
+
+  it('maps invalid_payment_method', () => {
+    expect(orderErrorMessage({ message: 'invalid_payment_method' })).toMatch(/payment method/i);
+  });
+
+  // The review's specific instruction: name the likeliest real cause, a
+  // completion that committed while the response timed out and a retry that
+  // now reads as "already done", so the shop can tell that apart from
+  // "failed" and know whether it was paid.
+  it('maps invalid_order_transition to a sentence about the order having already moved on', () => {
+    const msg = orderErrorMessage({
+      message: 'invalid_order_transition',
+      details: JSON.stringify({ from: 'ready', to: 'completed' }),
+    });
+    expect(msg).not.toBe('invalid_order_transition');
+    expect(msg).toMatch(/already/i);
+  });
+
+  it('maps cancellation_reason_required', () => {
+    expect(orderErrorMessage({ message: 'cancellation_reason_required' })).toMatch(/reason/i);
+  });
+
+  // B2's server-side half: 20260928000600's typed refusal, mapped to a
+  // sentence that tells a settings-only manager who to ask.
+  it('maps pos_access_required to a sentence naming what to do about it', () => {
+    const msg = orderErrorMessage({ message: 'pos_access_required' });
+    expect(msg).toMatch(/pos access/i);
+    expect(msg).toMatch(/owner|manager/i);
+  });
+
+  // module_not_included is deliberately NOT handled here -- describePlanError
+  // (entitlements.ts) already owns it, and runAction chains this after that
+  // call. A second mapping here would just drift from the first.
+  it('returns null for module_not_included -- that belongs to describePlanError, not this function', () => {
+    expect(orderErrorMessage({ message: 'module_not_included', details: JSON.stringify({ module: 'storefront' }) })).toBeNull();
+  });
+
+  it('falls back gracefully when details is present but not valid JSON', () => {
+    const msg = orderErrorMessage({ message: 'order_product_deleted', details: 'not json' });
+    expect(msg).toMatch(/catalogue/i);
   });
 });
 
