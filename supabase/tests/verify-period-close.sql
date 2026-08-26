@@ -39,6 +39,12 @@
 --   shop B         a second shop with its own months and its own owner. All of
 --                  this is `security definer`, so the shop_id filters ARE the
 --                  tenant boundary and nothing else checks them.
+--   NOBODY         check 14's caller: a request with no Authorization header,
+--                  which has no user at all rather than a user who is a
+--                  stranger. Every actor above is SIGNED IN, and that is why
+--                  checks 1-13 were all green while post_journal_entry could be
+--                  reached by anybody with a shop_id and no account. Being a
+--                  stranger and having no identity are different tests.
 
 \set ON_ERROR_STOP on
 
@@ -1084,6 +1090,116 @@ begin
   end;
   if v_ctx is null or v_ctx not like '%permission to post journal entries%' then
     raise exception 'FAIL: a member without ledger.post typed a manual entry: %', coalesce(v_ctx, 'no error at all');
+  end if;
+
+  -- 14. AND THE CALLER WHO SENDS NO JWT AT ALL.
+  --
+  --     Check 13 tests an AUTHENTICATED stranger and an AUTHENTICATED member of
+  --     the wrong shop, and that is precisely the gap 20261005000100 fell into:
+  --     it gated on `auth.uid() is not null and not is_shop_member(…)`, so a
+  --     caller with NO Authorization header had no uid, failed the first
+  --     conjunct, and posted into any shop by id. Every check in 13 stayed
+  --     green. The reproduction is in 20261005000400's header.
+  --
+  --     There are TWO barriers now and they are asserted separately, because a
+  --     test that only proves the request fails cannot say which one held --
+  --     and one of them silently doing nothing is how this got shipped twice.
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop;
+
+  -- 14a. THE DOOR. `anon` is a member of PUBLIC, and PostgreSQL grants EXECUTE
+  --      on every new function to PUBLIC by default. Nothing had ever revoked
+  --      it, so the header's "anon HOLDS NO EXECUTE GRANT" was false for the
+  --      function's whole life. It is true now because it is written down.
+  if has_function_privilege('anon',
+       'public.post_journal_entry(uuid,date,text,jsonb,uuid,text,boolean)', 'EXECUTE') then
+    raise exception 'FAIL: anon holds EXECUTE on post_journal_entry -- the PUBLIC default grant is back';
+  end if;
+  if has_function_privilege('anon', 'public.open_period_for(uuid,date,boolean)', 'EXECUTE') then
+    raise exception 'FAIL: anon holds EXECUTE on open_period_for -- it can open periods in any shop';
+  end if;
+  --      ...and the two roles that must keep it, kept it. A revoke that took
+  --      the till out with it would be worse than the hole.
+  if not has_function_privilege('authenticated',
+       'public.post_journal_entry(uuid,date,text,jsonb,uuid,text,boolean)', 'EXECUTE') then
+    raise exception 'FAIL: authenticated lost EXECUTE on post_journal_entry -- every sale in the app is now refused';
+  end if;
+  if not has_function_privilege('service_role',
+       'public.post_journal_entry(uuid,date,text,jsonb,uuid,text,boolean)', 'EXECUTE') then
+    raise exception 'FAIL: service_role lost EXECUTE on post_journal_entry';
+  end if;
+
+  -- 14b. THE GATE, tested WITHOUT the door in the way. The session is set up as
+  --      PostgREST sets one up for a request carrying no Authorization header
+  --      -- request.jwt.claims present, no `sub`, so auth.uid() is null --
+  --      while the ROLE stays `authenticated`, which still holds EXECUTE. So
+  --      this cannot pass merely because the grant is gone: it passes only if
+  --      the predicate itself refuses a caller with no user. Verified over real
+  --      HTTP that PostgREST sets exactly this for a header-less request.
+  perform set_config('request.jwt.claims', '{"role":"anon"}', true);
+  perform set_config('role', 'authenticated', true);
+  if auth.uid() is not null then
+    raise exception 'FAIL: this fixture is not anonymous -- auth.uid() is %', auth.uid();
+  end if;
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Forged by nobody',
+      jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  50000),
+                        jsonb_build_object('code', '4000', 'amount_cents', -50000)),
+      null, 'sale');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null or v_ctx not like '%do not have access to this shop%' then
+    raise exception 'FAIL: a caller with NO JWT posted a source = ''sale'' entry into a shop: %',
+      coalesce(v_ctx, 'no error at all');
+  end if;
+
+  --      The same caller filing it as 'close' -- the source balance_sheet()
+  --      moves on and the other two statements ignore, which is the forgery
+  --      that breaks reconciliation 5 without breaking the arithmetic.
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Forged close by nobody',
+      jsonb_build_array(jsonb_build_object('code', '4000', 'amount_cents',  50000),
+                        jsonb_build_object('code', '3900', 'amount_cents', -50000)),
+      null, 'close');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null or v_ctx not like '%do not have access to this shop%' then
+    raise exception 'FAIL: a caller with NO JWT posted a source = ''close'' entry into a shop: %',
+      coalesce(v_ctx, 'no error at all');
+  end if;
+
+  -- 14c. THE EXEMPTION STILL EXEMPTS, and it is the half a too-tight fix loses.
+  --      A caller with no request.jwt.claims at all -- psql, a migration, or a
+  --      trigger fired by one, which is how verify-entitlements and
+  --      verify-inventory-permissions reach here through post_expense_to_ledger
+  --      -- posts into a shop it is not a member of and MUST be allowed. A bare
+  --      `not is_shop_member(…)` reddens exactly here.
+  --      Note `set_config(…, null, …)`, which is how every script here stops
+  --      impersonating: it leaves the GUC as the EMPTY STRING, not null. So a
+  --      gate written `current_setting(…) is not null` reads this session as a
+  --      PostgREST request and refuses it, and only `coalesce(…, '') <> ''`
+  --      gets it right. That difference is asserted HERE and nowhere else.
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop_b, public.shop_local_date(), 'A maintenance script''s entry',
+      jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  1300),
+                        jsonb_build_object('code', '4000', 'amount_cents', -1300)),
+      null, 'sale');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is not null then
+    raise exception 'FAIL: a caller with no JWT at all -- a migration, a script, a superuser trigger -- was refused: %', v_ctx;
+  end if;
+
+  --      ...and neither refusal in 14b wrote anything. A gate that raises after
+  --      the insert passes every assertion above.
+  if (select count(*) from public.journal_entries where shop_id = v_shop) <> v_before then
+    raise exception 'FAIL: a post refused for having no JWT still wrote a journal entry';
   end if;
 
   perform set_config('role', 'postgres', true);
