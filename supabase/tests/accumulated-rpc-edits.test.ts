@@ -127,6 +127,56 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // `A journal entry needs at least two lines; this one has 0.` -- a new
   // failure, at the till, for an operation that worked before this branch.
   ['20260908000900', 'a sale that moves no money posts nothing', 'jsonb_array_length(v_lines)'],
+  // 20260929000000. A storefront order is a promise made earlier, so a line can
+  // be filed at the price the customer was quoted rather than the price on the
+  // shelf today.
+  //
+  // A NEW, DISTINCTLY-NAMED FIELD. Carts have carried `unit_price_cents` since
+  // 0001 and this function has always ignored it -- verify-complete-sale-baseline
+  // sends 9999 in it on EVERY cart while asserting the product's own price, so
+  // that is pinned behaviour, not an accident. The token is therefore the read
+  // of the new field, not the bare column name: `unit_price_cents` appears in
+  // the sale_items insert either way and would be green against a function that
+  // had lost the agreed price entirely.
+  ['20260929000000', 'a line may be filed at the price the customer was quoted', "v_item->>'agreed_unit_price_cents'"],
+  // AND coalesce, not `case when v_agreed_price > 0`. Zero is a price -- the
+  // item a shop promised to throw in -- and the natural-looking version reads it
+  // as "no agreed price" and charges the customer list for it. The token is the
+  // resolution itself, which a rewrite cannot satisfy while getting this wrong.
+  ['20260929000000', 'absent and zero are different answers', 'coalesce(v_agreed_price, v_product.price_cents)'],
+  // ...and the line is computed from the resolved price. Losing this while
+  // keeping the declarations leaves a function that accepts the field, files it
+  // on sale_items.unit_price_cents and then charges list for it -- a receipt
+  // that disagrees with the money taken, and every total still balancing.
+  ['20260929000000', 'the line total follows the agreed price', 'v_line := v_unit_price * v_qty - v_line_discount'],
+  // An agreed price and a promotion are two answers to one question: an offer is
+  // a reduction OFF the list price, recomputed server-side from
+  // products.price_cents, and an agreed price REPLACES the list price. Lose the
+  // refusal and one of the two is silently discarded, with no way afterwards to
+  // say which price the customer was actually promised. The token is the message
+  // because that message is a caller's only handle on it -- complete_sale raises
+  // plain P0001 and the text is what a client matches to say this in the
+  // shopkeeper's own words.
+  ['20260929000000', 'an agreed price alongside a promotion is refused, by name',
+    "'an agreed price cannot be combined with a promotion on the same line (%)'"],
+  ['20260929000000', 'a negative agreed price is refused', 'v_agreed_price < 0'],
+  // Bounded on the LINE and in BIGINT, not on the unit and not in integer. A
+  // unit price inside the 32-bit ceiling can still make a line outside it (3 at
+  // 1,000,000,000), and unbounded that is a bare `integer out of range` thrown
+  // from the middle of the register's write path with nothing to say which line.
+  // The token is the whole comparison: `c_max_line_cents` alone survives a
+  // rewrite that keeps the constant and tests the unit.
+  ['20260929000000', 'an agreed price whose line would overflow is refused before it does',
+    'v_agreed_price::bigint * v_qty > c_max_line_cents'],
+  // THE COST DOES NOT MOVE. Cost is what the shop actually paid; an agreement
+  // about the SELLING price says nothing about it, and deriving it from the
+  // agreed price misstates COGS and every gross-profit figure downstream --
+  // making stock given away look free. 20260804000000 froze this column and the
+  // agreed price does not get to unfreeze it. The token is the insert's VALUES
+  // list around it, not the bare `v_product.cost_cents`, so it pins the cost
+  // sitting BESIDE the agreed price rather than merely being mentioned.
+  ['20260929000000', 'the frozen cost still comes from the product, never the agreed price',
+    'v_line, v_line_discount, v_product.cost_cents,'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [

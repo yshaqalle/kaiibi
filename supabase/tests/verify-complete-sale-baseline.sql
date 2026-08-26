@@ -54,6 +54,41 @@
 --      points it had already computed and the customer's balance stays put.
 --  13. THE RUNNING TOTALS, checked once at the end.
 --
+-- CHECKS 14-19 WERE ADDED BY TASK 2 and are not characterisation: they assert
+-- NEW behaviour, the per-line agreed price that lets a storefront order be
+-- filed at what the customer was quoted. They are appended AFTER check 13 on
+-- purpose -- 13 counts the fixture's sales and asserts its closing stock, so a
+-- new sale rung up before it would move a figure Task 1 pinned. Checks 1-13 are
+-- byte-for-byte what Task 1 wrote.
+--
+--  14. A LINE AT AN AGREED PRICE IS FILED AT THAT PRICE. The cart carries
+--      agreed_unit_price_cents, and sale_items.unit_price_cents,
+--      line_total_cents and the revenue credit all follow it rather than
+--      products.price_cents. The frozen unit_cost_cents does NOT: cost is what
+--      the shop paid, not part of what was quoted.
+--  15. THE SAME CART WITHOUT ONE IS UNCHANGED. Identical in every respect
+--      except the field, and it prices from the product exactly as check 1
+--      does. This is the control that gives 14 its meaning.
+--  16. AN AGREED PRICE PLUS A PROMOTION ON THE SAME LINE IS REFUSED, by a
+--      message a client can match on, and the refusal writes nothing.
+--  17. A NEGATIVE AGREED PRICE IS REFUSED. It arrives from a caller.
+--  18. AN OUT-OF-RANGE AGREED PRICE IS REFUSED, including one whose LINE would
+--      overflow a 32-bit integer -- which without a bound is a bare
+--      `integer out of range` from the middle of the register's write path.
+--  19. ZERO IS A PRICE, NOT AN ABSENCE, and an agreed price binds ONE line.
+--      A cart with a promised free item beside a full-price one is the check
+--      that separates `coalesce(v_agreed, price)` from the plausible-looking
+--      `case when v_agreed > 0 ...`, which would silently charge 3000 for the
+--      item the shop promised to give away.
+--
+-- AGREED_UNIT_PRICE_CENTS IS A NEW FIELD, and it had to be. Carts have carried
+-- a `unit_price_cents` since 0001 and complete_sale has always ignored it --
+-- that is the very thing every payload above sends 9999 to prove. Making it
+-- authoritative would change the price of every sale every existing caller
+-- rings up, and checks 1-13 would go red by design. So the agreed price gets a
+-- name of its own, and checks 14 and 19 send BOTH fields at once: 9999 for the
+-- old one, which must still be ignored, and the agreed price beside it.
+--
 -- THE CART'S OWN PRICE IS IGNORED, and every payload below is written to prove
 -- it. complete_sale prices each line from products.price_cents (:363, :372) and
 -- never reads the unit_price_cents the client sent. A payload sending the SAME
@@ -1233,7 +1268,415 @@ begin
     raise exception 'FAIL 13: the shop''s journal does not balance overall, off by %', v_amount;
   end if;
 
-  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks)';
+  raise notice 'OK 13: twelve sales left the expected stock and a balanced journal';
+
+  ---------------------------------------------------------------------------
+  -- 14. A LINE AT AN AGREED PRICE IS FILED AT THAT PRICE.
+  --
+  --     2 Coffee. products.price_cents says 3000, so the list line is 6000.
+  --     The cart says agreed_unit_price_cents 2000 -- the price this customer
+  --     was quoted when they ordered -- so the line is 4000 and 4000 is what
+  --     is paid.
+  --
+  --     THE CART ALSO SENDS unit_price_cents 9999, exactly as every check above
+  --     does. That field has been ignored since 0001 and must stay ignored:
+  --     if the agreed price were bolted onto it instead, every one of checks
+  --     1-13 would be ringing up 9999 a unit. Two fields, one authoritative,
+  --     and this check sends both so the difference is observable.
+  --
+  --     unit_cost_cents is still 1100, the product's CURRENT cost. An agreed
+  --     price is a promise about what the customer pays; it says nothing about
+  --     what the shop paid, and folding it into the cost would misstate COGS
+  --     and with it every gross-profit figure the shop reads.
+  --
+  --     Wrapped: a function that ignored the agreed price would price the line
+  --     at 6000, make the 4000 payment an under-payment and refuse the sale
+  --     before any assertion below could run.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 2,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 2000)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 4000, 'tendered_cents', 4000)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 14: 2 Coffee at an agreed 2000 must total 4000 and that sale was refused (6000 = the agreed price ignored and the line priced from the product). complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 4000 then
+    raise exception 'FAIL 14: expected total_cents 4000 (2 x the agreed 2000), got % (6000 = priced from products.price_cents)', v_amount;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 14: expected 1 sale_items row for a one-line cart, got %', v_count;
+  end if;
+  select unit_price_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 2000 then
+    raise exception 'FAIL 14: expected sale_items.unit_price_cents 2000 (the AGREED price), got % (3000 = the product''s price, 9999 = the cart''s old ignored field)', v_int;
+  end if;
+  select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 4000 then
+    raise exception 'FAIL 14: expected sale_items.line_total_cents 4000, got %', v_int;
+  end if;
+  select discount_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 0 then
+    raise exception 'FAIL 14: an agreed price landed on sale_items.discount_cents as %, expected 0 -- it is a price, not a reduction', v_int;
+  end if;
+  -- The one column an agreed price must NOT reach.
+  select unit_cost_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int is distinct from 1100 then
+    raise exception 'FAIL 14: expected unit_cost_cents 1100 (the product''s CURRENT cost), got % -- an agreed price must never move the cost or COGS is misstated', v_int;
+  end if;
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select count(*) into v_count from public.journal_lines where entry_id = v_entry;
+  if v_count <> 4 then
+    raise exception 'FAIL 14: expected exactly 4 journal lines (cash, revenue, COGS, stock), got % (5 = the gap to list posted as a discount)', v_count;
+  end if;
+  -- Revenue at the AGREED price. The 1000 a unit the shop is not charging is
+  -- not a discount it gave at the till -- it is the price of this sale -- so
+  -- nothing reaches 4200 and revenue is 4000, not 6000 with a 2000 contra.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -4000 then
+    raise exception 'FAIL 14: expected Cr 4000 Revenue -4000 at the AGREED price, got % (-6000 = credited at the product''s list price)', v_amount;
+  end if;
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '4200') then
+    raise exception 'FAIL 14: an agreed price posted a 4200 contra -- it is the price of this sale, not a discount off another one';
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> 4000 then
+    raise exception 'FAIL 14: expected Dr 1000 Cash 4000, got %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '5000';
+  if v_amount <> 2200 then
+    raise exception 'FAIL 14: expected Dr 5000 COGS 2200 (2 x the frozen 1100), got % -- COGS follows the cost, never the agreed price', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 14: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 14: 2 Coffee at an agreed 2000 files at 2000 and credits revenue 4000';
+
+  ---------------------------------------------------------------------------
+  -- 15. THE SAME CART WITHOUT AN AGREED PRICE IS UNCHANGED.
+  --
+  --     Byte-for-byte check 14's call with the one field removed: same product,
+  --     same quantity, same location, same ignored 9999. It prices from
+  --     products.price_cents at 3000 a unit and totals 6000.
+  --
+  --     Checks 1-13 already prove the no-agreed-price path in thirteen ways.
+  --     This one is here because it is the CONTROLLED pair for 14 -- the only
+  --     difference between the two calls is the field itself, so 14's 4000
+  --     cannot be coming from anywhere else.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 2,
+                         'unit_price_cents', 9999)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 6000, 'tendered_cents', 6000)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 15: check 14''s cart WITHOUT an agreed price must total 6000 and that sale was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 6000 then
+    raise exception 'FAIL 15: expected total_cents 6000 from products.price_cents, got % (4000 = check 14''s agreed price leaking onto a cart that sent none)', v_amount;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 15: expected 1 sale_items row for a one-line cart, got %', v_count;
+  end if;
+  select unit_price_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 3000 then
+    raise exception 'FAIL 15: expected sale_items.unit_price_cents 3000 (the PRODUCT''s price), got % (9999 = the cart''s own price, still meant to be ignored)', v_int;
+  end if;
+  select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 6000 then
+    raise exception 'FAIL 15: expected sale_items.line_total_cents 6000, got %', v_int;
+  end if;
+  select unit_cost_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int is distinct from 1100 then
+    raise exception 'FAIL 15: expected unit_cost_cents 1100, got %', v_int;
+  end if;
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -6000 then
+    raise exception 'FAIL 15: expected Cr 4000 Revenue -6000, got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 15: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 15: the same cart with no agreed price still prices from the product at 6000';
+
+  ---------------------------------------------------------------------------
+  -- 16. AN AGREED PRICE AND A PROMOTION ON THE SAME LINE IS REFUSED.
+  --
+  --     They are two answers to one question. A promotion's discount is
+  --     recomputed server-side from products.price_cents (:350-354) and is a
+  --     reduction OFF the list price; an agreed price REPLACES the list price.
+  --     Applied together, either the promotion is taken off a price it was
+  --     never written against, or the agreed price silently swallows it -- and
+  --     whichever the code happens to do, the shop cannot say which price the
+  --     customer was actually promised.
+  --
+  --     So it raises, and the message is stable text a client can match on and
+  --     turn into a sentence in the shopkeeper's own words. Asserted on the
+  --     PREFIX, so the product name at the end can change without breaking it.
+  --
+  --     And the refusal writes NOTHING: the sale count is unmoved after it.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 2000,
+                         'discount_cents', 300, 'promotion_id', v_promo_id)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1700, 'tendered_cents', 1700)),
+      p_location_id => v_loc_id);
+    select total_cents into v_amount from public.sales where id = v_sale_id;
+    raise exception 'FAIL 16: an agreed price of 2000 alongside a 10%% promotion was ACCEPTED, and the sale totalled % -- the two are different answers to what the customer pays and one of them is being silently discarded', v_amount;
+  exception
+    when others then
+      if sqlerrm like 'FAIL 16:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'an agreed price cannot be combined with a promotion%' then
+        raise exception 'FAIL 16: expected a refusal naming the agreed-price/promotion clash, got: %', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 14 then
+    raise exception 'FAIL 16: expected 14 sales after a REFUSED one, got % -- the refusal left a sale behind', v_count;
+  end if;
+
+  raise notice 'OK 16: an agreed price alongside a promotion is refused by name and writes nothing';
+
+  ---------------------------------------------------------------------------
+  -- 17. A NEGATIVE AGREED PRICE IS REFUSED.
+  --
+  --     The agreed price arrives in a JSON payload from a caller. It is input,
+  --     not truth, and it goes straight onto sale_items.unit_price_cents and
+  --     into the revenue credit. A negative one is a line that PAYS the
+  --     customer: the sale's total falls below the goods on it, the 4000 credit
+  --     goes the wrong way, and nothing else in this function would notice --
+  --     `v_line < 0` (:364) only catches it when the discount is the cause.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(
+                         jsonb_build_object('product_id', v_prod_tea, 'quantity', 1,
+                                            'unit_price_cents', 9999),
+                         jsonb_build_object('product_id', v_prod_coffee, 'quantity', 1,
+                                            'unit_price_cents', 9999,
+                                            'agreed_unit_price_cents', -500)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 700, 'tendered_cents', 700)),
+      p_location_id => v_loc_id);
+    select total_cents into v_amount from public.sales where id = v_sale_id;
+    raise exception 'FAIL 17: an agreed price of -500 was ACCEPTED and the sale totalled % -- a line cannot pay the customer', v_amount;
+  exception
+    when others then
+      if sqlerrm like 'FAIL 17:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'agreed price for % cannot be negative%' then
+        raise exception 'FAIL 17: expected a refusal naming the negative agreed price, got: %', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 14 then
+    raise exception 'FAIL 17: expected 14 sales after a REFUSED one, got %', v_count;
+  end if;
+
+  raise notice 'OK 17: a negative agreed price is refused by name and writes nothing';
+
+  ---------------------------------------------------------------------------
+  -- 18. AN OUT-OF-RANGE AGREED PRICE IS REFUSED, and the bound is on the LINE.
+  --
+  --     Two calls, because there are two ways to be absurd and only one of them
+  --     is about the unit:
+  --
+  --       a) 2,000,000,000 cents a unit -- $20 million for a coffee. It fits in
+  --          a 32-bit integer, so nothing downstream complains; it just files a
+  --          sale for twenty million dollars and posts it to the shop's books.
+  --       b) 1,000,000,000 a unit x 3 -- each unit is at the ceiling, and the
+  --          LINE is 3,000,000,000, which does not fit. Unbounded, this is a
+  --          bare `integer out of range` raised from the middle of the
+  --          register's write path, with nothing to say which line or why.
+  --
+  --     Checked in bigint BEFORE the line is computed, which is what makes (b)
+  --     a sentence rather than an overflow.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 2000000000)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 2000000000, 'tendered_cents', 2000000000)),
+      p_location_id => v_loc_id);
+    select total_cents into v_amount from public.sales where id = v_sale_id;
+    raise exception 'FAIL 18a: an agreed price of 2000000000 cents was ACCEPTED and the sale totalled %', v_amount;
+  exception
+    when others then
+      if sqlerrm like 'FAIL 18a:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'agreed price for % is out of range%' then
+        raise exception 'FAIL 18a: expected a refusal naming the out-of-range agreed price, got: %', sqlerrm;
+      end if;
+  end;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 3,
+                         'unit_price_cents', 9999,
+                         'agreed_unit_price_cents', 1000000000)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+      p_location_id => v_loc_id);
+    raise exception 'FAIL 18b: a line of 3 x 1000000000 was ACCEPTED';
+  exception
+    when others then
+      if sqlerrm like 'FAIL 18b:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'agreed price for % is out of range%' then
+        raise exception 'FAIL 18b: expected the LINE to be refused as out of range before it overflowed, got: % (integer out of range = the bound is on the unit only, or is missing)', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 14 then
+    raise exception 'FAIL 18: expected 14 sales after two REFUSED ones, got %', v_count;
+  end if;
+
+  raise notice 'OK 18: an absurd agreed price, and a line that would overflow, are both refused by name';
+
+  ---------------------------------------------------------------------------
+  -- 19. ZERO IS A PRICE, NOT AN ABSENCE -- and an agreed price binds ONE line.
+  --
+  --     A two-line cart:
+  --       1 Coffee at an agreed 0 -- the item the shop promised to throw in
+  --       1 Tea    with no agreed price at all, so 1200 from the product
+  --                                        -----
+  --       total                              1200, COGS 1100 + 450 = 1550
+  --
+  --     Two properties in one cart, and each fails a different mistake:
+  --
+  --       * `case when v_agreed > 0 then v_agreed else price end` -- which reads
+  --         perfectly naturally -- charges 3000 for the free item and totals
+  --         4200. The customer is billed for something they were promised.
+  --       * an agreed price read once and applied to the whole cart prices the
+  --         Tea at 0 too, and totals 0.
+  --
+  --     Neither is caught by any check above: 14 and 15 have one line each and
+  --     never send a zero.
+  --
+  --     The cost side is the point again. The free Coffee still cost the shop
+  --     1100, so 1550 of COGS is recognised against 1200 of revenue and this
+  --     sale is correctly a loss. A cost that followed the agreed price would
+  --     read 450 and make giving stock away look free.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(
+                         jsonb_build_object('product_id', v_prod_coffee, 'quantity', 1,
+                                            'unit_price_cents', 9999,
+                                            'agreed_unit_price_cents', 0),
+                         jsonb_build_object('product_id', v_prod_tea, 'quantity', 1,
+                                            'unit_price_cents', 9999)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1200, 'tendered_cents', 1200)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 19: a promised-free Coffee beside a 1200 Tea must total 1200 and that sale was refused (4200 = zero read as "no agreed price", 0 = one line''s agreed price applied to the whole cart). complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 1200 then
+    raise exception 'FAIL 19: expected total_cents 1200, got % (4200 = an agreed price of 0 treated as absent, 0 = it applied to both lines)', v_amount;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 2 then
+    raise exception 'FAIL 19: expected 2 sale_items rows for a two-line cart, got %', v_count;
+  end if;
+
+  -- Addressed by product, so neither row can satisfy the other's assertion.
+  select unit_price_cents, line_total_cents, unit_cost_cents into v_int, v_num, v_amount
+    from public.sale_items where sale_id = v_sale_id and product_id = v_prod_coffee;
+  if v_int <> 0 or v_num <> 0 or v_amount is distinct from 1100 then
+    raise exception 'FAIL 19: expected the Coffee line at an agreed 0 = 0 costing 1100, got % x qty = % costing % (3000/3000 = zero read as absent)',
+      v_int, v_num, v_amount;
+  end if;
+  select unit_price_cents, line_total_cents, unit_cost_cents into v_int, v_num, v_amount
+    from public.sale_items where sale_id = v_sale_id and product_id = v_prod_tea;
+  if v_int <> 1200 or v_num <> 1200 or v_amount is distinct from 450 then
+    raise exception 'FAIL 19: expected the Tea line at the product''s 1200 = 1200 costing 450, got % x qty = % costing % (0 = the other line''s agreed price reached this one)',
+      v_int, v_num, v_amount;
+  end if;
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -1200 then
+    raise exception 'FAIL 19: expected Cr 4000 Revenue -1200 (the Tea alone; the Coffee was promised free), got %', v_amount;
+  end if;
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '4200') then
+    raise exception 'FAIL 19: a promised-free line posted a 4200 contra -- an agreed price is a price, not a discount';
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '5000';
+  if v_amount <> 1550 then
+    raise exception 'FAIL 19: expected Dr 5000 COGS 1550 (1100 + 450 -- the free item still cost the shop 1100), got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 19: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 19: an agreed price of 0 is honoured on its own line and the other line prices from the product';
+
+  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (6 more)';
   raise exception 'rollback_marker';
 exception
   when others then
