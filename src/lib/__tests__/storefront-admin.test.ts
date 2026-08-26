@@ -456,6 +456,25 @@ describe('orderErrorMessage', () => {
     expect(orderErrorMessage({ message: 'order_has_no_items' })).toMatch(/cancel/i);
   });
 
+  // ADDED BY 20260929000250. 20260929000200 files every order line at the
+  // agreed price, which puts it behind complete_sale's per-line ceiling for
+  // one -- and an order line CAN exceed it, because
+  // order_items.line_total_cents is a plain integer. Such an order completed
+  // before that branch; untranslated it came back as complete_sale's raw
+  // `agreed price for X is out of range: ...`, straight onto the shop's
+  // screen through the `default: return null` below.
+  it('maps order_line_out_of_range to a sentence, not complete_sale\'s raw English about an agreed price', () => {
+    const msg = orderErrorMessage({
+      message: 'order_line_out_of_range',
+      details: JSON.stringify({
+        message: 'agreed price for Generator is out of range: 600000000 x 2 is more than the 1000000000 cents one line may carry',
+      }),
+    });
+    expect(msg).not.toBe('order_line_out_of_range');
+    expect(msg).not.toMatch(/agreed price/i);
+    expect(msg).toMatch(/line/i);
+  });
+
   it('maps invalid_payment_method', () => {
     expect(orderErrorMessage({ message: 'invalid_payment_method' })).toMatch(/payment method/i);
   });

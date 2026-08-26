@@ -1059,18 +1059,25 @@ begin
   -- 50 in the second block below. Check 46 there is this same property with
   -- the full ledger assertions on it; this one stays because this fixture is
   -- the historical one and a regression should fail here first.
+  --
+  -- ITS RAISES CARRY THEIR NUMBER, unlike the rest of this block. That is
+  -- 20260929000250's tidy-up of a real confusion: Task 4's report tabulates
+  -- mutation results by check number, and this was the one row whose failure
+  -- text could not be traced back to the number beside it. The second block
+  -- below has numbered every raise since check 46; this check is re-founded
+  -- work and joins that convention rather than the surrounding block's.
   update public.products set price_cents = 1300 where id = v_prod_drift;
   v_drift_sale_id := public.complete_storefront_order(v_drift_id, 'cash');
   if (select total_cents from public.sales where id = v_drift_sale_id) <> 700 then
-    raise exception 'FAIL: the sale posted at % -- the customer agreed to 700 and the shelf now says 1300',
+    raise exception 'FAIL 34: the sale posted at % -- the customer agreed to 700 and the shelf now says 1300',
       (select total_cents from public.sales where id = v_drift_sale_id);
   end if;
   if (select unit_price_cents from public.sale_items where sale_id = v_drift_sale_id) <> 700 then
-    raise exception 'FAIL: the sale line was not filed at the agreed 700';
+    raise exception 'FAIL 34: the sale line was not filed at the agreed 700';
   end if;
   select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_drift_id;
   if v_detail <> 'completed' or v_result.sale_id is distinct from v_drift_sale_id then
-    raise exception 'FAIL: a re-priced order completed but the order reads % against sale %', v_detail, v_result.sale_id;
+    raise exception 'FAIL 34: a re-priced order completed but the order reads % against sale %', v_detail, v_result.sale_id;
   end if;
 
   -- ------------------------------------------------ 35. two independent layers hold the line, not just the function
@@ -1777,6 +1784,7 @@ declare
   v_prod_down   uuid;  -- 2000 -> 1500 : check 49
   v_prod_tamper uuid;  -- 800         : check 50
   v_prod_tea    uuid;  -- 2000        : checks 47/48
+  v_prod_huge   uuid;  -- 600,000,000 : check 53
 
   v_drift_id   uuid;
   v_cashier_order_id uuid;
@@ -1785,6 +1793,7 @@ declare
   v_over_id    uuid;
   v_under_id   uuid;
   v_tax_id     uuid;
+  v_huge_id    uuid;
 
   v_sale_id    uuid;
   v_entry_id   uuid;
@@ -1832,11 +1841,18 @@ begin
     values (v_shop_id, 'Tamper', 800, 300) returning id into v_prod_tamper;
   insert into public.products (shop_id, name, price_cents, cost_cents)
     values (v_shop_id, 'Taxed Tea', 2000, 700) returning id into v_prod_tea;
+  -- Check 53. 600,000,000 is an ordinary integer price and 2 of them is a
+  -- storable order line (order_items.line_total_cents is `integer`), but the
+  -- line is over the 1,000,000,000 ceiling complete_sale puts on an AGREED
+  -- price -- which is what every line of a fulfilment now is.
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Huge', 600000000, 1000) returning id into v_prod_huge;
 
   insert into public.product_location_stock (product_id, location_id, stock)
     values (v_prod_drift, v_loc_id, 100), (v_prod_drift2, v_loc_id, 100),
            (v_prod_up, v_loc_id, 100),    (v_prod_down, v_loc_id, 100),
-           (v_prod_tamper, v_loc_id, 100),(v_prod_tea, v_loc_id, 100);
+           (v_prod_tamper, v_loc_id, 100),(v_prod_tea, v_loc_id, 100),
+           (v_prod_huge, v_loc_id, 100);
 
   -- Every order below is quoted the way place_storefront_order quotes one:
   -- unit_price_cents copied from products.price_cents AS IT WAS, and
@@ -1892,6 +1908,15 @@ begin
   insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
     values (v_tax_id, v_prod_tea, 'Taxed Tea', 2000, 2, 4000);
 
+  -- Check 53: quoted the ordinary way, at a price the shop really published.
+  -- 2 x 600,000,000 = 1,200,000,000 -- inside `integer` on every column that
+  -- holds it, outside the agreed price's own per-line ceiling.
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Huge Customer', '+252634200008', 'collect', 1200000000, 0, 1200000000)
+    returning id into v_huge_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_huge_id, v_prod_huge, 'Huge', 600000000, 2, 1200000000);
+
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
   perform set_config('role', 'authenticated', true);
 
@@ -1909,6 +1934,8 @@ begin
   perform public.transition_order(v_under_id, 'ready', null);
   perform public.transition_order(v_tax_id, 'accepted', null);
   perform public.transition_order(v_tax_id, 'ready', null);
+  perform public.transition_order(v_huge_id, 'accepted', null);
+  perform public.transition_order(v_huge_id, 'ready', null);
 
   -- Same posture as the first block from check 23 on: postgres for the ledger
   -- assertions (RLS must not hide a journal_lines row from a script asserting
@@ -2185,6 +2212,62 @@ begin
 
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
 
+  -- ------------------------------------------------ 53. an order line the till cannot carry is refused in the shop's own words
+  -- THE REFUSAL 20260929000200 CREATED WITHOUT MEANING TO. Filing every line at
+  -- the price the customer agreed to also puts every line behind that field's
+  -- own ceiling of 1,000,000,000 cents (20260929000050) -- and an order line
+  -- can exceed it, because order_items.line_total_cents is a plain `integer`.
+  -- Before this branch such an order completed: it was priced from
+  -- products.price_cents and met only the int32 bound.
+  --
+  -- Untranslated it came back as complete_sale's own English, naming a field
+  -- ("agreed price") no storefront screen has ever shown, straight through
+  -- orderErrorMessage's `default: return null` and onto the shop's screen.
+  -- 20260929000250 maps it the way this function maps every other refusal it
+  -- can meet.
+  v_raised := false;
+  v_status := null;
+  v_detail := null;
+  v_sales_before := (select count(*) from public.sales where shop_id = v_shop_id);
+  begin
+    perform public.complete_storefront_order(v_huge_id, 'cash');
+  exception
+    when others then
+      v_raised := true;
+      v_status := sqlerrm;
+      get stacked diagnostics v_detail = pg_exception_detail;
+  end;
+  if not v_raised then
+    raise exception 'FAIL 53: a line of 2 x 600,000,000 was completed -- it is past the ceiling on an agreed price';
+  end if;
+  -- NOT `else raise;` here, deliberately, unlike the handlers above: an
+  -- unrecognised message reaching a caller IS the defect this check is about,
+  -- so re-raising it would reproduce the bug instead of reporting it. Without
+  -- 20260929000250 this line reads back `agreed price for Huge is out of
+  -- range: 600000000 x 2 is more than the 1000000000 cents one line may
+  -- carry` -- complete_sale's own English, on its way to a shopkeeper.
+  if v_status <> 'order_line_out_of_range' then
+    raise exception 'FAIL 53: refused with "%", which no client translates -- expected order_line_out_of_range', v_status;
+  end if;
+  -- The raw message travels in the detail, so a bug report can still name the
+  -- product and the figures without this function re-deriving a bound that
+  -- belongs to complete_sale.
+  if v_detail is null or v_detail not like '%agreed price for Huge is out of range%' then
+    raise exception 'FAIL 53: the detail does not carry complete_sale''s own message (got %)', coalesce(v_detail, '<null>');
+  end if;
+  -- And the refusal cost nothing: no sale, no stock movement, no status change,
+  -- and no fulfilment mark left behind for check 52's escape route to use.
+  if (select count(*) from public.sales where shop_id = v_shop_id) <> v_sales_before then
+    raise exception 'FAIL 53: a refused completion still wrote a sale';
+  end if;
+  select status, sale_id into v_status, v_sale_link from public.orders where id = v_huge_id;
+  if v_status <> 'ready' or v_sale_link is not null then
+    raise exception 'FAIL 53: a refused completion left the order at % against sale %', v_status, v_sale_link;
+  end if;
+  if (select count(*) from public.storefront_order_fulfilments) <> 0 then
+    raise exception 'FAIL 53: a refused completion left a fulfilment mark behind';
+  end if;
+
   -- ------------------------------------------------ 47. a tax-charging shop can complete an order at all
   -- Turned on LAST, and on this shop rather than a second one, because every
   -- check above asserts figures with no tax in them. 5% of a 4000 quote:
@@ -2271,7 +2354,7 @@ begin
 exception
   when others then
     if sqlerrm = 'rollback_marker' then
-      raise notice 'verify-order-transitions: ALL CHECKS PASSED (1-52), rolled back';
+      raise notice 'verify-order-transitions: ALL CHECKS PASSED (1-53), rolled back';
     else
       raise;
     end if;

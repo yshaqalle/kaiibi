@@ -349,12 +349,194 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // undercut. verify-order-transitions check 52b is the behavioural half.
   ['20260929000200', 'the fulfilment mark must be stamped by THIS transaction',
     'where f.xact_id = pg_current_xact_id()'],
-  // AND IT IS PER LINE, NOT PER CALL. The order must actually carry this
-  // product at exactly this price, so a fulfilment in flight excuses the prices
-  // that order quoted and nothing beside them. Without this join a marked
-  // transaction could file ANY line at ANY price below the shelf.
+  // AND IT IS NARROWED BY THE ORDER'S OWN LINES. The marked order must actually
+  // carry this product at exactly this price, so a fulfilment in flight excuses
+  // the prices that order quoted and nothing beside them. Without this join a
+  // marked transaction could file ANY line at ANY price below the shelf.
+  //
+  // Not literally per line: quantity is not matched, and one mark is not
+  // consumed by the call that uses it. Neither is reachable -- both need a
+  // second statement inside the transaction that holds the mark, and
+  // complete_storefront_order deletes it before it returns. 20260929000200's
+  // header states the whole of what is and is not enforced.
   ['20260929000200', 'the exemption covers only the product and price that order quoted',
     'and oi.product_id = v_product.id\n              and oi.unit_price_cents = v_agreed_price'],
+];
+
+// complete_storefront_order joins this file at its FIFTH full reproduction,
+// and it should have joined at its second.
+//
+// It is complete_sale's only other caller that posts money, it is re-created
+// in full by every migration that touches it, and 20260929000200 gave it four
+// edits the whole storefront branch rests on. The proof that this list was
+// missing rather than merely absent: deleting
+// `delete from public.storefront_order_fulfilments where order_id =
+// p_order_id;` from that migration left ALL 216 assertions in this file green,
+// while re-opening the exact undercut check 51b exists to refuse -- a cashier
+// with no `discounts.manual` filing a line below the shelf price at the TILL,
+// in the same transaction, on a mark this function left lying around. Only a
+// database check caught it, and only after the migration had been applied.
+// This file exists to fail before that.
+//
+// The list runs from 20260928000200, the function's first definition, not from
+// Task 4 -- a copy-forward from the wrong ancestor takes out whatever it takes
+// out, and "the edits Task 4 happened to make" is not a category the next
+// mistake will respect.
+const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
+  // 20260928000200, the original. The row lock is first because everything
+  // below it reads v_order: without `for update` two shop phones tapping
+  // "Handed over" together both read 'ready' and both post a whole sale, and
+  // the status guard below -- which is what refuses the second one -- never
+  // sees the first.
+  ['20260928000200', 'the order row is locked before anything is decided from it',
+    'from public.orders where id = p_order_id for update'],
+  ['20260928000200', "an outsider cannot complete another shop's order",
+    'if not public.is_shop_member(v_order.shop_id) then'],
+  ['20260928000200', 'a shop without the storefront module cannot complete an order',
+    "public.shop_has_module(v_order.shop_id, 'storefront')"],
+  // THE GUARD JOINED TO ITS REFUSAL. The transition trigger below would also
+  // refuse most of these, but NOT completed -> completed: that reaches the
+  // trigger as a same-status call and is waved through, so without this guard a
+  // second call posts a whole second sale. The bare status comparison would be
+  // green against a version that tested it and did nothing.
+  ['20260928000200', 'an order that is not ready cannot be completed, and a completed one cannot be completed twice',
+    "if v_order.status <> 'ready' then\n    raise exception 'invalid_order_transition'"],
+  // 'unpaid' is deliberately NOT in the list: an order handed over at the door
+  // has been paid for, and this function has no customer record to leave a
+  // balance against. Checked here rather than left to complete_sale, so getting
+  // it wrong costs no stock decrement first.
+  ['20260928000200', 'the payment method is a closed list, checked before anything is written',
+    "p_payment_method not in ('cash', 'zaad', 'edahab', 'other')"],
+  // THE SNAPSHOT, not a fresh product lookup -- the property the whole feature
+  // is built on. The token is the aggregate's tail rather than the table name:
+  // this function reads order_items twice (the payload, and lines_cents in the
+  // order_total_changed branch), so `from public.order_items` alone would stay
+  // green against a version that built the payload from products.
+  ['20260928000200', "the sale is built from the order's own frozen lines",
+    "order by oi.product_name), '[]'::jsonb)"],
+  ['20260928000200', 'a line whose product was deleted is named, not handed to complete_sale',
+    "raise exception 'order_product_deleted'"],
+  ['20260928000200', 'an order with no items is refused rather than posting an empty sale',
+    "raise exception 'order_has_no_items'"],
+  // THE GOODS, AND ONLY THE GOODS. complete_sale refuses a payment larger than
+  // the total it computed from the items, so tendering subtotal + delivery fee
+  // fails every order that carries a fee. The fee's own movement is route B
+  // below.
+  ['20260928000200', 'the delivery fee is not tendered with the goods',
+    "'amount_cents', v_order.subtotal_cents))"],
+  // 4300 Delivery Income, NEVER 4000 Sales Revenue: delivery carries no cost of
+  // sales, so folding it into goods revenue flatters gross margin on every
+  // report. 20260928000000 created the account for exactly this.
+  ['20260928000200', 'the delivery fee posts to 4300 Delivery Income, never 4000',
+    "'code',         '4300',"],
+  // The date is READ OFF the entry complete_sale just posted, never recomputed,
+  // so it inherits both the Africa/Mogadishu rule and the closed-period
+  // redirect for free. Two entries for one order in two different months is a
+  // reconciliation problem with no fix once a period closes.
+  ['20260928000200', "the fee entry is dated from the sale's own entry, not recomputed",
+    'select je.entry_date into v_entry_date'],
+  // complete_sale raises plain P0001 and the text is the only handle there is,
+  // so this function turns the ones a shop can act on into codes with a JSON
+  // detail. Losing the mapping puts complete_sale's raw English on the shop's
+  // screen, which is what orderErrorMessage's `default: return null` does with
+  // anything it does not know.
+  ['20260928000200', "complete_sale's raw refusals are translated into codes a client can say",
+    "raise exception 'insufficient_stock'"],
+  // 20260928000400. The fee entry's id is KEPT and stamped onto the order, so
+  // the entry is reachable by more than a description string -- delete_sale's
+  // fourth UNION branch reverses it through this column. The token is the whole
+  // SET list: it pins the id landing on the order AND the status, sale link and
+  // fee link moving in ONE statement, which is also the only shape the
+  // transition trigger accepts.
+  ['20260928000400', 'the fee entry is linked to the order, and the whole completion lands in one statement',
+    "set status = 'completed', sale_id = v_sale_id, delivery_entry_id = v_fee_entry_id"],
+  // 20260928000500. Written as the table owner BEFORE the order is touched, so
+  // the trigger fired by the UPDATE above finds it already there. Without it
+  // that trigger cannot tell a real completion from a direct status write.
+  ['20260928000500', 'the completion is provenanced before the order status moves',
+    'insert into public.storefront_order_completions (order_id, sale_id)'],
+  // 20260928000600. THE GATE JOINED TO ITS REFUSAL, because
+  // has_shop_permission is not otherwise called in this function but a rewrite
+  // that keeps the call and drops the raise is exactly the mistake this
+  // catches. A member who cannot ring up a sale at the counter cannot ring one
+  // up through the storefront either.
+  ['20260928000600', 'completing an order needs pos.access, stated here rather than found three calls deep',
+    "if not public.has_shop_permission(v_order.shop_id, 'pos.access') then\n    raise exception 'pos_access_required'"],
+
+  // ── 20260929000200: Task 4's four load-bearing edits ─────────────────────
+  //
+  // Each one was bite-tested by deleting the code it guards and confirming
+  // this file goes red naming the entry. They are the four that make a
+  // fulfilment charge the price the customer agreed to, and each fails
+  // differently and quietly if a copy-forward drops it.
+  //
+  // THE FIELD IS `agreed_unit_price_cents`, and `unit_price_cents` is not it.
+  // Carts have carried the latter since 0001 and complete_sale has always
+  // ignored it -- verify-complete-sale-baseline sends 9999 in it on every cart
+  // while asserting the product's own price. The token therefore carries the
+  // NEW key beside the column it is built from: the bare column name is in the
+  // payload either way, and would be green against a payload that had lost the
+  // agreed price entirely and gone back to charging today's shelf price.
+  ['20260929000200', 'every line is sent at the price the order quoted',
+    "'agreed_unit_price_cents', oi.unit_price_cents)"],
+  // ...AND THE MARK THAT MAKES complete_sale ACCEPT IT. A shop that RAISED a
+  // price after a customer ordered turns every fulfilment of that order into a
+  // line below the shelf price, which needs `discounts.manual`
+  // (20260929000050). This row is the provenance that exempts it, and it is
+  // written BEFORE complete_sale runs because complete_sale is what reads it.
+  // Lose it and a re-priced order is refused, at a shop whose prices are its
+  // own, with a message about shelf prices that names neither orders nor
+  // discounting.
+  ['20260929000200', 'the fulfilment marks itself, so complete_sale can see the quote is the shop\'s own',
+    'insert into public.storefront_order_fulfilments (order_id)\n    values (p_order_id)'],
+  // ...AND THE MARK COMES STRAIGHT BACK DOWN. THE ONE THE REVIEW PROVED WAS
+  // UNGUARDED: deleting this statement left every other assertion in this file
+  // green while re-opening check 51b -- the same cashier, without
+  // `discounts.manual`, undercutting the same product through complete_sale
+  // DIRECTLY, later in the same transaction, on a mark this function had left
+  // live. The exemption must last exactly as long as the call it exists for.
+  //
+  // The `where` clause is in the token, not just the table name: an unqualified
+  // `delete from public.storefront_order_fulfilments` would be green here and
+  // would also be a different statement.
+  ['20260929000200', 'the fulfilment mark is deleted the moment complete_sale returns',
+    'delete from public.storefront_order_fulfilments where order_id = p_order_id;'],
+  // ...AND THE SALE IS FILED TAX-INCLUSIVE. A storefront quotes a total and the
+  // customer accepts THAT total; there is no second, larger figure to collect
+  // at the door. Without this a tax-charging shop cannot complete ANY order --
+  // complete_sale adds the tax on top of the quote and then refuses the quoted
+  // payment against its own larger total, which came back as
+  // `order_total_changed`: a sentence about prices moving, given to a shop
+  // whose prices had not moved. The token is the argument as it is passed,
+  // trailing `);` and all, so it pins the flag actually REACHING complete_sale
+  // rather than being mentioned in the comment above the call.
+  ['20260929000200', 'a storefront sale is filed at prices that already include tax',
+    'p_prices_include_tax  => true);'],
+  // ...and what order_total_changed narrowed TO. It now fires only when the
+  // order ROW disagrees with the order's own LINES, and the detail carries both
+  // figures so the disagreement is legible without a second query against rows
+  // that may have moved since. 20260929000250's declaration comment says why
+  // this stays although no client reads it.
+  ['20260929000200', "the narrowed refusal carries the order's own line total",
+    "'lines_cents',  v_lines_cents,"],
+
+  // ── 20260929000250 ───────────────────────────────────────────────────────
+  //
+  // Filing every line at the agreed price also puts every line behind that
+  // field's per-line ceiling of 1,000,000,000 cents. order_items.line_total_cents
+  // is a plain `integer`, so an order line above that ceiling is storable and
+  // completed before this branch -- and after it, complete_sale's raw
+  // `agreed price for X is out of range: ...` went straight to the shop's
+  // screen through orderErrorMessage's `default: return null`.
+  //
+  // TWO ENTRIES, the match and the code, because they fail differently: a
+  // rewrite that widens the pattern swallows refusals this function has never
+  // seen and should have re-raised, and one that keeps the branch and changes
+  // the code silently un-translates it again at the client.
+  ['20260929000250', "the agreed price's own line bound is recognised, not re-raised as raw English",
+    "v_msg like 'agreed price for % is out of range%' then"],
+  ['20260929000250', 'and refused with a code a client can turn into a sentence',
+    "raise exception 'order_line_out_of_range'"],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
@@ -950,6 +1132,7 @@ const DELETE_INVOICE_PAYMENT_EDITS: Edit[] = [
 
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
+  ['complete_storefront_order', COMPLETE_STOREFRONT_ORDER_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
   ['delete_sale', DELETE_SALE_EDITS],
   ['refund_sale_items', REFUND_SALE_ITEMS_EDITS],

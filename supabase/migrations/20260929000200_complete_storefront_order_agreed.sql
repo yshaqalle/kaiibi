@@ -63,6 +63,47 @@
 -- `discounts.manual`, completes the order and is still refused the identical
 -- undercut through complete_sale directly.
 --
+-- ── EXACTLY WHAT THE EXEMPTION MATCHES, AND WHAT IT DOES NOT ──────────────
+--
+-- Stated plainly, because "the fulfilment's own lines" is a fair summary of
+-- the OUTCOME and not a description of the PREDICATE, and the two must not be
+-- confused by whoever edits this next. Three things are matched:
+--
+--   * the transaction -- `f.xact_id = pg_current_xact_id()`;
+--   * the shop -- `o.shop_id = p_shop_id`;
+--   * the product AND the price -- the marked order must carry an item for
+--     this product at exactly this unit price.
+--
+-- Three things are NOT matched, and no reading of the SQL should suggest they
+-- are:
+--
+--   * QUANTITY. An order quoting one unit at 700 exempts a line of five at
+--     700, because `oi.quantity` is not in the predicate.
+--   * THE NUMBER OF LINES. One mark exempts every line in the payload whose
+--     product and price that order quoted, not one line each.
+--   * THE NUMBER OF CALLS. The mark is not consumed. It exempts every
+--     complete_sale call made while it is live, not one.
+--
+-- NONE OF THE THREE IS REACHABLE, which is why none of them is enforced.
+-- Getting to any of them needs a live mark plus a second statement in the same
+-- transaction, and there is no door to either. Only complete_storefront_order
+-- writes a mark; it writes one, makes ONE complete_sale call with the order's
+-- own snapshot -- product, price and quantity all read from order_items in the
+-- statement above the call -- and DELETES the mark before it returns, so the
+-- table is empty at every other instant. A client cannot interleave a
+-- statement into that RPC's transaction: one PostgREST call is one
+-- transaction. And writing a mark by hand needs the table's owner or
+-- `service_role`, since the table has RLS on, no policy at all, and no grant
+-- to `anon` or `authenticated` -- a role that already reads and writes every
+-- table directly, for which a permission check inside one function is not what
+-- stands between it and the money. Checks 51 and 52 are those two doors tried.
+--
+-- ENFORCEMENT NOT NEEDED IS ENFORCEMENT NOT WRITTEN. A quantity match would
+-- cost a real fulfilment nothing and buy nothing either, and a
+-- consume-the-mark design (delete it inside complete_sale) would put a write
+-- to a storefront table in the middle of the till's hot path to close a window
+-- that the DELETE below already closes from outside.
+--
 -- ── THE TRUST IS VERIFIABLE, NOT ASSERTED ─────────────────────────────────
 --
 -- complete_sale is handed a JSON payload and cannot be told anything by the
@@ -631,10 +672,23 @@ begin
       -- complete_storefront_order, in this very transaction, is part-way
       -- through fulfilling that order.
       --
-      -- ...AND IT IS PER LINE, NOT PER CALL. The order must actually carry an
-      -- item for this product at exactly this price. A fulfilment in flight
-      -- therefore excuses only the prices that order quoted, and never a line
-      -- somebody added beside them.
+      -- ...AND IT IS NARROWED BY THE ORDER'S OWN LINES. The marked order must
+      -- actually carry an item for this product at exactly this price, so a
+      -- fulfilment in flight excuses the prices that order quoted and never a
+      -- price somebody put beside them.
+      --
+      -- SAID EXACTLY: what is matched is the transaction, the shop, the
+      -- product and the price -- and NOT the quantity, not the number of
+      -- lines, and not the number of complete_sale calls made while the mark
+      -- is live. It is therefore not literally "per line", and this comment
+      -- said so until 20260929000250 corrected it. Reaching any of those three
+      -- needs a live mark AND a second statement inside the same transaction;
+      -- complete_storefront_order writes one mark, makes one call built from
+      -- order_items in the statement above it, and deletes the mark before it
+      -- returns, and one PostgREST call is one transaction. Forging a mark
+      -- needs the table owner or `service_role`. The full argument, including
+      -- why the unmatched parts are deliberately left unenforced, is in this
+      -- migration's header.
       --
       -- ORDER MATTERS: the permission check stays FIRST, so the ordinary till
       -- path -- which is every caller that holds `discounts.manual` -- never
