@@ -128,8 +128,8 @@ describe('ProductTile', () => {
     expect(openMock).toHaveBeenCalledWith(expected);
   });
 
-  // No number to reach means nothing to open, but the property is that Ask
-  // stays VISIBLE regardless (asserted above) -- it just becomes inert here.
+  // Commit 302630a changed Ask from "stays visible but inert without a
+  // number" to hiding itself outright, deliberately -- asserted below.
   it('does not render Ask at all when the shop has no WhatsApp number', () => {
     // Matches WhatsAppButton in theme-shared: lose the button rather than
     // render one that opens a chat with nobody. An Ask that renders and

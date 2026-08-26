@@ -11,10 +11,10 @@ type Props = {
   // The shop context Ask needs to prefill a wa.me message. Optional because
   // this tile is used from theme-market.tsx / theme-window.tsx, which do not
   // forward storefront context yet -- a later task wires that in. Without a
-  // number Ask stays visible (property 2) but presses become a no-op, the
-  // same "offer nothing rather than a dead chat" rule WhatsAppButton applies
-  // by hiding itself; a grid tile can't hide one button without looking broken,
-  // so it stays present but inert instead.
+  // number Ask does not render at all (commit 302630a) -- the same "offer
+  // nothing rather than a dead chat" rule WhatsAppButton applies by hiding
+  // itself. An Ask that renders and silently does nothing is the worse half
+  // of both options: the customer taps and the app shrugs.
   shopName?: string;
   whatsappE164?: string | null;
   // Deliberately a callback, not an import of storefront-cart.ts: a basket
