@@ -86,6 +86,8 @@ const ORDER: ShopOrder = {
   status: 'pending',
   cancellationReason: null,
   itemCount: 3,
+  subtotalCents: 4499,
+  deliveryFeeCents: 100,
   totalCents: 4599,
   createdAt: '2026-08-20T10:00:00.000Z',
 };

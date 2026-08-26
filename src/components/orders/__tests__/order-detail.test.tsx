@@ -24,7 +24,9 @@ const ORDER: ShopOrder = {
   status: 'pending',
   cancellationReason: null,
   itemCount: 2,
-  totalCents: 2400,
+  subtotalCents: 2400,
+  deliveryFeeCents: 100,
+  totalCents: 2500,
   createdAt: '2026-08-20T10:00:00.000Z',
 };
 
@@ -87,6 +89,36 @@ describe('OrderDetail', () => {
     expect(t).toContain('Rice 5kg');
     expect(t).toContain('$12.00');
     expect(t).toContain('$24.00');
+  });
+
+  // The money bug: a shop working the door off this panel must see the SAME
+  // three figures the customer saw at checkout (checkout-form.tsx's own
+  // Goods/Delivery/Total breakdown) -- not just the goods subtotal a
+  // line-item list happens to sum to. Before this fix, the panel showed
+  // ORDER.subtotalCents ($24.00) and nothing else, so a shop collected $1
+  // short on every delivered order.
+  describe('the money breakdown', () => {
+    it('shows the goods subtotal, the delivery fee, and the total on a delivery order', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, fulfilment: 'deliver', subtotalCents: 2400, deliveryFeeCents: 100, totalCents: 2500 } }));
+      expect(t).toContain('Goods');
+      expect(t).toContain('$24.00');
+      expect(t).toContain('Delivery');
+      expect(t).toContain('$1.00');
+      expect(t).toContain('Amount to collect');
+      expect(t).toContain('$25.00');
+    });
+
+    it('shows no delivery row at all on a collection order', () => {
+      const t = texts(
+        renderDetail({
+          order: { ...ORDER, fulfilment: 'collect', deliveryArea: null, deliveryLandmark: null, subtotalCents: 2400, deliveryFeeCents: 0, totalCents: 2400 },
+        })
+      );
+      expect(t).toContain('Goods');
+      expect(t).not.toContain('Delivery');
+      expect(t).toContain('Amount to collect');
+      expect(t).toContain('$24.00');
+    });
   });
 
   it("shows the customer's name and phone", () => {

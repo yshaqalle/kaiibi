@@ -245,6 +245,8 @@ describe('listOrders', () => {
           note: 'Ring the bell twice',
           status: 'accepted',
           cancellation_reason: null,
+          subtotal_cents: 4499,
+          delivery_fee_cents: 100,
           total_cents: 4599,
           created_at: '2026-08-20T10:00:00Z',
           // Two lines, five units apiece -- ten items to pack, not two.
@@ -259,7 +261,7 @@ describe('listOrders', () => {
       {
         table: 'orders',
         columns:
-          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, total_cents, created_at, order_items(quantity)',
+          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, created_at, order_items(quantity)',
       },
     ]);
     expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
@@ -277,6 +279,8 @@ describe('listOrders', () => {
         status: 'accepted',
         cancellationReason: null,
         itemCount: 10,
+        subtotalCents: 4499,
+        deliveryFeeCents: 100,
         totalCents: 4599,
         createdAt: '2026-08-20T10:00:00Z',
       },
@@ -301,6 +305,8 @@ describe('listOrders', () => {
           note: null,
           status: 'pending',
           cancellation_reason: null,
+          subtotal_cents: 100,
+          delivery_fee_cents: 0,
           total_cents: 100,
           created_at: '2026-08-20T09:00:00Z',
           order_items: [{ quantity: 1 }],
@@ -312,6 +318,7 @@ describe('listOrders', () => {
     expect(order.fulfilment).toBe('collect');
     expect(order.deliveryArea).toBeNull();
     expect(order.deliveryLandmark).toBeNull();
+    expect(order.deliveryFeeCents).toBe(0);
   });
 
   // Property 2 of Task 6: the status column plan 3 left out, because nothing
@@ -331,6 +338,8 @@ describe('listOrders', () => {
           note: null,
           status: 'cancelled',
           cancellation_reason: 'Out of stock, customer notified',
+          subtotal_cents: 100,
+          delivery_fee_cents: 0,
           total_cents: 100,
           created_at: '2026-08-20T09:00:00Z',
           order_items: [{ quantity: 1 }],
@@ -369,6 +378,8 @@ function order(status: OrderStatus): ShopOrder {
     status,
     cancellationReason: status === 'cancelled' ? 'Out of stock' : null,
     itemCount: 1,
+    subtotalCents: 500,
+    deliveryFeeCents: 0,
     totalCents: 500,
     createdAt: '2026-08-20T09:00:00Z',
   };

@@ -379,6 +379,16 @@ export type ShopOrder = {
   // actually has to pull off the shelf. sales.item_count (0001_init.sql) is
   // computed the same way, by summing quantity.
   itemCount: number;
+  // The three money columns 20260926000050_orders.sql's own CHECK
+  // (orders_total_is_subtotal_plus_delivery) guarantees add up: subtotal is
+  // goods only, deliveryFee is 0 on a collect order (the sibling CHECK,
+  // orders_delivery_matches_fulfilment, enforces that server-side), total is
+  // their sum -- the exact figure the customer agreed to pay at checkout
+  // (checkout-form.tsx's own Goods/Delivery/Total breakdown). The order
+  // detail sheet reads all three so a shop sees the SAME numbers the
+  // customer did, not just the goods subtotal.
+  subtotalCents: number;
+  deliveryFeeCents: number;
   totalCents: number;
   createdAt: string;
 };
@@ -394,6 +404,8 @@ function mapOrderRow(row: {
   note: string | null;
   status: string;
   cancellation_reason: string | null;
+  subtotal_cents: number;
+  delivery_fee_cents: number;
   total_cents: number;
   created_at: string;
   order_items: { quantity: number }[] | null;
@@ -410,6 +422,8 @@ function mapOrderRow(row: {
     status: row.status as OrderStatus,
     cancellationReason: row.cancellation_reason ?? null,
     itemCount: (row.order_items ?? []).reduce((sum, item) => sum + item.quantity, 0),
+    subtotalCents: row.subtotal_cents,
+    deliveryFeeCents: row.delivery_fee_cents,
     totalCents: row.total_cents,
     createdAt: row.created_at,
   };
@@ -433,7 +447,7 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, total_cents, created_at, order_items(quantity)'
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, created_at, order_items(quantity)'
     )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });

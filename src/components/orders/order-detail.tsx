@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { Badge, type BadgeTone } from '@/components/badge';
 import { AppModal } from '@/components/ui/app-modal';
+import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
@@ -185,6 +186,24 @@ export function OrderDetail({
                       </View>
                     </View>
                   ))}
+
+                  {/* The money the customer actually agreed to at checkout
+                      (checkout-form.tsx's own Goods/Delivery/Total
+                      breakdown), reproduced here so a shop reads the SAME
+                      figures the customer did -- not just the goods
+                      subtotal a line-item list happens to sum to. Delivery
+                      is shown only when there IS a fee: a collect order's
+                      deliveryFeeCents is always 0 (orders_delivery_matches_
+                      fulfilment, 20260926000050_orders.sql), and a $0.00
+                      delivery row on a collection order would read as a
+                      promise this order never made. */}
+                  <View style={styles.breakdown}>
+                    <StatementRow label="Goods" amountCents={order.subtotalCents} variant="item" last={order.deliveryFeeCents === 0} />
+                    {order.deliveryFeeCents > 0 ? (
+                      <StatementRow label="Delivery" amountCents={order.deliveryFeeCents} variant="item" last />
+                    ) : null}
+                    <StatementRow label="Amount to collect" amountCents={order.totalCents} variant="total" />
+                  </View>
                 </>
               )}
             </Section>
@@ -370,6 +389,7 @@ const styles = StyleSheet.create({
   itemQty: { width: 40, textAlign: 'right', fontSize: 12.5, color: theme.bentoMuted, fontVariant: ['tabular-nums'] },
   itemPrice: { width: 64, textAlign: 'right', fontSize: 12.5, color: theme.bentoMuted, fontVariant: ['tabular-nums'] },
   itemTotal: { width: 72, textAlign: 'right', fontSize: 13, fontWeight: '700', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  breakdown: { marginTop: 6 },
   shortfallText: { fontSize: 11.5, color: theme.bentoLoss, marginTop: 2, fontWeight: '600' },
   shortfallSummary: { fontSize: 12.5, color: theme.bentoLoss, fontWeight: '600', marginBottom: 16, lineHeight: 18 },
 
