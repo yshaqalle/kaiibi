@@ -999,6 +999,50 @@ const CASH_FLOW_EDITS: Edit[] = [
   ['20261004000100', 'the cash flow ignores a close too', "e.source <> 'close'"],
 ];
 
+// transfer_funds joins this file at its FIRST definition rather than its second.
+// Every other function here was pinned only once a copy-forward had already lost
+// something; the point of doing it on day one is that phase 3c's remaining tasks
+// re-create nothing of this, but phase 4 might, and by then nobody will remember
+// which of these lines is load-bearing. Every entry below corresponds to a
+// mutation that was run against verify-transfers.sql and reddened it.
+const TRANSFER_FUNDS_EDITS: Edit[] = [
+  // The gate, and WHICH gate. ledger.post is the obvious one and it is wrong:
+  // banking the float is a cash operation, budgets.manage is what every other
+  // Cash & Budgets door uses, and the default Manager who does the banking
+  // holds it while holding no ledger permission at all.
+  ['20261006000000', 'gated on budgets.manage, not ledger.post',
+    "has_shop_permission(p_shop_id, 'budgets.manage')"],
+  // TWICE, and the count is the rule rather than a mention: one guard for the
+  // source leg and one for the destination. Drop either and the other still
+  // reads correctly while a transfer can invent revenue on the leg that lost
+  // its check.
+  ['20261006000000', 'both legs must be one of the four cash accounts',
+    "<> all (array['1000', '1010', '1020', '1021'])", 2],
+  ['20261006000000', 'from and to must differ', 'if p_from_code = p_to_code then'],
+  ['20261006000000', 'zero and negative are refused before journal_lines sees them',
+    'p_amount_cents <= 0'],
+  // security definer bypasses RLS on accounts, so this is the tenant boundary
+  // at this door. Phase 3a lost exactly this filter from three functions and
+  // the suite stayed green because no fixture had a second shop.
+  ['20261006000000', 'the accounts are looked up in THIS shop', 'where a.shop_id = p_shop_id'],
+  ['20261006000000', 'a retired account is not a destination', 'a.archived_at is null'],
+  // The direction, both halves. Dr the destination, Cr the source -- swap them
+  // and the entry still balances, still posts, and moves the money backwards.
+  ['20261006000000', 'Dr the destination',
+    "jsonb_build_object('code', p_to_code, 'amount_cents', p_amount_cents,"],
+  ['20261006000000', 'Cr the source',
+    "jsonb_build_object('code', p_from_code, 'amount_cents', -p_amount_cents,"],
+  ['20261006000000', 'a date in a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  ['20261006000000', "it posts under its own source, so statements can tell it apart", ", 'transfer');"],
+  // Not now()::date and not current_date: both resolve in UTC and every market
+  // is UTC+3, so an evening transfer lands on the wrong day and, at a month
+  // boundary, in the wrong period -- permanently, once that period closes.
+  ['20261006000000', 'the date comes from shop_local_date()',
+    'coalesce(p_on, public.shop_local_date())'],
+  ['20261006000000', "the user's note survives onto the entry", "coalesce(' — ' || v_note, '')"],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
   ['reopen_accounting_period', REOPEN_ACCOUNTING_PERIOD_EDITS],
@@ -1025,6 +1069,7 @@ describe.each([
   ['reverse_stock_receipt_entry', REVERSE_STOCK_RECEIPT_ENTRY_EDITS],
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
+  ['transfer_funds', TRANSFER_FUNDS_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);
 
@@ -1108,6 +1153,41 @@ describe('post_journal_entry is not executable by PUBLIC', () => {
     // authenticated is src/lib/ledger.ts and every RPC the app calls; without
     // it the till stops. service_role is the backend key. A revoke that took
     // either with it would be worse than the hole it closes.
+    expect(text).toContain(`grant execute on function ${signature} to authenticated;`);
+    expect(text).toContain(`grant execute on function ${signature} to service_role;`);
+  });
+
+  it('revokes before it grants, so the grants are the whole list', () => {
+    expect(text.indexOf(`revoke execute on function ${signature} from public;`)).toBeLessThan(
+      text.indexOf(`grant execute on function ${signature} to authenticated;`)
+    );
+  });
+});
+
+// The same check for transfer_funds, for the same reason and on day one rather
+// than after the fact. It is `security definer`, it moves money, and
+// PostgreSQL's default grant hands EXECUTE to PUBLIC -- which `anon` belongs to.
+// has_shop_permission answers false for a caller with no user, so the gate holds
+// on its own today; the whole lesson of 20261005000400 is that one barrier
+// believed to be two is how a hole ships.
+describe('transfer_funds is not executable by PUBLIC', () => {
+  const signature = 'public.transfer_funds(uuid, text, text, integer, date, text)';
+  const files = readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+    .filter((name) =>
+      readFileSync(join(MIGRATIONS, name), 'utf8').includes(
+        'create or replace function public.transfer_funds('
+      )
+    );
+  const file = files[files.length - 1];
+  const text = readFileSync(join(MIGRATIONS, file), 'utf8');
+
+  it('revokes the PUBLIC default grant', () => {
+    expect(text).toContain(`revoke execute on function ${signature} from public;`);
+  });
+
+  it('still grants it to the roles that call it', () => {
     expect(text).toContain(`grant execute on function ${signature} to authenticated;`);
     expect(text).toContain(`grant execute on function ${signature} to service_role;`);
   });
