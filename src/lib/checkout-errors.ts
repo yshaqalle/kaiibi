@@ -1,17 +1,16 @@
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents } from '@/lib/discounts';
+import { errorMessage } from '@/lib/error-message';
 import type { CartLine, Promotion } from '@/types/models';
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC -- "insufficient stock for
 // X: has 7, need 100") are plain `{code, details, hint, message}` objects that
-// are never `instanceof Error`. Check for a string `.message` on either shape
-// so the user sees the RPC's actual reason instead of a generic one.
+// are never `instanceof Error`. The shape check lives in error-message.ts so
+// that every screen shares one of it; the sentence below is this domain's, and
+// is the only part that belongs here.
 export function extractErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
-    return (err as { message: string }).message;
-  }
-  return 'Could not complete this sale.';
+  return errorMessage(err, 'Could not complete this sale.');
 }
 
 // The till was closed underneath this sale -- from another device, by a

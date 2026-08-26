@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { fromDateColumn } from '@/lib/period';
+import { fromDateColumn, toDateColumn } from '@/lib/period';
 
 // The Supabase-facing half of period close. Read and close; NO ARITHMETIC.
 //
@@ -220,9 +220,92 @@ export async function getPeriodCloseSettings(shopId: string): Promise<PeriodClos
 
 // ── Rendering decisions, kept pure so they can be tested without a render ────
 
+/**
+ * WHICH MONTH THE SCREEN OFFERS TO CLOSE: the OLDEST open period that has
+ * already ended, or null when there is none.
+ *
+ * The screen shipped with `periods.find((row) => row.status === 'open')` over a
+ * NEWEST-FIRST list, which is the newest open month -- almost always the
+ * current, unfinished one. Two open periods coexist routinely:
+ *
+ *   * on 'ask' and 'never', close_due_periods() returns 0, so every past month
+ *     stays open for ever -- and 'ask' is the mode whose entire purpose is that
+ *     a human closes the month from this screen;
+ *   * on 'automatic', during the grace window: August ends 31 Aug and closes on
+ *     10 Sep, so from 1 to 9 September August and September are both open.
+ *
+ * In both cases the screen offered the wrong month and the older one had no
+ * action at all -- the table renders a Re-open only for a closed period.
+ *
+ * OLDEST, not newest, because closes run oldest-first everywhere else
+ * (close_due_periods walks `order by p.starts_on`) and because the older an
+ * open month is the more overdue its close is.
+ *
+ * AND IT MUST HAVE ENDED. close_accounting_period() refuses a period whose
+ * ends_on has not passed (20261005000000) -- closing the current month stops
+ * the till -- so offering one is offering a button that raises.
+ *
+ * `today` is the DEVICE's local day (period.ts's rule for the whole app) while
+ * the database reads the shop's, Africa/Mogadishu. For a shop in Somalia they
+ * are the same day. Where they are not, this screen offers or withholds a month
+ * for a few hours at a boundary and the RPC is still the thing that decides --
+ * it refuses with a sentence naming the day, and the screen prints it.
+ */
+export function periodToClose(periods: AccountingPeriod[], today: string): AccountingPeriod | null {
+  const open = periods.filter((row) => row.status === 'open' && row.endsOn < today);
+  // The list arrives newest-first, so the LAST open row is the oldest one.
+  // Sorted rather than assumed: `at(-1)` on an unordered list is a coin toss,
+  // and this is the whole of the decision.
+  return open.sort((a, b) => a.startsOn.localeCompare(b.startsOn))[0] ?? null;
+}
+
+/**
+ * The month the card at the top of the screen describes.
+ *
+ * The closeable one when there is one, and otherwise the newest open month --
+ * so a shop whose only open month is the current one still sees its status, its
+ * auto-close date and its checklist, and is told why there is no button rather
+ * than shown an empty page.
+ */
+export function periodOnShow(periods: AccountingPeriod[], today: string): AccountingPeriod | null {
+  return periodToClose(periods, today) ?? periods.find((row) => row.status === 'open') ?? null;
+}
+
+/**
+ * Is this refusal the "ask me" one -- the un-forced close naming what is
+ * outstanding -- or a real failure?
+ *
+ * DECIDED FROM THE ERROR, and not from the client's copy of `outstanding`. The
+ * screen shipped branching on stale state, so any un-forced close that failed
+ * for a different reason while something happened to be outstanding -- a
+ * concurrent close, a missing account, a period that had not ended -- rendered
+ * as a refusal with a "Close … anyway" button that would fail again the same
+ * way.
+ *
+ * Matched on the database's own wording (20261005000000): `Closing % would
+ * leave % outstanding: …`. The month name and the count sit between the two
+ * anchors, so both are matched rather than the whole sentence.
+ */
+export function isOutstandingRefusal(message: string): boolean {
+  return /^Closing .* would leave .* outstanding:/.test(message);
+}
+
 /** "August 2026", from a period's `starts_on`. */
 export function monthLabel(startsOn: string): string {
   return fromDateColumn(startsOn).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+/**
+ * The day after a `date` column, as a `date` column -- the first day a month
+ * can be closed, which is what the screen says when there is nothing to close.
+ *
+ * Through Date's own arithmetic rather than `+ 86400000`: a day is not always
+ * 86,400,000ms, and this crosses month and year ends.
+ */
+export function nextDay(value: string): string {
+  const date = fromDateColumn(value);
+  date.setDate(date.getDate() + 1);
+  return toDateColumn(date);
 }
 
 /** "3 Aug", from a `date` column or a timestamp. */

@@ -5,7 +5,7 @@ import { ClosePeriodView } from '@/components/accounting/ledger/close-period-vie
 import { Caveat } from '@/components/ui/caveat';
 import { NameCell, ValueCell } from '@/components/ui/data-table';
 import type { RefreshSetter } from '@/components/accounting/use-header-actions';
-import type { AccountingPeriod, PeriodCloseEvent, PeriodException } from '@/lib/periods';
+import { dayLabel, nextDay, type AccountingPeriod, type PeriodCloseEvent, type PeriodException } from '@/lib/periods';
 
 // The Close a Period door.
 //
@@ -90,9 +90,44 @@ const DRAFT_RUN =
 const NO_COUNT =
   'Nobody counted stock at Hodan Store in August 2026, so what the books say is in stock has not been checked against the shelves.';
 
+// THE CLOCK IS PINNED, because which month this screen offers to close is a
+// question about today: the oldest OPEN month that has already ENDED. 5
+// September 2026 puts the fixture inside the grace window, where the current
+// month and the last one are both open -- the shape the whole of I1 is about,
+// and the shape a fixture with one open period cannot express.
+//
+// Only Date is faked. Faking the timer queue as well would deadlock `await
+// act()`, which is waiting on promises this screen resolves.
+const TODAY = new Date(2026, 8, 5, 9, 0, 0);
+const REAL_TIMERS = [
+  'nextTick',
+  'setImmediate',
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'queueMicrotask',
+  'performance',
+] as const;
+
 // Newest first, as list_accounting_periods() returns them.
+//
+// TWO OPEN PERIODS, and that is the point of the fixture rather than an
+// accident of it. September has not ended -- the database refuses to close it
+// and closing it would stop the till -- and August has, so August is the month
+// this screen must offer. With ONE open period the correct selection and the
+// wrong one are the same expression, and the defect this file now guards was
+// invisible for exactly that reason.
 function fixture(): AccountingPeriod[] {
   return [
+    period({
+      id: 'p-sep',
+      startsOn: '2026-09-01',
+      endsOn: '2026-09-30',
+      status: 'open',
+      outstanding: [],
+      autoCloseDueOn: '2026-10-10',
+    }),
     period({
       id: 'p-aug',
       startsOn: '2026-08-01',
@@ -196,6 +231,8 @@ function cellTitles(tree: ReactTestRenderer): string[] {
 }
 
 beforeEach(() => {
+  jest.useFakeTimers({ doNotFake: [...REAL_TIMERS] });
+  jest.setSystemTime(TODAY);
   mockListPeriods.mockClear();
   mockListEvents.mockClear();
   mockListExceptions.mockClear();
@@ -210,6 +247,10 @@ beforeEach(() => {
     { kind: 'stock_count_missing', detail: NO_COUNT, count: 1 },
   ];
   mockClose.mockResolvedValue('entry-1');
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 describe('when the read refuses', () => {
@@ -237,6 +278,17 @@ describe('when the read refuses', () => {
     // And no figures. A table left on screen beside a note saying it could not
     // be read gets read anyway.
     expect(cellValues(tree)).toHaveLength(0);
+  });
+
+  it('prints a PostgrestError read refusal too, which is a plain object', async () => {
+    mockListPeriods.mockRejectedValueOnce({
+      code: 'P0001',
+      details: null,
+      hint: null,
+      message: "You do not have permission to view this shop's accounting periods.",
+    });
+    const tree = await render();
+    expect(String(caveat(tree, 'partial')!.props.children)).toContain('permission to view');
   });
 
   it('clears the message when pull-to-refresh succeeds', async () => {
@@ -332,6 +384,65 @@ describe('the month-end checklist', () => {
   });
 });
 
+describe('which month it offers to close', () => {
+  // The screen shipped with `periods.find((row) => row.status === 'open')` over
+  // a NEWEST-FIRST list, so it always picked the current, unfinished month --
+  // the one close_accounting_period now refuses, and the one whose close stops
+  // the till. Two open months coexist routinely: on 'ask' and 'never' every
+  // past month stays open for ever, and on 'automatic' the last month and the
+  // current one overlap for the whole grace window.
+
+  it('offers the OLDEST open month that has ENDED, not the newest open one', async () => {
+    const tree = await render();
+    expect(button(tree, 'Close August 2026 now')).toBeDefined();
+    // September is open too, and it is the newest. It is also unfinished.
+    expect(button(tree, 'Close September 2026 now')).toBeUndefined();
+    // ...and the card and the checklist are about the same month as the button.
+    expect(mockListExceptions).toHaveBeenCalledWith('shop-1', 'p-aug');
+    await act(async () => {
+      button(tree, 'Close August 2026 now')!.props.onPress();
+    });
+    expect(mockClose).toHaveBeenCalledWith('shop-1', 'p-aug', false);
+  });
+
+  it('offers the OLDEST of several ended open months, not the newest of them', async () => {
+    // 'ask' and 'never' leave every past month open for ever, so three and four
+    // open months is the ordinary state there rather than a corner. With only
+    // ONE ended open month the oldest and the newest are the same row and the
+    // ordering is untestable -- which is how `find()` survived.
+    mockPeriods = [
+      period({ id: 'p-sep', startsOn: '2026-09-01', endsOn: '2026-09-30', status: 'open', outstanding: [] }),
+      period({ id: 'p-aug', startsOn: '2026-08-01', endsOn: '2026-08-31', status: 'open', outstanding: [] }),
+      period({ id: 'p-jul', startsOn: '2026-07-01', endsOn: '2026-07-31', status: 'open', outstanding: [] }),
+    ];
+    mockChecklist = [];
+    const tree = await render();
+    expect(button(tree, 'Close July 2026 now')).toBeDefined();
+    expect(button(tree, 'Close August 2026 now')).toBeUndefined();
+    expect(mockListExceptions).toHaveBeenCalledWith('shop-1', 'p-jul');
+  });
+
+  it('offers nothing to close when the only open month has not ended, and says when it can be', async () => {
+    // The ordinary state of a shop on 'automatic' from the 11th onwards: last
+    // month has closed by itself and only the current month is open. Offering
+    // its close would be offering a button that raises.
+    mockPeriods = fixture().filter((row) => row.id !== 'p-aug');
+    mockChecklist = [];
+    const tree = await render();
+
+    expect(button(tree, 'Close September 2026 now')).toBeUndefined();
+    expect(button(tree, 'Close August 2026 now')).toBeUndefined();
+    // Said in a sentence rather than by an absence, and it names the day.
+    expect(texts(tree).some((text) => text.includes('has not ended yet'))).toBe(true);
+    // Through the real helpers rather than a literal: dayLabel is
+    // toLocaleDateString, so "1 Oct" and "Oct 1" are both right depending on
+    // where the test runs, and pinning one would make this file locale-bound.
+    expect(texts(tree)).toContain(dayLabel(nextDay('2026-09-30')));
+    // The card still describes the open month rather than the page going blank.
+    expect(texts(tree)).toContain('September 2026');
+  });
+});
+
 describe('closing a month', () => {
   it('runs an UN-FORCED close first, so the database is the thing that asks', async () => {
     const tree = await render();
@@ -391,6 +502,41 @@ describe('closing a month', () => {
     const note = caveat(tree, 'wrong');
     expect(String(note!.props.children)).toContain('already closed');
     expect(note!.props.action.label).toBe('Try again');
+  });
+
+  it('treats an unrelated failure as a failure even while items ARE outstanding', async () => {
+    // The decision is made FROM THE ERROR, not from this screen's copy of
+    // `outstanding`. Branching on stale client state rendered a concurrent
+    // close, a missing account or a month that had not ended as "ask me", with
+    // a Close-anyway button that would fail again the same way.
+    mockClose.mockRejectedValueOnce(new Error('No such accounting period.'));
+    const tree = await render();
+    await act(async () => {
+      button(tree, 'Close August 2026 now')!.props.onPress();
+    });
+    const note = caveat(tree, 'wrong');
+    expect(String(note!.props.children)).toContain('No such accounting period');
+    expect(note!.props.action.label).toBe('Try again');
+  });
+
+  it('prints a PostgrestError refusal, which is not an instanceof Error', async () => {
+    // THE DEFECT, exactly. `supabase.rpc()` rejects with a plain
+    // `{code, details, hint, message}` object -- never an Error -- so
+    // `error instanceof Error ? error.message : fallback` took the fallback
+    // every time and the refusal whose entire purpose is to name every
+    // outstanding item rendered "The database refused the close." Verified on
+    // screen before it was fixed.
+    const refusal =
+      `Closing August 2026 would leave 2 items outstanding: ${DRAFT_RUN} ${NO_COUNT} ` +
+      'Close it anyway to record them against the period.';
+    mockClose.mockRejectedValueOnce({ code: 'P0001', details: null, hint: null, message: refusal });
+    const tree = await render();
+    await act(async () => {
+      button(tree, 'Close August 2026 now')!.props.onPress();
+    });
+    const note = caveat(tree, 'wrong');
+    expect(String(note!.props.children)).toBe(refusal);
+    expect(note!.props.action.label).toContain('anyway');
   });
 
   it('says a month that did not trade closed empty, rather than claiming an entry was written', async () => {
@@ -497,7 +643,14 @@ describe('re-opening a month', () => {
   });
 
   it('shows what the database refused with, and leaves the panel standing', async () => {
-    mockReopen.mockRejectedValueOnce(new Error('This period is locked. A locked period is final — it cannot be re-opened.'));
+    // A PLAIN OBJECT, as PostgREST rejects: this is the shape `instanceof
+    // Error` was silently failing on, and re-opening is one of the four sites.
+    mockReopen.mockRejectedValueOnce({
+      code: 'P0001',
+      details: null,
+      hint: null,
+      message: 'This period is locked. A locked period is final — it cannot be re-opened.',
+    });
     const tree = await openReopenPanel();
     await act(async () => {
       tree.root.findByType(TextInput).props.onChangeText('A late bill.');

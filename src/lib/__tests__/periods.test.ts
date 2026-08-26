@@ -21,7 +21,11 @@ import {
   listAccountingPeriods,
   listPeriodCloseEvents,
   listPeriodExceptions,
+  isOutstandingRefusal,
   monthLabel,
+  nextDay,
+  periodOnShow,
+  periodToClose,
   reopenAccountingPeriod,
   type PeriodCloseEvent,
 } from '@/lib/periods';
@@ -292,5 +296,79 @@ describe('the date labels', () => {
     expect(dayLabel('2026-08-03T13:00:00Z')).toBe(
       new Date('2026-08-03T13:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
     );
+  });
+});
+
+describe('which month the screen may close', () => {
+  // The whole of I1, tested without a render: `find(status === 'open')` over a
+  // NEWEST-FIRST list is the current, unfinished month -- the one the database
+  // refuses and the one whose close stops the till.
+  function open(id: string, startsOn: string, endsOn: string) {
+    return {
+      id,
+      startsOn,
+      endsOn,
+      status: 'open' as const,
+      closedAt: null,
+      closedBy: null,
+      exceptions: [],
+      outstanding: [],
+      closingEntryId: null,
+      profitRolledCents: 0,
+      autoCloseDueOn: null,
+    };
+  }
+  const SEP = open('p-sep', '2026-09-01', '2026-09-30');
+  const AUG = open('p-aug', '2026-08-01', '2026-08-31');
+  const JUL = open('p-jul', '2026-07-01', '2026-07-31');
+  const JUN = { ...open('p-jun', '2026-06-01', '2026-06-30'), status: 'closed' as const, outstanding: null };
+
+  it('takes the oldest open month that has ended', () => {
+    expect(periodToClose([SEP, AUG, JUL, JUN], '2026-09-05')?.id).toBe('p-jul');
+  });
+
+  it('never takes a month that has not ended, however open it is', () => {
+    // On the 31st August is still trading; on the 1st it is not.
+    expect(periodToClose([SEP, AUG], '2026-08-31')).toBeNull();
+    expect(periodToClose([SEP, AUG], '2026-09-01')?.id).toBe('p-aug');
+  });
+
+  it('ignores a closed month even when it is the oldest', () => {
+    expect(periodToClose([SEP, AUG, JUN], '2026-09-05')?.id).toBe('p-aug');
+  });
+
+  it('still shows the newest open month when there is nothing to close', () => {
+    // Otherwise the card, the checklist and the auto-close date all vanish for
+    // a shop whose only open month is the current one -- the ordinary state of
+    // a shop on 'automatic' from the 11th onwards.
+    expect(periodOnShow([SEP, JUN], '2026-09-05')?.id).toBe('p-sep');
+    expect(periodOnShow([SEP, AUG, JUN], '2026-09-05')?.id).toBe('p-aug');
+    expect(periodOnShow([JUN], '2026-09-05')).toBeNull();
+  });
+
+  it('reads the day after a month end across month and year boundaries', () => {
+    expect(nextDay('2026-09-30')).toBe('2026-10-01');
+    expect(nextDay('2026-12-31')).toBe('2027-01-01');
+    expect(nextDay('2028-02-28')).toBe('2028-02-29');
+  });
+});
+
+describe('telling the ask-me refusal from a failure', () => {
+  // Decided from the ERROR and not from a stale `outstanding`, or a concurrent
+  // close renders as "ask me" with a Close-anyway button that fails again.
+  it("recognises the database's own wording", () => {
+    expect(
+      isOutstandingRefusal('Closing August 2026 would leave 2 items outstanding: A pay run. Close it anyway.')
+    ).toBe(true);
+    expect(isOutstandingRefusal('Closing July 2026 would leave 1 item outstanding: A till.')).toBe(true);
+  });
+
+  it('does not mistake any other refusal for it', () => {
+    expect(isOutstandingRefusal('This period was already closed on 3 Aug 2026.')).toBe(false);
+    expect(isOutstandingRefusal('No such accounting period.')).toBe(false);
+    expect(
+      isOutstandingRefusal('August 2026 has not ended yet, so there is nothing final to close.')
+    ).toBe(false);
+    expect(isOutstandingRefusal('You do not have permission to close an accounting period.')).toBe(false);
   });
 });

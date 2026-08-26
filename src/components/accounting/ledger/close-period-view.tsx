@@ -10,6 +10,8 @@ import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
 import { Colors } from '@/constants/theme';
 import { formatAccountingCents } from '@/lib/currency';
+import { errorMessage } from '@/lib/error-message';
+import { toDateColumn } from '@/lib/period';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import {
@@ -17,10 +19,14 @@ import {
   closedByLabel,
   dayLabel,
   getPeriodCloseSettings,
+  isOutstandingRefusal,
   listAccountingPeriods,
   listPeriodCloseEvents,
   listPeriodExceptions,
   monthLabel,
+  nextDay,
+  periodOnShow,
+  periodToClose,
   reopenAccountingPeriod,
   type AccountingPeriod,
   type PeriodCloseEvent,
@@ -137,9 +143,10 @@ export function ClosePeriodView({
       rows = await listAccountingPeriods(shop.id);
     } catch (error) {
       setPeriods(null);
-      setReadError(
-        error instanceof Error ? error.message : "Could not read this shop's accounting periods."
-      );
+      // errorMessage and NOT `error instanceof Error`: a PostgrestError is a
+      // plain object and is never an Error, so that test took the fallback
+      // every time and threw away the database's sentence. See error-message.ts.
+      setReadError(errorMessage(error, "Could not read this shop's accounting periods."));
       return;
     }
     setReadError(null);
@@ -163,7 +170,10 @@ export function ClosePeriodView({
     // `outstanding` is the same function's output already, but this call
     // carries `kind` and `count` with it, which the array of sentences does
     // not, and both are read from the one definition either way.
-    const open = rows.find((row) => row.status === 'open');
+    // THE SAME PERIOD THE CARD AND THE BUTTON ARE ABOUT. `rows.find(open)` over
+    // a newest-first list is the newest open month, which is not the one this
+    // screen offers to close -- see periodToClose.
+    const open = periodOnShow(rows, toDateColumn(new Date()));
     if (!open) {
       setChecklist([]);
       return;
@@ -189,8 +199,10 @@ export function ClosePeriodView({
     let cancelled = false;
     Promise.resolve()
       .then(() => (cancelled ? undefined : load()))
-      .catch(() => {
-        if (!cancelled) setReadError("Could not read this shop's accounting periods.");
+      .catch((error) => {
+        // The fourth site, and the one that threw the sentence away outright
+        // rather than merely failing an `instanceof` test.
+        if (!cancelled) setReadError(errorMessage(error, "Could not read this shop's accounting periods."));
       });
     return () => {
       cancelled = true;
@@ -199,20 +211,26 @@ export function ClosePeriodView({
   useRefreshOnFocus(load);
   useTabRefresh(setRefresh, load);
 
-  // Newest first, as the function returns them, so this is the newest open
-  // month. Not necessarily the only one: closing April while March is held open
-  // is permitted on purpose (20261003000100), and the table below shows every
-  // period's own status rather than a high-water mark.
-  const openPeriod = periods?.find((row) => row.status === 'open') ?? null;
+  // WHICH MONTH THIS SCREEN IS ABOUT, and it is not simply "the open one".
+  // `periods` is newest-first and several may be open at once -- on 'ask' every
+  // past month stays open for ever, and on 'automatic' the current month and
+  // the last one overlap for the whole grace window. periodToClose picks the
+  // OLDEST open month that has ENDED, which is the only one
+  // close_accounting_period will accept; periodOnShow falls back to the newest
+  // open month so the card still describes something when there is nothing to
+  // close. Both live in periods.ts, tested without a render.
+  const today = toDateColumn(new Date());
+  const closeable = periods ? periodToClose(periods, today) : null;
+  const openPeriod = periods ? periodOnShow(periods, today) : null;
 
   const runClose = async (force: boolean) => {
-    if (!shop || !openPeriod || busy) return;
+    if (!shop || !closeable || busy) return;
     setBusy(force ? 'forcing' : 'closing');
     setFailure(null);
     setOutcome(null);
-    const month = monthLabel(openPeriod.startsOn);
+    const month = monthLabel(closeable.startsOn);
     try {
-      const entry = await closeAccountingPeriod(shop.id, openPeriod.id, force);
+      const entry = await closeAccountingPeriod(shop.id, closeable.id, force);
       setRefusal(null);
       setOutcome(
         entry === null
@@ -220,13 +238,17 @@ export function ClosePeriodView({
           : `${month} is closed. Its profit is now in 3900 Retained Earnings, and the closing entry is in the journals.`
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The database refused the close.';
+      const message = errorMessage(error, 'The database refused the close.');
       // An UN-FORCED close of a month with something outstanding is the "ask
-      // me" state, not a failure -- and `outstanding` is the function's own
-      // answer to whether there is anything, so nothing is being decided here.
-      if (!force && (openPeriod.outstanding?.length ?? 0) > 0) {
+      // me" state, not a failure -- and that is decided FROM THE ERROR, not
+      // from this screen's copy of `outstanding`, which is a read old enough
+      // that a concurrent close, a missing account or a period that has not
+      // ended all rendered as "ask me" with a Close-anyway button that failed
+      // again the same way.
+      if (!force && isOutstandingRefusal(message)) {
         setRefusal(message);
       } else {
+        setRefusal(null);
         setFailure(message);
       }
     } finally {
@@ -254,7 +276,7 @@ export function ClosePeriodView({
         `${month} is open again. Its closing entry was reversed rather than deleted, so both halves stay in the journals and your reason is in the Audit Log.`
       );
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'The database refused the re-open.');
+      setFailure(errorMessage(error, 'The database refused the re-open.'));
     } finally {
       setBusy(null);
       await load();
@@ -441,10 +463,10 @@ export function ClosePeriodView({
                   did not happen and there is a cause the reader can remove --
                   either by clearing the items or by deciding to close over them,
                   which is what the action does. */}
-              {refusal ? (
+              {refusal && closeable ? (
                 <Caveat
                   tone="wrong"
-                  action={{ label: `Close ${monthLabel(openPeriod.startsOn)} anyway`, onPress: () => runClose(true) }}
+                  action={{ label: `Close ${monthLabel(closeable.startsOn)} anyway`, onPress: () => runClose(true) }}
                 >
                   {refusal}
                 </Caveat>
@@ -462,7 +484,12 @@ export function ClosePeriodView({
                 </Caveat>
               ) : null}
 
-              {permitted ? (
+              {/* NO BUTTON WITHOUT A MONTH THAT HAS ENDED. The database refuses
+                  a period whose ends_on has not passed -- closing the current
+                  month redates every posting into a month that is shut, and the
+                  till stops -- so offering it would be offering a button that
+                  raises. Said in a sentence rather than by an absence. */}
+              {permitted && closeable ? (
                 <Pressable
                   onPress={() => runClose(false)}
                   disabled={busy !== null}
@@ -472,14 +499,20 @@ export function ClosePeriodView({
                   <Text style={styles.buttonGoText}>
                     {busy === 'closing' || busy === 'forcing'
                       ? 'Closing…'
-                      : `Close ${monthLabel(openPeriod.startsOn)} now`}
+                      : `Close ${monthLabel(closeable.startsOn)} now`}
                   </Text>
                 </Pressable>
               ) : null}
-              {permitted && openPeriod.autoCloseDueOn ? (
+              {permitted && !closeable ? (
                 <Text style={styles.footnote}>
-                  Or leave it — {monthLabel(openPeriod.startsOn)} closes by itself on{' '}
-                  {dayLabel(openPeriod.autoCloseDueOn)}.
+                  {monthLabel(openPeriod.startsOn)} has not ended yet, so there is nothing final to close. It can be
+                  closed from {dayLabel(nextDay(openPeriod.endsOn))} — until then the month can still take a sale.
+                </Text>
+              ) : null}
+              {permitted && closeable && closeable.autoCloseDueOn ? (
+                <Text style={styles.footnote}>
+                  Or leave it — {monthLabel(closeable.startsOn)} closes by itself on{' '}
+                  {dayLabel(closeable.autoCloseDueOn)}.
                 </Text>
               ) : null}
             </BentoCard>
