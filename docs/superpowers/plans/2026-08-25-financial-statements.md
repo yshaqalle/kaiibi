@@ -138,9 +138,9 @@ The consequence is visible and should be stated on the statement rather than dis
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/20260927000000_statement_lines.sql` | `statement_lines()` — the one query behind P&L and Income Statement |
-| `supabase/migrations/20260927000100_balance_sheet.sql` | `balance_sheet()` |
-| `supabase/migrations/20260927000200_cash_flow.sql` | `cash_flow()` — indirect method |
+| `supabase/migrations/20260928000000_statement_lines.sql` | `statement_lines()` — the one query behind P&L and Income Statement |
+| `supabase/migrations/20260928000100_balance_sheet.sql` | `balance_sheet()` |
+| `supabase/migrations/20260928000200_cash_flow.sql` | `cash_flow()` — indirect method |
 | `src/lib/statements.ts` | The three read functions and their row types. No arithmetic. |
 | `src/components/accounting/ledger/income-statement-view.tsx` | Both the summary and the detailed rendering |
 | `src/components/accounting/ledger/balance-sheet-view.tsx` | |
@@ -157,7 +157,7 @@ The three screens are separate files because they render differently and change 
 ### Task 1: `statement_lines()` — one query, two reports
 
 **Files:**
-- Create: `supabase/migrations/20260927000000_statement_lines.sql`
+- Create: `supabase/migrations/20260928000000_statement_lines.sql`
 - Create: `supabase/tests/verify-statements.sql`
 - Modify: `docs/superpowers/ACCOUNTING-ROADMAP.md` (the stale shrinkage recommendation)
 
@@ -333,7 +333,7 @@ Expected: `verify-statements  FAIL` with `ERROR: function public.statement_lines
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/20260927000000_statement_lines.sql`:
+Create `supabase/migrations/20260928000000_statement_lines.sql`:
 
 ```sql
 -- The income statement, at two levels of detail, from one query.
@@ -485,7 +485,7 @@ Mutation: `between p_from and p_to` → no date filter. Expected: check 7 fails.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/20260927000000_statement_lines.sql supabase/tests/verify-statements.sql docs/superpowers/ACCOUNTING-ROADMAP.md
+git add supabase/migrations/20260928000000_statement_lines.sql supabase/tests/verify-statements.sql docs/superpowers/ACCOUNTING-ROADMAP.md
 git commit -m "feat(accounting): the income statement, at two levels of detail, from one query"
 ```
 
@@ -494,7 +494,7 @@ git commit -m "feat(accounting): the income statement, at two levels of detail, 
 ### Task 2: `balance_sheet()`
 
 **Files:**
-- Create: `supabase/migrations/20260927000100_balance_sheet.sql`
+- Create: `supabase/migrations/20260928000100_balance_sheet.sql`
 - Modify: `supabase/tests/verify-statements.sql`
 
 **Interfaces:**
@@ -589,7 +589,7 @@ Expected: `verify-statements  FAIL` — `function public.balance_sheet(uuid, dat
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/20260927000100_balance_sheet.sql`. The structure mirrors Task 1 — a `posted` CTE filtered `e.entry_date <= p_as_of` with **no lower bound**, a `by_account` CTE flipping sign, and a union of section rows and totals. Points the implementer must get right, each of which has a check above:
+Create `supabase/migrations/20260928000100_balance_sheet.sql`. The structure mirrors Task 1 — a `posted` CTE filtered `e.entry_date <= p_as_of` with **no lower bound**, a `by_account` CTE flipping sign, and a union of section rows and totals. Points the implementer must get right, each of which has a check above:
 
 - **Sign.** Assets present positive (their ledger sum is already positive). Liabilities and equity present positive too, which means **negating** their ledger sum, because they carry credit balances. A contra account within a section keeps its ledger sign after that flip, so `3100 Owner's Draw` lands negative inside equity and reduces it.
 - **Fixed vs current** by `code between '1500' and '1599'`, with the comment explaining why a code range is right here and nowhere else.
@@ -614,7 +614,7 @@ Mutation: drop the `e.entry_date <= p_as_of` filter. Expected: check 12 fails. R
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/20260927000100_balance_sheet.sql supabase/tests/verify-statements.sql
+git add supabase/migrations/20260928000100_balance_sheet.sql supabase/tests/verify-statements.sql
 git commit -m "feat(accounting): the balance sheet, which balances because every entry does"
 ```
 
@@ -623,7 +623,7 @@ git commit -m "feat(accounting): the balance sheet, which balances because every
 ### Task 3: `cash_flow()` — indirect method
 
 **Files:**
-- Create: `supabase/migrations/20260927000200_cash_flow.sql`
+- Create: `supabase/migrations/20260928000200_cash_flow.sql`
 - Modify: `supabase/tests/verify-statements.sql`
 
 **Interfaces:**
@@ -701,7 +701,7 @@ Expected: `verify-statements  FAIL` — `function public.cash_flow(uuid, date, d
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/20260927000200_cash_flow.sql`. The shape:
+Create `supabase/migrations/20260928000200_cash_flow.sql`. The shape:
 
 - Net profit from `statement_lines(p_shop_id, p_from, p_to)`.
 - Depreciation added back as `6800`'s movement over the window. **Until 3c ships `run_depreciation` this is always zero**, which is correct rather than missing — say so in a comment so nobody treats a zero as a bug.
@@ -727,7 +727,7 @@ Mutation: compute opening cash at `p_from` rather than `p_from - 1 day`. Expecte
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/20260927000200_cash_flow.sql supabase/tests/verify-statements.sql
+git add supabase/migrations/20260928000200_cash_flow.sql supabase/tests/verify-statements.sql
 git commit -m "feat(accounting): the cash flow, and the proof that it ties"
 ```
 
