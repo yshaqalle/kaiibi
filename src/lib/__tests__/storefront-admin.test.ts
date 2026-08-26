@@ -231,6 +231,7 @@ describe('listOrders', () => {
           customer_phone: '+252634456789',
           fulfilment: 'deliver',
           delivery_area: 'Hargeisa - 26 June',
+          delivery_landmark: 'Behind Maansoor Hotel, blue gate',
           total_cents: 4599,
           created_at: '2026-08-20T10:00:00Z',
           // Two lines, five units apiece -- ten items to pack, not two.
@@ -245,7 +246,7 @@ describe('listOrders', () => {
       {
         table: 'orders',
         columns:
-          'id, number, customer_name, customer_phone, fulfilment, delivery_area, total_cents, created_at, order_items(quantity)',
+          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)',
       },
     ]);
     expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
@@ -258,6 +259,7 @@ describe('listOrders', () => {
         customerPhone: '+252634456789',
         fulfilment: 'deliver',
         deliveryArea: 'Hargeisa - 26 June',
+        deliveryLandmark: 'Behind Maansoor Hotel, blue gate',
         itemCount: 10,
         totalCents: 4599,
         createdAt: '2026-08-20T10:00:00Z',
@@ -268,7 +270,8 @@ describe('listOrders', () => {
   // orders_delivery_matches_fulfilment (20260926000050) guarantees a collect
   // order never carries a delivery_area server-side; this just proves the
   // mapper passes that null through rather than inventing a placeholder.
-  it('carries a collect order through with no delivery area', async () => {
+  // Same guarantee covers delivery_landmark.
+  it('carries a collect order through with no delivery area or landmark', async () => {
     fake.selectResult = {
       data: [
         {
@@ -278,6 +281,7 @@ describe('listOrders', () => {
           customer_phone: '+252634456780',
           fulfilment: 'collect',
           delivery_area: null,
+          delivery_landmark: null,
           total_cents: 100,
           created_at: '2026-08-20T09:00:00Z',
           order_items: [{ quantity: 1 }],
@@ -288,6 +292,7 @@ describe('listOrders', () => {
     const [order] = await listOrders('shop-1');
     expect(order.fulfilment).toBe('collect');
     expect(order.deliveryArea).toBeNull();
+    expect(order.deliveryLandmark).toBeNull();
   });
 
   it('throws on failure rather than swallowing it', async () => {

@@ -43,7 +43,18 @@ const COLUMNS: Column<ShopOrder>[] = [
   { key: 'number', header: 'Order', width: 76, render: (row) => <ValueCell value={`#${row.number}`} strong /> },
   { key: 'customer', header: 'Customer', render: (row) => <NameCell title={row.customerName} meta={row.customerPhone} /> },
   { key: 'items', header: 'Items', numeric: true, width: 64, render: (row) => <ValueCell value={String(row.itemCount)} tone="muted" /> },
-  { key: 'fulfilment', header: 'Fulfilment', render: (row) => <ValueCell value={fulfilmentLabel(row)} /> },
+  {
+    key: 'fulfilment',
+    header: 'Fulfilment',
+    // B4: the landmark, not just the priced area -- "Hargeisa addresses are
+    // landmarks, not street numbers" is checkout's whole delivery premise
+    // (checkout-form.tsx), and without it here the shop still has to phone
+    // the customer to find out where to actually go. NameCell's own meta
+    // line already exists for exactly this "the thing, then what qualifies
+    // it" shape; collect orders carry no landmark, so nothing renders below
+    // the label for them.
+    render: (row) => <NameCell title={fulfilmentLabel(row)} meta={row.fulfilment === 'deliver' ? row.deliveryLandmark ?? undefined : undefined} />,
+  },
   { key: 'total', header: 'Total', numeric: true, width: 90, render: (row) => <ValueCell value={formatCents(row.totalCents)} strong /> },
   { key: 'when', header: 'When', numeric: true, width: 130, render: (row) => <ValueCell value={whenLabel(row.createdAt)} tone="muted" /> },
 ];

@@ -356,6 +356,13 @@ export type ShopOrder = {
   // own comment: null for collect, the shop's `storefront_delivery_areas`
   // name at order time for deliver.
   deliveryArea: string | null;
+  // B4: "Hargeisa addresses are landmarks, not street numbers" is this
+  // branch's entire delivery premise (checkout-form.tsx collects it,
+  // place_storefront_order validates and stores it) -- selecting deliveryArea
+  // above without this leaves a shop that has to phone every delivery
+  // customer to find out where to actually go. Null for collect, same as
+  // deliveryArea.
+  deliveryLandmark: string | null;
   // Total UNITS across every line, not the number of lines -- what a shop
   // actually has to pull off the shelf. sales.item_count (0001_init.sql) is
   // computed the same way, by summing quantity.
@@ -371,6 +378,7 @@ function mapOrderRow(row: {
   customer_phone: string;
   fulfilment: string;
   delivery_area: string | null;
+  delivery_landmark: string | null;
   total_cents: number;
   created_at: string;
   order_items: { quantity: number }[] | null;
@@ -382,6 +390,7 @@ function mapOrderRow(row: {
     customerPhone: row.customer_phone,
     fulfilment: row.fulfilment as 'collect' | 'deliver',
     deliveryArea: row.delivery_area ?? null,
+    deliveryLandmark: row.delivery_landmark ?? null,
     itemCount: (row.order_items ?? []).reduce((sum, item) => sum + item.quantity, 0),
     totalCents: row.total_cents,
     createdAt: row.created_at,
@@ -396,7 +405,9 @@ function mapOrderRow(row: {
 export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, number, customer_name, customer_phone, fulfilment, delivery_area, total_cents, created_at, order_items(quantity)')
+    .select(
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)'
+    )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
   if (error) throw error;

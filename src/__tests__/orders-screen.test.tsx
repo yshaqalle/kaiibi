@@ -52,6 +52,7 @@ const ORDER: ShopOrder = {
   customerPhone: '+252634456789',
   fulfilment: 'deliver',
   deliveryArea: 'Hargeisa - 26 June',
+  deliveryLandmark: 'Behind Maansoor Hotel, blue gate',
   itemCount: 3,
   totalCents: 4599,
   createdAt: '2026-08-20T10:00:00.000Z',
@@ -83,6 +84,26 @@ describe('Orders screen', () => {
     const tree = await renderScreen();
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
     expect(texts).toMatch(/collect/i);
+  });
+
+  // B4: the landmark is collected, validated and stored -- without showing
+  // it here the shop still has to phone the customer to find out where to
+  // go, the exact dead end "Hargeisa addresses are landmarks, not street
+  // numbers" exists to avoid.
+  it('shows the delivery landmark alongside the area, so the shop does not have to phone to find out where to go', async () => {
+    (listOrders as jest.Mock).mockResolvedValue([ORDER]);
+    const tree = await renderScreen();
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Behind Maansoor Hotel, blue gate');
+  });
+
+  it('shows no landmark for a collect order', async () => {
+    (listOrders as jest.Mock).mockResolvedValue([
+      { ...ORDER, fulfilment: 'collect', deliveryArea: null, deliveryLandmark: null },
+    ]);
+    const tree = await renderScreen();
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).not.toContain('Behind Maansoor Hotel, blue gate');
   });
 
   // Property: "Unconfirmed order value is never presented as revenue. An
