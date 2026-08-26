@@ -41,11 +41,38 @@
 --      same figure. Charging tax on the un-reduced 3600 gives 180 rather than
 --      178, and earning on the taxed figure gives 37 rather than 36. Both wrong
 --      answers are reachable by a one-line edit and neither raises.
+--   9. TAX IS ROUNDED, not floored. 3% of 2450 is 73.5, the one figure here
+--      where round() and floor() disagree, so 74 is what tells them apart.
+--      Every other tax figure in this script is exact and survives either.
+--  10. A PERCENTAGE PROMOTION IS ROUNDED THE SAME WAY. 3% of 1250 is 37.5, so
+--      the offer allows 38. Under floor() it allows 37 and refuses this sale.
+--  11. A MULTI-LINE CART. Every other check here rings up ONE line, so nothing
+--      else would notice a loop that stopped accumulating, wrote one row per
+--      cart, or put a line's discount against the wrong product.
+--  12. A SALE LEFT ON ACCOUNT (p_allow_balance) EARNS NOTHING. Points are for
+--      money taken, not goods handed over, so an under-paid sale zeroes the
+--      points it had already computed and the customer's balance stays put.
+--  13. THE RUNNING TOTALS, checked once at the end.
+--
+-- THE CART'S OWN PRICE IS IGNORED, and every payload below is written to prove
+-- it. complete_sale prices each line from products.price_cents (:363, :372) and
+-- never reads the unit_price_cents the client sent. A payload sending the SAME
+-- figure as the product's price cannot tell those two sources apart -- a
+-- baseline written that way passes just as happily against a function that
+-- reads the cart, which is not a baseline at all -- so every cart here sends
+-- 9999, a price no product has, while the assertions expect the product's. A
+-- function that read the cart instead would move every total by thousands and
+-- be refused by its own payments-equality check.
 --
 -- Every intermediate figure inside a check is deliberately distinct -- 2400 /
 -- 900, 6000 / 5000 / 1000 / 2200, 3743 / 3600 / 178 / 35 -- so a check reading
 -- the wrong account or the wrong column fails rather than coincidentally
 -- passing.
+--
+-- Checks that read a sale_items row assert HOW MANY there are first. A bare
+-- `select ... into` takes one arbitrary row when several match, so without the
+-- count a loop that wrote a line twice would slip past every column assertion
+-- that follows it.
 --
 -- STOCK is asserted on product_location_stock, never products.stock. The latter
 -- is a DERIVED column recomputed by product_location_stock_sync_trigger, so
@@ -72,7 +99,9 @@ declare
   v_loc_id      uuid;
   v_prod_tea    uuid;   -- 1200 a unit, costing 450
   v_prod_coffee uuid;   -- 3000 a unit, costing 1100
+  v_prod_cake   uuid;   -- 1250 a unit, costing 500
   v_promo_id    uuid;
+  v_promo_odd   uuid;
   v_customer_id uuid;
   v_sale_id     uuid;
   v_entry       uuid;
@@ -103,21 +132,31 @@ begin
     values (v_shop_id, 'Main', true) returning id into v_loc_id;
 
   -- complete_sale prices a line from products.price_cents, NEVER from the
-  -- unit_price_cents in the cart JSON (see :363). Every payload below carries a
-  -- unit_price_cents anyway, exactly as the client sends it, and the totals
-  -- asserted are computed from the prices HERE. That is itself part of what this
-  -- script pins: today, the cart's own price is ignored.
+  -- unit_price_cents in the cart JSON (see :363, :372). These prices are the
+  -- ones every total below is computed from; the carts all send 9999. See the
+  -- header: a cart that echoed the price here would leave the two sources
+  -- indistinguishable and this whole script blind to the difference.
   insert into public.products (shop_id, name, price_cents, cost_cents)
     values (v_shop_id, 'Baseline Tea', 1200, 450) returning id into v_prod_tea;
   insert into public.products (shop_id, name, price_cents, cost_cents)
     values (v_shop_id, 'Baseline Coffee', 3000, 1100) returning id into v_prod_coffee;
+  -- 1250 exists for ONE reason: check 10 needs a percentage of a line price to
+  -- land on a half cent, and no whole percentage of 1200 or 3000 ever can --
+  -- both are multiples of 100, so price * qty * value / 100 is always exact.
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Baseline Cake', 1250, 500) returning id into v_prod_cake;
 
   insert into public.product_location_stock (product_id, location_id, stock)
-    values (v_prod_tea, v_loc_id, 1000), (v_prod_coffee, v_loc_id, 1000);
+    values (v_prod_tea, v_loc_id, 1000), (v_prod_coffee, v_loc_id, 1000),
+           (v_prod_cake, v_loc_id, 1000);
 
   insert into public.promotions (shop_id, name, discount_type, discount_value, scope, active)
     values (v_shop_id, 'Baseline Ten Percent', 'percentage', 10, 'store', true)
     returning id into v_promo_id;
+  -- 3% is the rate that puts check 10's expected discount on a half cent.
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, active)
+    values (v_shop_id, 'Baseline Three Percent', 'percentage', 3, 'store', true)
+    returning id into v_promo_odd;
 
   insert into public.customers (shop_id, first_name, last_name)
     values (v_shop_id, 'Hodan', 'Warsame') returning id into v_customer_id;
@@ -137,11 +176,15 @@ begin
   --    back to the shop's primary location, and this is the only check that
   --    would notice if that fallback were dropped -- every other call here
   --    names the location.
+  --
+  --    The cart says 9999 a unit and the answer is still 1200 a unit. That gap
+  --    is the whole of what makes "the line is priced from the product" a
+  --    checkable claim rather than a sentence in a comment.
   ---------------------------------------------------------------------------
   v_sale_id := public.complete_sale(
     p_shop_id  => v_shop_id,
     p_items    => jsonb_build_array(jsonb_build_object(
-                    'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 1200)),
+                    'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
     p_payments => jsonb_build_array(jsonb_build_object(
                     'method', 'cash', 'amount_cents', 2400, 'tendered_cents', 2400)));
 
@@ -215,7 +258,7 @@ begin
 
   select unit_price_cents into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 1200 then
-    raise exception 'FAIL 1: expected sale_items.unit_price_cents 1200 (the PRODUCT''s price), got %', v_int;
+    raise exception 'FAIL 1: expected sale_items.unit_price_cents 1200 (the PRODUCT''s price), got % (9999 = the cart''s own price, which is meant to be ignored)', v_int;
   end if;
   select quantity into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 2 then
@@ -319,7 +362,7 @@ begin
   v_sale_id := public.complete_sale(
     p_shop_id        => v_shop_id,
     p_items          => jsonb_build_array(jsonb_build_object(
-                          'product_id', v_prod_coffee, 'quantity', 2, 'unit_price_cents', 3000)),
+                          'product_id', v_prod_coffee, 'quantity', 2, 'unit_price_cents', 9999)),
     p_payments       => jsonb_build_array(jsonb_build_object(
                           'method', 'cash', 'amount_cents', 5000, 'tendered_cents', 5000)),
     p_discount_cents => 1000,
@@ -332,6 +375,12 @@ begin
   select discount_cents into v_int from public.sales where id = v_sale_id;
   if v_int <> 1000 then
     raise exception 'FAIL 2: expected sales.discount_cents 1000, got %', v_int;
+  end if;
+  -- How many rows, before reading one. A bare `select ... into` would take an
+  -- arbitrary row of however many the loop wrote.
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 2: expected 1 sale_items row for a one-line cart, got %', v_count;
   end if;
   select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 6000 then
@@ -387,7 +436,7 @@ begin
     p_shop_id     => v_shop_id,
     p_items       => jsonb_build_array(jsonb_build_object(
                        'product_id', v_prod_coffee, 'quantity', 1,
-                       'unit_price_cents', 3000, 'discount_cents', 700)),
+                       'unit_price_cents', 9999, 'discount_cents', 700)),
     p_payments    => jsonb_build_array(jsonb_build_object(
                        'method', 'cash', 'amount_cents', 2300, 'tendered_cents', 2300)),
     p_location_id => v_loc_id);
@@ -399,6 +448,10 @@ begin
   select discount_cents into v_int from public.sales where id = v_sale_id;
   if v_int <> 0 then
     raise exception 'FAIL 3: a LINE discount reached sales.discount_cents as %, expected 0', v_int;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 3: expected 1 sale_items row for a one-line cart, got %', v_count;
   end if;
   select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 2300 then
@@ -456,7 +509,7 @@ begin
   v_sale_id := public.complete_sale(
     p_shop_id     => v_shop_id,
     p_items       => jsonb_build_array(jsonb_build_object(
-                       'product_id', v_prod_coffee, 'quantity', 1, 'unit_price_cents', 3000,
+                       'product_id', v_prod_coffee, 'quantity', 1, 'unit_price_cents', 9999,
                        'discount_cents', 300, 'promotion_id', v_promo_id,
                        'promotion_name', 'Whatever The Caller Typed')),
     p_payments    => jsonb_build_array(jsonb_build_object(
@@ -466,6 +519,10 @@ begin
   select total_cents into v_amount from public.sales where id = v_sale_id;
   if v_amount <> 2700 then
     raise exception 'FAIL 4: expected total_cents 2700 (3000 less a 10%% promotion), got %', v_amount;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 4: expected 1 sale_items row for a one-line cart, got %', v_count;
   end if;
   select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 2700 then
@@ -520,7 +577,7 @@ begin
   v_sale_id := public.complete_sale(
     p_shop_id     => v_shop_id,
     p_items       => jsonb_build_array(jsonb_build_object(
-                       'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 1200)),
+                       'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
     p_payments    => jsonb_build_array(jsonb_build_object(
                        'method', 'cash', 'amount_cents', 2520, 'tendered_cents', 2520)),
     p_location_id => v_loc_id);
@@ -536,6 +593,10 @@ begin
   select tax_rate_percent into v_num from public.sales where id = v_sale_id;
   if v_num <> 5 then
     raise exception 'FAIL 5: expected tax_rate_percent 5 snapshotted onto the sale, got %', v_num;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 5: expected 1 sale_items row for a one-line cart, got %', v_count;
   end if;
   select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 2400 then
@@ -595,7 +656,7 @@ begin
   v_sale_id := public.complete_sale(
     p_shop_id     => v_shop_id,
     p_items       => jsonb_build_array(jsonb_build_object(
-                       'product_id', v_prod_tea, 'quantity', 5, 'unit_price_cents', 1200)),
+                       'product_id', v_prod_tea, 'quantity', 5, 'unit_price_cents', 9999)),
     p_payments    => jsonb_build_array(jsonb_build_object(
                        'method', 'cash', 'amount_cents', 6000, 'tendered_cents', 6000)),
     p_customer_id => v_customer_id,
@@ -665,7 +726,7 @@ begin
   v_sale_id := public.complete_sale(
     p_shop_id         => v_shop_id,
     p_items           => jsonb_build_array(jsonb_build_object(
-                           'product_id', v_prod_tea, 'quantity', 3, 'unit_price_cents', 1200)),
+                           'product_id', v_prod_tea, 'quantity', 3, 'unit_price_cents', 9999)),
     p_payments        => jsonb_build_array(jsonb_build_object(
                            'method', 'cash', 'amount_cents', 3540, 'tendered_cents', 3540)),
     p_customer_id     => v_customer_id,
@@ -691,6 +752,10 @@ begin
   select discount_cents into v_int from public.sales where id = v_sale_id;
   if v_int <> 0 then
     raise exception 'FAIL 7: a redemption landed in sales.discount_cents as %, expected 0', v_int;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 7: expected 1 sale_items row for a one-line cart, got %', v_count;
   end if;
   select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
   if v_int <> 3600 then
@@ -780,7 +845,7 @@ begin
   v_sale_id := public.complete_sale(
     p_shop_id         => v_shop_id,
     p_items           => jsonb_build_array(jsonb_build_object(
-                           'product_id', v_prod_tea, 'quantity', 3, 'unit_price_cents', 1200)),
+                           'product_id', v_prod_tea, 'quantity', 3, 'unit_price_cents', 9999)),
     p_payments        => jsonb_build_array(jsonb_build_object(
                            'method', 'cash', 'amount_cents', 3743, 'tendered_cents', 3743)),
     p_customer_id     => v_customer_id,
@@ -852,8 +917,285 @@ begin
   raise notice 'OK 8: redeem 35, earn 36 on 3565, tax 178 on top, total 3743';
 
   ---------------------------------------------------------------------------
-  -- The running totals, checked once at the end. Eight sales moved 15 Tea
-  -- (2 + 2 + 5 + 3 + 3) and 4 Coffee (2 + 1 + 1) off Main.
+  -- 9. TAX IS ROUNDED TO THE NEAREST CENT, not floored and not truncated.
+  --
+  --    Every tax figure above is exact -- 5% of 2400 is 120 and 5% of 3565 is
+  --    178.25, and round(), floor() and trunc() agree on both -- so check 5 and
+  --    check 8 would both pass against `floor(v_total_cents * v_tax_rate / 100)`.
+  --    Task 3 rewrites that very line, so the rounding mode needs a figure that
+  --    can tell the two apart.
+  --
+  --    3% of 2450 is 73.5 exactly: round -> 74, floor and trunc -> 73. 2450 of
+  --    goods is 1 Coffee at 3000 less a 550 line discount, so the total is
+  --    2524.
+  --
+  --    The call is wrapped because the payment is exact: under floor() the
+  --    total is 2523, 2524 is an over-payment, and complete_sale refuses the
+  --    sale before any assertion below can read tax_cents. Caught and re-raised
+  --    under this check's number so the rounding mode is what the failure says,
+  --    rather than a bare 'payments total is more than sale total'.
+  ---------------------------------------------------------------------------
+  update public.shops set tax_enabled = true, tax_rate_percent = 3 where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_coffee, 'quantity', 1,
+                         'unit_price_cents', 9999, 'discount_cents', 550)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 2524, 'tendered_cents', 2524)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 9: 3%% of 2450 is 73.5, so the tax is 74 and the total 2524, and that sale was refused (2523 = tax floored). complete_sale said: %', sqlerrm;
+  end;
+
+  select tax_cents into v_int from public.sales where id = v_sale_id;
+  if v_int <> 74 then
+    raise exception 'FAIL 9: expected tax_cents 74 -- 3%% of 2450 is 73.5 and it rounds UP -- got % (73 = floor or trunc)', v_int;
+  end if;
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 2524 then
+    raise exception 'FAIL 9: expected total_cents 2524 (2450 goods + 74 tax), got % (2523 = tax floored)', v_amount;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2100';
+  if v_amount <> -74 then
+    raise exception 'FAIL 9: expected Cr 2100 Sales Tax Payable -74, got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 9: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 9: 3%% of 2450 is 73.5 and the sale is taxed 74, not 73';
+
+  ---------------------------------------------------------------------------
+  -- 10. A PERCENTAGE PROMOTION IS ROUNDED THE SAME WAY.
+  --
+  --     v_expected_discount is round(price_cents * qty * value / 100) (:352),
+  --     and check 4's figure -- 10% of 3000 = 300 -- is exact, so that check
+  --     passes just as happily against floor(). Task 2 rewrites this line.
+  --
+  --     3% of 1250 is 37.5, so the offer allows 38 and this cart claims 38.
+  --     Under floor() the offer allows only 37 and complete_sale REFUSES the
+  --     sale outright -- so the failure here is an exception from inside the
+  --     function, caught and re-raised under this check's own number rather
+  --     than surfacing as a bare 'discount 38 exceeds what promotion allows'
+  --     with nothing to say which check asked for it.
+  --
+  --     Tax back OFF, so the only thing this check can fail on is the
+  --     promotion.
+  ---------------------------------------------------------------------------
+  update public.shops set tax_enabled = false where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_cake, 'quantity', 1, 'unit_price_cents', 9999,
+                         'discount_cents', 38, 'promotion_id', v_promo_odd)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1212, 'tendered_cents', 1212)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 10: a 3%% promotion on a 1250 line must allow round(37.5) = 38 and the sale was refused (37 = the discount floored). complete_sale said: %', sqlerrm;
+  end;
+
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 10: expected 1 sale_items row for a one-line cart, got %', v_count;
+  end if;
+  select discount_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 38 then
+    raise exception 'FAIL 10: expected sale_items.discount_cents 38, got %', v_int;
+  end if;
+  select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 1212 then
+    raise exception 'FAIL 10: expected sale_items.line_total_cents 1212 (1250 less 38), got %', v_int;
+  end if;
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 1212 then
+    raise exception 'FAIL 10: expected total_cents 1212, got %', v_amount;
+  end if;
+  select promotion_name into v_text from public.sale_items where sale_id = v_sale_id;
+  if v_text <> 'Baseline Three Percent' then
+    raise exception 'FAIL 10: expected the 3%% promotion attributed by name, got %', v_text;
+  end if;
+
+  raise notice 'OK 10: a 3%% promotion on 1250 allows 38, not the floored 37';
+
+  ---------------------------------------------------------------------------
+  -- 11. A MULTI-LINE CART, which is what the register actually sends and what
+  --     nothing else in this script rings up.
+  --
+  --     Every check above has exactly one line, so all of them would pass
+  --     against a loop that stopped after the first item, wrote one row per
+  --     cart rather than per line, or accumulated the last line instead of the
+  --     sum. Task 2 rewrites that loop.
+  --
+  --       2 Tea    at 1200            = 2400
+  --       1 Coffee at 3000 less 500   = 2500
+  --                                     ----
+  --       gross                         4900, and item_count 3 (UNITS, and
+  --                                     across lines, not 2 lines)
+  --
+  --     The discount sits on the SECOND line only, so a loop that attributed
+  --     it to the wrong row fails on the per-row assertions even though the
+  --     total comes out right.
+  --
+  --     Wrapped for the same reason as check 9: a loop that accumulated only
+  --     the last line makes 4900 an over-payment and the sale is refused before
+  --     any assertion runs, so the failure has to name this check itself.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(
+                         jsonb_build_object('product_id', v_prod_tea, 'quantity', 2,
+                                            'unit_price_cents', 9999),
+                         jsonb_build_object('product_id', v_prod_coffee, 'quantity', 1,
+                                            'unit_price_cents', 9999, 'discount_cents', 500)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 4900, 'tendered_cents', 4900)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 11: a two-line cart of 2400 + 2500 must total 4900 and that sale was refused (2500 = only the last line accumulated). complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 4900 then
+    raise exception 'FAIL 11: expected total_cents 4900 (2400 + 2500 across two lines), got % (2500 = only the last line accumulated)', v_amount;
+  end if;
+  select item_count into v_int from public.sales where id = v_sale_id;
+  if v_int <> 3 then
+    raise exception 'FAIL 11: expected item_count 3 units across two lines, got % (2 = lines counted rather than units)', v_int;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 2 then
+    raise exception 'FAIL 11: expected 2 sale_items rows for a two-line cart, got %', v_count;
+  end if;
+
+  -- Each line's own row, addressed by product so the assertions cannot be
+  -- satisfied by whichever row the planner happens to return first.
+  select unit_price_cents, quantity, line_total_cents, discount_cents
+    into v_int, v_num, v_amount, v_count
+    from public.sale_items where sale_id = v_sale_id and product_id = v_prod_tea;
+  if v_int <> 1200 or v_num <> 2 or v_amount <> 2400 or v_count <> 0 then
+    raise exception 'FAIL 11: expected the Tea line 1200 x 2 = 2400 with no discount, got % x % = % less %',
+      v_int, v_num, v_amount, v_count;
+  end if;
+  select unit_price_cents, quantity, line_total_cents, discount_cents
+    into v_int, v_num, v_amount, v_count
+    from public.sale_items where sale_id = v_sale_id and product_id = v_prod_coffee;
+  if v_int <> 3000 or v_num <> 1 or v_amount <> 2500 or v_count <> 500 then
+    raise exception 'FAIL 11: expected the Coffee line 3000 x 1 less 500 = 2500, got % x % = % less %',
+      v_int, v_num, v_amount, v_count;
+  end if;
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  -- Revenue is BOTH lines at list: 2400 + 3000.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -5400 then
+    raise exception 'FAIL 11: expected Cr 4000 Revenue -5400 (both lines at list), got %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4200';
+  if v_amount <> 500 then
+    raise exception 'FAIL 11: expected Dr 4200 Discounts 500 from the second line, got %', v_amount;
+  end if;
+  -- COGS is both lines' frozen costs: 2 x 450 + 1 x 1100.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '5000';
+  if v_amount <> 2000 then
+    raise exception 'FAIL 11: expected Dr 5000 COGS 2000 (2 x 450 + 1100), got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 11: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 11: a two-line cart totals 4900, counts 3 units and keeps each line''s own figures';
+
+  ---------------------------------------------------------------------------
+  -- 12. A SALE LEFT ON ACCOUNT EARNS NOTHING, and is not settled.
+  --
+  --     p_allow_balance is the one parameter that reaches back and ZEROES a
+  --     figure already computed (:501-503): points are earned on money taken,
+  --     not on goods handed over, and settle_sale_balance credits them when the
+  --     money actually arrives. Task 4 touches this path, and nothing else here
+  --     under-pays a sale.
+  --
+  --     5 Tea at 1200 = 6000, of which 5000 is paid. Loyalty is still on at 1
+  --     point per dollar, so the function computes 60 and then throws it away.
+  --     The customer's balance stays at the 36 check 8 left it.
+  ---------------------------------------------------------------------------
+  v_sale_id := public.complete_sale(
+    p_shop_id       => v_shop_id,
+    p_items         => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_tea, 'quantity', 5, 'unit_price_cents', 9999)),
+    p_payments      => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 5000, 'tendered_cents', 5000)),
+    p_customer_id   => v_customer_id,
+    p_location_id   => v_loc_id,
+    p_allow_balance => true);
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 6000 then
+    raise exception 'FAIL 12: expected total_cents 6000 (the goods, not the money taken), got %', v_amount;
+  end if;
+  select points_earned into v_int from public.sales where id = v_sale_id;
+  if v_int <> 0 then
+    raise exception 'FAIL 12: expected 0 points earned on an under-paid sale, got % (60 = earned on the goods rather than on the money taken)', v_int;
+  end if;
+  select count(*) into v_count from public.customer_points_ledger where sale_id = v_sale_id;
+  if v_count <> 0 then
+    raise exception 'FAIL 12: an under-paid sale wrote % ledger rows, expected none', v_count;
+  end if;
+  select points_balance into v_int from public.customers where id = v_customer_id;
+  if v_int <> 36 then
+    raise exception 'FAIL 12: expected points_balance to stay at 36, got %', v_int;
+  end if;
+  -- Null while anything is owed: this is the column customer_balances filters
+  -- on, so a sale that stamped it would vanish off the receivables list.
+  select settled_at into v_ts from public.sales where id = v_sale_id;
+  if v_ts is not null then
+    raise exception 'FAIL 12: a sale with 1000 still owed was stamped settled_at %', v_ts;
+  end if;
+  -- The 1000 still owed is a receivable, not a discount.
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1100';
+  if v_amount <> 1000 then
+    raise exception 'FAIL 12: expected Dr 1100 Receivable 1000 for what is still owed, got %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> 5000 then
+    raise exception 'FAIL 12: expected Dr 1000 Cash 5000 (only the money actually taken), got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 12: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 12: 1000 left on account earns no points and leaves the sale unsettled';
+
+  ---------------------------------------------------------------------------
+  -- 13. The running totals, checked once at the end. Twelve sales moved 22 Tea
+  --     (2 + 2 + 5 + 3 + 3 + 2 + 5), 6 Coffee (2 + 1 + 1 + 1 + 1) and 1 Cake
+  --     off Main.
   --
   -- Asserted on product_location_stock, NOT products.stock: the latter is
   -- recomputed by product_location_stock_sync_trigger and asserting on it would
@@ -861,18 +1203,23 @@ begin
   ---------------------------------------------------------------------------
   select stock into v_int from public.product_location_stock
     where product_id = v_prod_tea and location_id = v_loc_id;
-  if v_int <> 985 then
-    raise exception 'FAIL 9: expected 985 Tea left at Main after 15 units sold, got %', v_int;
+  if v_int <> 978 then
+    raise exception 'FAIL 13: expected 978 Tea left at Main after 22 units sold, got %', v_int;
   end if;
   select stock into v_int from public.product_location_stock
     where product_id = v_prod_coffee and location_id = v_loc_id;
-  if v_int <> 996 then
-    raise exception 'FAIL 9: expected 996 Coffee left at Main after 4 units sold, got %', v_int;
+  if v_int <> 994 then
+    raise exception 'FAIL 13: expected 994 Coffee left at Main after 6 units sold, got %', v_int;
+  end if;
+  select stock into v_int from public.product_location_stock
+    where product_id = v_prod_cake and location_id = v_loc_id;
+  if v_int <> 999 then
+    raise exception 'FAIL 13: expected 999 Cake left at Main after 1 unit sold, got %', v_int;
   end if;
 
   select count(*) into v_count from public.sales where shop_id = v_shop_id;
-  if v_count <> 8 then
-    raise exception 'FAIL 9: expected 8 sales in this fixture, got % -- a check ran twice or not at all', v_count;
+  if v_count <> 12 then
+    raise exception 'FAIL 13: expected 12 sales in this fixture, got % -- a check ran twice or not at all', v_count;
   end if;
 
   -- Every entry this shop posted balances. Guaranteed by the deferred trigger;
@@ -883,10 +1230,10 @@ begin
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id;
   if v_amount <> 0 then
-    raise exception 'FAIL 9: the shop''s journal does not balance overall, off by %', v_amount;
+    raise exception 'FAIL 13: the shop''s journal does not balance overall, off by %', v_amount;
   end if;
 
-  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (8 checks)';
+  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks)';
   raise exception 'rollback_marker';
 exception
   when others then

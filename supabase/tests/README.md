@@ -164,6 +164,36 @@ so the cheapest way to lose a rule is to change something next to it.
    3600 of goods less 35 redeemed is 3565, which earns **36** and is taxed
    **178** for a total of **3743**. Charging tax before the redemption gives 180
    and earning after tax gives 37; both are one-line edits and neither raises.
+9. **Tax is rounded, not floored.** Every other tax figure here is exact — 5% of
+   2400 is 120, 5% of 3565 is 178.25 — so `round`, `floor` and `trunc` all
+   agree on them. 3% of 2450 is **73.5**, and the sale is taxed **74**.
+10. **A percentage promotion is rounded the same way.** 3% of a 1250 line is
+    37.5, so the offer allows **38**; under `floor` it allows 37 and refuses
+    the sale.
+11. **A multi-line cart.** Every other check rings up one line, so nothing else
+    would notice a loop that stopped accumulating, wrote one row per cart, or
+    put a line's discount against the wrong product. 2 Tea at 1200 plus 1
+    Coffee at 3000 less 500 totals **4900** over **3 units** and **2 rows**,
+    each asserted on its own.
+12. **A sale left on account earns nothing** and is not settled. `p_allow_balance`
+    zeroes points already computed — they are earned on money taken, not goods
+    handed over — and the 1000 still owed is a **1100 receivable**, not a
+    discount.
+13. The **running totals**: stock per product and the number of sales, so a
+    check that ran twice or not at all shows up.
+
+**The cart's own price is ignored, and the payloads are written to prove it.**
+`complete_sale` prices every line from `products.price_cents` and never reads
+the `unit_price_cents` the client sent. A payload echoing the product's price
+cannot tell those two sources apart, so every cart here sends **9999** — a price
+no product has — while the assertions expect the product's. Patch the function
+to read the cart and the first check fails with `payments total 2400 does not
+match sale total 19998`.
+
+Every check that reads a `sale_items` row asserts **how many** there are first:
+a bare `select … into` takes one arbitrary row when several match, so a loop
+that wrote a line twice would otherwise slip past every column assertion after
+it.
 
 Stock is asserted on `product_location_stock`, never `products.stock` — the
 latter is derived by a trigger, so asserting on it tests the trigger instead of
