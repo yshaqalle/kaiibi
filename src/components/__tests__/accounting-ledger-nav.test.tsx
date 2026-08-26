@@ -5,8 +5,24 @@ import type { Permission } from '@/lib/permissions';
 const holding = (...granted: Permission[]) => (permission: Permission) => granted.includes(permission);
 
 describe('the ledger hub catalogue', () => {
-  it('lists exactly the seven views the shell can route to', () => {
-    expect(LEDGER_VIEWS.map((v) => v.key)).toEqual(['hub', 'accounts', 'entry', 'journals', 'trial', 'backfill', 'audit']);
+  it('lists exactly the ten views the shell can route to', () => {
+    // In hub order, which is also the order the groups render in: the ledger
+    // and its journals, then the three statements they add up to, then
+    // oversight. The three statements sit between Post History and the Audit
+    // Log rather than at the end, so that 'Financial statements' is a group
+    // between the other two rather than after them.
+    expect(LEDGER_VIEWS.map((v) => v.key)).toEqual([
+      'hub',
+      'accounts',
+      'entry',
+      'journals',
+      'trial',
+      'backfill',
+      'income',
+      'balance',
+      'cashflow',
+      'audit',
+    ]);
   });
 
   it('gives every non-hub view a group, so none can be added without a home on the hub', () => {
@@ -84,6 +100,9 @@ describe('Post History is gated on ledger.close', () => {
       'entry',
       'journals',
       'trial',
+      'income',
+      'balance',
+      'cashflow',
       'audit',
     ]);
   });

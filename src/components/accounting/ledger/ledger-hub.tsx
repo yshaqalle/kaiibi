@@ -8,7 +8,17 @@ import type { Permission } from '@/lib/permissions';
 
 const theme = Colors.light;
 
-export type LedgerView = 'hub' | 'accounts' | 'entry' | 'journals' | 'trial' | 'audit' | 'backfill';
+export type LedgerView =
+  | 'hub'
+  | 'accounts'
+  | 'entry'
+  | 'journals'
+  | 'trial'
+  | 'audit'
+  | 'backfill'
+  | 'income'
+  | 'balance'
+  | 'cashflow';
 
 // The catalogue, in one place, because four things read it: the hub's cards,
 // the shell's title row, the shell's "is this a view I know" guard, and the nav
@@ -112,6 +122,48 @@ export const LEDGER_VIEWS: {
     // NOT enough: replaying a whole history is heavier than posting one entry,
     // and the RPC says so in its own first ten lines.
     requires: 'ledger.close',
+  },
+  // The three statements, in the group the design names them in. They share one
+  // ledger, so the profit on the income statement, the profit-this-period line
+  // on the balance sheet and the opening line of the cash flow are guaranteed
+  // to agree -- each of the latter two CALLS statement_lines() rather than
+  // re-deriving it.
+  {
+    key: 'income',
+    label: 'Income Statement',
+    blurb: 'Revenue, cost of sales and expenses, down to net profit.',
+    group: 'Financial statements',
+    icon: 'trending-up-outline',
+    scope: '7 days',
+    action: 'Run report',
+    creates: false,
+    requires: null,
+  },
+  {
+    key: 'balance',
+    // "As of today", like Trial Balance and unlike its two neighbours. A
+    // balance sheet is a POSITION read at an instant -- there is no such thing
+    // as one for the last seven days -- and the card has to say so, because a
+    // reader who assumes it follows the range will misread it.
+    label: 'Balance Sheet',
+    blurb: "What the shop owns, what it owes, and what's left over.",
+    group: 'Financial statements',
+    icon: 'scale-outline',
+    scope: 'As of today',
+    action: 'Run report',
+    creates: false,
+    requires: null,
+  },
+  {
+    key: 'cashflow',
+    label: 'Cash Flow',
+    blurb: 'Where cash actually came from and went. Profit and cash are not the same thing.',
+    group: 'Financial statements',
+    icon: 'water-outline',
+    scope: '7 days',
+    action: 'Run report',
+    creates: false,
+    requires: null,
   },
   {
     key: 'audit',
