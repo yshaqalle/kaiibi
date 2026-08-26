@@ -148,7 +148,13 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // keeping the declarations leaves a function that accepts the field, files it
   // on sale_items.unit_price_cents and then charges list for it -- a receipt
   // that disagrees with the money taken, and every total still balancing.
-  ['20260929000000', 'the line total follows the agreed price', 'v_line := v_unit_price * v_qty - v_line_discount'],
+  //
+  // THE TOKEN WAS WIDENED BY 20260929000050's SECOND FIX WAVE, and the property
+  // is unchanged: the same arithmetic, on the same resolved price, computed in
+  // bigint so the bound below it can be reached. `v_line := v_unit_price *
+  // v_qty - v_line_discount` was the 32-bit multiplication that overflowed on a
+  // line priced from the shelf.
+  ['20260929000000', 'the line total follows the agreed price', 'v_line_cents := v_unit_price::bigint * v_qty - v_line_discount'],
   // An agreed price and a promotion are two answers to one question: an offer is
   // a reduction OFF the list price, recomputed server-side from
   // products.price_cents, and an agreed price REPLACES the list price. Lose the
@@ -217,8 +223,40 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // bare `integer out of range` from mid-function that the line bound's own
   // comment claimed to prevent. The token is the widened comparison: the bare
   // constant survives a rewrite that declares it and never tests against it.
+  //
+  // THE CONSTANT IN IT IS c_max_int_cents, NOT c_max_sale_cents, and that is the
+  // second fix wave. c_max_sale_cents was 1,000,000,000 -- the AGREED price's
+  // ceiling -- applied to the running total of every line, so a plain till sale
+  // of a 1,500,000,000 product with no agreed price anywhere, which the register
+  // accepted before this branch because it fits in an integer, came back
+  // `this sale is out of range`. The token pins the corrected pairing, because
+  // the comparison alone is satisfiable by one measured against the wrong bound.
   ['20260929000050', 'the running total cannot overflow either',
-    'v_gross_cents::bigint + v_line > c_max_sale_cents'],
+    'v_gross_cents::bigint + v_line_cents > c_max_int_cents'],
+  // ...and neither can a SINGLE line priced from the shelf. Only the agreed
+  // price was bounded before its own multiplication; a product priced
+  // 1,500,000,000 with a quantity of 3 and no agreed price overflowed
+  // `v_unit_price * v_qty` and raised a bare `integer out of range` from
+  // mid-loop.
+  //
+  // THE COMPARISON JOINED TO ITS OWN RAISE, and the bare comparison was tried
+  // first and rejected by mutation: `v_line_cents > c_max_int_cents` is a
+  // SUBSTRING of the running-total test three statements below
+  // (`v_gross_cents::bigint + v_line_cents > c_max_int_cents`), so deleting this
+  // bound outright left the entry green on the other one's text. Joined to the
+  // message, it can only be satisfied by the statement it is about.
+  ['20260929000050', 'a line priced from the shelf cannot overflow either',
+    "if v_line_cents > c_max_int_cents then\n      raise exception 'this line is out of range"],
+  // THE TWO BOUNDS ARE DIFFERENT FIGURES ON PURPOSE, and collapsing them is the
+  // regression fix wave 2 repaired. 2,147,483,647 is where `v_line integer` and
+  // `v_gross_cents integer` stop holding the answer -- so nothing that ever
+  // succeeded can reach it and a crash becomes a sentence. 1,000,000,000 is a
+  // distrust of a caller's number and belongs only where one arrives. A rewrite
+  // that sets this constant to the agreed price's ceiling refuses ordinary till
+  // sales the register has always accepted; baseline check 23 is the other half
+  // of this guard.
+  ['20260929000050', 'the arithmetic ceiling is int32, not the agreed price ceiling',
+    'c_max_int_cents constant bigint := 2147483647'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [

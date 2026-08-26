@@ -106,6 +106,28 @@
 --      `integer out of range` from mid-function -- the exact failure the bound's
 --      own comment claimed to prevent.
 --
+-- CHECKS 23-25 WERE ADDED BY TASK 2'S SECOND FIX WAVE, and 23 is there because
+-- the first wave broke the rule the whole plan rests on: a call passing no
+-- agreed price must behave exactly as it did before.
+--
+--  23. A PLAIN TILL SALE IN THE PREVIOUSLY-WORKING WINDOW IS STILL ACCEPTED.
+--      The first wave applied its 1,000,000,000 ceiling to the running total of
+--      EVERY line, so a product priced 1,500,000,000 sold one at a time with no
+--      agreed price anywhere -- accepted by the register before this branch,
+--      because 1,500,000,000 fits in an integer and nothing overflowed -- came
+--      back `this sale is out of range`. Everything from ten million dollars to
+--      twenty-one was refused. This is the check that says so.
+--  24. AND ONE THAT GENUINELY EXCEEDS AN INTEGER IS REFUSED BY A SENTENCE. Two
+--      such lines are 3,000,000,000, which is where `v_gross_cents integer`
+--      really does break. That call used to raise a bare `integer out of range`
+--      from mid-function; the ceiling that remains -- 2,147,483,647, the point
+--      of failure itself -- turns it into a sentence without refusing anything
+--      that worked.
+--  25. AND SO IS A SINGLE LINE THAT DOES. 3 x 1,500,000,000 overflows
+--      `v_unit_price * v_qty` before any running total is consulted. Only the
+--      AGREED price was bounded before its own multiplication; a line priced
+--      from the shelf was not bounded at all.
+--
 -- AGREED_UNIT_PRICE_CENTS IS A NEW FIELD, and it had to be. Carts have carried
 -- a `unit_price_cents` since 0001 and complete_sale has always ignored it --
 -- that is the very thing every payload above sends 9999 to prove. Making it
@@ -160,6 +182,12 @@ declare
   v_prod_tea    uuid;   -- 1200 a unit, costing 450
   v_prod_coffee uuid;   -- 3000 a unit, costing 1100
   v_prod_cake   uuid;   -- 1250 a unit, costing 500
+  -- 1,500,000,000 a unit apiece -- fifteen million dollars, above the ceiling an
+  -- AGREED price may reach and below the 2,147,483,647 an integer holds. Only
+  -- checks 23-25 use them, and they are inserted down there rather than here so
+  -- that no figure checks 1-22 assert can move because of them.
+  v_prod_yacht  uuid;
+  v_prod_jet    uuid;
   v_promo_id    uuid;
   v_promo_odd   uuid;
   v_customer_id uuid;
@@ -1956,7 +1984,188 @@ begin
 
   raise notice 'OK 22: a unit past the 32-bit ceiling and an accumulation past it are both refused by name';
 
-  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (9 more)';
+  ---------------------------------------------------------------------------
+  -- THE PROBE PRODUCTS, for checks 23-25 only.
+  --
+  -- 1,500,000,000 cents -- fifteen million dollars -- is deliberately in the
+  -- window between the 1,000,000,000 an AGREED price may come to and the
+  -- 2,147,483,647 an integer can hold. That window is the whole of what checks
+  -- 23-25 are about: it is the range a plain till sale has always been able to
+  -- reach, and the first fix wave took it away.
+  --
+  -- Inserted HERE rather than beside Tea, Coffee and Cake at the top, so that
+  -- nothing checks 1-22 assert -- stock, sale counts, journal totals -- can move
+  -- because of them. Two of them, because check 24 needs a cart of two lines
+  -- that are each individually legal.
+  --
+  -- Cost 700 apiece, which is small on purpose: v_cogs_cents is an integer, and
+  -- a cost anywhere near the price would overflow the COGS sum instead of the
+  -- thing under test. What is under test here is the SELLING price.
+  ---------------------------------------------------------------------------
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Probe Yacht', 1500000000, 700) returning id into v_prod_yacht;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Probe Jet', 1500000000, 700) returning id into v_prod_jet;
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod_yacht, v_loc_id, 1000), (v_prod_jet, v_loc_id, 1000);
+
+  ---------------------------------------------------------------------------
+  -- 23. A SALE WITH NO AGREED PRICE IN THE PREVIOUSLY-WORKING WINDOW IS STILL
+  --     ACCEPTED. This is the check the second fix wave exists for.
+  --
+  --     1 Probe Yacht at the shop's own shelf price of 1,500,000,000. No agreed
+  --     price anywhere in the cart -- no `agreed_unit_price_cents` key at all --
+  --     so by the governing rule of this whole change the call must behave
+  --     exactly as it did before the agreed price was invented.
+  --
+  --     It did work. 1,500,000,000 fits in the `integer` every column and every
+  --     variable on this path is declared as, so the function never overflowed
+  --     and never raised: it filed the sale, credited revenue 1,500,000,000 and
+  --     returned an id. The whole window from 1,000,000,000 to 2,147,483,647 --
+  --     ten million dollars to twenty-one million -- behaved that way.
+  --
+  --     THE FIRST FIX WAVE REFUSED IT. c_max_sale_cents was 1,000,000,000 and
+  --     was tested against the running total of EVERY line, agreed or not, so
+  --     this exact call came back
+  --     `this sale is out of range: adding 1500000000 for Probe Yacht...`.
+  --     That migration's header, and Task 2's report, both said a call sending
+  --     no agreed price was unchanged. This check is why that is now false only
+  --     of a version of the function nobody has.
+  --
+  --     THE BOUND THAT REMAINS on this path is 2,147,483,647, which is where the
+  --     old function actually broke rather than where a reviewer might have
+  --     preferred it to. Checks 24 and 25 are the other side of it.
+  --
+  --     Wrapped, because the regression is a REFUSAL: without the wrapper this
+  --     script would die at the call with the register's own message rather than
+  --     with a sentence saying what was expected.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_yacht, 'quantity', 1,
+                         'unit_price_cents', 9999)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1500000000, 'tendered_cents', 1500000000)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 23: a cart with NO agreed price, at the shop''s own 1500000000 shelf price, was ACCEPTED by the register before the agreed price existed and must still be. complete_sale said: % (a message about this sale being out of range means the ten-million-dollar agreed-price ceiling is being applied to an ordinary till sale)', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 1500000000 then
+    raise exception 'FAIL 23: expected total_cents 1500000000 from products.price_cents, got %', v_amount;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 23: expected 1 sale_items row for a one-line cart, got %', v_count;
+  end if;
+  select unit_price_cents, line_total_cents into v_int, v_num
+    from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 1500000000 or v_num <> 1500000000 then
+    raise exception 'FAIL 23: expected the line at the product''s 1500000000, got % x qty = %', v_int, v_num;
+  end if;
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -1500000000 then
+    raise exception 'FAIL 23: expected Cr 4000 Revenue -1500000000, got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 23: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 23: a plain till sale of 1500000000 with no agreed price is still accepted';
+
+  ---------------------------------------------------------------------------
+  -- 24. A NO-AGREED-PRICE SALE THAT GENUINELY EXCEEDS AN INTEGER IS REFUSED BY
+  --     A SENTENCE, not by `integer out of range`.
+  --
+  --     Two lines, each at a shelf price of 1,500,000,000 and each individually
+  --     inside an integer -- check 23 rings up one of them on its own and it is
+  --     accepted. Together they are 3,000,000,000, which is where the OLD
+  --     function actually broke: `v_gross_cents integer` overflowed in the
+  --     accumulation and the caller got a bare `integer out of range` raised
+  --     from the middle of the register's write path.
+  --
+  --     Two DIFFERENT products for check 22's reason: the loop orders by product
+  --     id, so the same product twice would take the same row lock twice.
+  --
+  --     This is the half of the ceiling that is a real improvement on the old
+  --     function, and it is the only half: a refusal becomes explicable, and
+  --     nothing that succeeded starts failing.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(
+                         jsonb_build_object('product_id', v_prod_yacht, 'quantity', 1,
+                                            'unit_price_cents', 9999),
+                         jsonb_build_object('product_id', v_prod_jet, 'quantity', 1,
+                                            'unit_price_cents', 9999)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+      p_location_id => v_loc_id);
+    raise exception 'FAIL 24: two lines of 1500000000 -- 3000000000 together -- were ACCEPTED, which does not fit in the integer the total is held in';
+  exception
+    when others then
+      if sqlerrm like 'FAIL 24:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'this sale is out of range%' then
+        raise exception 'FAIL 24: expected the running total to be refused by a SENTENCE, got: % (integer out of range = there is no bound on the running total for a cart that sends no agreed price)', sqlerrm;
+      end if;
+  end;
+
+  raise notice 'OK 24: a no-agreed-price basket past 2147483647 is refused by a sentence';
+
+  ---------------------------------------------------------------------------
+  -- 25. A NO-AGREED-PRICE LINE WHOSE OWN MULTIPLICATION OVERFLOWS IS REFUSED BY
+  --     A SENTENCE TOO.
+  --
+  --     3 Probe Yacht at the shelf price of 1,500,000,000 is 4,500,000,000 on
+  --     ONE line, so the running-total bound never gets a look in: `v_unit_price
+  --     * v_qty` overflows first and, unguarded, that is a bare
+  --     `integer out of range` with nothing in it to say which line or why.
+  --
+  --     The agreed price has had a bound on its own line since 20260929000000.
+  --     A line priced from the SHELF had none, which is the gap the first fix
+  --     wave left behind while claiming the opposite: it bounded the
+  --     accumulation and left the multiplication that feeds it alone.
+  ---------------------------------------------------------------------------
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_yacht, 'quantity', 3,
+                         'unit_price_cents', 9999)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+      p_location_id => v_loc_id);
+    raise exception 'FAIL 25: a line of 3 x 1500000000 was ACCEPTED, which does not fit in the integer the line is held in';
+  exception
+    when others then
+      if sqlerrm like 'FAIL 25:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'this line is out of range%' then
+        raise exception 'FAIL 25: expected the LINE to be refused by a sentence before it overflowed, got: % (integer out of range = the multiplication is still done in 32 bits with no bound in front of it)', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 18 then
+    raise exception 'FAIL 25: expected 18 sales after one ACCEPTED and two REFUSED, got %', v_count;
+  end if;
+
+  raise notice 'OK 25: a no-agreed-price line past 2147483647 is refused by a sentence';
+
+  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (12 more)';
   raise exception 'rollback_marker';
 exception
   when others then

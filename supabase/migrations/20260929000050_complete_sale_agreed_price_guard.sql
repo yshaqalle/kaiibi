@@ -75,8 +75,8 @@
 --
 -- 20260929000000 said its bound made a line that would overflow a 32-bit
 -- integer "a sentence rather than `integer out of range` from the middle of the
--- register's write path". It did not, in two separate ways, and both are fixed
--- here:
+-- register's write path". It did not, in three separate ways, and all three are
+-- fixed here:
 --
 --   a) THE VALUE DIED BEFORE THE BOUND WAS REACHED. `v_agreed_price integer` and
 --      `nullif(...)::integer` meant an agreed price of 3,000,000,000 raised
@@ -95,14 +95,47 @@
 --      comment claimed to prevent. The running total is now bounded too, in
 --      bigint, BEFORE the addition that would overflow it.
 --
--- c_max_sale_cents is the same 1,000,000,000 that bounds a line and that
--- place_storefront_order (20260927000000:230) puts on a whole order. It is a
--- CEILING, not a business rule: a caller must not be able to decide how large a
--- number this function adds up. It applies to EVERY line, agreed price or not,
--- because an accumulation overflows the same way either way -- the only
--- observable difference for a call that sends no agreed price is that a basket
--- over ten million dollars is now refused by a sentence instead of by
--- `integer out of range`. Both are refusals; checks 1-13 do not go near it.
+--   c) A LINE PRICED FROM THE SHELF HAD NO BOUND AT ALL. Only the AGREED price
+--      was measured before its multiplication. A product priced 1,500,000,000
+--      with a quantity of 3 and no agreed price anywhere still overflowed
+--      `v_unit_price * v_qty` and still raised a bare `integer out of range`.
+--      Every line is now computed in bigint and bounded before it is narrowed.
+--
+-- ── TWO BOUNDS, AND THEY ARE NOT THE SAME BOUND ────────────────────────────
+--
+-- THE FIRST WAVE OF THIS FIX GOT THIS WRONG, and the correction is the whole of
+-- fix wave 2. It set c_max_sale_cents to 1,000,000,000 and tested it against the
+-- running total of EVERY line, agreed or not, on the argument that "both are
+-- refusals". They are not. A product priced 1,500,000,000 sold one at a time
+-- with no agreed price anywhere in the cart was ACCEPTED by the register before
+-- this branch -- it fits in every integer on the path, so nothing overflowed and
+-- nothing raised -- and that call came back
+-- `this sale is out of range: adding 1500000000 for Probe Yacht...`. The whole
+-- window from 1,000,000,000 to 2,147,483,647 -- ten to twenty-one million
+-- dollars -- worked and was refused. That is a behaviour change on the ungated
+-- path, which is the one thing this plan says must not happen, and the previous
+-- header and Task 2's report both asserted the opposite.
+--
+--   * c_max_int_cents = 2,147,483,647 bounds EVERY line total and the running
+--     sale total, agreed price or not. It is not a judgement about how large a
+--     sale may be: it is exactly where `v_line integer` and `v_gross_cents
+--     integer` stop being able to hold the answer, which is where the function
+--     ALREADY broke. Nothing that succeeded before reaches it, because anything
+--     that reaches it crashed. All it does is convert a raw Postgres
+--     `integer out of range` into a sentence naming the line and the figure.
+--
+--   * c_max_line_cents = 1,000,000,000 bounds an AGREED price only, and stays
+--     inside `if v_agreed_price is not null`. That value arrives in a JSON
+--     payload from a caller, so a caller must not be able to decide how large a
+--     number this function multiplies; the same figure place_storefront_order
+--     (20260927000000:230) puts on a whole order. A shop's OWN shelf price is
+--     not a caller's number -- it is a row in this database, already constrained
+--     by `check (price_cents >= 0)` and by whoever may edit products -- so it is
+--     bounded only by arithmetic.
+--
+-- verify-complete-sale-baseline checks 23, 24 and 25 pin all three halves of
+-- that: the previously-working window is accepted, a genuine integer overflow of
+-- the running total is a sentence, and so is one of a single line.
 --
 -- ── 3. AN AGREED PRICE ABOVE LIST STAYS PERMITTED, DELIBERATELY ────────────
 --
@@ -147,13 +180,19 @@
 --
 -- ── What is NOT changed ────────────────────────────────────────────────────
 --
--- A call that sends no agreed price is byte-identical to 20260929000000, which
--- is itself byte-identical to what the register did before it. The new
--- permission check and the new parse both sit inside
--- `if v_agreed_price is not null`; the only statement outside it that this
--- migration adds is the running-total ceiling, whose only reachable effect on
--- such a call is described above. supabase/tests/verify-complete-sale-baseline
--- checks 1-13 are byte-for-byte what Task 1 wrote and stay green.
+-- EVERY CALL THAT SUCCEEDED BEFORE THIS BRANCH STILL SUCCEEDS. That is the
+-- claim, stated in the form that can be falsified, and it is what checks 15 and
+-- 23 exist to falsify. This migration does add two statements OUTSIDE
+-- `if v_agreed_price is not null` -- the per-line bound and the running-total
+-- bound -- and both are set at 2,147,483,647, where the arithmetic on this path
+-- has always failed. A call that trips either of them did not work before; it
+-- raised `integer out of range` from mid-function. What changes for such a call
+-- is the message, and only the message.
+--
+-- The new permission check, the new parse and the 1,000,000,000 ceiling all sit
+-- inside `if v_agreed_price is not null` and are unreachable without the field.
+-- supabase/tests/verify-complete-sale-baseline checks 1-13 are byte-for-byte
+-- what Task 1 wrote and stay green.
 --
 -- ── Copied forward ─────────────────────────────────────────────────────────
 --
@@ -161,18 +200,25 @@
 -- definition. This repo has already lost an edit to a copy-forward from the
 -- wrong ancestor (the loyalty maturation guard, unenforced for four
 -- migrations), and supabase/tests/accumulated-rpc-edits.test.ts exists to make
--- that impossible to do quietly. FOUR edits and TWO declaration changes differ
+-- that impossible to do quietly. FIVE edits and THREE declaration changes differ
 -- from 20260929000000 and nothing else does:
 --
---   1. c_max_sale_cents in the DECLARE block, and v_agreed_price becomes bigint.
+--   1. c_max_int_cents and v_line_cents in the DECLARE block, and v_agreed_price
+--      becomes bigint.
 --   2. The agreed price is parsed as bigint, not integer.
 --   3. A new refusal at the end of the agreed-price block: an undercut without
 --      discounts.manual.
 --   4. v_unit_price narrows the resolved price to integer, after the bound.
---   5. The running total is ceiling-checked before v_line is added to it.
+--   5. The line total is computed in bigint into v_line_cents, bounded at
+--      c_max_int_cents, and narrowed into v_line only after it has passed.
+--   6. The running total is ceiling-checked at the same figure before v_line is
+--      added to it.
 --
--- Entries for all five are added to accumulated-rpc-edits.test.ts, as its header
--- instructs, so the next copy-forward cannot lose them either.
+-- Entries for all six are added to accumulated-rpc-edits.test.ts, as its header
+-- instructs, so the next copy-forward cannot lose them either. Two entries there
+-- that 20260929000000 wrote have had their TOKENS updated -- not their meaning:
+-- `v_line := v_unit_price * v_qty - v_line_discount` is now the same arithmetic
+-- widened into v_line_cents, and the entry pins the widened form.
 --
 -- The signature is unchanged, so `create or replace` genuinely replaces rather
 -- than adding an overload.
@@ -195,23 +241,34 @@ create or replace function public.complete_sale(
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
-  -- The most a single LINE may come to, and the ceiling an agreed price is
-  -- measured against. 1,000,000,000 cents is ten million dollars, the same
-  -- figure place_storefront_order (20260927000000:230) puts on a whole order,
-  -- and it is a CEILING rather than a business rule: a caller must not be able
-  -- to decide how large a number this function multiplies. Held in bigint and
-  -- compared against a bigint product, so the test happens BEFORE the
-  -- 32-bit multiplication that would otherwise raise `integer out of range`
-  -- from the middle of the register's write path.
+  -- The most a line an AGREED PRICE was sent for may come to, and nothing else.
+  -- 1,000,000,000 cents is ten million dollars, the same figure
+  -- place_storefront_order (20260927000000:230) puts on a whole order, and it is
+  -- a CEILING rather than a business rule: an agreed price arrives in a JSON
+  -- payload from a caller, and a caller must not be able to decide how large a
+  -- number this function multiplies. Held in bigint and compared against a
+  -- bigint product, so the test happens BEFORE the 32-bit multiplication that
+  -- would otherwise raise `integer out of range` from mid-function.
+  --
+  -- IT DOES NOT APPLY TO AN ORDINARY TILL SALE, and the first wave of this fix
+  -- applying it to one is the defect fix wave 2 exists to correct. See the
+  -- header: a shop's own shelf price is not a caller's number, and a plain sale
+  -- anywhere in the 1,000,000,000 to 2,147,483,647 window worked before this
+  -- branch and must go on working.
   c_max_line_cents constant bigint := 1000000000;
-  -- The most a whole SALE's merchandise may come to, and it is the SAME figure
-  -- for the same reason: the line bound alone does not stop three lines of
-  -- 1,000,000,000 each from overflowing `v_gross_cents integer` in the
-  -- accumulation, which is a bare `integer out of range` raised from
-  -- mid-function -- exactly the failure the line bound's own comment claimed to
-  -- prevent. Checked in bigint before each addition rather than after it,
-  -- because after it there is nothing left to check.
-  c_max_sale_cents constant bigint := 1000000000;
+  -- Where the ARITHMETIC stops, which is a different kind of thing entirely and
+  -- is why it is a different constant. v_line and v_gross_cents are both
+  -- `integer`, so 2,147,483,647 is the last figure either can hold: past it the
+  -- old function did not refuse the sale, it raised a bare
+  -- `integer out of range` from the middle of the register's write path with
+  -- nothing in it to say which line or why.
+  --
+  -- Every line total and the running sale total are measured against it, agreed
+  -- price or not -- an accumulation overflows the same way whether the price
+  -- came from the cart or from the shelf. Because it sits exactly at the point
+  -- of failure, no call that ever succeeded can reach it: this converts a crash
+  -- into an explanation and refuses nothing that used to work.
+  c_max_int_cents constant bigint := 2147483647;
   v_sale_id uuid;
   v_location_id uuid;
   v_item jsonb;
@@ -220,6 +277,13 @@ declare
   v_available integer;
   v_qty integer;
   v_line integer;
+  -- The same line total, computed WIDE. `v_unit_price * v_qty` is 32-bit
+  -- multiplication and a product priced 1,500,000,000 sold three at a time
+  -- overflows it -- with no agreed price anywhere in the cart, so the bound
+  -- inside the agreed-price block never sees it. Computed here in bigint,
+  -- bounded, and only then narrowed into v_line, which is the order that lets
+  -- the caller hear a sentence instead of `integer out of range`.
+  v_line_cents bigint;
   v_line_discount integer;
   -- The price this line is actually filed at: the agreed price when the cart
   -- carried one, products.price_cents otherwise.
@@ -604,10 +668,30 @@ begin
     -- The promotion arithmetic above deliberately stays on
     -- v_product.price_cents: an offer is a reduction off the LIST price, and
     -- the two can never meet on one line anyway -- the guard above refuses it.
-    v_line := v_unit_price * v_qty - v_line_discount;
-    if v_line < 0 then
+    --
+    -- IN BIGINT, AND FOR EVERY LINE. The agreed price has been bounded before
+    -- its own multiplication since 20260929000000; a line priced from the SHELF
+    -- was not bounded at all, and a product priced 1,500,000,000 sold three at a
+    -- time overflowed this very statement in 32 bits and raised a bare
+    -- `integer out of range` from mid-loop. The widening costs nothing and the
+    -- narrowing below cannot fail, because the bound has already passed.
+    v_line_cents := v_unit_price::bigint * v_qty - v_line_discount;
+    -- c_max_int_cents, NOT c_max_line_cents. This is where `v_line integer`
+    -- actually stops holding the answer, so a line that trips this did not work
+    -- before either -- it crashed. Bounding an ordinary till line at the
+    -- 1,000,000,000 an agreed price may reach would refuse sales the register
+    -- has always accepted; see the header.
+    if v_line_cents > c_max_int_cents then
+      raise exception 'this line is out of range: % at % cents x % is more than the % cents one line may carry',
+        v_product.name, v_unit_price, v_qty, c_max_int_cents;
+    end if;
+    -- After the ceiling, before the narrowing. A negative line cannot be past
+    -- the ceiling, so the order between these two is free -- and this way the
+    -- cast below sits under both of them.
+    if v_line_cents < 0 then
       raise exception 'discount exceeds line total for %', v_product.name;
     end if;
+    v_line := v_line_cents::integer;
 
     update public.product_location_stock set stock = stock - v_qty, updated_at = now()
       where product_id = v_product.id and location_id = v_location_id;
@@ -636,14 +720,20 @@ begin
     --
     -- Applied to EVERY line rather than only to agreed ones: an accumulation
     -- overflows the same way whether the prices came from the cart or from the
-    -- shelf, and a caller must not be able to decide how large a number this
-    -- function adds up. For a cart that sends no agreed price the only
-    -- reachable difference is that a basket over ten million dollars is refused
-    -- by this sentence instead of by `integer out of range` -- a refusal either
-    -- way, and one no baseline check goes near.
-    if v_gross_cents::bigint + v_line > c_max_sale_cents then
+    -- shelf.
+    --
+    -- AT c_max_int_cents, WHICH IS THE CORRECTION. The first wave of this fix
+    -- put 1,000,000,000 here -- the agreed price's ceiling -- and so refused a
+    -- plain till sale of a 1,500,000,000 product that the register had always
+    -- accepted, because 1,500,000,000 fits in an integer and nothing overflowed.
+    -- The bound belongs where the arithmetic breaks, not where a caller's number
+    -- is distrusted: 2,147,483,647 is the last total `v_gross_cents integer` can
+    -- hold, so a cart that trips this got `integer out of range` before and gets
+    -- a sentence now, and no cart that worked is touched. Baseline checks 23 and
+    -- 24 are the two sides of that.
+    if v_gross_cents::bigint + v_line_cents > c_max_int_cents then
       raise exception 'this sale is out of range: adding % for % takes it past the % cents one sale may carry',
-        v_line, v_product.name, c_max_sale_cents;
+        v_line, v_product.name, c_max_int_cents;
     end if;
     v_gross_cents := v_gross_cents + v_line;
     v_item_count := v_item_count + v_qty;
