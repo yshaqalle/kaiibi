@@ -145,6 +145,7 @@ export default function SettingsScreen() {
   // the interactive path, but the URL-seeded path skips it entirely.
   useEffect(() => {
     if (activeNav === 'storefront') router.replace('/storefront');
+    if (activeNav === 'orders') router.replace('/orders');
   }, [activeNav, router]);
 
   const brandUsage = useMemo(() => {
@@ -183,6 +184,12 @@ export default function SettingsScreen() {
     // swapping activeNav, so the switch below never has to render it.
     if (id === 'storefront') {
       router.push('/storefront');
+      return;
+    }
+    // Same reasoning: a ledger read down a column wants the full width, not
+    // a panel squeezed beside the sidebar.
+    if (id === 'orders') {
+      router.push('/orders');
       return;
     }
     setActiveNav(id);
@@ -368,6 +375,9 @@ export default function SettingsScreen() {
         // and never sets activeNav to it -- this case only guards a stray
         // deep link (e.g. ?nav=storefront), which should render nothing
         // rather than crash on an unhandled id.
+        return null;
+      case 'orders':
+        // Same guard, same reason -- routes to /orders instead.
         return null;
     }
   })();

@@ -14,7 +14,7 @@
 // token. A shop picks from these; it does not get a hex field. A free colour
 // picker is how a page ends up yellow on white and published.
 
-import { parseHex } from '@/lib/contrast';
+import { parseHex, stepUntilContrast } from '@/lib/contrast';
 
 export type StorefrontTheme = 'market' | 'counter' | 'window';
 export type StorefrontPalette = 'ink' | 'palm' | 'clay' | 'sea' | 'saffron' | 'plum';
@@ -25,6 +25,7 @@ export type PaletteColors = {
   ink: string;    // all type
   accent: string; // buttons and the active filter, always with white on it
   muted: string;  // secondary type -- a city subtitle, an about paragraph
+  danger: string; // form error text -- never the out-of-stock amber, and never a stray hex at the call site
 };
 
 export const THEMES: { key: StorefrontTheme; label: string; description: string }[] = [
@@ -47,7 +48,7 @@ export const PALETTES: { key: StorefrontPalette; label: string; suits: string }[
 export const DEFAULT_THEME: StorefrontTheme = 'market';
 export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 
-type BasePaletteColors = Omit<PaletteColors, 'muted'>;
+type BasePaletteColors = Omit<PaletteColors, 'muted' | 'danger'>;
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   ink:     { ground: '#ffffff', soft: '#f4f4f5', ink: '#141418', accent: '#141418' },
@@ -95,9 +96,34 @@ export function mutedInk(palette: StorefrontPalette): string {
   return blendHex(c.ink, c.ground, MUTED_BLEND);
 }
 
+// Checkout form errors ("Add your name...", a bad phone, a missing landmark)
+// used to hard-code clay's own accent (#98452a) as the error colour on every
+// palette -- so a shop on ink, palm, sea, saffron or plum saw an unrelated
+// rust-brown, off its own palette entirely. Same fix as `muted`: a real
+// token, derived rather than picked at the call site.
+//
+// Anchored on a conventional error red (#b3261e) rather than any palette's
+// own accent, so it reads as "something is wrong" on every palette and is
+// never confusable with the fixed out-of-stock amber (#8a5a05) product-tile
+// and theme-counter already use -- an error and a stock notice must not look
+// like the same signal. Blended a small amount toward the palette's own ink
+// (DANGER_INK_BLEND) so the token is still genuinely computed FROM that
+// palette rather than a single constant reused six times, then walked
+// through stepUntilContrast against that palette's own ground so a future
+// change to a ground value can't silently drop it below 4.5:1 -- the same
+// belt-and-braces the muted-text comment above describes.
+const DANGER_BASE = '#b3261e';
+const DANGER_INK_BLEND = 0.12;
+
+export function dangerInk(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  const tinted = blendHex(DANGER_BASE, c.ink, DANGER_INK_BLEND);
+  return stepUntilContrast(tinted, c.ground, 4.5);
+}
+
 export function paletteColors(palette: StorefrontPalette): PaletteColors {
   const key = paletteKey(palette);
-  return { ...COLORS[key], muted: mutedInk(key) };
+  return { ...COLORS[key], muted: mutedInk(key), danger: dangerInk(key) };
 }
 
 // NOT part of any palette, and deliberately not themeable. Green is what makes

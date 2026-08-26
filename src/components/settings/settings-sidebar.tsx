@@ -20,6 +20,7 @@ export type SettingsNavId =
   | 'inventory'
   | 'promotions'
   | 'storefront'
+  | 'orders'
   | 'payments'
   | 'tax'
   | 'loyalty'
@@ -32,7 +33,7 @@ export type SettingsNavId =
 const SETTINGS_NAV_IDS: SettingsNavId[] = [
   'profile', 'security', 'billing', 'notifications', 'business', 'locations',
   'roles', 'vendors', 'receipt', 'catalog', 'inventory', 'promotions',
-  'payments', 'tax', 'loyalty', 'cashiers', 'registers', 'storefront',
+  'payments', 'tax', 'loyalty', 'cashiers', 'registers', 'storefront', 'orders',
 ];
 
 export function isSettingsNavId(value: unknown): value is SettingsNavId {
@@ -79,6 +80,10 @@ export const SETTINGS_NAV: NavGroup[] = [
       { id: 'vendors', label: 'Vendors', icon: 'briefcase-outline' },
       { id: 'receipt', label: 'Receipt', icon: 'receipt-outline' },
       { id: 'storefront', label: 'Storefront', icon: 'globe-outline', module: 'storefront' },
+      // Beside Storefront on purpose: this is what the page it edits actually
+      // produces. Read-only (Task 9) -- Plan 4 owns accepting and fulfilling
+      // what shows up here.
+      { id: 'orders', label: 'Orders', icon: 'bag-check-outline', module: 'storefront' },
     ],
   },
   {

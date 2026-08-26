@@ -1,8 +1,20 @@
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ProductTile } from '@/components/storefront/product-tile';
+import { openExternalUrl } from '@/lib/external-url';
+import { waLink } from '@/lib/storefront';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
+
+// product-tile.tsx now imports waLink from '@/lib/storefront' for Ask, which
+// transitively imports '@/lib/supabase' -- that throws at import time without
+// real env vars. Same mock storefront-theme-counter.test.tsx already carries
+// for the same reason.
+jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+jest.mock('@/lib/external-url', () => ({ openExternalUrl: jest.fn() }));
+
+const openMock = openExternalUrl as jest.MockedFunction<typeof openExternalUrl>;
+beforeEach(() => openMock.mockReset());
 
 // `@testing-library/react-native` is not installed in this repo (see
 // stat-tile.test.tsx and sale-line.test.tsx for the same pattern) -- flatten
@@ -31,10 +43,10 @@ const base: StorefrontProduct = {
   imageUrl: null,
 };
 
-function renderTile(product: StorefrontProduct) {
+function renderTile(product: StorefrontProduct, extra?: { whatsappE164?: string; shopName?: string }) {
   let tree!: ReturnType<typeof create>;
   act(() => {
-    tree = create(<ProductTile product={product} colors={colors} />);
+    tree = create(<ProductTile product={product} colors={colors} {...extra} />);
   });
   return textsIn(tree.toJSON() as ReactTestRendererJSON);
 }
@@ -70,5 +82,66 @@ describe('ProductTile', () => {
   it('says in stock when there is stock', () => {
     const texts = renderTile(base);
     expect(texts).toContain('In stock');
+  });
+
+  it('shows Add when in stock and calls onAdd with the product on press', () => {
+    const onAdd = jest.fn();
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<ProductTile product={base} colors={colors} onAdd={onAdd} />);
+    });
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
+    expect(texts).toContain('Add');
+
+    const addButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-add');
+    act(() => addButtons[0].props.onPress());
+    expect(onAdd).toHaveBeenCalledWith(base);
+  });
+
+  // The shop may be restocking, and that enquiry is a sale -- an out-of-stock
+  // tile loses Add but must never lose Ask or disappear.
+  it('loses Add but keeps Ask when out of stock', () => {
+    // The shop may be restocking, and that enquiry is a sale.
+    const texts = renderTile({ ...base, stock: 0 }, { whatsappE164: '+252634418820' });
+    expect(texts).not.toContain('Add');
+    expect(texts).toContain('Ask');
+    expect(texts).toContain('Out of stock — ask us');
+  });
+
+  it('shows Ask alongside Add when in stock', () => {
+    const texts = renderTile(base, { whatsappE164: '+252634418820' });
+    expect(texts).toContain('Ask');
+    expect(texts).toContain('Add');
+  });
+
+  it('Ask opens a wa.me link prefilled with the shop and product name', () => {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <ProductTile product={base} colors={colors} shopName="Deka Electronics" whatsappE164="+252634418820" />
+      );
+    });
+    const askButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-ask');
+    act(() => askButtons[0].props.onPress());
+
+    const expected = waLink('+252634418820', 'Hi Deka Electronics, is Anker 20W charger available?');
+    expect(openMock).toHaveBeenCalledWith(expected);
+  });
+
+  // Commit 302630a changed Ask from "stays visible but inert without a
+  // number" to hiding itself outright, deliberately -- asserted below.
+  it('does not render Ask at all when the shop has no WhatsApp number', () => {
+    // Matches WhatsAppButton in theme-shared: lose the button rather than
+    // render one that opens a chat with nobody. An Ask that renders and
+    // silently does nothing is the worse half of both options -- the customer
+    // taps and the app shrugs. Publishing requires a number, so this is the
+    // belt to that braces.
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<ProductTile product={base} colors={colors} />);
+    });
+    const askButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-ask');
+    expect(askButtons).toHaveLength(0);
+    expect(openMock).not.toHaveBeenCalled();
   });
 });

@@ -55,6 +55,20 @@ describe('muted secondary text', () => {
   });
 });
 
+describe('danger text (form errors)', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s keeps danger text readable on its ground', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.danger, c.ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s gives danger text a colour distinct from the out-of-stock amber', (key) => {
+    const c = paletteColors(key);
+    expect(c.danger.toLowerCase()).not.toBe('#8a5a05');
+  });
+});
+
 describe('WhatsApp green', () => {
   it('is fixed, because it is a recognised affordance and not a brand colour', () => {
     expect(WHATSAPP_BUTTON_GREEN).toBe('#1f7a4d');
@@ -91,6 +105,7 @@ describe('palette lookup does not fall through the prototype chain', () => {
     expect(c.ink).toBe('#141418');
     expect(c.accent).toBe('#141418');
     expect(typeof c.muted).toBe('string');
+    expect(typeof c.danger).toBe('string');
   });
 
   it.each(poisoned)('mutedInk(%s) falls back to the ink palette blend', (bad) => {

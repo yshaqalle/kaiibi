@@ -1,7 +1,7 @@
 import { DEFAULT_PALETTE, DEFAULT_THEME } from '@/lib/storefront-catalog';
 import { supabase } from '@/lib/supabase';
 import { whatsappLink } from '@/lib/whatsapp';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
 
 // Reads the public page. Every one of these calls the RPCs in
 // 20260924000100 rather than querying tables: the column list lives in the
@@ -44,6 +44,21 @@ export async function getPublicStorefrontProducts(slug: string): Promise<Storefr
     priceCents: row.price_cents as number,
     stock: row.stock as number,
     imageUrl: (row.image_url as string) ?? null,
+  }));
+}
+
+// The first caller of get_public_delivery_areas (20260924000100) -- it has
+// had none since plan 1. Checkout (Task 6) needs a shop's own priced areas
+// to offer a customer, and this is the read path Task 2's
+// place_storefront_order (20260927000000) already assumes exists on the
+// write side: it matches a delivery area by the exact name a client sends
+// back, and the only place that name can come from is this list.
+export async function getPublicDeliveryAreas(slug: string): Promise<PublicDeliveryArea[]> {
+  const { data, error } = await supabase.rpc('get_public_delivery_areas', { p_slug: slug });
+  if (error) throw error;
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    name: row.name as string,
+    feeCents: row.fee_cents as number,
   }));
 }
 

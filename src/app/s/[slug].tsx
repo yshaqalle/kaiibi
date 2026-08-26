@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { StorefrontView } from '@/components/storefront/storefront-view';
-import { getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
 
 // A DRAFT SHOP AND A NONEXISTENT SHOP RENDER THE SAME PAGE.
 //
@@ -17,7 +17,9 @@ import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 export default function StorefrontScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const [state, setState] = useState<
-    { status: 'loading' } | { status: 'missing' } | { status: 'ready'; shop: PublicStorefront; products: StorefrontProduct[] }
+    | { status: 'loading' }
+    | { status: 'missing' }
+    | { status: 'ready'; shop: PublicStorefront; products: StorefrontProduct[]; areas: PublicDeliveryArea[] }
   >({ status: 'loading' });
 
   useEffect(() => {
@@ -31,8 +33,26 @@ export default function StorefrontScreen() {
           setState({ status: 'missing' });
           return;
         }
-        const products = await getPublicStorefrontProducts(String(slug));
-        if (!cancelled) setState({ status: 'ready', shop, products });
+        // Areas are only read when the shop actually offers delivery -- a
+        // shop that doesn't has none to show and checkout (Task 6) already
+        // treats an empty list the same as collection-only, so there is
+        // nothing to gain from asking every collection-only shop's page load
+        // to also pay for this RPC.
+        //
+        // B3: `.catch(() => [])` on this one call, not the whole Promise.all.
+        // products and the shop read above are essential -- without them
+        // there is no page -- but areas are not: this file's own comment two
+        // lines up already says an empty list reads identically to
+        // collection-only, so a blip on THIS read must fall back to that,
+        // not drag a published, working shop down to the same "no shop at
+        // this address" page an unknown slug gets. Left un-caught, a reject
+        // here would still propagate through Promise.all into the outer
+        // catch below and do exactly that.
+        const [products, areas] = await Promise.all([
+          getPublicStorefrontProducts(String(slug)),
+          shop.offersDelivery ? getPublicDeliveryAreas(String(slug)).catch(() => []) : Promise.resolve([]),
+        ]);
+        if (!cancelled) setState({ status: 'ready', shop, products, areas });
       } catch {
         // A failed read is indistinguishable from an unknown shop on purpose --
         // an error page would confirm the shop exists.
@@ -65,7 +85,7 @@ export default function StorefrontScreen() {
   return (
     <>
       <StorefrontHead shop={state.shop} />
-      <StorefrontView storefront={state.shop} products={state.products} />
+      <StorefrontView storefront={state.shop} products={state.products} areas={state.areas} />
     </>
   );
 }

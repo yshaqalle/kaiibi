@@ -4,6 +4,7 @@ type FakeState = {
   updateCalls: { table: string; payload: unknown }[];
   updateResult: { error: unknown };
   eqCalls: [string, unknown][];
+  orderCalls: [string, unknown][];
   selectCalls: { table: string; columns: string }[];
   selectResult: { data: unknown; error: unknown };
 };
@@ -16,6 +17,9 @@ type FakeState = {
 // no `.order()` -- it sorts client-side (storefront-admin.ts's own comment
 // on why) -- so the chain itself must be thenable, the same pattern
 // support-queue.test.ts uses for a query with no fixed terminal call.
+// listOrders DOES end in `.order()` (newest first), so that method is on the
+// chain too, and it stays thenable rather than becoming a fixed terminal
+// call -- the same reasoning, one method further along.
 jest.mock('@/lib/supabase', () => {
   const state: FakeState = {
     rpcCalls: [],
@@ -23,6 +27,7 @@ jest.mock('@/lib/supabase', () => {
     updateCalls: [],
     updateResult: { error: null },
     eqCalls: [],
+    orderCalls: [],
     selectCalls: [],
     selectResult: { data: [], error: null },
   };
@@ -48,6 +53,10 @@ jest.mock('@/lib/supabase', () => {
             state.eqCalls.push([column, value]);
             return chain;
           },
+          order: (column: string, opts: unknown) => {
+            state.orderCalls.push([column, opts]);
+            return chain;
+          },
           then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
             Promise.resolve(state.selectResult).then(resolve, reject),
         };
@@ -63,6 +72,7 @@ const { __state: fake } = jest.requireMock('@/lib/supabase') as { __state: FakeS
 import {
   discardDraft,
   getStorefrontPreviewProducts,
+  listOrders,
   publishBlockers,
   publishDraft,
   saveDraft,
@@ -74,6 +84,7 @@ beforeEach(() => {
   fake.updateCalls.length = 0;
   fake.updateResult = { error: null };
   fake.eqCalls.length = 0;
+  fake.orderCalls.length = 0;
   fake.selectCalls.length = 0;
   fake.selectResult = { data: [], error: null };
 });
@@ -202,5 +213,90 @@ describe('getStorefrontPreviewProducts', () => {
   it('throws on failure rather than swallowing it', async () => {
     fake.selectResult = { data: null, error: { message: 'boom' } };
     await expect(getStorefrontPreviewProducts('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// Task 9: an order that lands in a table nobody can see is a lost sale. This
+// is the ONLY read a shop gets of its own orders table (20260926000050) for
+// now -- Plan 4 owns accepting/completing them -- so it is read-only: no
+// status is written here, and nothing computed here ever reaches the ledger.
+describe('listOrders', () => {
+  it("reads a shop's own orders, newest first, with the item count summed from order_items -- not the line count", async () => {
+    fake.selectResult = {
+      data: [
+        {
+          id: 'o1',
+          number: 7,
+          customer_name: 'Amina Yusuf',
+          customer_phone: '+252634456789',
+          fulfilment: 'deliver',
+          delivery_area: 'Hargeisa - 26 June',
+          delivery_landmark: 'Behind Maansoor Hotel, blue gate',
+          total_cents: 4599,
+          created_at: '2026-08-20T10:00:00Z',
+          // Two lines, five units apiece -- ten items to pack, not two.
+          // sales.item_count (0001_init.sql) sums quantity the same way.
+          order_items: [{ quantity: 5 }, { quantity: 5 }],
+        },
+      ],
+      error: null,
+    };
+    const orders = await listOrders('shop-1');
+    expect(fake.selectCalls).toEqual([
+      {
+        table: 'orders',
+        columns:
+          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)',
+      },
+    ]);
+    expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
+    expect(fake.orderCalls).toEqual([['created_at', { ascending: false }]]);
+    expect(orders).toEqual([
+      {
+        id: 'o1',
+        number: 7,
+        customerName: 'Amina Yusuf',
+        customerPhone: '+252634456789',
+        fulfilment: 'deliver',
+        deliveryArea: 'Hargeisa - 26 June',
+        deliveryLandmark: 'Behind Maansoor Hotel, blue gate',
+        itemCount: 10,
+        totalCents: 4599,
+        createdAt: '2026-08-20T10:00:00Z',
+      },
+    ]);
+  });
+
+  // orders_delivery_matches_fulfilment (20260926000050) guarantees a collect
+  // order never carries a delivery_area server-side; this just proves the
+  // mapper passes that null through rather than inventing a placeholder.
+  // Same guarantee covers delivery_landmark.
+  it('carries a collect order through with no delivery area or landmark', async () => {
+    fake.selectResult = {
+      data: [
+        {
+          id: 'o2',
+          number: 1,
+          customer_name: 'Xamse Cali',
+          customer_phone: '+252634456780',
+          fulfilment: 'collect',
+          delivery_area: null,
+          delivery_landmark: null,
+          total_cents: 100,
+          created_at: '2026-08-20T09:00:00Z',
+          order_items: [{ quantity: 1 }],
+        },
+      ],
+      error: null,
+    };
+    const [order] = await listOrders('shop-1');
+    expect(order.fulfilment).toBe('collect');
+    expect(order.deliveryArea).toBeNull();
+    expect(order.deliveryLandmark).toBeNull();
+  });
+
+  it('throws on failure rather than swallowing it', async () => {
+    fake.selectResult = { data: null, error: { message: 'boom' } };
+    await expect(listOrders('shop-1')).rejects.toEqual({ message: 'boom' });
   });
 });

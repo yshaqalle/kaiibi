@@ -340,3 +340,76 @@ export async function unpublish(shopId: string): Promise<void> {
   const { error } = await supabase.from('storefronts').update({ published_at: null }).eq('shop_id', shopId);
   if (error) throw error;
 }
+
+// Task 9: the one read a shop gets of its own orders (20260926000050_orders.sql)
+// for now -- read-only, because Plan 4 owns accepting, readying and completing
+// them and a half-working control here would be worse than none. `status` is
+// deliberately not read: this list makes an order visible, it does not judge
+// where an order is in its life, which is exactly the line Plan 4 draws.
+export type ShopOrder = {
+  id: string;
+  number: number;
+  customerName: string;
+  customerPhone: string;
+  fulfilment: 'collect' | 'deliver';
+  // Snapshot of the area name, never an id -- same reasoning as the column's
+  // own comment: null for collect, the shop's `storefront_delivery_areas`
+  // name at order time for deliver.
+  deliveryArea: string | null;
+  // B4: "Hargeisa addresses are landmarks, not street numbers" is this
+  // branch's entire delivery premise (checkout-form.tsx collects it,
+  // place_storefront_order validates and stores it) -- selecting deliveryArea
+  // above without this leaves a shop that has to phone every delivery
+  // customer to find out where to actually go. Null for collect, same as
+  // deliveryArea.
+  deliveryLandmark: string | null;
+  // Total UNITS across every line, not the number of lines -- what a shop
+  // actually has to pull off the shelf. sales.item_count (0001_init.sql) is
+  // computed the same way, by summing quantity.
+  itemCount: number;
+  totalCents: number;
+  createdAt: string;
+};
+
+function mapOrderRow(row: {
+  id: string;
+  number: number;
+  customer_name: string;
+  customer_phone: string;
+  fulfilment: string;
+  delivery_area: string | null;
+  delivery_landmark: string | null;
+  total_cents: number;
+  created_at: string;
+  order_items: { quantity: number }[] | null;
+}): ShopOrder {
+  return {
+    id: row.id,
+    number: row.number,
+    customerName: row.customer_name,
+    customerPhone: row.customer_phone,
+    fulfilment: row.fulfilment as 'collect' | 'deliver',
+    deliveryArea: row.delivery_area ?? null,
+    deliveryLandmark: row.delivery_landmark ?? null,
+    itemCount: (row.order_items ?? []).reduce((sum, item) => sum + item.quantity, 0),
+    totalCents: row.total_cents,
+    createdAt: row.created_at,
+  };
+}
+
+// RLS ("own orders", 20260926000050) already narrows this to the caller's own
+// shop; the `eq` here is what makes the QUERY itself scoped rather than
+// relying on RLS alone to filter a table-wide select. Newest first -- the
+// order a shopkeeper checking in on their page actually wants, and the same
+// direction receivables/invoices lists read in.
+export async function listOrders(shopId: string): Promise<ShopOrder[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)'
+    )
+    .eq('shop_id', shopId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => mapOrderRow(row as never));
+}

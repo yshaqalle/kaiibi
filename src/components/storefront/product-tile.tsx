@@ -1,5 +1,6 @@
 import { Image, StyleSheet, Text, View } from 'react-native';
 
+import { ProductActions } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
@@ -7,6 +8,20 @@ import type { StorefrontProduct } from '@/types/models';
 type Props = {
   product: StorefrontProduct;
   colors: PaletteColors;
+  // The shop context Ask needs to prefill a wa.me message. Optional because
+  // this tile is used from theme-market.tsx / theme-window.tsx, which do not
+  // forward storefront context yet -- a later task wires that in. Without a
+  // number Ask does not render at all (commit 302630a) -- the same "offer
+  // nothing rather than a dead chat" rule WhatsAppButton applies by hiding
+  // itself. An Ask that renders and silently does nothing is the worse half
+  // of both options: the customer taps and the app shrugs.
+  shopName?: string;
+  whatsappE164?: string | null;
+  // Deliberately a callback, not an import of storefront-cart.ts: a basket
+  // held in a stranger's browser has no business living inside a display
+  // component, and every other storefront component reaches its data this
+  // same prop-driven way (see ThemeProps).
+  onAdd?: (product: StorefrontProduct) => void;
 };
 
 // The no-photo branch is not an error state.
@@ -16,7 +31,7 @@ type Props = {
 // working shop look abandoned. Setting the product name large on the soft tone
 // instead gives a tile that reads like a price label -- deliberate at a glance,
 // and legible on a phone, which is where nearly all of this traffic will be.
-export function ProductTile({ product, colors }: Props) {
+export function ProductTile({ product, colors, shopName, whatsappE164, onAdd }: Props) {
   const outOfStock = product.stock <= 0;
 
   return (
@@ -41,6 +56,10 @@ export function ProductTile({ product, colors }: Props) {
         <Text style={[styles.stock, { color: outOfStock ? '#8a5a05' : '#1f7a4d' }]}>
           {outOfStock ? 'Out of stock — ask us' : 'In stock'}
         </Text>
+
+        <View style={styles.actions}>
+          <ProductActions product={product} colors={colors} shopName={shopName} whatsappE164={whatsappE164} onAdd={onAdd} />
+        </View>
       </View>
     </View>
   );
@@ -55,4 +74,5 @@ const styles = StyleSheet.create({
   name: { fontSize: 12.5, fontWeight: '700', lineHeight: 16, minHeight: 32 },
   price: { fontSize: 15, fontWeight: '800', marginTop: 5 },
   stock: { fontSize: 11, fontWeight: '700', marginTop: 1 },
+  actions: { marginTop: 8 },
 });
