@@ -56,7 +56,11 @@ declare
   -- ending today, one ending yesterday. On its own shop so that neither can
   -- become the month shop C's sale opens.
   v_owner_d uuid := gen_random_uuid();
+  -- A till-only member of shop A, for check 13: pos.access and nothing else.
+  v_till    uuid := gen_random_uuid();
   v_role    uuid;
+  v_role_till uuid;
+  v_before  integer;
   v_shop    uuid;
   v_loc     uuid;
   v_shop_b  uuid;
@@ -85,7 +89,7 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'verify-period-close-' || u || '@example.test', '', now(), now(), now()
-      from unnest(array[v_owner, v_book, v_strange, v_owner_b]) u;
+      from unnest(array[v_owner, v_book, v_strange, v_owner_b, v_till]) u;
 
   insert into public.shops (owner_id, name) values (v_owner, 'Closing Books') returning id into v_shop;
   insert into public.shop_locations (shop_id, name, is_primary) values (v_shop, 'Main', true)
@@ -959,6 +963,127 @@ begin
   if (select status from public.accounting_periods where id = v_mar) <> 'closed'
      or (select count(*) from public.journal_entries where shop_id = v_shop_c and source = 'close') <> 0 then
     raise exception 'FAIL: shop C''s boundary checks reached shop A''s books';
+  end if;
+
+  -- =====================================================================
+  -- 13. post_journal_entry() NEEDS A MEMBER OF THE SHOP, FOR EVERY SOURCE.
+  --
+  --     The other Critical the final review found, and it predates this branch
+  --     (20260904000500): the ledger.post gate applied only when
+  --     p_source = 'manual'. The function is security definer and granted to
+  --     `authenticated`, so passing any other source let a logged-in stranger
+  --     write entries into ANY shop. Phase 3b escalates it -- statement_lines()
+  --     and cash_flow() now ignore source = 'close' while balance_sheet()
+  --     subtracts its P&L side, so a forged 'close' entry moves the balance
+  --     sheet while being invisible to the other two.
+  --
+  --     MUTATIONS:
+  --       * delete the is_shop_member gate      → 13a, 13b and 13c all post. Red.
+  --       * gate EVERY source on ledger.post    → 13d cannot sell. Red, and that
+  --                                               is the fix that breaks the till.
+  --       * drop `p_source = 'manual' and` from → 13d cannot sell. Red.
+  --         the ledger.post gate
+  --       * drop the ledger.post gate entirely  → 13e posts. Red.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  --   A till-only member of shop A: pos.access and NOTHING else. The control
+  --   for 13d -- asserted rather than assumed, because a fixture that quietly
+  --   handed this role ledger.post would make 13d prove nothing.
+  insert into public.roles (shop_id, name, permissions)
+    values (v_shop, 'Till Only', array['pos.access'])
+    returning id into v_role_till;
+  insert into public.shop_members (shop_id, user_id, role_id, active)
+    values (v_shop, v_till, v_role_till, true);
+  if public.user_has_shop_permission(v_till, v_shop, 'ledger.post') then
+    raise exception 'FAIL: the fixture till user holds ledger.post, so 13d would prove nothing';
+  end if;
+
+  --   COUNTED AS postgres, not as the actor. journal_entries' RLS read policy
+  --   is ledger.view, which neither the stranger nor the till user holds, so a
+  --   count taken in their session is zero either way and every assertion built
+  --   on it would pass without meaning anything.
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop;
+  perform set_config('role', 'authenticated', true);
+
+  -- 13a. A stranger -- no shop_members row anywhere -- posting a 'sale'.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_strange)::text, true);
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Forged takings',
+      jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  50000),
+                        jsonb_build_object('code', '4000', 'amount_cents', -50000)),
+      null, 'sale');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null then
+    raise exception 'FAIL: a stranger posted a source = ''sale'' entry into a shop they are not a member of';
+  end if;
+
+  -- 13b. The same stranger filing it as 'close', which is the source this
+  --      branch made invisible to two of the three statements.
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Forged closing entry',
+      jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  50000),
+                        jsonb_build_object('code', '4000', 'amount_cents', -50000)),
+      null, 'close');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null then
+    raise exception 'FAIL: a stranger posted a source = ''close'' entry into a shop they are not a member of';
+  end if;
+
+  -- 13c. A REAL member -- of the WRONG shop. Membership somewhere is not
+  --      membership here, and shop B's owner holds every permission in shop B.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_b)::text, true);
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Next door''s takings',
+      jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  50000),
+                        jsonb_build_object('code', '4000', 'amount_cents', -50000)),
+      null, 'sale');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null then
+    raise exception 'FAIL: the owner of shop B posted an entry into shop A''s books';
+  end if;
+
+  --   ...and none of the three wrote anything. A refusal that raised after the
+  --   insert would pass every check above.
+  perform set_config('role', 'postgres', true);
+  if (select count(*) from public.journal_entries where shop_id = v_shop) <> v_before then
+    raise exception 'FAIL: a refused post still wrote a journal entry';
+  end if;
+  perform set_config('role', 'authenticated', true);
+
+  -- 13d. AND THE TILL STILL SELLS. A member holding pos.access and NOT
+  --      ledger.post posts a 'sale' -- which is exactly what complete_sale does
+  --      on their behalf. This is the check that fails if the gate is widened
+  --      to every source, which is the wrong fix and the tempting one.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_till)::text, true);
+  perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Today''s takings',
+    jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  50000),
+                      jsonb_build_object('code', '4000', 'amount_cents', -50000)),
+    null, 'sale');
+  perform set_config('role', 'postgres', true);
+  if (select count(*) from public.journal_entries where shop_id = v_shop) <> v_before + 1 then
+    raise exception 'FAIL: a cashier holding pos.access and not ledger.post could not post a sale';
+  end if;
+  perform set_config('role', 'authenticated', true);
+
+  -- 13e. ...and the ledger.post gate on 'manual' still bites for that same
+  --      member, so 13d is not green because the gates all stopped working.
+  v_ctx := null;
+  begin
+    perform public.post_journal_entry(v_shop, public.shop_local_date(), 'A hand-typed entry',
+      jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  100),
+                        jsonb_build_object('code', '4000', 'amount_cents', -100)),
+      null, 'manual');
+  exception when others then v_ctx := sqlerrm;
+  end;
+  if v_ctx is null or v_ctx not like '%permission to post journal entries%' then
+    raise exception 'FAIL: a member without ledger.post typed a manual entry: %', coalesce(v_ctx, 'no error at all');
   end if;
 
   perform set_config('role', 'postgres', true);

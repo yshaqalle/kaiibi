@@ -748,6 +748,14 @@ const POST_JOURNAL_ENTRY_EDITS: Edit[] = [
   // compiles, gates nothing, and refuses every adjusting entry.
   ['20261002000100', 'a deliberate adjusting entry reaches the period gate',
     'public.open_period_for(p_shop_id, p_entry_date, p_adjusting)'],
+  // THE TENANT BOUNDARY. This function is security definer and granted to
+  // `authenticated`, and for its whole life the only gate on it applied to
+  // p_source = 'manual' -- so any other source let a logged-in stranger write
+  // entries into any shop. Pinned as the WHOLE predicate: a copy that keeps
+  // is_shop_member but drops `auth.uid() is not null` breaks every backend
+  // insert, and one that keeps the uid test alone gates nothing at all.
+  ['20261005000100', 'every source needs a member of the shop, not just manual',
+    'auth.uid() is not null and not public.is_shop_member(p_shop_id)'],
 ];
 
 const OPEN_PERIOD_FOR_EDITS: Edit[] = [
