@@ -1,4 +1,5 @@
--- transition_order: the moves a shop makes that touch nothing.
+-- transition_order: the moves a shop makes that touch nothing -- and
+-- complete_storefront_order: the one move that reaches the books.
 --
 -- Same shape as verify-orders.sql -- one DO block, EXCEPTION rolls everything
 -- back, specific exception classes wherever Postgres offers one, `when
@@ -9,12 +10,14 @@
 --   pending  -> accepted
 --   accepted -> ready
 --   {pending, accepted, ready} -> cancelled
--- Nothing else. In particular NOT ready -> completed: Task 4 owns that move
--- because it is the one that posts to the ledger, and a function here that
--- allowed it would let a shop mark an order done with nothing in the books.
--- 'completed' is simply never a target this function (or the trigger behind
--- it) recognises as reachable -- omitted, not special-cased, so there is one
--- fewer place a future edit could quietly re-open it.
+--   ready    -> completed, AND ONLY when the same statement attaches the sale
+--               the order became (20260928000200_complete_storefront_order)
+-- Nothing else. transition_order cannot reach 'completed' and neither can a
+-- shop member's plain RLS update, because neither of them sets a sale_id --
+-- so the property 20260928000100 was protecting ("a shop must not mark an
+-- order done with nothing in the books to show for it") is enforced
+-- directly rather than by refusing the word outright. Checks 3, 4 and 35
+-- are the ones that hold that line.
 --
 -- ── Same-state is a no-op, not an error ─────────────────────────────────
 -- Calling transition_order(order, 'accepted') on an order that is already
@@ -64,10 +67,71 @@
 --   21/22. the grant: authenticated holds EXECUTE, anon does not -- on
 --         paper and for real (belt and braces, same technique as
 --         verify-orders.sql check 14/16/17).
---   23.   a shop whose plan no longer includes storefront may not move an
---         order either, even one already sitting in its queue. Left last,
---         same reason verify-orders.sql leaves its own version last: it
---         moves the shop off the plan every check above depends on.
+--
+-- ── complete_storefront_order: the move that reaches the books ──────────
+--   23.   a ready order completes: a sale id comes back, the order lands
+--         'completed', and it records WHICH sale it became. Without that
+--         last part the two records can never be reconciled again.
+--   24.   the sale's lines are the ORDER'S SNAPSHOT -- product_name,
+--         unit_price_cents, quantity and line_total_cents, line for line.
+--         That is what the customer agreed to.
+--   25.   a collect order (no delivery) posts ONE balanced entry and never
+--         touches 4300 at all. The control for check 26: an
+--         implementation that credited 4300 unconditionally would pass 26
+--         and fail here.
+--   26.   THE DELIVERY FEE CREDITS 4300 AND NOT 4000. Asserted both ways --
+--         4300 holds exactly the fee, and the sale's own entry has no 4300
+--         line while the fee's entry has no 4000 line -- because a fee
+--         posted to 4000 mixes revenue carrying no cost of sales into goods
+--         revenue and flatters gross margin on every report the accounting
+--         work already built.
+--   27.   THE FEE'S ENTRY BALANCES on its own, and names both the order
+--         number and the sale id. Route B (a second, small entry beside the
+--         sale) is only defensible if a reader landing on either entry can
+--         find the other; the entry balancing is what makes it a journal
+--         entry rather than a note.
+--   28.   the fee is debited to the account of the method the shop ACTUALLY
+--         TOOK -- 1020 for zaad here, never a hardcoded 1000 Cash -- and the
+--         two entries together bring in exactly orders.total_cents. Both
+--         entries also carry the same date and the same location, so one
+--         order's money can never straddle two months or two branches.
+--   29.   A SHORTFALL LEAVES THE ORDER UNTOUCHED. `insufficient_stock`, a
+--         code a client can turn into a sentence, and afterwards the order
+--         is still 'ready' with no sale against it and the stock is exactly
+--         where it was. Half-completed is the one outcome worse than
+--         failing.
+--   30.   completing the same order twice is refused and writes no second
+--         sale. Not hypothetical: 'completed' -> 'completed' is a
+--         same-status move, which the trigger's early return waves through,
+--         so only the function's own status guard stands between a retry and
+--         a duplicate posting.
+--   31.   an order that is not 'ready' (pending here) cannot be completed --
+--         the ledger is reached from one state only.
+--   32.   a member of another shop cannot complete this shop's order.
+--   33.   a line whose product has since been deleted raises
+--         `order_product_deleted`, not complete_sale's raw `product  not
+--         found in this shop` with an empty uuid in the middle of it.
+--   34.   AN ORDER WHOSE PRICES HAVE MOVED is refused with
+--         `order_total_changed` and left untouched, not completed at a
+--         figure the customer never agreed to. complete_sale prices every
+--         line from the CURRENT products.price_cents, so a shop that
+--         re-priced between checkout and hand-over would otherwise get
+--         `payments total 700 does not match sale total 1300` -- an
+--         arithmetic complaint about a pricing fact. The same code covers a
+--         tax-charging shop, whose storefront quotes tax-exclusive totals;
+--         see the migration header.
+--   35.   THE TRIGGER, NOT THE FUNCTION, IS WHAT HOLDS THE LINE. A shop
+--         member's plain RLS `update ... set status = 'completed'` is still
+--         refused, because it attaches no sale; a sale link already set
+--         cannot be re-pointed at a different sale; and the
+--         orders_sale_only_when_completed CHECK is real on its own, proven
+--         with the same disable-trigger technique as checks 15 and 17.
+--   36.   the grant on complete_storefront_order: authenticated holds
+--         EXECUTE, anon does not, on paper and for real.
+--   37.   a shop whose plan no longer includes storefront may neither move
+--         an order NOR complete one, even one already sitting in its queue.
+--         Left last, same reason verify-orders.sql leaves its own version
+--         last: it moves the shop off the plan every check above depends on.
 
 \set ON_ERROR_STOP on
 
@@ -91,6 +155,36 @@ declare
   v_raised   boolean;
   v_detail   text;
   v_count    integer;
+
+  -- ── Checks 23-36: completion, which reaches the ledger ────────────────
+  -- A shop has no location until a fixture makes one (seed_shop_defaults does
+  -- not), and complete_sale defaults p_location_id to the primary one -- so
+  -- without this every completion below fails with "shop % has no location".
+  v_loc_id     uuid;
+  -- Priced so no two figures in any one entry coincide: a check reading the
+  -- wrong account then FAILS rather than coincidentally passing.
+  v_prod_tea    uuid;  -- 2000, cost 700   -- the collect order
+  v_prod_coffee uuid;  -- 3000, cost 1100  -- the deliver order
+  v_prod_rice   uuid;  -- 500,  stock 1    -- the shortfall
+  v_prod_ghost  uuid;  -- 900,  deleted mid-script
+  v_prod_drift  uuid;  -- 700,  re-priced to 1300 mid-script: check 34
+  v_drift_id    uuid;  -- its order was quoted at the old price
+  v_collect_id  uuid;  -- 2 x tea    = 4000, no fee,   total 4000, paid cash
+  v_deliver_id  uuid;  -- 1 x coffee = 3000, fee 1500, total 4500, paid zaad
+  v_short_id    uuid;  -- 5 x rice, and the shop holds one
+  v_pending_id  uuid;  -- never accepted: check 31
+  v_ghost_id    uuid;  -- its only product is deleted before completion
+  v_sale_collect uuid;
+  v_sale_deliver uuid;
+  v_entry_sale   uuid;
+  v_entry_fee    uuid;
+  v_amount       bigint;
+  v_sales_before integer;
+  v_stock_before integer;
+  v_date_sale    date;
+  v_date_fee     date;
+  v_loc_sale     uuid;
+  v_loc_fee      uuid;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -125,8 +219,80 @@ begin
   insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, total_cents)
     values (v_shop_id, 'Forced Complete', '+252634100005', 'collect', 1000, 1000) returning id into v_forced_id;
 
+  -- ── Fixtures for checks 23-36 ────────────────────────────────────────
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_id, 'Main', true) returning id into v_loc_id;
+
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Storefront Tea', 2000, 700) returning id into v_prod_tea;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Storefront Coffee', 3000, 1100) returning id into v_prod_coffee;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Storefront Rice', 500, 100) returning id into v_prod_rice;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Storefront Ghost', 900, 200) returning id into v_prod_ghost;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Storefront Drift', 700, 150) returning id into v_prod_drift;
+
+  -- Rice is stocked at ONE against an order for five. That is the shortfall
+  -- check 29 turns on, and it is a real shape: Plan 3 deliberately does not
+  -- reserve stock at checkout, so an order can outlive the stock behind it.
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod_tea, v_loc_id, 100), (v_prod_coffee, v_loc_id, 100),
+           (v_prod_rice, v_loc_id, 1),  (v_prod_ghost, v_loc_id, 100),
+           (v_prod_drift, v_loc_id, 100);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Collect Customer', '+252634100010', 'collect', 4000, 0, 4000)
+    returning id into v_collect_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_collect_id, v_prod_tea, 'Storefront Tea', 2000, 2, 4000);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Deliver Customer', '+252634100011', 'deliver', 'Xero Awr', 'By the blue gate', 3000, 1500, 4500)
+    returning id into v_deliver_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_deliver_id, v_prod_coffee, 'Storefront Coffee', 3000, 1, 3000);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Short Customer', '+252634100012', 'collect', 2500, 0, 2500)
+    returning id into v_short_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_short_id, v_prod_rice, 'Storefront Rice', 500, 5, 2500);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Pending Customer', '+252634100013', 'collect', 900, 0, 900)
+    returning id into v_pending_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_pending_id, v_prod_tea, 'Storefront Tea', 2000, 1, 2000);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Ghost Customer', '+252634100014', 'collect', 900, 0, 900)
+    returning id into v_ghost_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_ghost_id, v_prod_ghost, 'Storefront Ghost', 900, 1, 900);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Drift Customer', '+252634100015', 'collect', 700, 0, 700)
+    returning id into v_drift_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_drift_id, v_prod_drift, 'Storefront Drift', 700, 1, 700);
+
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
   perform set_config('role', 'authenticated', true);
+
+  -- Walked to 'ready' through the ordinary door, not forced: an order these
+  -- checks complete must have got there the way a real one does.
+  perform public.transition_order(v_collect_id, 'accepted', null);
+  perform public.transition_order(v_collect_id, 'ready', null);
+  perform public.transition_order(v_deliver_id, 'accepted', null);
+  perform public.transition_order(v_deliver_id, 'ready', null);
+  perform public.transition_order(v_short_id, 'accepted', null);
+  perform public.transition_order(v_short_id, 'ready', null);
+  perform public.transition_order(v_ghost_id, 'accepted', null);
+  perform public.transition_order(v_ghost_id, 'ready', null);
+  perform public.transition_order(v_drift_id, 'accepted', null);
+  perform public.transition_order(v_drift_id, 'ready', null);
 
   -- ------------------------------------------------ 1. pending -> accepted
   v_result := public.transition_order(v_order_id, 'accepted', null);
@@ -401,7 +567,400 @@ begin
     raise exception 'FAIL: anon could call transition_order directly';
   end if;
 
-  -- ------------------------------------------------ 23. a de-entitled shop stops moving its own orders
+  -- ══════════════════════════════════════════════════════════════════════
+  -- complete_storefront_order: the one move that reaches the books.
+  --
+  -- `reset role` in check 22 left this block running as postgres, which is
+  -- what the ledger assertions below want -- RLS must not hide a
+  -- journal_lines row from a script asserting about it, the same posture
+  -- verify-posting-sales.sql takes for the whole of itself. Nothing under
+  -- test here is a policy: complete_storefront_order gates on
+  -- is_shop_member/shop_has_module, both of which read auth.uid() from the
+  -- JWT claim still set above and do not care which postgres role is
+  -- executing. The two checks that DO care (34's plain RLS update, 35's
+  -- anon call) set their own role and put it back.
+  -- ══════════════════════════════════════════════════════════════════════
+
+  -- ------------------------------------------------ 23. a ready order completes and records its sale
+  v_sale_collect := public.complete_storefront_order(v_collect_id, 'cash');
+  if v_sale_collect is null then
+    raise exception 'FAIL: completing an order returned no sale id';
+  end if;
+  if not exists (select 1 from public.sales where id = v_sale_collect and shop_id = v_shop_id) then
+    raise exception 'FAIL: the returned sale id % is not a sale of this shop', v_sale_collect;
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id
+    from public.orders where id = v_collect_id;
+  if v_detail <> 'completed' then
+    raise exception 'FAIL: a completed order is still %', v_detail;
+  end if;
+  if v_result.sale_id is distinct from v_sale_collect then
+    raise exception 'FAIL: the order records sale % but completion returned % -- the two can never be reconciled',
+      v_result.sale_id, v_sale_collect;
+  end if;
+
+  -- ------------------------------------------------ 24. the sale's lines are the order's SNAPSHOT
+  -- Compared as a set of quadruples in both directions, so a sale that
+  -- invented an extra line fails as loudly as one that dropped a line or
+  -- re-priced one.
+  select count(*) into v_count
+    from (
+      select product_name, unit_price_cents, quantity, line_total_cents
+        from public.order_items where order_id = v_collect_id
+      except
+      select product_name, unit_price_cents, quantity, line_total_cents
+        from public.sale_items where sale_id = v_sale_collect
+      union all
+      select product_name, unit_price_cents, quantity, line_total_cents
+        from public.sale_items where sale_id = v_sale_collect
+      except
+      select product_name, unit_price_cents, quantity, line_total_cents
+        from public.order_items where order_id = v_collect_id
+    ) diff;
+  if v_count <> 0 then
+    raise exception 'FAIL: the sale''s lines are not the order''s snapshot (% line(s) differ)', v_count;
+  end if;
+
+  -- ------------------------------------------------ 25. a collect order posts one balanced entry, and never touches 4300
+  select journal_entry_id into v_entry_sale from public.sales where id = v_sale_collect;
+  if v_entry_sale is null then
+    raise exception 'FAIL: the sale posted no journal entry';
+  end if;
+
+  select coalesce(sum(amount_cents), 0) into v_amount
+    from public.journal_lines where entry_id = v_entry_sale;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the sale''s entry does not balance -- debits and credits differ by %', v_amount;
+  end if;
+
+  -- 2 x 2000 into 4000 Sales Revenue, and 4000 cents of cash in.
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+   where jl.entry_id = v_entry_sale and a.code = '4000';
+  if v_amount <> -4000 then
+    raise exception 'FAIL: expected 4000 credited 4000 cents of goods revenue, got %', v_amount;
+  end if;
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+   where jl.entry_id = v_entry_sale and a.code = '1000';
+  if v_amount <> 4000 then
+    raise exception 'FAIL: expected 1000 Cash debited 4000, got %', v_amount;
+  end if;
+
+  -- The control for check 26: an order with NO delivery must leave 4300
+  -- completely untouched, shop-wide. An implementation that credited it
+  -- unconditionally (or credited a zero line) fails here and passes 26.
+  select count(*) into v_count
+    from public.journal_lines jl
+    join public.accounts a on a.id = jl.account_id
+   where a.shop_id = v_shop_id and a.code = '4300';
+  if v_count <> 0 then
+    raise exception 'FAIL: a collect order with no delivery posted % line(s) to 4300', v_count;
+  end if;
+
+  -- ------------------------------------------------ 26. the delivery fee credits 4300, never 4000
+  v_sale_deliver := public.complete_storefront_order(v_deliver_id, 'zaad');
+  select journal_entry_id into v_entry_sale from public.sales where id = v_sale_deliver;
+
+  select id into v_entry_fee
+    from public.journal_entries
+   where shop_id = v_shop_id
+     and id <> v_entry_sale
+     and description like '%' || v_sale_deliver::text || '%';
+  if v_entry_fee is null then
+    raise exception 'FAIL: the delivery fee posted no entry naming its sale';
+  end if;
+
+  -- 4300 holds the fee, exactly, shop-wide.
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+   where a.shop_id = v_shop_id and a.code = '4300';
+  if v_amount <> -1500 then
+    raise exception 'FAIL: expected 4300 Delivery Income credited 1500, got %', v_amount;
+  end if;
+
+  -- And 4000 holds the GOODS ONLY -- 3000, not 4500. This is the assertion
+  -- that would catch the fee being folded into sales revenue.
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+   where jl.entry_id = v_entry_sale and a.code = '4000';
+  if v_amount <> -3000 then
+    raise exception 'FAIL: expected 4000 credited 3000 of goods revenue, got % (the delivery fee has leaked into it)', v_amount;
+  end if;
+
+  -- Neither entry strays into the other's account.
+  if exists (
+    select 1 from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+     where jl.entry_id = v_entry_sale and a.code = '4300') then
+    raise exception 'FAIL: the sale''s own entry carries a 4300 line';
+  end if;
+  if exists (
+    select 1 from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+     where jl.entry_id = v_entry_fee and a.code = '4000') then
+    raise exception 'FAIL: the delivery entry carries a 4000 Sales Revenue line';
+  end if;
+
+  -- ------------------------------------------------ 27. the fee's entry balances on its own, and ties to both records
+  select coalesce(sum(amount_cents), 0) into v_amount
+    from public.journal_lines where entry_id = v_entry_fee;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the delivery entry does not balance -- debits and credits differ by %', v_amount;
+  end if;
+
+  select count(*) into v_count from public.journal_lines where entry_id = v_entry_fee;
+  if v_count <> 2 then
+    raise exception 'FAIL: expected the delivery entry to be two lines, got %', v_count;
+  end if;
+
+  select description into v_detail from public.journal_entries where id = v_entry_fee;
+  if v_detail not like '%' || (select number from public.orders where id = v_deliver_id)::text || '%' then
+    raise exception 'FAIL: the delivery entry (%) does not name its order number', v_detail;
+  end if;
+  if v_detail not like '%' || v_sale_deliver::text || '%' then
+    raise exception 'FAIL: the delivery entry (%) does not name its sale', v_detail;
+  end if;
+
+  select source into v_detail from public.journal_entries where id = v_entry_fee;
+  if v_detail <> 'sale' then
+    raise exception 'FAIL: the delivery entry''s source is % -- ''manual'' would gate it on ledger.post, which a shopkeeper handing over an order must not need', v_detail;
+  end if;
+
+  -- ------------------------------------------------ 28. the fee follows the method actually taken, and the money adds up
+  -- zaad, so 1020 -- not a hardcoded 1000 Cash.
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+   where jl.entry_id = v_entry_fee and a.code = '1020';
+  if v_amount <> 1500 then
+    raise exception 'FAIL: expected the fee debited to 1020 Mobile Money — Zaad, got % there', v_amount;
+  end if;
+  if exists (
+    select 1 from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+     where jl.entry_id = v_entry_fee and a.code = '1000') then
+    raise exception 'FAIL: the fee was debited to 1000 Cash on an order paid by zaad';
+  end if;
+
+  -- Both entries together bring in exactly what the customer was quoted.
+  select coalesce(sum(jl.amount_cents), 0) into v_amount
+    from public.journal_lines jl join public.accounts a on a.id = jl.account_id
+   where jl.entry_id in (v_entry_sale, v_entry_fee) and a.code = '1020';
+  if v_amount <> (select total_cents from public.orders where id = v_deliver_id) then
+    raise exception 'FAIL: the two entries bring in % but the order total is %',
+      v_amount, (select total_cents from public.orders where id = v_deliver_id);
+  end if;
+
+  -- One order's money must not straddle two months, or two branches.
+  select entry_date, location_id into v_date_sale, v_loc_sale
+    from public.journal_entries where id = v_entry_sale;
+  select entry_date, location_id into v_date_fee, v_loc_fee
+    from public.journal_entries where id = v_entry_fee;
+  if v_date_sale <> v_date_fee then
+    raise exception 'FAIL: the sale is dated % and its delivery fee % -- once a period closes that is unfixable',
+      v_date_sale, v_date_fee;
+  end if;
+  if v_loc_sale is distinct from v_loc_fee then
+    raise exception 'FAIL: the sale is stamped location % and its delivery fee % -- the same cash in two branches',
+      v_loc_sale, v_loc_fee;
+  end if;
+
+  -- ------------------------------------------------ 29. a shortfall leaves the order untouched
+  select stock into v_stock_before
+    from public.product_location_stock where product_id = v_prod_rice and location_id = v_loc_id;
+  select count(*) into v_sales_before from public.sales where shop_id = v_shop_id;
+
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_short_id, 'cash');
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if v_detail = 'insufficient_stock' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an order for five of something the shop holds one of was completed';
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_short_id;
+  if v_detail <> 'ready' then
+    raise exception 'FAIL: a refused completion left the order at % -- half-completed is worse than failed', v_detail;
+  end if;
+  if v_result.sale_id is not null then
+    raise exception 'FAIL: a refused completion still attached sale % to the order', v_result.sale_id;
+  end if;
+  select stock into v_count
+    from public.product_location_stock where product_id = v_prod_rice and location_id = v_loc_id;
+  if v_count <> v_stock_before then
+    raise exception 'FAIL: a refused completion moved stock from % to %', v_stock_before, v_count;
+  end if;
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> v_sales_before then
+    raise exception 'FAIL: a refused completion still wrote a sale (% -> %)', v_sales_before, v_count;
+  end if;
+
+  -- ------------------------------------------------ 30. completing twice is refused, and writes no second sale
+  -- 'completed' -> 'completed' is a SAME-STATUS move, which the trigger's
+  -- early return waves through -- so the function's own status guard is the
+  -- only thing between a shop's retry and a duplicate posting.
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_collect_id, 'cash');
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if v_detail = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an already-completed order was completed a second time';
+  end if;
+  if (select sale_id from public.orders where id = v_collect_id) is distinct from v_sale_collect then
+    raise exception 'FAIL: a second completion re-pointed the order at a different sale';
+  end if;
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> v_sales_before then
+    raise exception 'FAIL: a refused second completion still wrote a sale (% -> %)', v_sales_before, v_count;
+  end if;
+
+  -- ------------------------------------------------ 31. an order that is not ready cannot be completed
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_pending_id, 'cash');  -- still 'pending'
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if v_detail = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a pending order went straight to the ledger';
+  end if;
+
+  -- ------------------------------------------------ 32. a member of another shop cannot complete this order
+  perform set_config('request.jwt.claims', json_build_object('sub', v_outsider_id)::text, true);
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_short_id, 'cash');
+  exception when others then v_raised := true; v_detail := sqlerrm;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+  if not v_raised then
+    raise exception 'FAIL: an outsider completed another shop''s order into that shop''s books';
+  end if;
+  if v_detail not like 'not authorized for order%' then
+    raise exception 'FAIL: refused, but not for the expected reason (%)', v_detail;
+  end if;
+
+  -- ------------------------------------------------ 33. a deleted product raises a code, not complete_sale's raw message
+  delete from public.product_location_stock where product_id = v_prod_ghost;
+  delete from public.products where id = v_prod_ghost;
+  if (select product_id from public.order_items where order_id = v_ghost_id) is not null then
+    raise exception 'FAIL: FIXTURE deleting the product did not null the order line''s product_id';
+  end if;
+
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_ghost_id, 'cash');
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if v_detail = 'order_product_deleted' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an order whose product no longer exists was completed (or refused with %)', v_detail;
+  end if;
+
+  -- ------------------------------------------------ 34. an order whose prices have moved is refused, not silently re-priced
+  -- complete_sale prices every line from the CURRENT products.price_cents and
+  -- ignores the unit_price_cents in the payload (verify-posting-sales.sql says
+  -- so in as many words). So a shop that re-prices between checkout and
+  -- hand-over cannot complete the order at the figure the customer agreed to
+  -- -- and the message that comes back from complete_sale on its own,
+  -- `payments total 700 does not match sale total 1300`, reads as an
+  -- arithmetic bug rather than as "this order's prices have moved". The code
+  -- is what makes it something a shop can act on: re-take the order.
+  update public.products set price_cents = 1300 where id = v_prod_drift;
+  v_raised := false;
+  v_detail := null;
+  begin
+    perform public.complete_storefront_order(v_drift_id, 'cash');
+  exception
+    when others then
+      v_detail := sqlerrm;
+      if v_detail = 'order_total_changed' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an order was completed at a price the customer never agreed to';
+  end if;
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_drift_id;
+  if v_detail <> 'ready' or v_result.sale_id is not null then
+    raise exception 'FAIL: a refused completion left the order at % with sale %', v_detail, v_result.sale_id;
+  end if;
+
+  -- ------------------------------------------------ 35. the trigger, not the function, is what holds the line
+  -- (a) A shop member's plain RLS update to 'completed' attaches no sale and
+  --     is still refused -- the exact property 20260928000100 exists for,
+  --     re-proven now that the edge exists at all.
+  perform set_config('role', 'authenticated', true);
+  v_raised := false;
+  begin
+    update public.orders set status = 'completed' where id = v_short_id;  -- 'ready'
+  exception
+    when others then
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE marked an order completed with nothing in the books';
+  end if;
+
+  -- (b) A sale link already set cannot be re-pointed at a different sale --
+  --     that is how one sale's money could be made to settle two orders.
+  v_raised := false;
+  begin
+    update public.orders set sale_id = v_sale_collect where id = v_deliver_id;
+  exception
+    when others then
+      if sqlerrm = 'order_sale_is_immutable' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a completed order''s sale link was re-pointed at another sale';
+  end if;
+  perform set_config('role', 'postgres', true);
+
+  -- (c) The CHECK is real on its own, not merely implied by the trigger --
+  --     same disable-trigger technique as checks 15 and 17.
+  alter table public.orders disable trigger orders_status_transition;
+  v_raised := false;
+  begin
+    update public.orders set sale_id = v_sale_collect where id = v_short_id;  -- 'ready'
+  exception when check_violation then v_raised := true;
+  end;
+  alter table public.orders enable trigger orders_status_transition;
+  if not v_raised then
+    raise exception 'FAIL: a sale was attached to an order that is not completed';
+  end if;
+
+  -- ------------------------------------------------ 36. the grant on complete_storefront_order
+  if not has_function_privilege('authenticated', 'public.complete_storefront_order(uuid,text)', 'EXECUTE') then
+    raise exception 'FAIL: authenticated cannot execute complete_storefront_order';
+  end if;
+  if has_function_privilege('anon', 'public.complete_storefront_order(uuid,text)', 'EXECUTE') then
+    raise exception 'FAIL: anon can execute complete_storefront_order on paper -- Postgres grants EXECUTE to PUBLIC by default, so the revoke is missing';
+  end if;
+  set local role anon;
+  v_raised := false;
+  begin
+    perform public.complete_storefront_order(v_short_id, 'cash');
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  reset role;
+  if not v_raised then
+    raise exception 'FAIL: anon could post a sale into a shop''s ledger';
+  end if;
+
+  -- ------------------------------------------------ 37. a de-entitled shop stops moving AND completing its own orders
   -- Last on purpose, same reason verify-orders.sql leaves its own version
   -- last: it moves the shop under test off the plan every check above
   -- depends on.
@@ -423,6 +982,19 @@ begin
   end;
   if not v_raised then
     raise exception 'FAIL: a shop whose plan no longer includes storefront still moved an order';
+  end if;
+
+  -- And completion, which is the one that would have written into the books
+  -- of a shop that is no longer paying for the door it came through.
+  v_raised := false;
+  begin
+    perform public.complete_storefront_order(v_short_id, 'cash');
+  exception
+    when others then
+      if sqlerrm = 'module_not_included' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a shop whose plan no longer includes storefront still posted a storefront sale';
   end if;
 
   raise notice 'PASS: order transitions';
