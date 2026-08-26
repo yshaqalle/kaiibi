@@ -128,7 +128,43 @@
 --         with the same disable-trigger technique as checks 15 and 17.
 --   36.   the grant on complete_storefront_order: authenticated holds
 --         EXECUTE, anon does not, on paper and for real.
---   37.   a shop whose plan no longer includes storefront may neither move
+--
+-- ── Task 5: cancelling writes nothing to the books ───────────────────────
+--
+-- transition_order's whole body (20260928000100) is one UPDATE against
+-- orders and nothing else -- it never calls complete_sale or
+-- post_journal_entry, so a pre-completion cancellation cannot reach the
+-- ledger by construction. Checks 37 and 38 do not exist because that was in
+-- doubt; they exist so a future edit that DID make transition_order post
+-- something (a "helpful" stock-release entry, say) would turn one of them
+-- red, and so property 2 (the shop can still explain a cancelled order weeks
+-- later) is proven on a fixture that actually carries items, not just a
+-- bare order row.
+--
+--   37.   cancelling an order that carries items writes NOTHING to the
+--         ledger and keeps its lines. Proven by count, not by inference:
+--         shop-wide sales and journal_entries counts are snapshotted
+--         immediately before the cancel and compared immediately after, so
+--         an entry posted for ANY reason during the call would move the
+--         count and fail this check -- not merely "no entry with this
+--         order's number in it", which a differently-worded entry would
+--         slip past. order_items is asserted unchanged the same way. Ties
+--         to journal_entries the same way check 25 does for a real sale: by
+--         count, at the shop, around the one call under test.
+--   38.   THE PROPERTY THAT MATTERS MOST: a completed order -- a REAL one,
+--         with an actual sale and a posted journal entry behind it, not a
+--         forced-empty row like check 15's v_forced_id -- cannot be
+--         cancelled, through either door (transition_order or a plain RLS
+--         update), and the attempt leaves the sale's entry exactly as
+--         posted: same status, same balance. Check 15 already proves the
+--         state machine refuses completed -> cancelled in the abstract;
+--         this proves the refusal holds for a real posting and that nothing
+--         about it moves when the refusal fires -- the concern this
+--         migration's brief names by name: "a cancellation that silently
+--         unposted a sale would leave the books wrong in a way nobody would
+--         notice until a P&L looked odd."
+--
+--   39.   a shop whose plan no longer includes storefront may neither move
 --         an order NOR complete one, even one already sitting in its queue.
 --         Left last, same reason verify-orders.sql leaves its own version
 --         last: it moves the shop off the plan every check above depends on.
@@ -185,6 +221,15 @@ declare
   v_date_fee     date;
   v_loc_sale     uuid;
   v_loc_fee      uuid;
+
+  -- ── Checks 37-38: cancelling writes nothing to the books ──────────────
+  v_cancel_items_id     uuid;  -- carries items, cancelled from 'ready'
+  v_items_before        integer;
+  v_je_before           integer;
+  v_entry_status_before text;
+  v_entry_status_after  text;
+  v_line_sum_before      bigint;
+  v_line_sum_after       bigint;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -960,7 +1005,126 @@ begin
     raise exception 'FAIL: anon could post a sale into a shop''s ledger';
   end if;
 
-  -- ------------------------------------------------ 37. a de-entitled shop stops moving AND completing its own orders
+  -- ══════════════════════════════════════════════════════════════════════
+  -- Task 5: cancelling writes nothing to the books.
+  --
+  -- transition_order's whole body is one UPDATE against orders -- see this
+  -- file's header for why checks 37/38 exist despite that already being
+  -- true by construction: they are a regression net, and 38 additionally
+  -- proves the ledger-safety consequence on a REAL sale, not an abstract one.
+  -- ══════════════════════════════════════════════════════════════════════
+
+  -- ------------------------------------------------ 37. cancelling an order that carries items writes nothing, and keeps them
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Cancel With Items', '+252634100016', 'collect', 2000, 0, 2000)
+    returning id into v_cancel_items_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_cancel_items_id, v_prod_tea, 'Storefront Tea', 2000, 1, 2000);
+
+  perform public.transition_order(v_cancel_items_id, 'accepted', null);
+  perform public.transition_order(v_cancel_items_id, 'ready', null);
+
+  select count(*) into v_items_before from public.order_items where order_id = v_cancel_items_id;
+  select count(*) into v_sales_before from public.sales where shop_id = v_shop_id;
+  select count(*) into v_je_before from public.journal_entries where shop_id = v_shop_id;
+
+  v_result := public.transition_order(v_cancel_items_id, 'cancelled', 'Customer no longer needs it');
+  if v_result.status <> 'cancelled' then
+    raise exception 'FAIL: ready -> cancelled (with items) did not land (got %)', v_result.status;
+  end if;
+  if (select cancellation_reason from public.orders where id = v_cancel_items_id) <> 'Customer no longer needs it' then
+    raise exception 'FAIL: the cancellation reason was not stored for an order carrying items';
+  end if;
+
+  -- Property 2: the lines are exactly as they were. Nothing here deletes or
+  -- touches order_items on cancellation -- this is what proves it, on a
+  -- fixture that actually has a line to lose.
+  select count(*) into v_count from public.order_items where order_id = v_cancel_items_id;
+  if v_count <> v_items_before then
+    raise exception 'FAIL: cancelling an order changed its line count from % to % -- the shop could not explain it weeks later',
+      v_items_before, v_count;
+  end if;
+
+  -- Property 1, structurally: orders_sale_only_when_completed already makes
+  -- this impossible (status <> 'completed' implies sale_id is null), so this
+  -- line is confirmatory, not the proof -- the counts below are the proof.
+  if (select sale_id from public.orders where id = v_cancel_items_id) is not null then
+    raise exception 'FAIL: a cancelled order carries a sale id';
+  end if;
+
+  -- Property 1, by count, not by inference: a posting made for ANY reason
+  -- during the cancel call -- not just one naming this order -- moves these
+  -- counts and fails here.
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> v_sales_before then
+    raise exception 'FAIL: cancelling an order wrote a sale (% -> %)', v_sales_before, v_count;
+  end if;
+  select count(*) into v_count from public.journal_entries where shop_id = v_shop_id;
+  if v_count <> v_je_before then
+    raise exception 'FAIL: cancelling an order posted a journal entry (% -> %)', v_je_before, v_count;
+  end if;
+
+  -- ------------------------------------------------ 38. a REAL completed order cannot be cancelled, and its posting survives the attempt
+  -- v_collect_id has been 'completed' since check 23, with a real sale
+  -- (v_sale_collect) and a posted, balanced journal entry (v_entry_sale,
+  -- established at check 25). Check 15 already proves the state machine
+  -- refuses completed -> cancelled in the abstract, on an order forced into
+  -- 'completed' with no sale behind it at all; this proves the refusal
+  -- holds for a real posting, through both doors, and that the posting is
+  -- untouched by the attempt -- not merely that the attempt failed.
+  select status into v_entry_status_before from public.journal_entries where id = v_entry_sale;
+  select coalesce(sum(amount_cents), 0) into v_line_sum_before from public.journal_lines where entry_id = v_entry_sale;
+
+  v_raised := false;
+  begin
+    perform public.transition_order(v_collect_id, 'cancelled', 'Changed our mind after all');
+  exception
+    when others then
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a completed order with a real sale behind it was cancelled -- the way back is the refund path, not this';
+  end if;
+
+  select status, sale_id into v_detail, v_result.sale_id from public.orders where id = v_collect_id;
+  if v_detail <> 'completed' or v_result.sale_id is distinct from v_sale_collect then
+    raise exception 'FAIL: a refused cancellation still moved the completed order (status %, sale %)', v_detail, v_result.sale_id;
+  end if;
+
+  -- The plain RLS door too, not just transition_order -- same posture as
+  -- checks 18 and 35(a): the trigger holds the line regardless of which
+  -- writer reaches the row.
+  perform set_config('role', 'authenticated', true);
+  v_raised := false;
+  begin
+    update public.orders set status = 'cancelled', cancellation_reason = 'Direct update attempt' where id = v_collect_id;
+  exception
+    when others then
+      if sqlerrm = 'invalid_order_transition' then v_raised := true; else raise; end if;
+  end;
+  perform set_config('role', 'postgres', true);
+  if not v_raised then
+    raise exception 'FAIL: a direct UPDATE cancelled a completed order';
+  end if;
+
+  -- Nothing about the posting moved: same status, same balance. This is the
+  -- assertion that would catch a "cancellation" that quietly reversed or
+  -- edited the sale's entry instead of merely being refused -- the exact
+  -- concern this task's brief names: a cancellation that silently unposted
+  -- a sale would leave the books wrong in a way nobody notices until a P&L
+  -- looks odd.
+  select status into v_entry_status_after from public.journal_entries where id = v_entry_sale;
+  if v_entry_status_after <> v_entry_status_before then
+    raise exception 'FAIL: the sale''s journal entry status moved from % to % after a refused cancellation',
+      v_entry_status_before, v_entry_status_after;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_line_sum_after from public.journal_lines where entry_id = v_entry_sale;
+  if v_line_sum_after <> v_line_sum_before then
+    raise exception 'FAIL: the sale''s journal entry no longer balances the same way after a refused cancellation (% -> %)',
+      v_line_sum_before, v_line_sum_after;
+  end if;
+
+  -- ------------------------------------------------ 39. a de-entitled shop stops moving AND completing its own orders
   -- Last on purpose, same reason verify-orders.sql leaves its own version
   -- last: it moves the shop under test off the plan every check above
   -- depends on.
