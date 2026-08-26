@@ -131,6 +131,45 @@ question being asked of a back office that can see every customer.
    sees exactly their own shop — so the operator policies widened nothing for
    ordinary users.
 
+## What `verify-complete-sale-baseline.sql` covers
+
+A **characterisation** of `complete_sale`, not a specification of it. Nothing in
+it is new behaviour; every figure was read off the function as it stands and
+written down so that the next change to it can be shown not to have moved the
+register. `complete_sale` is the write path every counter sale in every shop
+goes through, and it is re-created in full by every migration that touches it —
+so the cheapest way to lose a rule is to change something next to it.
+
+1. A **plain cash sale**, the whole shape at once: the `sales` row, its single
+   `sale_items` row column by column, the stock movement and all four journal
+   lines. Also that `p_location_id` is optional — this call passes none and the
+   sale lands at the shop's primary location.
+2. An **order-level** discount comes off the total and leaves the line at list.
+3. A **line-level** discount comes off the line. The opposite of 2, and the
+   asymmetry matters: `v_gross_cents` is already net of a line discount and is
+   not net of an order one, which is what made the posting block wrong the first
+   time it was written. Both still land on 4200.
+4. A **promotion** is recomputed from its own row, and the name written onto the
+   line is the promotion's, not the text the caller sent.
+5. **Tax is added on top** of the running total, not carved out of it, and it
+   never reaches `sale_items.line_total_cents`. 2400 of goods at 5% totals
+   **2520**, which is the figure that separates the two readings.
+6. **Loyalty earn** is `round(total × rate / 100)`, the rate is snapshotted onto
+   the sale, and `customers.points_balance` equals the ledger.
+7. A **redemption** comes off the total rather than any line, is not counted into
+   `discount_cents`, posts to 4200 rather than drawing down 2300, and writes
+   **two** ledger rows — "spent 60, earned 35" — never one net row.
+8. **The order of operations**, which 5–7 cannot see individually: redemption
+   first, points earned on what is left, tax on that same figure, total last.
+   3600 of goods less 35 redeemed is 3565, which earns **36** and is taxed
+   **178** for a total of **3743**. Charging tax before the redemption gives 180
+   and earning after tax gives 37; both are one-line edits and neither raises.
+
+Stock is asserted on `product_location_stock`, never `products.stock` — the
+latter is derived by a trigger, so asserting on it tests the trigger instead of
+the sale. No register session is used: `p_register_session_id` is optional and
+every check it drives is skipped when it is null.
+
 ## What `verify-loyalty.sql` covers
 
 1. Loyalty off earns nothing and writes no ledger rows, even with a customer
