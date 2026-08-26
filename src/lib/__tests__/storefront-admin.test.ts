@@ -4,9 +4,10 @@ type FakeState = {
   updateCalls: { table: string; payload: unknown }[];
   updateResult: { error: unknown };
   eqCalls: [string, unknown][];
+  inCalls: [string, unknown][];
   orderCalls: [string, unknown][];
-  selectCalls: { table: string; columns: string }[];
-  selectResult: { data: unknown; error: unknown };
+  selectCalls: { table: string; columns: string; options?: unknown }[];
+  selectResult: { data: unknown; error: unknown; count?: number | null };
 };
 
 // Hoisted above the imports by babel-plugin-jest-hoist -- storefront-admin.ts
@@ -19,7 +20,10 @@ type FakeState = {
 // support-queue.test.ts uses for a query with no fixed terminal call.
 // listOrders DOES end in `.order()` (newest first), so that method is on the
 // chain too, and it stays thenable rather than becoming a fixed terminal
-// call -- the same reasoning, one method further along.
+// call -- the same reasoning, one method further along. countOrdersNeedingAction
+// ends in `.in()` (N3) rather than `.order()`, and its own select() carries a
+// second argument ({count: 'exact', head: true}) that no earlier query here
+// used -- both captured for that test alone.
 jest.mock('@/lib/supabase', () => {
   const state: FakeState = {
     rpcCalls: [],
@@ -27,6 +31,7 @@ jest.mock('@/lib/supabase', () => {
     updateCalls: [],
     updateResult: { error: null },
     eqCalls: [],
+    inCalls: [],
     orderCalls: [],
     selectCalls: [],
     selectResult: { data: [], error: null },
@@ -46,11 +51,15 @@ jest.mock('@/lib/supabase', () => {
           },
         };
       },
-      select: (columns: string) => {
-        state.selectCalls.push({ table, columns });
+      select: (columns: string, options?: unknown) => {
+        state.selectCalls.push({ table, columns, options });
         const chain = {
           eq: (column: string, value: unknown) => {
             state.eqCalls.push([column, value]);
+            return chain;
+          },
+          in: (column: string, values: unknown) => {
+            state.inCalls.push([column, values]);
             return chain;
           },
           order: (column: string, opts: unknown) => {
@@ -70,9 +79,16 @@ jest.mock('@/lib/supabase', () => {
 const { __state: fake } = jest.requireMock('@/lib/supabase') as { __state: FakeState };
 
 import {
+  acceptOrder,
+  cancelOrder,
+  completeOrder,
+  countOrdersNeedingAction,
   discardDraft,
+  getOrderItems,
   getStorefrontPreviewProducts,
   listOrders,
+  markOrderReady,
+  orderErrorMessage,
   publishBlockers,
   publishDraft,
   saveDraft,
@@ -84,6 +100,7 @@ beforeEach(() => {
   fake.updateCalls.length = 0;
   fake.updateResult = { error: null };
   fake.eqCalls.length = 0;
+  fake.inCalls.length = 0;
   fake.orderCalls.length = 0;
   fake.selectCalls.length = 0;
   fake.selectResult = { data: [], error: null };
@@ -216,10 +233,12 @@ describe('getStorefrontPreviewProducts', () => {
   });
 });
 
-// Task 9: an order that lands in a table nobody can see is a lost sale. This
-// is the ONLY read a shop gets of its own orders table (20260926000050) for
-// now -- Plan 4 owns accepting/completing them -- so it is read-only: no
-// status is written here, and nothing computed here ever reaches the ledger.
+// Task 9 built this as a read-only list; Task 6 turns it into an inbox, which
+// needs `status` read for the first time (the column plan 3 deliberately
+// left out -- see orders.tsx's own header) plus `note` and
+// `cancellation_reason` for the detail view. Nothing here writes a status --
+// that is acceptOrder/markOrderReady/cancelOrder/completeOrder below, each a
+// thin wrapper around the one door the DB actually permits.
 describe('listOrders', () => {
   it("reads a shop's own orders, newest first, with the item count summed from order_items -- not the line count", async () => {
     fake.selectResult = {
@@ -232,6 +251,11 @@ describe('listOrders', () => {
           fulfilment: 'deliver',
           delivery_area: 'Hargeisa - 26 June',
           delivery_landmark: 'Behind Maansoor Hotel, blue gate',
+          note: 'Ring the bell twice',
+          status: 'accepted',
+          cancellation_reason: null,
+          subtotal_cents: 4499,
+          delivery_fee_cents: 100,
           total_cents: 4599,
           created_at: '2026-08-20T10:00:00Z',
           // Two lines, five units apiece -- ten items to pack, not two.
@@ -246,7 +270,7 @@ describe('listOrders', () => {
       {
         table: 'orders',
         columns:
-          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)',
+          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, created_at, order_items(quantity)',
       },
     ]);
     expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
@@ -260,7 +284,12 @@ describe('listOrders', () => {
         fulfilment: 'deliver',
         deliveryArea: 'Hargeisa - 26 June',
         deliveryLandmark: 'Behind Maansoor Hotel, blue gate',
+        note: 'Ring the bell twice',
+        status: 'accepted',
+        cancellationReason: null,
         itemCount: 10,
+        subtotalCents: 4499,
+        deliveryFeeCents: 100,
         totalCents: 4599,
         createdAt: '2026-08-20T10:00:00Z',
       },
@@ -282,6 +311,11 @@ describe('listOrders', () => {
           fulfilment: 'collect',
           delivery_area: null,
           delivery_landmark: null,
+          note: null,
+          status: 'pending',
+          cancellation_reason: null,
+          subtotal_cents: 100,
+          delivery_fee_cents: 0,
           total_cents: 100,
           created_at: '2026-08-20T09:00:00Z',
           order_items: [{ quantity: 1 }],
@@ -293,10 +327,279 @@ describe('listOrders', () => {
     expect(order.fulfilment).toBe('collect');
     expect(order.deliveryArea).toBeNull();
     expect(order.deliveryLandmark).toBeNull();
+    expect(order.deliveryFeeCents).toBe(0);
+  });
+
+  // Property 2 of Task 6: the status column plan 3 left out, because nothing
+  // could change it -- now everything can, and a cancelled order carries WHY
+  // (orders_cancellation_reason_required, 20260928000100).
+  it('reads the status and cancellation reason of a cancelled order', async () => {
+    fake.selectResult = {
+      data: [
+        {
+          id: 'o3',
+          number: 2,
+          customer_name: 'Xamse Cali',
+          customer_phone: '+252634456780',
+          fulfilment: 'collect',
+          delivery_area: null,
+          delivery_landmark: null,
+          note: null,
+          status: 'cancelled',
+          cancellation_reason: 'Out of stock, customer notified',
+          subtotal_cents: 100,
+          delivery_fee_cents: 0,
+          total_cents: 100,
+          created_at: '2026-08-20T09:00:00Z',
+          order_items: [{ quantity: 1 }],
+        },
+      ],
+      error: null,
+    };
+    const [order] = await listOrders('shop-1');
+    expect(order.status).toBe('cancelled');
+    expect(order.cancellationReason).toBe('Out of stock, customer notified');
   });
 
   it('throws on failure rather than swallowing it', async () => {
     fake.selectResult = { data: null, error: { message: 'boom' } };
     await expect(listOrders('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// N3: what Settings' Orders badge and the Dashboard's attention row both
+// count -- read as a count now, not derived from a full fetch. 'pending' and
+// 'accepted' are the two moves the shop itself has not made yet; 'ready'
+// still counts -- a prepped order nobody has handed over or collected is
+// just as unfinished, the same reading orders.tsx's own UNCONFIRMED filter
+// gives it. 'completed' and 'cancelled' are the two terminal states,
+// deliberately excluded server-side via `.in('status', ORDERS_NEEDING_ACTION)`
+// -- a count that never reaches zero is a badge nobody trusts by the second
+// week.
+describe('countOrdersNeedingAction', () => {
+  it("asks for a count only -- head:true, no rows -- filtered to the shop's own pending/accepted/ready orders", async () => {
+    fake.selectResult = { data: null, error: null, count: 3 };
+    const count = await countOrdersNeedingAction('shop-1');
+    expect(fake.selectCalls).toEqual([{ table: 'orders', columns: 'id', options: { count: 'exact', head: true } }]);
+    expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
+    expect(fake.inCalls).toEqual([['status', ['pending', 'accepted', 'ready']]]);
+    expect(count).toBe(3);
+  });
+
+  it('is zero when nothing needs action', async () => {
+    fake.selectResult = { data: null, error: null, count: 0 };
+    expect(await countOrdersNeedingAction('shop-1')).toBe(0);
+  });
+
+  // count comes back null on some failure shapes even without `error` set --
+  // same defensive fallback listOrders' own `data ?? []` takes.
+  it('treats a null count as zero rather than throwing', async () => {
+    fake.selectResult = { data: null, error: null, count: null };
+    expect(await countOrdersNeedingAction('shop-1')).toBe(0);
+  });
+
+  it('throws on failure rather than swallowing it', async () => {
+    fake.selectResult = { data: null, error: { message: 'boom' }, count: null };
+    await expect(countOrdersNeedingAction('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// B1: the sentence a shopkeeper reads instead of a raw snake_case token.
+// Every code transition_order / complete_storefront_order / (20260928000600)
+// actually raise, per the migrations themselves -- not a re-derived guess at
+// the list.
+describe('orderErrorMessage', () => {
+  it('returns null for an error with no string message, so callers keep their existing fallback', () => {
+    expect(orderErrorMessage(null)).toBeNull();
+    expect(orderErrorMessage({})).toBeNull();
+    expect(orderErrorMessage({ message: 42 })).toBeNull();
+  });
+
+  it('returns null for a code it does not recognise -- e.g. a network drop', () => {
+    expect(orderErrorMessage({ message: 'Network request failed' })).toBeNull();
+  });
+
+  it('maps insufficient_stock to a sentence that says what to do, not the code', () => {
+    const msg = orderErrorMessage({ message: 'insufficient_stock' });
+    expect(msg).not.toBe('insufficient_stock');
+    expect(msg).toMatch(/stock/i);
+  });
+
+  // The known, accepted limitation named in the review: a tax-charging shop
+  // hits this on every order until checkout learns about tax. Must read as
+  // "these prices have moved", never the raw code.
+  it('maps order_total_changed to a sentence about prices moving, not an arithmetic-bug-sounding code', () => {
+    const msg = orderErrorMessage({
+      message: 'order_total_changed',
+      details: JSON.stringify({ quoted_cents: 1000, message: 'payments total 1200 does not match sale total 1000' }),
+    });
+    expect(msg).toMatch(/price|total/i);
+    expect(msg).not.toBe('order_total_changed');
+  });
+
+  it('maps order_product_deleted, naming the product from the detail payload', () => {
+    const msg = orderErrorMessage({ message: 'order_product_deleted', details: JSON.stringify({ products: 'Rice 5kg' }) });
+    expect(msg).toContain('Rice 5kg');
+  });
+
+  it('maps order_product_deleted even with no parseable detail', () => {
+    const msg = orderErrorMessage({ message: 'order_product_deleted' });
+    expect(msg).toMatch(/catalogue/i);
+  });
+
+  it('maps order_has_no_items', () => {
+    expect(orderErrorMessage({ message: 'order_has_no_items' })).toMatch(/cancel/i);
+  });
+
+  it('maps invalid_payment_method', () => {
+    expect(orderErrorMessage({ message: 'invalid_payment_method' })).toMatch(/payment method/i);
+  });
+
+  // The review's specific instruction: name the likeliest real cause, a
+  // completion that committed while the response timed out and a retry that
+  // now reads as "already done", so the shop can tell that apart from
+  // "failed" and know whether it was paid.
+  it('maps invalid_order_transition to a sentence about the order having already moved on', () => {
+    const msg = orderErrorMessage({
+      message: 'invalid_order_transition',
+      details: JSON.stringify({ from: 'ready', to: 'completed' }),
+    });
+    expect(msg).not.toBe('invalid_order_transition');
+    expect(msg).toMatch(/already/i);
+  });
+
+  it('maps cancellation_reason_required', () => {
+    expect(orderErrorMessage({ message: 'cancellation_reason_required' })).toMatch(/reason/i);
+  });
+
+  // B2's server-side half: 20260928000600's typed refusal, mapped to a
+  // sentence that tells a settings-only manager who to ask.
+  it('maps pos_access_required to a sentence naming what to do about it', () => {
+    const msg = orderErrorMessage({ message: 'pos_access_required' });
+    expect(msg).toMatch(/pos access/i);
+    expect(msg).toMatch(/owner|manager/i);
+  });
+
+  // module_not_included is deliberately NOT handled here -- describePlanError
+  // (entitlements.ts) already owns it, and runAction chains this after that
+  // call. A second mapping here would just drift from the first.
+  it('returns null for module_not_included -- that belongs to describePlanError, not this function', () => {
+    expect(orderErrorMessage({ message: 'module_not_included', details: JSON.stringify({ module: 'storefront' }) })).toBeNull();
+  });
+
+  it('falls back gracefully when details is present but not valid JSON', () => {
+    const msg = orderErrorMessage({ message: 'order_product_deleted', details: 'not json' });
+    expect(msg).toMatch(/catalogue/i);
+  });
+});
+
+// Task 6: the lines a shop must pull off the shelf, with the price the
+// customer actually agreed to (order_items snapshots product_name and
+// unit_price_cents at checkout time -- 20260926000050's own header) rather
+// than today's product price. Ordered by product_name, the same tie-break
+// complete_storefront_order itself uses when it assembles this same table
+// for complete_sale (20260928000200_complete_storefront_order.sql:307-324),
+// so the detail view lists lines in the order the shop will see them posted.
+describe('getOrderItems', () => {
+  it("reads an order's lines, snapshotted price included, ordered by product name", async () => {
+    fake.selectResult = {
+      data: [
+        { id: 'i1', product_id: 'p1', product_name: 'Rice 5kg', unit_price_cents: 1200, quantity: 2, line_total_cents: 2400 },
+      ],
+      error: null,
+    };
+    const items = await getOrderItems('order-1');
+    expect(fake.selectCalls).toEqual([
+      { table: 'order_items', columns: 'id, product_id, product_name, unit_price_cents, quantity, line_total_cents' },
+    ]);
+    expect(fake.eqCalls).toEqual([['order_id', 'order-1']]);
+    expect(fake.orderCalls).toEqual([['product_name', { ascending: true }]]);
+    expect(items).toEqual([
+      { id: 'i1', productId: 'p1', productName: 'Rice 5kg', unitPriceCents: 1200, quantity: 2, lineTotalCents: 2400 },
+    ]);
+  });
+
+  // Same `on delete set null` shape checkOrderFulfilment already treats as
+  // "no product to check stock against" -- the line stays readable off its
+  // own snapshot regardless.
+  it('carries a deleted product through with a null productId', async () => {
+    fake.selectResult = {
+      data: [
+        { id: 'i2', product_id: null, product_name: 'Discontinued kettle', unit_price_cents: 900, quantity: 1, line_total_cents: 900 },
+      ],
+      error: null,
+    };
+    const [item] = await getOrderItems('order-1');
+    expect(item.productId).toBeNull();
+  });
+
+  it('throws on failure rather than swallowing it', async () => {
+    fake.selectResult = { data: null, error: { message: 'boom' } };
+    await expect(getOrderItems('order-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// Task 6, property 4: actions match the state machine exactly. These four are
+// thin wrappers around the two doors the DB actually opens
+// (transition_order, complete_storefront_order --
+// 20260928000100_order_transitions.sql / 20260928000200_complete_storefront_
+// order.sql) -- no client-side re-encoding of which move is legal, the same
+// posture transition_order's own header takes about not duplicating the
+// trigger's table. A move this file did not intend is left to the RPC's own
+// invalid_order_transition, not pre-empted here.
+describe('acceptOrder', () => {
+  it("calls transition_order with 'accepted' -- the only legal move out of pending", async () => {
+    await acceptOrder('order-1');
+    expect(fake.rpcCalls).toEqual([['transition_order', { p_order_id: 'order-1', p_status: 'accepted' }]]);
+  });
+
+  it('throws the RPC error rather than swallowing it', async () => {
+    fake.rpcResult = { data: null, error: { message: 'invalid_order_transition' } };
+    await expect(acceptOrder('order-1')).rejects.toEqual({ message: 'invalid_order_transition' });
+  });
+});
+
+describe('markOrderReady', () => {
+  it("calls transition_order with 'ready' -- the only legal move out of accepted", async () => {
+    await markOrderReady('order-1');
+    expect(fake.rpcCalls).toEqual([['transition_order', { p_order_id: 'order-1', p_status: 'ready' }]]);
+  });
+
+  it('throws the RPC error rather than swallowing it', async () => {
+    fake.rpcResult = { data: null, error: { message: 'invalid_order_transition' } };
+    await expect(markOrderReady('order-1')).rejects.toEqual({ message: 'invalid_order_transition' });
+  });
+});
+
+describe('cancelOrder', () => {
+  // orders_cancellation_reason_required (20260928000100) enforces this
+  // server-side no matter what; the reason travels through as the RPC's own
+  // p_cancellation_reason rather than a second, client-only validation.
+  it('calls transition_order with the reason the shop gave', async () => {
+    await cancelOrder('order-1', 'Out of stock, customer notified');
+    expect(fake.rpcCalls).toEqual([
+      ['transition_order', { p_order_id: 'order-1', p_status: 'cancelled', p_cancellation_reason: 'Out of stock, customer notified' }],
+    ]);
+  });
+
+  it('throws the RPC error rather than swallowing it', async () => {
+    fake.rpcResult = { data: null, error: { message: 'cancellation_reason_required' } };
+    await expect(cancelOrder('order-1', '')).rejects.toEqual({ message: 'cancellation_reason_required' });
+  });
+});
+
+// Property 6: completion asks how the customer paid before it posts.
+// complete_storefront_order's own permitted list (20260928000200:277) is
+// 'cash' | 'zaad' | 'edahab' | 'other' -- complete_sale's list minus
+// 'unpaid', because an order handed over at the door has been paid for.
+describe('completeOrder', () => {
+  it('calls complete_storefront_order with the payment method actually taken at the door', async () => {
+    await completeOrder('order-1', 'zaad');
+    expect(fake.rpcCalls).toEqual([['complete_storefront_order', { p_order_id: 'order-1', p_payment_method: 'zaad' }]]);
+  });
+
+  it('throws the RPC error rather than swallowing it -- e.g. a stock shortfall discovered at hand-over', async () => {
+    fake.rpcResult = { data: null, error: { message: 'insufficient_stock' } };
+    await expect(completeOrder('order-1', 'cash')).rejects.toEqual({ message: 'insufficient_stock' });
   });
 });

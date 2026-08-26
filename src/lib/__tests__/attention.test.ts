@@ -15,6 +15,7 @@ function emptyInput(): AttentionInput {
     expiringSoon: [],
     dormant: [],
     closedSessions: [],
+    ordersNeedingActionCount: 0,
     today: TODAY,
   };
 }
@@ -235,7 +236,53 @@ describe('attentionCounts', () => {
       staleShifts: [{ id: 't1' } as TimeEntry],
       lowStock: [{ name: 'Rice' } as Product],
     });
-    expect(attentionCounts(items)).toEqual({ all: 4, money: 1, team: 2, stock: 1, customers: 0 });
+    expect(attentionCounts(items)).toEqual({ all: 4, money: 1, team: 2, stock: 1, customers: 0, orders: 0 });
+  });
+});
+
+// Task 7: a shop that published under an earlier plan starts receiving
+// orders the moment it goes live, with nothing on screen to say so unless it
+// thinks to open Settings -> Orders. This is the other half of that fix --
+// the half that puts it in front of the shop unasked, on the screen
+// attention.ts's own header already calls "what a shop owner sees first
+// thing in the morning".
+//
+// N3: this used to take every storefront order and filter here
+// (`ORDERS_NEEDING_ACTION.includes(order.status)`) -- the exact filter
+// countOrdersNeedingAction (storefront-admin.ts) now does at the query, so
+// what this function receives is already the count. 'pending' and 'accepted'
+// being the moves the shop itself has not made yet, 'ready' still counting,
+// and 'completed'/'cancelled' never counting is proved once, at the query
+// layer (storefront-admin.test.ts) -- this only proves the count becomes the
+// right row.
+describe('buildAttentionItems — storefront orders', () => {
+  it('flags orders the shop still has to do something about', () => {
+    const items = buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 3 });
+    const row = items.find((i) => i.key === 'storefront-orders')!;
+    expect(row).toBeDefined();
+    expect(row.severity).toBe('act');
+    expect(row.area).toBe('orders');
+    expect(row.title).toContain('3');
+  });
+
+  it('says nothing when nothing needs action', () => {
+    expect(buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 0 })).toEqual([]);
+  });
+
+  it('pluralises the title for one order versus several', () => {
+    const one = buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 1 });
+    const two = buildAttentionItems({ ...emptyInput(), ordersNeedingActionCount: 2 });
+    expect(one.find((i) => i.key === 'storefront-orders')!.title).toContain('1 storefront order needs');
+    expect(two.find((i) => i.key === 'storefront-orders')!.title).toContain('2 storefront orders need');
+  });
+
+  it('ranks alongside the other things today needs, ahead of anything merely worth knowing', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      ordersNeedingActionCount: 1,
+      dormant: [{ customer: { firstName: 'Ayaan', lastName: 'H.' } as Customer, lastOrderAt: '2026-06-03' }],
+    });
+    expect(items.map((i) => i.severity)).toEqual(['act', 'info']);
   });
 });
 

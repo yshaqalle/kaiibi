@@ -38,6 +38,7 @@ const AREA_LABEL: Record<AttentionArea, string> = {
   team: 'Team',
   stock: 'Stock',
   customers: 'Customers',
+  orders: 'Orders',
 };
 
 // Below this the chips are more chrome than help — a five-item list is read in

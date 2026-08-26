@@ -1,10 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Badge } from '@/components/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import type { Module } from '@/lib/entitlements';
 import { primaryLocationOf } from '@/lib/location-selection';
 import type { Permission } from '@/lib/permissions';
+import { countOrdersNeedingAction } from '@/lib/storefront-admin';
 
 export type SettingsNavId =
   | 'profile'
@@ -119,6 +123,50 @@ function useVisibleNav() {
   })).filter((group) => group.items.length > 0);
 }
 
+// Task 7: publishing a storefront is retroactively consent to take orders,
+// and a shop that never thinks to open this exact row would otherwise never
+// find out one arrived. Gated the same way the row itself already is
+// (module?: Module on NavItem, above) -- a shop without storefront is never
+// even asked.
+//
+// Refetched on focus rather than polled -- see use-refresh-on-focus.ts's own
+// header for why a timer here would cost a shop on data it pays for by the
+// megabyte. Nothing here is pushed: another till or another phone that
+// changes an order still needs a re-focus of THIS screen to pick it up.
+//
+// N3: this used to be listOrders(shop.id) -- every order the shop has ever
+// placed, every column, nested order_items included -- filtered client-side
+// for one integer, on EVERY focus of a screen most shops open several times
+// a day. countOrdersNeedingAction does the filtering server-side and returns
+// only the count.
+function useOrdersNeedingActionBadge(): number {
+  const { shop, hasModule } = useAuth();
+  const enabled = hasModule('storefront');
+  const [count, setCount] = useState(0);
+
+  const refresh = useCallback(async () => {
+    if (!shop || !enabled) {
+      setCount(0);
+      return;
+    }
+    try {
+      setCount(await countOrdersNeedingAction(shop.id));
+    } catch {
+      // A failed count must never break the menu it lives in -- no badge is
+      // a better outcome than no menu, the same posture support-unread.ts's
+      // own refresh() takes.
+      setCount(0);
+    }
+  }, [shop, enabled]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  useRefreshOnFocus(refresh);
+
+  return count;
+}
+
 // Persistent left sidebar, shown at >= TABLET_BREAKPOINT — mirrors
 // AdminSidebar's visual language (220px, white, right border, focused state
 // = light fill + left border + bold text) so Settings feels like the same
@@ -129,6 +177,7 @@ export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; o
   // itself has none (migration 20260811000000).
   const primaryLocation = primaryLocationOf(locations);
   const groups = useVisibleNav();
+  const ordersBadge = useOrdersNeedingActionBadge();
 
   return (
     <View style={styles.sidebar}>
@@ -152,6 +201,9 @@ export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; o
                 <Pressable key={item.id} onPress={() => onSelect(item.id)} style={[styles.navButton, focused && styles.navButtonFocused]}>
                   <Ionicons name={item.icon} size={17} color={focused ? '#111111' : '#6B7280'} />
                   <Text style={[styles.navText, focused && styles.navTextFocused]}>{item.label}</Text>
+                  {item.id === 'orders' && ordersBadge > 0 ? (
+                    <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -166,6 +218,7 @@ export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; o
 // the panel (settings.tsx swaps this out for the panel + a back row).
 export function SettingsNavList({ onSelect }: { onSelect: (id: SettingsNavId) => void }) {
   const groups = useVisibleNav();
+  const ordersBadge = useOrdersNeedingActionBadge();
 
   return (
     <ScrollView contentContainerStyle={styles.listContent}>
@@ -177,6 +230,9 @@ export function SettingsNavList({ onSelect }: { onSelect: (id: SettingsNavId) =>
               <Pressable key={item.id} onPress={() => onSelect(item.id)} style={[styles.listRow, index > 0 && styles.listRowBorder]}>
                 <Ionicons name={item.icon} size={19} color="#374151" />
                 <Text style={styles.listRowText}>{item.label}</Text>
+                {item.id === 'orders' && ordersBadge > 0 ? (
+                  <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
+                ) : null}
                 <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
               </Pressable>
             ))}
