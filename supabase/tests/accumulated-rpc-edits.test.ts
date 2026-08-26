@@ -997,6 +997,144 @@ const CASH_FLOW_EDITS: Edit[] = [
   // balance sheet's cash and not the cash flow's, and reconciliation 5 would
   // report a discrepancy whose cause is not in the arithmetic at all.
   ['20261004000100', 'the cash flow ignores a close too', "e.source <> 'close'"],
+  // 1590 is IN the investing range now. Excluded, a DISPOSAL's write-back of
+  // accumulated depreciation was read by no section of this statement at all,
+  // and the proof row failed by exactly it -- reproduced in 20261006000300's
+  // header. The exclusion read as harmless because the only thing that had ever
+  // moved 1590 was the monthly charge, where it cancels.
+  ['20261006000300', '1590 is inside the investing range, so a disposal is not invisible',
+    "m.acct_code between '1500' and '1599'), 0)::bigint"],
+  // ...and the charge is taken back out of it, which is what keeps a month of
+  // ordinary depreciation OUT of investing now that 1590 is read there. Both
+  // halves are load-bearing: with only the first, depreciation appears as an
+  // investing inflow and the proof fails by the charge instead.
+  ['20261006000300', 'and the depreciation charge is taken back out of the range',
+    "- coalesce(sum(m.mv_amt) filter (where m.acct_code = '6800'), 0)::bigint,"],
+];
+
+// ── The fixed-asset register (phase 3c) ────────────────────────────────────
+//
+// Pinned at their FIRST definition, the way transfer_funds was, rather than
+// after a copy-forward has already lost something. Every entry below
+// corresponds to a mutation that was run against verify-fixed-assets.sql and
+// reddened it.
+const CREATE_FIXED_ASSET_EDITS: Edit[] = [
+  // ledger.post, not budgets.manage: transfer_funds took the cash permission
+  // because banking the float is a cash operation; capitalising a purchase is a
+  // bookkeeping judgement that changes this month's profit and every month
+  // after it.
+  ['20261006000100', 'gated on ledger.post',
+    "has_shop_permission(p_shop_id, 'ledger.post')"],
+  // TWICE in one condition, and both halves are separate defects: the range is
+  // what balance_sheet() calls fixed assets, and 1590 is the contra account an
+  // asset booked into would present negative in and then depreciate itself.
+  ['20261006000100', 'the asset account is inside 1500-1599',
+    "p_account_code not between '1500' and '1599'"],
+  ['20261006000100', 'and it is never 1590 Accumulated Depreciation',
+    "p_account_code = '1590'"],
+  // Null means ON CREDIT. A default of '1000' would invent a cash payment out
+  // of an omitted argument, and the entry balances either way.
+  ['20261006000100', 'no payment account means on credit, never the till',
+    "coalesce(p_paid_from_code, '2000')"],
+  ['20261006000100', 'a payment comes from one of the four cash accounts',
+    "p_paid_from_code <> all (array['1000', '1010', '1020', '1021'])"],
+  ['20261006000100', 'zero and negative costs are refused before journal_lines sees them',
+    'p_cost_cents <= 0'],
+  ['20261006000100', 'a life of no months is refused, and run_depreciation divides by it',
+    'p_life_months <= 0'],
+  // Dr the asset, Cr the money. Swap them and the entry still balances, still
+  // posts, and records the shop selling something it just bought.
+  ['20261006000100', 'Dr the asset account',
+    "jsonb_build_object('code', p_account_code, 'amount_cents', p_cost_cents,"],
+  ['20261006000100', 'Cr the money, or what is now owed for it',
+    "jsonb_build_object('code', v_credit_code, 'amount_cents', -p_cost_cents,"],
+  ['20261006000100', 'the accounts are looked up in THIS shop', 'where a.shop_id = p_shop_id'],
+  ['20261006000100', 'the date comes from shop_local_date()',
+    'coalesce(p_acquired_on, public.shop_local_date())'],
+  ['20261006000100', 'an acquisition in a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  ['20261006000100', 'it posts under its own source', ", 'asset');"],
+  // The register keeps the TRUE date even when the entry was redirected, which
+  // is what run_depreciation counts months from.
+  ['20261006000100', 'the register records the true acquisition date',
+    'p_shop_id, v_name, p_cost_cents, v_acquired, p_life_months'],
+];
+
+const DISPOSE_FIXED_ASSET_EDITS: Edit[] = [
+  // Read from the ASSET's shop, never from an argument: this function takes no
+  // shop id, and looking one up from the row is what stops a caller in one shop
+  // disposing of another shop's van by id.
+  ['20261006000100', "gated on ledger.post against the ASSET's shop",
+    "has_shop_permission(v_asset.shop_id, 'ledger.post')"],
+  ['20261006000100', 'an asset is not disposed of twice', 'v_asset.disposed_on is not null'],
+  // Summed from the charge rows, which is the only structure that can say how
+  // much of 1590 belongs to ONE asset.
+  ['20261006000100', "this asset's own accumulated depreciation, from its charge rows",
+    'from public.depreciation_charges dc'],
+  // Computed, never plugged.
+  ['20261006000100', 'the gain or loss is cost less depreciation less proceeds',
+    'v_gain_loss := v_asset.cost_cents - v_accumulated - v_proceeds;'],
+  // The FULL cost. Crediting the net book value instead leaves the sold asset's
+  // accumulated depreciation in 1590 forever.
+  ['20261006000100', 'the asset account is credited by its FULL cost',
+    "'amount_cents', -v_asset.cost_cents"],
+  ['20261006000100', 'and 1590 is debited by what this asset took',
+    "'code', '1590', 'amount_cents', v_accumulated"],
+  ['20261006000100', 'the difference lands in 6900, a debit for a loss and a credit for a gain',
+    "'code', '6900', 'amount_cents', v_gain_loss"],
+  ['20261006000100', 'proceeds arrive in the account the caller named',
+    "'code', p_received_into_code, 'amount_cents', v_proceeds"],
+  ['20261006000100', 'a disposal in a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+];
+
+const RUN_DEPRECIATION_EDITS: Edit[] = [
+  ['20261006000200', 'gated on ledger.post',
+    "has_shop_permission(p_shop_id, 'ledger.post')"],
+  // A month must END before it is depreciated -- 20261005000000's rule for a
+  // close, for the same reason: the entry is dated the month's end, and an
+  // entry dated in the future opens a period nobody has traded in.
+  ['20261006000200', 'a month must end before it is depreciated', 'v_last_complete'],
+  // THE ROUNDING. Without the last month carrying the remainder an asset
+  // depreciates to a few cents short of its cost, on the balance sheet, forever.
+  // TWICE: once building the lines and once writing the charge rows, and the two
+  // must agree or the ledger and the register drift apart.
+  ['20261006000200', 'the last month of the life carries the remainder, in BOTH derivations',
+    '(d.cost_cents / d.life_months) * (d.life_months - 1)'],
+  ['20261006000200', 'and in the charge rows written from the same rule',
+    '(fa.cost_cents / fa.life_months) * (fa.life_months - 1)'],
+  // NEVER PAST COST. A month past the life is not charged, so 1590 cannot
+  // exceed 1500 for an asset however far the run is asked to go.
+  ['20261006000200', 'a month past the asset’s life is not charged',
+    'between 1 and d.life_months'],
+  ['20261006000200', 'a disposed asset stops on the month it leaves',
+    "or date_trunc('month', fa.disposed_on)::date > v_month"],
+  ['20261006000200', 'the assets are this shop’s own', 'where fa.shop_id = p_shop_id'],
+  ['20261006000200', 'a month already charged is skipped', 'where dc.asset_id = fa.id and dc.charge_month = v_month'],
+  ['20261006000200', 'a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  ['20261006000200', 'it posts under its own source', ", 'depreciation');"],
+  // The charge row records the MONTH, not the entry's date. After a redirect
+  // the date no longer says which month the charge is for, and idempotency read
+  // off the ledger would charge that month again on every run forever.
+  ['20261006000200', 'the charge row records the month, not the date it was posted on',
+    'charge_month, amount_cents, journal_entry_id)'],
+  ['20261006000200', 'the date comes from shop_local_date()', 'public.shop_local_date()'],
+];
+
+const DELETE_FIXED_ASSET_EDITS: Edit[] = [
+  ['20261006000100', 'gated on ledger.post against the asset’s shop',
+    "has_shop_permission(v_asset.shop_id, 'ledger.post')"],
+  ['20261006000100', 'a depreciated asset is not deleted',
+    'from public.depreciation_charges dc where dc.asset_id = v_asset.id'],
+  ['20261006000100', 'nor is a disposed one', 'v_asset.disposed_on is not null'],
+  // The reversal, and the three things phase 2b lost by omitting one of them.
+  ['20261006000100', 'the reversal carries the SAME source as the entry it reverses',
+    "v_old.source, 'posted', v_old.location_id, v_old.id, auth.uid()"],
+  ['20261006000100', 'its lines are NEGATED, which is what makes it a reversal',
+    'account_id, -amount_cents, location_id, memo'],
+  ['20261006000100', 'and the original is marked reversed rather than left standing',
+    "set status = 'reversed', reverses_entry_id = v_reversal_id"],
 ];
 
 // transfer_funds joins this file at its FIRST definition rather than its second.
@@ -1070,6 +1208,10 @@ describe.each([
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
   ['transfer_funds', TRANSFER_FUNDS_EDITS],
+  ['create_fixed_asset', CREATE_FIXED_ASSET_EDITS],
+  ['dispose_fixed_asset', DISPOSE_FIXED_ASSET_EDITS],
+  ['delete_fixed_asset', DELETE_FIXED_ASSET_EDITS],
+  ['run_depreciation', RUN_DEPRECIATION_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);
 
