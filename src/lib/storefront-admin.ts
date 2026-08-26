@@ -1,3 +1,4 @@
+import { findShortfalls, type OrderShortfall } from '@/lib/order-fulfilment';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
@@ -412,4 +413,68 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((row) => mapOrderRow(row as never));
+}
+
+// Task 3: what a shop needs to know before "accept" is offered -- which
+// lines of this order it cannot currently fill, and by how much. `orders`
+// carries no location_id of its own, so this resolves the same location
+// complete_sale defaults to when none is given: primary first, then oldest
+// (20260908000300_sale_entry_date.sql:182-189). Stock is then read from
+// product_location_stock there -- the exact table and location complete_sale
+// checks at payment time -- never products.stock, which is a column a
+// trigger recomputes and silently reverts direct reads of any staleness
+// assumption against (20260810000000_stock_by_location.sql:168; plan 3 lost
+// a test to exactly that mistake).
+//
+// A line whose product_id has gone `on delete set null`
+// (20260926000050_orders.sql) is treated as fully unavailable -- there is no
+// stock row left to read -- rather than skipped, so a deleted product still
+// shows up as something the shop must resolve, not something silently
+// dropped from the count.
+//
+// The comparison itself is delegated to findShortfalls (order-fulfilment.ts)
+// so the "never auto-resolve a shortfall" rule lives in exactly one place,
+// provable without a database.
+export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
+  const { data: location, error: locationError } = await supabase
+    .from('shop_locations')
+    .select('id')
+    .eq('shop_id', shopId)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (locationError) throw locationError;
+  if (!location) throw new Error(`shop ${shopId} has no location to check stock against`);
+
+  const { data: items, error: itemsError } = await supabase
+    .from('order_items')
+    .select('product_id, product_name, quantity')
+    .eq('order_id', orderId);
+  if (itemsError) throw itemsError;
+
+  const rows = (items ?? []) as { product_id: string | null; product_name: string; quantity: number }[];
+  const productIds = [...new Set(rows.map((row) => row.product_id).filter((id): id is string => id !== null))];
+
+  const stockByProduct = new Map<string, number>();
+  if (productIds.length > 0) {
+    const { data: stockRows, error: stockError } = await supabase
+      .from('product_location_stock')
+      .select('product_id, stock')
+      .eq('location_id', (location as { id: string }).id)
+      .in('product_id', productIds);
+    if (stockError) throw stockError;
+    for (const row of (stockRows ?? []) as { product_id: string; stock: number }[]) {
+      stockByProduct.set(row.product_id, row.stock);
+    }
+  }
+
+  return findShortfalls(
+    rows.map((row) => ({
+      productId: row.product_id,
+      productName: row.product_name,
+      quantity: row.quantity,
+      available: row.product_id ? stockByProduct.get(row.product_id) ?? 0 : 0,
+    }))
+  );
 }
