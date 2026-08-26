@@ -342,11 +342,14 @@ export async function unpublish(shopId: string): Promise<void> {
   if (error) throw error;
 }
 
-// Task 9: the one read a shop gets of its own orders (20260926000050_orders.sql)
-// for now -- read-only, because Plan 4 owns accepting, readying and completing
-// them and a half-working control here would be worse than none. `status` is
-// deliberately not read: this list makes an order visible, it does not judge
-// where an order is in its life, which is exactly the line Plan 4 draws.
+// Task 9 built this as a read-only list, and its comment used to say status
+// was "deliberately not read". Task 6 turns the list into an inbox a shop
+// works from, and every state that list has to be a tab of needs `status` on
+// the row -- see orders.tsx for the actions that now change it, each guarded
+// to exactly the moves 20260928000100_order_transitions.sql /
+// 20260928000200_complete_storefront_order.sql permit.
+export type OrderStatus = 'pending' | 'accepted' | 'ready' | 'completed' | 'cancelled';
+
 export type ShopOrder = {
   id: string;
   number: number;
@@ -364,6 +367,13 @@ export type ShopOrder = {
   // customer to find out where to actually go. Null for collect, same as
   // deliveryArea.
   deliveryLandmark: string | null;
+  // Free text the customer left at checkout. Null when they left nothing --
+  // shown only in the detail view, never worth a list column of its own.
+  note: string | null;
+  status: OrderStatus;
+  // Non-null only once status is 'cancelled' -- orders_cancellation_reason_
+  // required (20260928000100) guarantees the two travel together server-side.
+  cancellationReason: string | null;
   // Total UNITS across every line, not the number of lines -- what a shop
   // actually has to pull off the shelf. sales.item_count (0001_init.sql) is
   // computed the same way, by summing quantity.
@@ -380,6 +390,9 @@ function mapOrderRow(row: {
   fulfilment: string;
   delivery_area: string | null;
   delivery_landmark: string | null;
+  note: string | null;
+  status: string;
+  cancellation_reason: string | null;
   total_cents: number;
   created_at: string;
   order_items: { quantity: number }[] | null;
@@ -392,6 +405,9 @@ function mapOrderRow(row: {
     fulfilment: row.fulfilment as 'collect' | 'deliver',
     deliveryArea: row.delivery_area ?? null,
     deliveryLandmark: row.delivery_landmark ?? null,
+    note: row.note ?? null,
+    status: row.status as OrderStatus,
+    cancellationReason: row.cancellation_reason ?? null,
     itemCount: (row.order_items ?? []).reduce((sum, item) => sum + item.quantity, 0),
     totalCents: row.total_cents,
     createdAt: row.created_at,
@@ -407,12 +423,108 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, total_cents, created_at, order_items(quantity)'
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, total_cents, created_at, order_items(quantity)'
     )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((row) => mapOrderRow(row as never));
+}
+
+// Task 6: the lines a shop must pull off the shelf, at the price the customer
+// actually agreed to -- order_items snapshots product_name and
+// unit_price_cents at checkout (20260926000050's own header), never joined
+// live against today's `products` row. Ordered by product_name, the same
+// tie-break complete_storefront_order uses when it assembles this same table
+// for complete_sale (20260928000200:307-324), so the detail view lists lines
+// in the order the shop will see them posted.
+export type OrderLine = {
+  id: string;
+  // Null when the product has since been deleted (`on delete set null`,
+  // 20260926000050) -- the line stays readable off its own snapshot.
+  productId: string | null;
+  productName: string;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+};
+
+function mapOrderLineRow(row: {
+  id: string;
+  product_id: string | null;
+  product_name: string;
+  unit_price_cents: number;
+  quantity: number;
+  line_total_cents: number;
+}): OrderLine {
+  return {
+    id: row.id,
+    productId: row.product_id ?? null,
+    productName: row.product_name,
+    unitPriceCents: row.unit_price_cents,
+    quantity: row.quantity,
+    lineTotalCents: row.line_total_cents,
+  };
+}
+
+export async function getOrderItems(orderId: string): Promise<OrderLine[]> {
+  const { data, error } = await supabase
+    .from('order_items')
+    .select('id, product_id, product_name, unit_price_cents, quantity, line_total_cents')
+    .eq('order_id', orderId)
+    .order('product_name', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => mapOrderLineRow(row as never));
+}
+
+// ── Transitions ─────────────────────────────────────────────────────────
+//
+// Thin wrappers around the two doors the database actually opens --
+// transition_order and complete_storefront_order
+// (20260928000100_order_transitions.sql / 20260928000200_complete_storefront_
+// order.sql). Neither the permitted-moves table nor the payment-method list
+// is re-encoded here: a move this file did not anticipate is left to the
+// RPC's own `invalid_order_transition` / `invalid_payment_method`, the same
+// posture transition_order's own header takes about not duplicating the
+// trigger that is the real enforcement. orders.tsx is what only offers a
+// button for a move the order's CURRENT status actually permits -- these
+// four exist so that decision has something honest to call.
+
+export async function acceptOrder(orderId: string): Promise<void> {
+  const { error } = await supabase.rpc('transition_order', { p_order_id: orderId, p_status: 'accepted' });
+  if (error) throw error;
+}
+
+export async function markOrderReady(orderId: string): Promise<void> {
+  const { error } = await supabase.rpc('transition_order', { p_order_id: orderId, p_status: 'ready' });
+  if (error) throw error;
+}
+
+// `reason` is required by the caller's own form before this is ever called,
+// and orders_cancellation_reason_required (20260928000100) holds the same
+// line server-side regardless -- this does not re-validate it, only carries
+// it through.
+export async function cancelOrder(orderId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('transition_order', {
+    p_order_id: orderId,
+    p_status: 'cancelled',
+    p_cancellation_reason: reason,
+  });
+  if (error) throw error;
+}
+
+// complete_storefront_order's own permitted list (20260928000200:277) is
+// complete_sale's list minus 'unpaid' -- an order handed over at the door has
+// been paid for, and there is no customer record here to leave a balance
+// against.
+export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
+
+export async function completeOrder(orderId: string, paymentMethod: PaymentMethod): Promise<void> {
+  const { error } = await supabase.rpc('complete_storefront_order', {
+    p_order_id: orderId,
+    p_payment_method: paymentMethod,
+  });
+  if (error) throw error;
 }
 
 // Task 3: what a shop needs to know before "accept" is offered -- which
