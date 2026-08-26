@@ -861,8 +861,88 @@ const LIST_ACCOUNTING_PERIODS_EDITS: Edit[] = [
     "has_any_shop_permission(p_shop_id, array['ledger.view', 'ledger.close'])"],
 ];
 
+// reopen_accounting_period had NO entry list at all, despite two full
+// definitions and an inline reversal whose every part is a decision.
+const REOPEN_ACCOUNTING_PERIOD_EDITS: Edit[] = [
+  ['20261002000100', 'gated on ledger.close', "has_shop_permission(p_shop_id, 'ledger.close')"],
+  ['20261002000100', 'a reason is required, and whitespace is not one',
+    'length(trim(p_reason)) = 0'],
+  ['20261002000100', 'the period is scoped to the shop', 'id = p_period_id and shop_id = p_shop_id'],
+  ['20261002000100', 'a locked period is final and refuses the re-open too', "v_period.status = 'locked'"],
+  // THE ONE THAT MATTERS MOST, and the one a copy-forward would lose by
+  // "simplifying" the inline build into a call to reverse_journal_entry():
+  // that function files its reversal as 'manual', so a re-opened month's
+  // reversal would land in the income statement as trading -- INVERTED, since
+  // its lines are the negatives of a closing entry's. 20261002000100:68-82
+  // writes that failure out at length and nothing guarded it.
+  ['20261002000100', 'the reversal carries source = close, so it stays out of the statements',
+    "'close', 'posted', v_close.location_id, v_close.id"],
+  ['20261002000100', 'and its lines are NEGATED, which is what makes it a reversal',
+    'account_id, -amount_cents, location_id, memo'],
+  ['20261002000100', 'the original is marked reversed rather than deleted', "status = 'reversed'"],
+  // The STANDING entry, so a month closed, re-opened and closed again reverses
+  // the close that is actually in force.
+  ['20261002000100', 'it reverses the closing entry still standing', 'reverses_entry_id is null'],
+  ['20261003000100', 'the recorded exceptions are cleared, there being no close to describe',
+    "exceptions = '{}'"],
+  ['20261003000100', 'the audit row says which event it records', "'event', 'reopen'"],
+];
+
+// ── The three statements, and the rule this branch already lost once ───────
+//
+// "All three statement functions exclude source = 'close'" is phase 3b's
+// central rule and it had no text-level guard -- while the branch itself
+// demonstrated the failure: task 2 concluded cash_flow() needed no change and
+// task 6 found that wrong. All three are now at their second definition, so the
+// next copy-forward has the same opportunity and, until these entries, the same
+// silence.
+//
+// A closing entry is a bookkeeping act, not trading. Without the exclusion an
+// income statement for any window containing a close reads near zero: the close
+// debits every revenue account and credits every expense account by exactly
+// their balances.
+const STATEMENT_LINES_EDITS: Edit[] = [
+  ['20261001000000', 'gated on ledger.view, which is the whole protection',
+    "has_shop_permission(p_shop_id, 'ledger.view')"],
+  ['20261001000000', 'posted AND reversed, never drafts', "e.status in ('posted', 'reversed')"],
+  ['20261001000000', 'the lines are scoped to the shop', 'e.shop_id = p_shop_id'],
+  ['20261002000000', 'a closing entry is not trading', "e.source <> 'close'"],
+];
+
+const BALANCE_SHEET_EDITS: Edit[] = [
+  ['20261001000100', 'gated on ledger.view', "has_shop_permission(p_shop_id, 'ledger.view')"],
+  ['20261001000100', 'the lines are scoped to the shop', 'e.shop_id = p_shop_id'],
+  // balance_sheet does NOT exclude source = 'close' the way the other two do,
+  // and that is deliberate: a closing entry moves real balances (3900 gains
+  // what the P&L accounts gave up). What it must not do is COUNT THE PROFIT
+  // TWICE -- once in "Profit this period" and again inside 3900 -- so it
+  // subtracts the P&L side of the closes instead.
+  ['20261002000000', 'the profit already rolled into 3900 is taken out of profit this period',
+    'v_profit := v_profit - v_closed;'],
+  ['20261002000000', 'and it is the CLOSING entries that are subtracted', "e.source = 'close'"],
+  // Read off the closing entries' P&L SIDE, never off 3900's balance: a shop
+  // carrying pre-kaiibi retained earnings in on an 'opening' entry would have
+  // that subtracted from this period's profit. See 20261002000000:304-308.
+  ['20261002000000', "off the closes' P&L side, not off 3900's balance",
+    "a.type in ('revenue', 'cost_of_sales', 'expense')"],
+];
+
+const CASH_FLOW_EDITS: Edit[] = [
+  ['20261001000200', 'gated on ledger.view', "has_shop_permission(p_shop_id, 'ledger.view')"],
+  ['20261001000200', 'the lines are scoped to the shop', 'e.shop_id = p_shop_id'],
+  // Task 2 concluded this one needed no change; task 6 found that wrong. A
+  // forged or future close touching a cash account would otherwise move the
+  // balance sheet's cash and not the cash flow's, and reconciliation 5 would
+  // report a discrepancy whose cause is not in the arithmetic at all.
+  ['20261004000100', 'the cash flow ignores a close too', "e.source <> 'close'"],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
+  ['reopen_accounting_period', REOPEN_ACCOUNTING_PERIOD_EDITS],
+  ['statement_lines', STATEMENT_LINES_EDITS],
+  ['balance_sheet', BALANCE_SHEET_EDITS],
+  ['cash_flow', CASH_FLOW_EDITS],
   ['list_accounting_periods', LIST_ACCOUNTING_PERIODS_EDITS],
   ['post_journal_entry', POST_JOURNAL_ENTRY_EDITS],
   ['open_period_for', OPEN_PERIOD_FOR_EDITS],
