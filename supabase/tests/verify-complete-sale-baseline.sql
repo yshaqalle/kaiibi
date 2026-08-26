@@ -128,6 +128,49 @@
 --      AGREED price was bounded before its own multiplication; a line priced
 --      from the shelf was not bounded at all.
 --
+-- CHECKS 26-30 WERE ADDED BY TASK 3, and like 14-25 they assert NEW behaviour:
+-- p_prices_include_tax, the flag that says the prices in this cart ALREADY have
+-- the tax in them, so it is EXTRACTED from the quoted total rather than added to
+-- it. Appended after 25 for the reason every wave before them was appended: 20,
+-- 21, 22 and 25 all count this shop's sales.
+--
+--  26. A QUOTED TOTAL IS NOT TAXED ON TOP. The exact mirror of check 5, on the
+--      same 2 x 1200 cart at the same 5%: with the flag the customer pays 2400
+--      and 114 of it is the state's; without it they pay 2520 and 120 of it is.
+--      Both halves are here because the second is what gives the first its
+--      meaning -- the governing rule of this whole change is that a call
+--      WITHOUT the flag behaves exactly as it did before.
+--  27. THE ROUNDING IS DEFINED, and this is the substance of Task 3 rather than
+--      a detail of it. Extracting tax from a total is NOT the inverse of adding
+--      it, and the two ways of writing the extraction disagree by a cent:
+--
+--        the TAX is rounded    round(gross * rate / (100 + rate))
+--        the NET is rounded    gross - round(gross * 100 / (100 + rate))
+--
+--      They agree everywhere except where the exact net lands on a half cent,
+--      and 1001 at 4% is such a figure: the net is exactly 962.5, so rounding
+--      the tax gives 39 and rounding the net gives 38. THE TAX IS THE ROUNDED
+--      ONE, because that is what the till already does to it (:815) -- and a
+--      cent that appears or vanishes on every order is a reconciliation problem
+--      somebody has to chase. Part (b) is the round trip: 2524 quoted
+--      tax-inclusive at 3% comes back as check 9's own 2450 and 74.
+--  28. LOYALTY EARNS ON THE TAX-EXCLUSIVE FIGURE, which is what the till does
+--      (points at :811, tax added at :817) and therefore what a quoted sale must
+--      do too. 2400 quoted inclusive at 5% is 2286 of merchandise, which earns
+--      23 -- not the 24 the gross would earn.
+--  29. AT A SHOP WITH TAX DISABLED THE FLAG CHANGES NOTHING. There is nothing in
+--      the price to extract, so the total, the tax and the four journal lines
+--      are check 1's.
+--  30. EXTRACTING TAX NEEDS discounts.manual, and only where there is tax to
+--      extract. The flag does not move a price, but at a tax-charging shop it
+--      takes the tax OUT of what the shop keeps: 2400 collected becomes 2286 of
+--      revenue instead of 2400. That is the same money the undercut gate of
+--      check 20 exists to protect, reached through a different field, so it is
+--      gated the same way -- ON THE EFFECT, not on the field. Where the shop
+--      charges no tax the flag asks nothing (a), where it does the un-privileged
+--      member is refused by name (b), and the same member ringing up the same
+--      cart WITHOUT the flag is untouched (c).
+--
 -- AGREED_UNIT_PRICE_CENTS IS A NEW FIELD, and it had to be. Carts have carried
 -- a `unit_price_cents` since 0001 and complete_sale has always ignored it --
 -- that is the very thing every payload above sends 9999 to prove. Making it
@@ -2165,7 +2208,445 @@ begin
 
   raise notice 'OK 25: a no-agreed-price line past 2147483647 is refused by a sentence';
 
-  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (12 more)';
+  ---------------------------------------------------------------------------
+  -- 26. A QUOTED TOTAL IS NOT TAXED ON TOP -- the exact mirror of check 5.
+  --
+  --     Check 5 rings up 2 Tea at 1200 with 5% tax and gets 2400 of goods plus
+  --     120 on top, total 2520. That is right at a till, where the shelf price
+  --     is tax-exclusive and the tax appears at the end.
+  --
+  --     A storefront quoted 2400 and the customer accepted 2400. Completing
+  --     that order at a tax-charging shop must charge 2400, and the shop still
+  --     owes tax on it -- so the tax comes OUT of the 2400 rather than being
+  --     added to it: round(2400 * 5 / 105) = 114, and revenue is the remaining
+  --     2286.
+  --
+  --     The three figures 2400 / 2520 / 114 / 120 are all distinct, so a
+  --     function that added instead of extracting, or that extracted and then
+  --     added as well, fails rather than coincidentally passing. And the tax
+  --     still never reaches the LINE: sale_items.line_total_cents is the quoted
+  --     2400 either way.
+  --
+  --     (b) IS THE CONTROL, and it is the governing rule of this whole change:
+  --     the identical cart with no flag at all is check 5 again, unmoved.
+  ---------------------------------------------------------------------------
+  update public.shops set tax_enabled = true, tax_rate_percent = 5 where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id              => v_shop_id,
+      p_items                => jsonb_build_array(jsonb_build_object(
+                                  'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
+      p_payments             => jsonb_build_array(jsonb_build_object(
+                                  'method', 'cash', 'amount_cents', 2400, 'tendered_cents', 2400)),
+      p_location_id          => v_loc_id,
+      p_prices_include_tax   => true);
+  exception
+    when others then
+      raise exception 'FAIL 26a: a cart quoted TAX-INCLUSIVE at 2400 must total 2400, and the call was refused. complete_sale said: % (payments total 2400 does not match sale total 2520 = the tax was added on top of a total that already contained it)', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 2400 then
+    raise exception 'FAIL 26a: expected total_cents 2400 -- the figure the customer was quoted -- got % (2520 = tax added on top of a tax-inclusive total)', v_amount;
+  end if;
+  select tax_cents into v_int from public.sales where id = v_sale_id;
+  if v_int <> 114 then
+    raise exception 'FAIL 26a: expected tax_cents 114 carved OUT of 2400, got % (120 = 5%% added on top; 0 = the shop was told it owes no tax on a sale it does)', v_int;
+  end if;
+  select tax_rate_percent into v_num from public.sales where id = v_sale_id;
+  if v_num <> 5 then
+    raise exception 'FAIL 26a: expected tax_rate_percent 5 snapshotted onto the sale, got %', v_num;
+  end if;
+  select count(*) into v_count from public.sale_items where sale_id = v_sale_id;
+  if v_count <> 1 then
+    raise exception 'FAIL 26a: expected 1 sale_items row for a one-line cart, got %', v_count;
+  end if;
+  select line_total_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 2400 then
+    raise exception 'FAIL 26a: the extraction reached the LINE -- expected sale_items.line_total_cents 2400 (what was quoted), got % (2286 = the net written onto the line)', v_int;
+  end if;
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select count(*) into v_count from public.journal_lines where entry_id = v_entry;
+  if v_count <> 5 then
+    raise exception 'FAIL 26a: expected 5 journal lines (cash, revenue, tax, COGS, stock), got %', v_count;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> 2400 then
+    raise exception 'FAIL 26a: expected Dr 1000 Cash 2400 -- the money the customer actually handed over -- got %', v_amount;
+  end if;
+  -- REVENUE IS THE GOODS, NET OF THE TAX INSIDE THE QUOTE. -2400 here would
+  -- book the state's 114 as the shop's own earnings, and the entry would not
+  -- balance either.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -2286 then
+    raise exception 'FAIL 26a: expected Cr 4000 Revenue -2286 (2400 quoted less the 114 inside it), got % (-2400 = the tax booked as revenue as well as a liability)', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2100';
+  if v_amount <> -114 then
+    raise exception 'FAIL 26a: expected Cr 2100 Sales Tax Payable -114, got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 26a: the entry does not balance, off by % (114 = the tax was taken out of the total and left in revenue)', v_amount;
+  end if;
+
+  -- (b) THE CONTROL. The same cart, the same shop, the same rate, no flag.
+  v_sale_id := public.complete_sale(
+    p_shop_id     => v_shop_id,
+    p_items       => jsonb_build_array(jsonb_build_object(
+                       'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
+    p_payments    => jsonb_build_array(jsonb_build_object(
+                       'method', 'cash', 'amount_cents', 2520, 'tendered_cents', 2520)),
+    p_location_id => v_loc_id);
+
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 2520 or v_int <> 120 then
+    raise exception 'FAIL 26b: a cart with NO flag must still be taxed ON TOP -- expected 2520 / 120, got % / % (2400 / 114 = the extraction became the default and every existing caller now charges less)',
+      v_amount, v_int;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -2400 then
+    raise exception 'FAIL 26b: expected Cr 4000 Revenue -2400 on an ordinary till sale, got %', v_amount;
+  end if;
+
+  raise notice 'OK 26: 2400 quoted tax-inclusive stays 2400 and carries 114 of tax; the same cart without the flag is still 2520';
+
+  ---------------------------------------------------------------------------
+  -- 27. THE ROUNDING IS DEFINED, AND IT ROUNDS THE TAX.
+  --
+  --     Extraction is not the inverse of addition, and the two natural ways to
+  --     write it disagree by a cent wherever the exact net lands on a half:
+  --
+  --       round the TAX   tax = round(gross * rate / (100 + rate))
+  --       round the NET   tax = gross - round(gross * 100 / (100 + rate))
+  --
+  --     (a) 1001 AT 4% IS SUCH A FIGURE, and it is here because Task 1's review
+  --         found the original baseline could not tell round() from floor():
+  --         every figure it used divided evenly. 1001 * 100 / 104 is exactly
+  --         962.5 and 1001 * 4 / 104 is exactly 38.5, so the two formulas give
+  --         39 and 38 -- a whole cent apart, on the same sale.
+  --
+  --         39 IS THE ANSWER, because the till rounds the TAX (:815) and a
+  --         quoted sale must round the same thing in the same direction. The
+  --         net absorbs the remainder, which is the only way the two sides can
+  --         still add up to the figure the customer was quoted.
+  --
+  --         1001 is 1 Tea at 1200 less a 199 line discount, which also puts the
+  --         discount contra under test: 4200 stays at the 199 the shop actually
+  --         gave, and revenue is 1001 + 199 - 39.
+  --
+  --     (b) THE ROUND TRIP, on check 9's own figures. That check rings up 2450
+  --         of goods at 3% and gets 74 of tax for a total of 2524. Quote the
+  --         same 2524 tax-inclusive and 2450 and 74 must come back out of it --
+  --         through an AGREED PRICE, which is the shape Task 4's storefront
+  --         fulfilment actually sends: the quoted price and the tax-inclusive
+  --         flag together.
+  ---------------------------------------------------------------------------
+  update public.shops set tax_enabled = true, tax_rate_percent = 4 where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_tea, 'quantity', 1,
+                                'unit_price_cents', 9999, 'discount_cents', 199)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 1001, 'tendered_cents', 1001)),
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+  exception
+    when others then
+      raise exception 'FAIL 27a: 1001 quoted tax-inclusive must total 1001, and the call was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select tax_cents into v_int from public.sales where id = v_sale_id;
+  if v_int <> 39 then
+    raise exception 'FAIL 27a: expected tax_cents 39 -- 1001 at 4%% puts the tax on exactly 38.5 and the TAX is what rounds -- got % (38 = the NET was rounded instead, which is a cent of the state''s money on every order)', v_int;
+  end if;
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 1001 then
+    raise exception 'FAIL 27a: expected total_cents 1001 -- the quoted figure -- got %', v_amount;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -1161 then
+    raise exception 'FAIL 27a: expected Cr 4000 Revenue -1161 (1001 quoted + 199 given away - 39 of tax), got %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4200';
+  if v_amount <> 199 then
+    raise exception 'FAIL 27a: expected Dr 4200 199 -- the discount contra is what the shop GAVE, untouched by the tax split -- got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 27a: the entry does not balance, off by %', v_amount;
+  end if;
+
+  -- (b) The round trip, at check 9's rate and on check 9's figures.
+  update public.shops set tax_enabled = true, tax_rate_percent = 3 where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_coffee, 'quantity', 1,
+                                'unit_price_cents', 9999,
+                                'agreed_unit_price_cents', 2524)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 2524, 'tendered_cents', 2524)),
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+  exception
+    when others then
+      raise exception 'FAIL 27b: an agreed price of 2524 quoted tax-inclusive must total 2524, and the call was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 2524 then
+    raise exception 'FAIL 27b: expected total_cents 2524 (the agreed price, tax included), got %', v_amount;
+  end if;
+  select tax_cents into v_int from public.sales where id = v_sale_id;
+  if v_int <> 74 then
+    raise exception 'FAIL 27b: expected tax_cents 74 -- check 9 charges 74 on 2450 to reach this very total, so extracting from 2524 must give it back -- got %', v_int;
+  end if;
+  select unit_price_cents into v_int from public.sale_items where sale_id = v_sale_id;
+  if v_int <> 2524 then
+    raise exception 'FAIL 27b: expected sale_items.unit_price_cents 2524, got % (2450 = the net written onto the line the customer was quoted 2524 for)', v_int;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -2450 then
+    raise exception 'FAIL 27b: expected Cr 4000 Revenue -2450 -- check 9''s own goods figure -- got %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL 27b: the entry does not balance, off by %', v_amount;
+  end if;
+
+  raise notice 'OK 27: the TAX rounds (39 on 1001 at 4%%, not 38) and 2524 at 3%% gives check 9''s 2450 + 74 back';
+
+  ---------------------------------------------------------------------------
+  -- 28. LOYALTY EARNS ON THE TAX-EXCLUSIVE FIGURE, in both directions.
+  --
+  --     This is a DECISION, and it is decided by what the till already does
+  --     rather than by preference: v_points_earned is computed at :811 and the
+  --     tax is added at :817, so a counter sale has always earned on the
+  --     PRE-TAX figure. A pre-quoted sale therefore earns on the quoted total
+  --     MINUS the tax inside it -- the same merchandise figure, reached from
+  --     the other side.
+  --
+  --     2400 quoted inclusive at 5% is 2286 of merchandise, and at one point
+  --     per dollar that is round(22.86) = 23. Earning on the quoted 2400 would
+  --     give 24, so the two answers are a point apart and this check can tell
+  --     them apart. Check 26a already pins that the same sale's tax is 114.
+  --
+  --     The ledger row is asserted alongside sales.points_earned: the column
+  --     and the row are written by two different statements and a sale that
+  --     wrote one without the other would leave the customer's balance and the
+  --     receipt permanently disagreeing.
+  ---------------------------------------------------------------------------
+  update public.shops set tax_enabled = true, tax_rate_percent = 5 where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 2400, 'tendered_cents', 2400)),
+      p_customer_id        => v_customer_id,
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+  exception
+    when others then
+      raise exception 'FAIL 28: a tax-inclusive quoted sale against a customer was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 2400 or v_int <> 114 then
+    raise exception 'FAIL 28: expected 2400 / 114 as in check 26a, got % / %', v_amount, v_int;
+  end if;
+  select points_earned into v_int from public.sales where id = v_sale_id;
+  if v_int <> 23 then
+    raise exception 'FAIL 28: expected 23 points, earned on the 2286 of merchandise inside the quote, got % (24 = earned on the tax-INCLUSIVE 2400, which is not what the till does)', v_int;
+  end if;
+  select coalesce(sum(delta_points), 0) into v_amount
+    from public.customer_points_ledger where sale_id = v_sale_id and reason = 'earn';
+  if v_amount <> 23 then
+    raise exception 'FAIL 28: expected a +23 earn row in the points ledger, got %', v_amount;
+  end if;
+  select loyalty_points_per_usd into v_num from public.sales where id = v_sale_id;
+  if v_num <> 1 then
+    raise exception 'FAIL 28: expected the earn rate 1 snapshotted onto the sale, got %', v_num;
+  end if;
+
+  raise notice 'OK 28: 2400 quoted inclusive earns 23 on the 2286 of merchandise, not 24 on the quote';
+
+  ---------------------------------------------------------------------------
+  -- 29. AT A SHOP WITH TAX DISABLED THE FLAG CHANGES NOTHING.
+  --
+  --     There is no tax in the price to take out, so this is check 1's sale
+  --     with a flag on it: 2400 collected, 2400 of revenue, no 2100 line at
+  --     all, and tax_rate_percent still NULL. A flag that extracted at some
+  --     default rate, or that snapshotted a rate the shop does not charge,
+  --     fails here.
+  --
+  --     No customer, so loyalty stays out of it and this check measures one
+  --     thing.
+  ---------------------------------------------------------------------------
+  update public.shops set tax_enabled = false where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_tea, 'quantity', 2, 'unit_price_cents', 9999)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 2400, 'tendered_cents', 2400)),
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+  exception
+    when others then
+      raise exception 'FAIL 29: the flag must be a no-op at a shop that charges no tax, and the sale was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 2400 or v_int <> 0 then
+    raise exception 'FAIL 29: expected 2400 / 0 at a shop with tax OFF, got % / % (any tax at all = the flag extracts at a rate the shop does not charge)', v_amount, v_int;
+  end if;
+  select tax_rate_percent into v_num from public.sales where id = v_sale_id;
+  if v_num is not null then
+    raise exception 'FAIL 29: expected tax_rate_percent NULL with tax disabled, got %', v_num;
+  end if;
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select count(*) into v_count from public.journal_lines where entry_id = v_entry;
+  if v_count <> 4 then
+    raise exception 'FAIL 29: expected 4 journal lines (cash, revenue, COGS, stock) and no tax line, got %', v_count;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -2400 then
+    raise exception 'FAIL 29: expected Cr 4000 Revenue -2400, got % (-2286 = tax extracted at a shop that charges none)', v_amount;
+  end if;
+
+  raise notice 'OK 29: at a shop with tax off the flag changes nothing at all';
+
+  ---------------------------------------------------------------------------
+  -- 30. EXTRACTING TAX NEEDS discounts.manual -- and asks for nothing where
+  --     there is no tax to extract.
+  --
+  --     The flag does not move a price, so at first sight it needs no
+  --     permission. It moves the MONEY THE SHOP KEEPS: at a 5% shop the same
+  --     2 Tea collect 2520 and leave 2400 of revenue without the flag, and
+  --     collect 2400 and leave 2286 with it. 114 cents of the shop's own
+  --     takings, on a field a cashier can set. That is the money check 20's
+  --     undercut gate exists to protect, reached through a different field, so
+  --     the register asks the same permission for it -- ON THE EFFECT, not on
+  --     the field, exactly as check 21 establishes for the agreed price.
+  --
+  --     Back to check 20's member, who holds pos.access and NOTHING else.
+  --
+  --     (a) TAX OFF: nothing is extracted, so nothing is asked. Accepted.
+  --     (b) TAX ON: refused by name, and the refusal writes nothing.
+  --     (c) TAX ON, NO FLAG: the same member, the same cart, taxed on top and
+  --         accepted. Without this, a gate that simply refused this member's
+  --         sales outright would pass (b) and mean nothing.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 9999)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 1200, 'tendered_cents', 1200)),
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+  exception
+    when others then
+      raise exception 'FAIL 30a: the flag takes nothing out of a shop that charges no tax and must not need a permission, and it was refused. complete_sale said: % (the gate is on the FIELD rather than on the effect)', sqlerrm;
+  end;
+
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 1200 or v_int <> 0 then
+    raise exception 'FAIL 30a: expected 1200 / 0, got % / %', v_amount, v_int;
+  end if;
+
+  update public.shops set tax_enabled = true, tax_rate_percent = 5 where id = v_shop_id;
+
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id            => v_shop_id,
+      p_items              => jsonb_build_array(jsonb_build_object(
+                                'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 9999)),
+      p_payments           => jsonb_build_array(jsonb_build_object(
+                                'method', 'cash', 'amount_cents', 1200, 'tendered_cents', 1200)),
+      p_location_id        => v_loc_id,
+      p_prices_include_tax => true);
+    select total_cents into v_amount from public.sales where id = v_sale_id;
+    raise exception 'FAIL 30b: a member WITHOUT discounts.manual took the tax out of a quoted total and the sale went through at % -- 114 cents of the shop''s revenue through a field the discount permission does not cover', v_amount;
+  exception
+    when others then
+      if sqlerrm like 'FAIL 30b:%' then
+        raise;
+      end if;
+      if sqlerrm not like 'not authorized to file a sale at prices that already include tax%' then
+        raise exception 'FAIL 30b: expected a refusal naming the missing discount permission, got: %', sqlerrm;
+      end if;
+  end;
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 25 then
+    raise exception 'FAIL 30b: expected 25 sales after a REFUSED one, got % -- the refusal left a sale behind', v_count;
+  end if;
+
+  -- (c) The same member, the same cart, no flag: taxed on top and accepted.
+  begin
+    v_sale_id := public.complete_sale(
+      p_shop_id     => v_shop_id,
+      p_items       => jsonb_build_array(jsonb_build_object(
+                         'product_id', v_prod_tea, 'quantity', 1, 'unit_price_cents', 9999)),
+      p_payments    => jsonb_build_array(jsonb_build_object(
+                         'method', 'cash', 'amount_cents', 1260, 'tendered_cents', 1260)),
+      p_location_id => v_loc_id);
+  exception
+    when others then
+      raise exception 'FAIL 30c: the gate is on the FLAG, not on the member -- an ordinary till sale by the same cashier was refused. complete_sale said: %', sqlerrm;
+  end;
+
+  select total_cents, tax_cents into v_amount, v_int from public.sales where id = v_sale_id;
+  if v_amount <> 1260 or v_int <> 60 then
+    raise exception 'FAIL 30c: expected 1260 / 60 on an ordinary 5%% till sale, got % / %', v_amount, v_int;
+  end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+
+  select count(*) into v_count from public.sales where shop_id = v_shop_id;
+  if v_count <> 26 then
+    raise exception 'FAIL 30: expected 26 sales in this fixture, got %', v_count;
+  end if;
+
+  raise notice 'OK 30: extracting tax needs discounts.manual, and asks nothing where there is no tax to extract';
+
+  raise notice 'ALL CHECKS PASSED: complete_sale baseline pinned (13 checks) + the agreed price (12 more) + the tax-inclusive quote (5 more)';
   raise exception 'rollback_marker';
 exception
   when others then

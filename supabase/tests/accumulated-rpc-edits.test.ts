@@ -257,6 +257,71 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // of this guard.
   ['20260929000050', 'the arithmetic ceiling is int32, not the agreed price ceiling',
     'c_max_int_cents constant bigint := 2147483647'],
+  // 20260929000100. A STOREFRONT QUOTES A TOTAL AND THE CUSTOMER ACCEPTS IT, so
+  // completing that order at a tax-charging shop must charge the figure that was
+  // agreed -- the tax comes OUT of it rather than being added on top of it.
+  //
+  // THE PARAMETER AND ITS COALESCE IN ONE TOKEN, because the coalesce is the
+  // half that costs money if it goes. The flag arrives from a caller and a
+  // caller can send an explicit NULL; read raw, `if not p_prices_include_tax` is
+  // NULL rather than TRUE for such a call, the add-on branch is skipped, and the
+  // sale goes out UNTAXED with nothing said about it. The bare parameter name
+  // would be green against exactly that.
+  ['20260929000100', 'a caller may say the prices already include tax, and a null flag is not one',
+    'v_prices_include_tax boolean := coalesce(p_prices_include_tax, false)'],
+  // THE TAX IS WHAT ROUNDS, and this is the substance of the change rather than
+  // a detail of it. Extraction is not the inverse of addition: at a gross of
+  // 1001 and a rate of 4% the exact net is 962.5 and the exact tax 38.5, so
+  // rounding the TAX gives 39 and rounding the NET gives 38 -- the same sale, a
+  // cent apart. The till rounds the tax (`round(v_total_cents * v_tax_rate /
+  // 100)`), so a quoted sale rounds the same quantity, or 2100 and 4000 stop
+  // reconciling by a cent per order. The token is the whole expression: the
+  // variable name survives a rewrite that rounds the net into it. Baseline check
+  // 27a is the behavioural half.
+  ['20260929000100', 'the tax is extracted by rounding the TAX, not the net',
+    'round(v_total_cents * v_tax_rate / (100 + v_tax_rate))'],
+  // ...AND IT LEAVES THE RUNNING TOTAL AT ONCE, which is what makes the rest of
+  // the function need no second branch. From this statement on v_total_cents is
+  // the tax-exclusive merchandise figure in both directions, so the loyalty earn
+  // below it is the SAME LINE it has always been and a quoted sale earns on the
+  // same kind of figure a counter sale does. Lose this and the quote is charged
+  // with its own tax added on top of itself AND the customer earns points on the
+  // state's share.
+  ['20260929000100', 'the extracted tax comes back out of the running total, before the points are earned',
+    'v_total_cents := v_total_cents - v_included_tax_cents;'],
+  // ...and the tax is NOT then added on top as well. The token is the guard
+  // joined to the statement it guards, so it cannot be satisfied by a rewrite
+  // that keeps the till's line and drops the condition -- which is the whole
+  // defect: the customer is billed the quote plus tax on the quote.
+  ['20260929000100', 'a quoted sale is not taxed on top as well',
+    'if v_tax_enabled and not v_prices_include_tax then\n    v_tax_cents := round(v_total_cents * v_tax_rate / 100)::integer;'],
+  // REVENUE IS CREDITED NET OF THE TAX INSIDE THE QUOTE, and this one is not a
+  // presentation choice: the debits come to G + I and crediting revenue at G + I
+  // alongside the state's T leaves the entry heavier by exactly T, so
+  // post_journal_entry refuses it and a tax-charging shop cannot complete a
+  // quoted order AT ALL. The token is the negated amount rather than the bare
+  // subtraction, so it pins the figure that actually reaches the journal line.
+  ['20260929000100', 'revenue is credited net of the tax that was inside the quote',
+    '-(v_gross_cents + v_item_discount_cents - v_included_tax_cents)'],
+  // TAKING THE TAX OUT OF THE PRICE TAKES IT OUT OF THE TILL. The same two items
+  // at a 5% shop collect 2520 and leave 2400 of revenue without the flag, and
+  // collect 2400 and leave 2286 with it -- 114 cents of the shop's own takings,
+  // decided by a boolean in a JSON payload. That is the money 20260929000050
+  // gated the agreed price's undercut to protect, reached through another field.
+  //
+  // THE CONDITION AS ONE TOKEN, because the property is the PAIRING and each
+  // half alone is green against the defect: has_shop_permission(...,
+  // 'discounts.manual') already appears twice in this function, and the
+  // rate test alone is satisfiable by a rewrite that asks nothing. It is
+  // ON THE EFFECT rather than on the field -- a shop that charges no tax hands
+  // back the identical sale either way, so nothing is asked there.
+  ['20260929000100', 'extracting tax needs discounts.manual, and only where there is tax to extract',
+    "if v_prices_include_tax\n     and coalesce(v_tax_enabled, false) and coalesce(v_tax_rate, 0) > 0\n     and not public.has_shop_permission(p_shop_id, 'discounts.manual') then"],
+  // ...and it is refused BY NAME, for the reason the undercut refusal is:
+  // complete_sale raises plain P0001 and the text is a client's only handle on
+  // it. Task 4's storefront fulfilment is the caller that will meet this one.
+  ['20260929000100', 'the tax-inclusive refusal names itself so a client can say it',
+    "'not authorized to file a sale at prices that already include tax'"],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
