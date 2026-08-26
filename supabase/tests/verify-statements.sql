@@ -145,12 +145,56 @@ begin
       jsonb_build_object('code', '3100', 'amount_cents',  1500),
       jsonb_build_object('code', '1000', 'amount_cents', -1500)));
 
+  -- ---------------------------------------------------------------------
+  -- THE CASH-FLOW HALF OF THE FIXTURE (added by task 3), and added for
+  -- exactly the reason task 2 added its own half.
+  --
+  -- The cash flow's operating section has six rows. Against the fixture as
+  -- task 2 left it, THREE accounts behind those rows never moved -- 1100
+  -- Accounts Receivable, 2100 Sales Tax Payable and 2200 Wages Payable -- so
+  -- two of the six rows read zero no matter what the function did with them.
+  -- Flipping the sign of "increase in receivables", which is the mutation the
+  -- plan names for the sign convention, left the whole script GREEN: -0 = 0.
+  --
+  -- So the fixture now also sells on credit and accrues a wage. Both are
+  -- posted by hand rather than through complete_sale, because complete_sale
+  -- with a balance owing would also move cash and inventory and every figure
+  -- in checks 1-18 with them.
+  --
+  -- The two entries are sized together so the fixture keeps the properties
+  -- task 2 built into it: 3000 of revenue against 4000 of wages leaves net
+  -- profit NEGATIVE (-1250), which is what makes check 5 exercise the sign,
+  -- and leaves cash from operations at -90150 either way.
+  --
+  --   Dr 1100  3450   a customer takes 3000 of goods and the tax on them,
+  --   Cr 4000  3000   and pays next week
+  --   Cr 2100   450
+  --
+  --   Dr 6200  4000   a week's wages earned and not yet paid
+  --   Cr 2200  4000
+  --
+  -- Neither touches cash, so checks 11 and 24's cash figures are untouched;
+  -- neither touches inventory, so check 12 is untouched.
+  perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Sale on credit, with tax',
+    jsonb_build_array(
+      jsonb_build_object('code', '1100', 'amount_cents',  3450),
+      jsonb_build_object('code', '4000', 'amount_cents', -3000),
+      jsonb_build_object('code', '2100', 'amount_cents',  -450)),
+    v_loc, 'sale');
+
+  perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Wages earned, not yet paid',
+    jsonb_build_array(
+      jsonb_build_object('code', '6200', 'amount_cents',  4000),
+      jsonb_build_object('code', '2200', 'amount_cents', -4000)),
+    v_loc, 'payroll');
+
   -- 1. Revenue is NET of returns and discounts, and excludes sales tax.
-  --    9000 at list less the 500 discount = 8500.
+  --    9000 at list less the 500 discount = 8500, plus 3000 sold on credit --
+  --    and NOT the 450 of tax on it, which is owed rather than earned.
   select amount_cents into v_amount from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
    where section = 'revenue' and is_total;
-  if v_amount <> 8500 then
-    raise exception 'FAIL: net revenue is %, expected 8500 (9000 = discount not deducted)', v_amount;
+  if v_amount <> 11500 then
+    raise exception 'FAIL: net revenue is %, expected 11500 (12000 = discount not deducted, 11950 = sales tax counted as income)', v_amount;
   end if;
 
   -- 2. Cost of sales carries COGS *and* shrinkage. 2600 + 900 = 3500.
@@ -162,28 +206,31 @@ begin
     raise exception 'FAIL: cost of sales is %, expected 3500 (2600 = shrinkage grouped into opex)', v_amount;
   end if;
 
-  -- 3. Gross profit = 8500 - 3500 = 5000.
+  -- 3. Gross profit = 11500 - 3500 = 8000.
   select amount_cents into v_amount from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
    where section = 'gross_profit';
-  if v_amount <> 5000 then
-    raise exception 'FAIL: gross profit is %, expected 5000', v_amount;
+  if v_amount <> 8000 then
+    raise exception 'FAIL: gross profit is %, expected 8000', v_amount;
   end if;
 
-  -- 4. Operating expenses = 4000 + 1250 = 5250. Stock purchases and owner
-  --    draws must NOT appear: they are an asset and equity respectively, and
-  --    that is what makes a balance sheet possible.
+  -- 4. Operating expenses = 3800 rent + 1250 utilities + 200 depreciation
+  --    + 4000 accrued wages = 9250. Stock purchases and owner draws must NOT
+  --    appear: they are an asset and equity respectively, and that is what
+  --    makes a balance sheet possible.
   select amount_cents into v_amount from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
    where section = 'operating_expenses' and is_total;
-  if v_amount <> 5250 then
-    raise exception 'FAIL: operating expenses is %, expected 5250', v_amount;
+  if v_amount <> 9250 then
+    raise exception 'FAIL: operating expenses is %, expected 9250', v_amount;
   end if;
 
-  -- 5. Net profit = 5000 - 5250 = -250. NEGATIVE, deliberately: a fixture that
-  --    only ever produces a profit never exercises the sign.
+  -- 5. Net profit = 8000 - 9250 = -1250. NEGATIVE, deliberately: a fixture
+  --    that only ever produces a profit never exercises the sign. The credit
+  --    sale and the accrued wage added by task 3 are sized against each other
+  --    to keep it that way.
   select amount_cents into v_amount from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
    where section = 'net_profit';
-  if v_amount <> -250 then
-    raise exception 'FAIL: net profit is %, expected -250 (a loss)', v_amount;
+  if v_amount <> -1250 then
+    raise exception 'FAIL: net profit is %, expected -1250 (a loss)', v_amount;
   end if;
 
   -- 6. THE DETAIL FLAG. Summary and detail must produce the SAME net profit
@@ -263,21 +310,24 @@ begin
   -- The figures it must produce, all of them distinct:
   --
   --   Current assets   1000 Cash on Hand         1950   8500 - 5050 - 1500
+  --                    1100 Accounts Receivable  3450   the credit sale + tax
   --                    1200 Inventory           96500   100000 - 3500
-  --                    total                    98450
+  --                    total                   101900
   --   Fixed assets     1510 Furniture            6400
   --                    1590 Accum. depreciation   -200   contra, presents down
   --                    total                     6200
-  --   TOTAL ASSETS                             104650
+  --   TOTAL ASSETS                             108100
   --
   --   Liabilities      2000 Accounts Payable     6400
-  --                    total                     6400
+  --                    2100 Sales Tax Payable     450
+  --                    2200 Wages Payable        4000
+  --                    total                    10850
   --   Equity           3000 Owner's Capital    100000
   --                    3100 Owner's Draw         -1500   contra, reduces equity
   --                    3900 Retained earnings        0   nothing closed yet
-  --                    Profit this period         -250   = the income statement
-  --                    total                    98250
-  --   TOTAL L + E                              104650
+  --                    Profit this period        -1250   = the income statement
+  --                    total                    97250
+  --   TOTAL L + E                              108100
   -- =====================================================================
 
   -- 10. THE ONE THAT MATTERS. Total assets equals total liabilities and
@@ -297,8 +347,8 @@ begin
   --     against a function that returns nothing at all.
   select amount_cents into v_amount from public.balance_sheet(v_shop, public.shop_local_date())
    where section = 'total_assets';
-  if v_amount is distinct from 104650 then
-    raise exception 'FAIL: total assets is %, expected 104650', v_amount;
+  if v_amount is distinct from 108100 then
+    raise exception 'FAIL: total assets is %, expected 108100', v_amount;
   end if;
 
   -- 11. Assets carry a POSITIVE presentation sign even though 1200 Inventory
@@ -399,8 +449,8 @@ begin
   --     derivations are how the two reports come to disagree.
   select amount_cents into v_amount from public.balance_sheet(v_shop, public.shop_local_date())
    where section = 'equity' and label = 'Profit this period';
-  if v_amount is null or v_amount <> -250 then
-    raise exception 'FAIL: profit this period reads %, expected the loss of -250', v_amount;
+  if v_amount is null or v_amount <> -1250 then
+    raise exception 'FAIL: profit this period reads %, expected the loss of -1250', v_amount;
   end if;
   if v_amount <> (select amount_cents from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
                    where section = 'net_profit') then
@@ -463,6 +513,241 @@ begin
        and p.pronamespace = 'public'::regnamespace
        and pg_get_functiondef(p.oid) like '%has_shop_permission(p_shop_id, ''ledger.view'')%') then
     raise exception 'FAIL: balance_sheet does not gate on ledger.view itself';
+  end if;
+
+  -- =====================================================================
+  -- THE CASH FLOW (task 3), indirect method.
+  --
+  -- The ledger movements it reads, over all time:
+  --
+  --   1000 Cash          +1950     1100 Receivable   +3450
+  --   1200 Inventory     -3500     1510 Furniture    +6400
+  --   1590 Accum. dep.    -200     2000 Payables     -6400
+  --   2100 Sales tax      -450     2200 Wages         -4000
+  --   3000 Capital    -100000      3100 Draw         +1500
+  --   P&L accounts, netting to a loss of 1250
+  --
+  -- Over the ALL-TIME window the statement therefore reads:
+  --
+  --   Operating   Net profit                       -1250
+  --               Add back depreciation             +200   6800's movement
+  --               Increase in receivables          -3450   the credit sale
+  --               Increase in inventory           -96500   the opening stock
+  --               Increase in payables             +6400   the counter, unpaid
+  --               Increase in tax & wages payable  +4450   450 tax + 4000 wages
+  --               Cash from operations            -90150
+  --   Investing   Bought equipment                 -6400
+  --               Cash used in investing           -6400
+  --   Financing   Owner capital introduced       +100000
+  --               Owner drawings                   -1500
+  --               Cash used in financing          +98500
+  --   NET CHANGE IN CASH                            +1950
+  --   Proof       Cash at 31 Dec 1999                  0
+  --               Cash at  1 Jan 2100               1950
+  --               Movement in cash accounts        +1950
+  --
+  -- -90150 - 6400 + 98500 = 1950, which is the cash the shop actually holds.
+  -- That equality is check 20 and it is the whole point of the statement.
+  -- =====================================================================
+
+  -- 19. Net profit is the opening line of the operating section. Second of the
+  --     five reconciliations. The cash flow must CALL statement_lines rather
+  --     than re-derive a profit figure, for the same reason the balance sheet
+  --     does.
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'operating' and label = 'Net profit')
+     is distinct from (select amount_cents from public.statement_lines(v_shop, '2000-01-01', '2100-01-01')
+          where section = 'net_profit') then
+    raise exception 'FAIL: the cash flow and the income statement disagree about net profit';
+  end if;
+
+  -- 20. THE PROOF. Net change in cash equals the movement in the cash
+  --     accounts, OBSERVED rather than assembled. The indirect method's whole
+  --     risk is that it is built from deltas -- net profit plus six
+  --     adjustments, any of which can carry the wrong sign -- and every one of
+  --     those slips lands here.
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01') where section = 'net_change')
+     is distinct from (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+          where section = 'proof' and label = 'Movement in cash accounts') then
+    raise exception 'FAIL: the cash flow does not prove out -- net change % against observed movement %',
+      (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01') where section = 'net_change'),
+      (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+        where section = 'proof' and label = 'Movement in cash accounts');
+  end if;
+
+  --     ...and it proves out at 1950, not at zero. Check 20 alone passes
+  --     against a function that returns zero for everything.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'net_change';
+  if v_amount is distinct from 1950 then
+    raise exception 'FAIL: net change in cash is %, expected 1950', v_amount;
+  end if;
+
+  -- 21. Closing cash on the cash flow IS the balance sheet's cash. Third
+  --     reconciliation, and the one that ties the statement of flows to the
+  --     statement of position.
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'proof' and label like 'Cash at%' order by sort_order desc limit 1)
+     is distinct from (select coalesce(sum(amount_cents), 0) from public.balance_sheet(v_shop, public.shop_local_date())
+          where code in ('1000', '1010', '1020', '1021')) then
+    raise exception 'FAIL: the cash flow and the balance sheet disagree about closing cash';
+  end if;
+
+  -- 22. THE SIGN CONVENTION, asserted row by row. An increase in an ASSET
+  --     consumes cash and must present NEGATIVE; an increase in a LIABILITY
+  --     provides it and must present POSITIVE. Getting either backwards is
+  --     the single most common defect in an indirect cash flow, and check 20
+  --     cannot say WHICH row slipped -- only that something did.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Increase in inventory';
+  if v_amount is distinct from -96500 then
+    raise exception 'FAIL: increase in inventory reads %, expected -96500 (stock consumes cash)', v_amount;
+  end if;
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Increase in payables';
+  if v_amount is distinct from 6400 then
+    raise exception 'FAIL: increase in payables reads %, expected 6400 (an unpaid bill keeps cash)', v_amount;
+  end if;
+
+  --     The other two rows of the pair, and the reason this fixture sells on
+  --     credit and accrues a wage at all: without them both read a zero that
+  --     no sign error can disturb.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Increase in receivables';
+  if v_amount is distinct from -3450 then
+    raise exception 'FAIL: increase in receivables reads %, expected -3450 (a customer who has not paid is cash you do not have)', v_amount;
+  end if;
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Increase in tax & wages payable';
+  if v_amount is distinct from 4450 then
+    raise exception 'FAIL: increase in tax & wages payable reads %, expected 4450 (450 of tax and 4000 of wages, both owed and unpaid)', v_amount;
+  end if;
+
+  --     Depreciation is added BACK: it reduced net profit but no cash left.
+  --     It is 6800's movement, and until phase 3c ships run_depreciation no
+  --     shop will post one -- this fixture does, by hand, so that the row is
+  --     exercised rather than trivially zero.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Add back depreciation';
+  if v_amount is distinct from 200 then
+    raise exception 'FAIL: add back depreciation reads %, expected +200', v_amount;
+  end if;
+
+  --     ...and the six adjustments sum to cash from operations.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'operating' and is_total;
+  if v_amount is distinct from -90150 then
+    raise exception 'FAIL: cash from operations is %, expected -90150', v_amount;
+  end if;
+  if (select coalesce(sum(amount_cents), 0) from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'operating' and not is_total) <> v_amount then
+    raise exception 'FAIL: the operating rows do not sum to cash from operations';
+  end if;
+
+  -- 23. INVESTING IS EXERCISED. The fixture buys the counter ON CREDIT, so no
+  --     cash leaves for it -- and the section still has to carry -6400,
+  --     because the +6400 in payables is what cancels it. Dropping the
+  --     investing section leaves the payables row uncancelled and check 20
+  --     goes red by 6400. Asserted on the figure as well, so a reader can see
+  --     which side moved.
+  --
+  --     1590 Accumulated Depreciation is deliberately NOT in the 1500-1589
+  --     range this section sums: it is not a cash movement, and it is already
+  --     accounted for by the add-back above. Counting it here would report
+  --     investing of -6200 and stop proving out.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'investing' and is_total;
+  if v_amount is distinct from -6400 then
+    raise exception 'FAIL: cash used in investing is %, expected -6400 (-6200 = 1590 was counted as investing)', v_amount;
+  end if;
+
+  --     Financing is 3000 AND 3100, not the draw alone. Over all time the
+  --     opening capital of 100000 is a financing inflow, and a function that
+  --     read only the draw would report a net change of -98500.
+  select amount_cents into v_amount from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+   where section = 'financing' and is_total;
+  if v_amount is distinct from 98500 then
+    raise exception 'FAIL: cash from financing is %, expected 98500 (-1500 = capital introduced was ignored)', v_amount;
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, '2000-01-01', '2100-01-01')
+       where section = 'financing' and label = 'Owner drawings') is distinct from -1500 then
+    raise exception 'FAIL: owner drawings does not read -1500';
+  end if;
+
+  -- 24. OPENING CASH IS THE BALANCE AT p_from MINUS ONE DAY, not at p_from.
+  --
+  --     This CANNOT be asserted on the all-time window: nothing happened on
+  --     1 Jan 2000, so opening cash is zero read either way and the mutation
+  --     is invisible. Every entry in this fixture is dated either today or 40
+  --     days back, so the window that bites is TODAY TO TODAY -- opening cash
+  --     is 0 the day before and 1950 on the day itself.
+  --
+  --       Operating   -250 + 200 + 3500 + 6400          =  9850
+  --       Investing   -6400        Financing  -1500
+  --       Net change   9850 - 6400 - 1500               =  1950
+  --
+  --     Note the inventory row FLIPS SIGN between the two windows -- stock
+  --     fell by 3500 today, so it RELEASED cash -- which is the second reason
+  --     this window is worth its own check.
+  if (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+       where section = 'proof' and label like 'Cash at%' order by sort_order limit 1) is distinct from 0 then
+    raise exception 'FAIL: opening cash for a window starting today is %, expected 0 -- it is the balance the day BEFORE p_from',
+      (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+        where section = 'proof' and label like 'Cash at%' order by sort_order limit 1);
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+       where section = 'net_change')
+     is distinct from (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+          where section = 'proof' and label = 'Movement in cash accounts') then
+    raise exception 'FAIL: the one-day cash flow does not prove out -- net change % against observed movement %',
+      (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+        where section = 'net_change'),
+      (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+        where section = 'proof' and label = 'Movement in cash accounts');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+       where section = 'operating' and label = 'Increase in inventory') is distinct from 3500 then
+    raise exception 'FAIL: today alone, stock FELL by 3500 and released cash -- the row should read +3500, it reads %',
+      (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+        where section = 'operating' and label = 'Increase in inventory');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+       where section = 'operating' and is_total) is distinct from 9850 then
+    raise exception 'FAIL: cash from operations today is %, expected 9850',
+      (select amount_cents from public.cash_flow(v_shop, public.shop_local_date(), public.shop_local_date())
+        where section = 'operating' and is_total);
+  end if;
+
+  --     ...and a window with no trading at all is flat, every row of it.
+  if exists (select 1 from public.cash_flow(v_shop, '2019-01-01', '2019-12-31') where amount_cents <> 0) then
+    raise exception 'FAIL: a window with no trading returned a cash flow';
+  end if;
+
+  -- 25. THE GATE. cash_flow is security definer like the other two, so RLS on
+  --     journal_lines does not protect it.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_other)::text, true);
+  begin
+    perform 1 from public.cash_flow(v_shop, '2000-01-01', '2100-01-01');
+    raise exception 'FAIL: a stranger read this shop''s cash flow';
+  exception
+    when others then
+      if sqlerrm like 'FAIL:%' then raise; end if;
+      if sqlerrm <> 'You do not have permission to see the books.' then
+        raise exception 'FAIL: the stranger was refused, but by something else: %', sqlerrm;
+      end if;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user)::text, true);
+
+  --     ...and, exactly as for balance_sheet, the behavioural check above
+  --     cannot tell whose gate refused them: cash_flow calls statement_lines,
+  --     which gates on the same permission with the same message. So the gate
+  --     is asserted to EXIST as well.
+  if not exists (
+    select 1 from pg_proc p
+     where p.proname = 'cash_flow'
+       and p.pronamespace = 'public'::regnamespace
+       and pg_get_functiondef(p.oid) like '%has_shop_permission(p_shop_id, ''ledger.view'')%') then
+    raise exception 'FAIL: cash_flow does not gate on ledger.view itself';
   end if;
 
   perform set_config('role', 'postgres', true);
