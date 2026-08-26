@@ -15,6 +15,7 @@ function emptyInput(): AttentionInput {
     expiringSoon: [],
     dormant: [],
     closedSessions: [],
+    storefrontOrders: [],
     today: TODAY,
   };
 }
@@ -235,7 +236,60 @@ describe('attentionCounts', () => {
       staleShifts: [{ id: 't1' } as TimeEntry],
       lowStock: [{ name: 'Rice' } as Product],
     });
-    expect(attentionCounts(items)).toEqual({ all: 4, money: 1, team: 2, stock: 1, customers: 0 });
+    expect(attentionCounts(items)).toEqual({ all: 4, money: 1, team: 2, stock: 1, customers: 0, orders: 0 });
+  });
+});
+
+// Task 7: a shop that published under an earlier plan starts receiving
+// orders the moment it goes live, with nothing on screen to say so unless it
+// thinks to open Settings -> Orders. This is the other half of that fix --
+// the half that puts it in front of the shop unasked, on the screen
+// attention.ts's own header already calls "what a shop owner sees first
+// thing in the morning".
+describe('buildAttentionItems — storefront orders', () => {
+  it('flags orders the shop still has to do something about', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      storefrontOrders: [{ status: 'pending' }, { status: 'accepted' }, { status: 'ready' }],
+    });
+    const row = items.find((i) => i.key === 'storefront-orders')!;
+    expect(row).toBeDefined();
+    expect(row.severity).toBe('act');
+    expect(row.area).toBe('orders');
+    expect(row.title).toContain('3');
+  });
+
+  // completed and cancelled are terminal -- counting them is exactly the
+  // "badge that never clears" property 2 rules out.
+  it('does not count completed or cancelled orders', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      storefrontOrders: [{ status: 'completed' }, { status: 'cancelled' }],
+    });
+    expect(items.find((i) => i.key === 'storefront-orders')).toBeUndefined();
+  });
+
+  it('says nothing when there are no storefront orders at all', () => {
+    expect(buildAttentionItems({ ...emptyInput(), storefrontOrders: [] })).toEqual([]);
+  });
+
+  it('pluralises the title for one order versus several', () => {
+    const one = buildAttentionItems({ ...emptyInput(), storefrontOrders: [{ status: 'pending' }] });
+    const two = buildAttentionItems({
+      ...emptyInput(),
+      storefrontOrders: [{ status: 'pending' }, { status: 'accepted' }],
+    });
+    expect(one.find((i) => i.key === 'storefront-orders')!.title).toContain('1 storefront order needs');
+    expect(two.find((i) => i.key === 'storefront-orders')!.title).toContain('2 storefront orders need');
+  });
+
+  it('ranks alongside the other things today needs, ahead of anything merely worth knowing', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      storefrontOrders: [{ status: 'pending' }],
+      dormant: [{ customer: { firstName: 'Ayaan', lastName: 'H.' } as Customer, lastOrderAt: '2026-06-03' }],
+    });
+    expect(items.map((i) => i.severity)).toEqual(['act', 'info']);
   });
 });
 

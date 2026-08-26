@@ -78,9 +78,12 @@ import {
   getStorefrontPreviewProducts,
   listOrders,
   markOrderReady,
+  ordersNeedingActionCount,
   publishBlockers,
   publishDraft,
   saveDraft,
+  type OrderStatus,
+  type ShopOrder,
 } from '@/lib/storefront-admin';
 
 beforeEach(() => {
@@ -343,6 +346,47 @@ describe('listOrders', () => {
   it('throws on failure rather than swallowing it', async () => {
     fake.selectResult = { data: null, error: { message: 'boom' } };
     await expect(listOrders('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// Task 7: what Settings' Orders badge and the Dashboard's attention row both
+// count. 'pending' and 'accepted' are the two moves the shop itself has not
+// made yet; 'ready' still counts -- a prepped order nobody has handed over
+// or collected is just as unfinished, the same reading orders.tsx's own
+// UNCONFIRMED filter already gives it. 'completed' and 'cancelled' are the
+// two terminal states, deliberately excluded: a count that never reaches
+// zero is a badge nobody trusts by the second week.
+function order(status: OrderStatus): ShopOrder {
+  return {
+    id: `o-${status}`,
+    number: 1,
+    customerName: 'Amina Yusuf',
+    customerPhone: '+252634456789',
+    fulfilment: 'collect',
+    deliveryArea: null,
+    deliveryLandmark: null,
+    note: null,
+    status,
+    cancellationReason: status === 'cancelled' ? 'Out of stock' : null,
+    itemCount: 1,
+    totalCents: 500,
+    createdAt: '2026-08-20T09:00:00Z',
+  };
+}
+
+describe('ordersNeedingActionCount', () => {
+  it('counts pending, accepted and ready orders', () => {
+    const orders = [order('pending'), order('accepted'), order('ready')];
+    expect(ordersNeedingActionCount(orders)).toBe(3);
+  });
+
+  it('excludes completed and cancelled orders', () => {
+    const orders = [order('completed'), order('cancelled')];
+    expect(ordersNeedingActionCount(orders)).toBe(0);
+  });
+
+  it('is zero for an empty list', () => {
+    expect(ordersNeedingActionCount([])).toBe(0);
   });
 });
 

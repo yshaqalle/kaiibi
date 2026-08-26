@@ -414,6 +414,27 @@ function mapOrderRow(row: {
   };
 }
 
+// Task 7: what a shop still owes an order -- accept or decline a new one,
+// prep an accepted one, or hand over/settle a ready one. 'ready' counts on
+// purpose: a prepped order nobody has collected or delivered is just as
+// unfinished as one nobody has looked at, the same reading orders.tsx's own
+// UNCONFIRMED constant gives it. 'completed' and 'cancelled' are the two
+// terminal states and are deliberately absent -- a badge that counted them
+// would never clear, and a badge that never clears is one a shop stops
+// trusting by the second week.
+//
+// orders.tsx does NOT import this -- it keeps its own UNCONFIRMED, on
+// purpose: that screen's tests blanket-automock this module
+// (`jest.mock('@/lib/storefront-admin')`, no factory), which silently
+// replaces a plain array export with an empty one and breaks the caveat that
+// reads it. Two hand-written copies of the same three-state list is the
+// smaller risk here; keep them in sync if the vocabulary ever changes.
+export const ORDERS_NEEDING_ACTION: OrderStatus[] = ['pending', 'accepted', 'ready'];
+
+export function ordersNeedingActionCount(orders: ShopOrder[]): number {
+  return orders.filter((order) => ORDERS_NEEDING_ACTION.includes(order.status)).length;
+}
+
 // RLS ("own orders", 20260926000050) already narrows this to the caller's own
 // shop; the `eq` here is what makes the QUERY itself scoped rather than
 // relying on RLS alone to filter a table-wide select. Newest first -- the

@@ -2,6 +2,16 @@ import { billDueState } from '@/lib/cash-budget-reporting';
 import { balanceCents, invoiceStatus } from '@/lib/invoice-reporting';
 import type { BudgetRow } from '@/lib/cash-budget-reporting';
 import { varianceTone } from '@/lib/register-sessions';
+// Type-only: a runtime import of storefront-admin.ts would drag in
+// lib/supabase.ts, which throws at import time without live env vars (see
+// that file's own guard) -- every test that imports attention.ts, directly
+// or through dashboard.tsx, would need a supabase mock it has no other
+// reason to carry. `type` keeps this to a compile-time reference; the actual
+// "which states still need the shop" list is a small literal below, kept in
+// sync by comment with storefront-admin.ts's own ORDERS_NEEDING_ACTION
+// rather than imported, for the same reason that file gives for orders.tsx
+// not importing it either.
+import type { OrderStatus } from '@/lib/storefront-admin';
 import type { Customer, Invoice, Product, RecurringBill, RegisterSession, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // What needs attention right now, as pure functions over already-fetched rows.
@@ -25,7 +35,7 @@ export type AttentionSeverity =
   | 'info';
 
 /** Which part of the business — powers the filter chips once the list is long. */
-export type AttentionArea = 'money' | 'team' | 'stock' | 'customers';
+export type AttentionArea = 'money' | 'team' | 'stock' | 'customers' | 'orders';
 
 export type AttentionItem = {
   key: string;
@@ -55,8 +65,17 @@ export type AttentionInput = {
   expiringSoon: Product[];
   // Customers
   dormant: { customer: Customer; lastOrderAt: string }[];
+  // Storefront (Task 7). Every order the shop has, not pre-filtered -- same
+  // convention as openInvoices/closedSessions: buildAttentionItems below
+  // decides which ones count, so that decision lives in one place next to
+  // its own test rather than in every caller.
+  storefrontOrders: { status: OrderStatus }[];
   today?: Date;
 };
+
+// Mirrors storefront-admin.ts's ORDERS_NEEDING_ACTION -- see this file's own
+// import comment for why that is a literal here rather than a runtime import.
+const ORDERS_NEEDING_ACTION: OrderStatus[] = ['pending', 'accepted', 'ready'];
 
 const SEVERITY_ORDER: Record<AttentionSeverity, number> = { act: 0, soon: 1, info: 2 };
 
@@ -160,6 +179,28 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
     });
   }
 
+  // ── storefront orders ───────────────────────────────────────────────────
+  // Task 7: publishing a storefront is retroactively consent to take orders,
+  // and a shop that never thinks to open Settings -> Orders would otherwise
+  // never find out one arrived. One row for the group, not one per order --
+  // the same call the dormant-customers row below makes, and for the same
+  // reason: a shop with five new orders needs to know that, not read past
+  // five rows on the way to the register-drawer variance.
+  const ordersNeedingAction = input.storefrontOrders.filter((order) => ORDERS_NEEDING_ACTION.includes(order.status));
+  if (ordersNeedingAction.length > 0) {
+    items.push({
+      key: 'storefront-orders',
+      severity: 'act',
+      area: 'orders',
+      action: 'Review',
+      title:
+        ordersNeedingAction.length === 1
+          ? '1 storefront order needs action'
+          : `${ordersNeedingAction.length} storefront orders need action`,
+      detail: 'New orders wait to be accepted, prepped ones wait to be handed over.',
+    });
+  }
+
   // ── team ─────────────────────────────────────────────────────────────────
   if (input.pendingTimeOff.length > 0) {
     items.push({
@@ -243,7 +284,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
 
 /** Counts per area, for the filter chips. */
 export function attentionCounts(items: AttentionItem[]): Record<AttentionArea | 'all', number> {
-  const counts = { all: items.length, money: 0, team: 0, stock: 0, customers: 0 };
+  const counts = { all: items.length, money: 0, team: 0, stock: 0, customers: 0, orders: 0 };
   for (const item of items) counts[item.area] += 1;
   return counts;
 }
