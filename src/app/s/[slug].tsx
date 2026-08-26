@@ -38,9 +38,19 @@ export default function StorefrontScreen() {
         // treats an empty list the same as collection-only, so there is
         // nothing to gain from asking every collection-only shop's page load
         // to also pay for this RPC.
+        //
+        // B3: `.catch(() => [])` on this one call, not the whole Promise.all.
+        // products and the shop read above are essential -- without them
+        // there is no page -- but areas are not: this file's own comment two
+        // lines up already says an empty list reads identically to
+        // collection-only, so a blip on THIS read must fall back to that,
+        // not drag a published, working shop down to the same "no shop at
+        // this address" page an unknown slug gets. Left un-caught, a reject
+        // here would still propagate through Promise.all into the outer
+        // catch below and do exactly that.
         const [products, areas] = await Promise.all([
           getPublicStorefrontProducts(String(slug)),
-          shop.offersDelivery ? getPublicDeliveryAreas(String(slug)) : Promise.resolve([]),
+          shop.offersDelivery ? getPublicDeliveryAreas(String(slug)).catch(() => []) : Promise.resolve([]),
         ]);
         if (!cancelled) setState({ status: 'ready', shop, products, areas });
       } catch {
