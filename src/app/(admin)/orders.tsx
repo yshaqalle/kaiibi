@@ -13,6 +13,16 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
+// The states a shop still has something to do about -- what "unconfirmed"
+// means for the caveat below. Deliberately NOT `pending` alone: an accepted
+// or ready order is just as unconverted, it is only further along the same
+// unfinished road. Same rule storefront-admin.ts calls ORDERS_NEEDING_ACTION
+// (renamed on import for this screen's own vocabulary); imported from
+// lib/order-status.ts rather than lib/storefront-admin.ts directly because
+// this screen's own tests blanket-automock the latter
+// (`jest.mock('@/lib/storefront-admin')`, no factory), which would silently
+// replace a plain array export with an empty one.
+import { ORDERS_NEEDING_ACTION as UNCONFIRMED } from '@/lib/order-status';
 import {
   acceptOrder,
   cancelOrder,
@@ -52,12 +62,6 @@ const TABS: { key: OrderStatus; label: string; needsCount: boolean }[] = [
   { key: 'completed', label: 'Done', needsCount: false },
   { key: 'cancelled', label: 'Cancelled', needsCount: false },
 ];
-
-// The states a shop still has something to do about -- what
-// "unconfirmed" means for the caveat below. Deliberately NOT `pending` alone:
-// an accepted or ready order is just as unconverted, it is only further
-// along the same unfinished road.
-const UNCONFIRMED: OrderStatus[] = ['pending', 'accepted', 'ready'];
 
 function fulfilmentLabel(order: ShopOrder): string {
   return order.fulfilment === 'deliver' ? `Deliver · ${order.deliveryArea ?? '—'}` : 'Collect';

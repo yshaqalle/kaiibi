@@ -1,16 +1,15 @@
 import { billDueState } from '@/lib/cash-budget-reporting';
 import { balanceCents, invoiceStatus } from '@/lib/invoice-reporting';
 import type { BudgetRow } from '@/lib/cash-budget-reporting';
+import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { varianceTone } from '@/lib/register-sessions';
 // Type-only: a runtime import of storefront-admin.ts would drag in
 // lib/supabase.ts, which throws at import time without live env vars (see
 // that file's own guard) -- every test that imports attention.ts, directly
 // or through dashboard.tsx, would need a supabase mock it has no other
 // reason to carry. `type` keeps this to a compile-time reference; the actual
-// "which states still need the shop" list is a small literal below, kept in
-// sync by comment with storefront-admin.ts's own ORDERS_NEEDING_ACTION
-// rather than imported, for the same reason that file gives for orders.tsx
-// not importing it either.
+// value -- ORDERS_NEEDING_ACTION, imported above -- lives in
+// lib/order-status.ts instead, which has no such dependency.
 import type { OrderStatus } from '@/lib/storefront-admin';
 import type { Customer, Invoice, Product, RecurringBill, RegisterSession, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
@@ -72,10 +71,6 @@ export type AttentionInput = {
   storefrontOrders: { status: OrderStatus }[];
   today?: Date;
 };
-
-// Mirrors storefront-admin.ts's ORDERS_NEEDING_ACTION -- see this file's own
-// import comment for why that is a literal here rather than a runtime import.
-const ORDERS_NEEDING_ACTION: OrderStatus[] = ['pending', 'accepted', 'ready'];
 
 const SEVERITY_ORDER: Record<AttentionSeverity, number> = { act: 0, soon: 1, info: 2 };
 
