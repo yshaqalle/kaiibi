@@ -49,6 +49,7 @@
   .dx b{display:block;font-size:13px;margin-bottom:3px;}
   .dx p{margin:0;font-size:13px;color:var(--ink2);}
   .dx.no{border-left-color:#b3261e;}
+  .dx.done{border-left-color:#008340;}
 
   .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
   .frameHead b{font-size:14px;font-weight:800;}
@@ -342,6 +343,7 @@
       <div class="dx"><b>None renders nothing</b><p>No empty frame, no placeholder. The photo-optional rule every theme already follows.</p></div>
       <div class="dx"><b>One is a hero</b><p>A single flyer renders static, with no dots and no arrows. A carousel of one is a lie.</p></div>
       <div class="dx no"><b>Counter gets none</b><p>It is a dense price list built to make a 200-line catalogue readable. A carousel fights that.</p></div>
+      <div class="dx done"><b>An offer's words are derived</b><p>Attach a promotion and the page says what the till will actually give, the way a printed poster already does. Only the headline is typed.</p></div>
     </div>
 
     <div class="pair two" style="margin-top:22px">
@@ -499,6 +501,10 @@
             <div class="input" style="margin-top:9px">Solar</div>
             <p class="hint">Takes the customer to your solar items.</p>
 
+            <div class="fieldLabel">Offer behind it <span style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></div>
+            <div class="input ro">20% off solar &nbsp;·&nbsp; ends Saturday</div>
+            <p class="hint">Chosen from your running offers. The page shows what the till will give, so the two cannot disagree. Leave it empty for an announcement.</p>
+
             <div class="btnRow">
               <span class="btn pri">Save</span>
               <span class="btn">Save as draft</span>
@@ -528,7 +534,9 @@
       <thead><tr><th style="width:26%">Object</th><th>Why</th></tr></thead>
       <tbody>
         <tr><td><b><code>storefront_flyers</code></b></td>
-            <td>One row per slide: <code>storefront_id</code>, <code>image_path</code>, <code>headline</code>, <code>subline</code>, <code>link_kind</code>, <code>link_value</code>, <code>position</code>, <code>draft</code>. Read publicly through the existing <code>security definer</code> pattern, never by direct table grant.</td></tr>
+            <td>One row per slide: <code>storefront_id</code>, <code>image_path</code>, <code>headline</code>, <code>subline</code>, <code>link_kind</code>, <code>link_value</code>, <code>position</code>, <code>draft</code>, and <b><code>promotion_id</code> nullable, <code>on delete set null</code></b> — the same shape <code>campaigns</code> already uses, and for the same reason: deleting an offer must not delete the thing that mentioned it. Read publicly through the existing <code>security definer</code> pattern, never by direct table grant.</td></tr>
+        <tr><td><b>The offer's words</b></td>
+            <td>Derived at read time from the promotion, reusing what <code>src/lib/poster.ts</code> already does for paper, so one offer cannot read three ways across the till, the poster and the page. A flyer whose promotion has expired stops claiming a discount on its own — the alternative is a public page advertising a price the till refuses, around the clock, to strangers.</td></tr>
         <tr><td><b>A public read</b></td>
             <td>Extends the storefront read RPC rather than adding a fourth: an unpublished shop and an unknown slug must stay byte-identical, which is only true if flyers travel with the same call.</td></tr>
         <tr><td><b><code>auto_advance</code></b></td>
@@ -546,8 +554,8 @@
       <tbody>
         <tr><td>Scheduling a flyer to appear on a date</td>
             <td>Worth wanting and much bigger. Draft plus a tap is enough to run a week's promotion today.</td></tr>
-        <tr><td>Tying a flyer to the promotions module</td>
-            <td>A flyer is marketing; a promotion is pricing. Conflating them makes the discount engine's behaviour unclear, and the discount engine posts to the ledger.</td></tr>
+        <tr><td>Applying a discount from a flyer</td>
+            <td>A flyer READS a promotion so its words cannot contradict the till. It never applies one — the discount engine is untouched, and it is the engine that posts to the ledger.</td></tr>
         <tr><td>Reserving an address before it is claimed</td>
             <td>Stays first-come. <code>claim_shop_slug</code> already raises <code>slug_taken</code> on a lost race.</td></tr>
         <tr><td>Redirecting an old address to a new one</td>
