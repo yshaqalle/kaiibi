@@ -246,12 +246,30 @@ export default function StorefrontEditor() {
       return;
     }
     setSlugState('checking');
+    // `cancelled`, not just clearTimeout. Once checkSlug is in flight the
+    // timer is already spent, so clearing it stops nothing -- and a verdict
+    // that lands after the shopkeeper has typed on is a verdict about a
+    // string that is no longer in the field.
+    //
+    // That is not a cosmetic staleness. ContentDrawer freezes a collision
+    // base off `value.slug` the moment it sees 'taken', so a late 'taken'
+    // for "xamdi" arriving while the field reads "xamdi-electronics" would
+    // freeze the LONGER value as the base and open a suffix field under it --
+    // walking the shop into an address it was never told was taken.
+    let cancelled = false;
     const handle = setTimeout(() => {
       checkSlug(trimmed)
-        .then((result) => setSlugState(result ?? 'idle'))
-        .catch(() => setSlugState('idle'));
+        .then((result) => {
+          if (!cancelled) setSlugState(result ?? 'idle');
+        })
+        .catch(() => {
+          if (!cancelled) setSlugState('idle');
+        });
     }, 400);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [slugDraft, working?.slug]);
 
   // Cancels any pending autosave timer without flushing it -- used on
