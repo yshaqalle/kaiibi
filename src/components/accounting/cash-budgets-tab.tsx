@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
+import { TransferFundsModal } from '@/components/accounting/transfer-funds-modal';
 import { RegisterSessionDetail } from '@/components/register-session-detail';
 import { RegisterSessionsCard, type SessionRow } from '@/components/accounting/register-sessions-card';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
@@ -87,6 +88,12 @@ export function CashBudgetsTab({
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [editingBill, setEditingBill] = useState<RecurringBill | 'new' | null>(null);
   const [addingAccount, setAddingAccount] = useState(false);
+  // Moving money between the shop's own cash accounts. It lives HERE and not on
+  // the Accounting hub, which is where the design drew it: transfer_funds gates
+  // on budgets.manage -- the permission this whole tab already gates on, and the
+  // one the Manager who banks the float holds while holding no ledger.*
+  // permission at all. See transfer-funds-modal.tsx's header for the argument.
+  const [moving, setMoving] = useState(false);
   // Expenses reaching back to the oldest confirmed balance, so each account's
   // "expected change since" covers the whole window rather than only whatever
   // range the screen happens to be showing.
@@ -251,6 +258,7 @@ export function CashBudgetsTab({
     <View>
       <CashBudgetsHeaderActions
         onNewBill={() => setEditingBill('new')}
+        onMoveMoney={() => setMoving(true)}
         setHeaderActions={setHeaderActions}
       />
 
@@ -479,6 +487,13 @@ export function CashBudgetsTab({
       )}
       </BentoGrid>
 
+      {/* Mounted only while open, so it reads the balances fresh each time
+          rather than needing an effect to reset them. `reload` is passed so the
+          Cash position card behind it moves the moment the transfer posts. */}
+      {moving && shop && (
+        <TransferFundsModal shopId={shop.id} onClose={() => setMoving(false)} onTransferred={reload} />
+      )}
+
       {editingBill !== null && shop && (
         <RecurringBillModal
           key={editingBill === 'new' ? 'new' : editingBill.id}
@@ -510,17 +525,29 @@ export function CashBudgetsTab({
 // return.
 function CashBudgetsHeaderActions({
   onNewBill,
+  onMoveMoney,
   setHeaderActions,
 }: {
   onNewBill: () => void;
+  onMoveMoney: () => void;
   setHeaderActions: HeaderActionsSetter;
 }) {
   useHeaderActions(
     setHeaderActions,
-    <Pressable onPress={onNewBill} style={styles.newButton}>
-      <Text style={styles.newButtonText}>+ New bill</Text>
-    </Pressable>,
-    [onNewBill]
+    // Move money takes the quiet button and sits FIRST: it happens far more
+    // often than setting up a recurring bill (a float goes to the bank most
+    // evenings; a rent agreement is entered once), and it records something
+    // that already happened rather than creating a commitment. The solid button
+    // stays with the one that creates.
+    <>
+      <Pressable onPress={onMoveMoney} style={styles.quietButton} role="button">
+        <Text style={styles.quietButtonText}>Move money</Text>
+      </Pressable>
+      <Pressable onPress={onNewBill} style={styles.newButton} role="button">
+        <Text style={styles.newButtonText}>+ New bill</Text>
+      </Pressable>
+    </>,
+    [onNewBill, onMoveMoney]
   );
   return null;
 }
@@ -744,6 +771,11 @@ const styles = StyleSheet.create({
 
   newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
+  // The quiet twin of `newButton`, for the action that RECORDS rather than
+  // creates. Bento tokens: this button is new, and the rest of this file's
+  // cream literals are a conversion nobody has finished, not a licence.
+  quietButton: { backgroundColor: theme.bentoSoft, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  quietButtonText: { color: theme.bentoInk2, fontWeight: '800', fontSize: 11 },
   smallButton: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#F2F2F2' },
   smallButtonText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },
   smallButtonDark: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#111111' },
