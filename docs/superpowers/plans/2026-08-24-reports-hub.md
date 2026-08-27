@@ -24,21 +24,30 @@
 | **Tasks 3–5** sales, item, employee | ✅ `cad4e7e` |
 | **Tasks 6–8** category, inventory, low stock | ✅ `aeaa2e0` |
 | **Task 9** stock movement + exhaustive routing | ✅ `e417849` |
-| **Task 10** prove it in the browser | ❌ not started |
+| **Task 10** prove it in the browser | ✅ `00d1dea` — **found a wrong number** |
 
-**All seven reports are built and routed. Still do not open a PR** — Task 10 is the only thing left, and nothing here has been seen in a browser. Every figure was verified by test and by type, which is exactly the kind of verification that missed this phase's two worst defects.
+**All ten tasks are done and the work is verified on web against the real test shop.** Not verified on iPhone, iPad or Android — the reports are new screens using existing primitives, so a native pass is worth doing before release but nothing in the diff is platform-specific.
+
+**Task 10 earned its place.** It found a store share rendering at **124.7%**, through 3381 passing tests: the numerator was revenue before refunds, the denominator `netRevenueCents` after them, and the test fixtures had no refunds so the two were equal. Fixed in `00d1dea` by moving the rule to `sharesOfOwnTotal()` in `report-math.ts`. **This is the third time this phase that a fixture-proved figure was wrong against real rows — treat "the tests pass" as the weakest evidence available.**
+
+Two design rules earned their keep on real data rather than in a fixture, and both are the difference between a usable report and a badly wrong one:
+
+- **Uncategorised is 94% of this shop's revenue.** Filtering it out — the naive version — would have taken every share of $14.70 instead of $244.95.
+- **Sales with no cashier are 18% of it.** Dropping them would leave the column $44 short of the shop's takings with nothing explaining the gap.
+
+And `getLowStockProducts` would have invented a reorder list: **not one of the 12 stock rows has a reorder level**, so the screen correctly rendered its `none-configured` branch.
 
 **This plan's stated baselines are fiction.** It pins "expected lint after" at 83–89 per task; phase 3 shipped since and the real figure was **122** before this work. **Measure your own and hold those** — a plan that pins a moving baseline teaches its reader to ignore a real regression.
 
 | | `3666d5b` (before) | `e417849` (now) |
 |---|---|---|
 | `tsc` | clean | clean |
-| `npm test` | 186 suites / 3360 tests | 186 suites / **3381** tests |
+| `npm test` | 186 suites / 3360 tests | 186 suites / **3384** tests |
 | `npm run lint` | 122 (56 err, 66 warn) | **129** (63 err, 66 warn) |
 | `npm run test:db` | 42 | 42 |
 | DB head | `20261008000200` | unchanged |
 
-**The +7 lint is exactly one per new data-loading view**, all of it the mount-effect rule `use-refresh-on-focus.ts:28-31` depends on. Anything above 129 is a real regression. The +21 tests are all `report-math.ts`.
+**The +7 lint is exactly one per new data-loading view**, all of it the mount-effect rule `use-refresh-on-focus.ts:28-31` depends on. Anything above 129 is a real regression. The +24 tests are all `report-math.ts`.
 
 **Batching worked and is worth repeating.** Tasks 3–9 went in three commits, not seven: they share the roll-ups in `report-math.ts` and one read each in `reports.ts`, so a commit per task would have put code in the first that only the last used.
 
