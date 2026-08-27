@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
+import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
-  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, WhatsAppButton,
-  gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  CartButton, CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
+  WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 
 export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeProps) {
@@ -13,6 +14,12 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
   const numColumns = gridColumnsForWidth(width);
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  // Set by a flyer whose link_kind is 'category'. Lives here rather than in
+  // the band because it is the GRID's state -- what is on show is this
+  // screen's business, and a display component holding it would put the same
+  // decision in two places.
+  const [category, setCategory] = useState<string | null>(null);
+  const shown = filterByCategory(products, category);
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -71,15 +78,33 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
       </View>
 
       {storefront.headline ? (
-        <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
+        <Text testID="storefront-headline" style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
       ) : null}
-      {storefront.about ? <Text style={[styles.about, { color: colors.muted }]}>{storefront.about}</Text> : null}
+      {storefront.about ? (
+        <Text testID="storefront-about" style={[styles.about, { color: colors.muted }]}>{storefront.about}</Text>
+      ) : null}
 
-      {products.length === 0 ? (
+      {/* Below the name and the blurb, above the goods. A customer arriving
+          on a forwarded link needs to know whose page this is before the
+          loudest thing on it speaks -- and the poster belongs next to what it
+          points at, not stranded above the header. Renders nothing at all
+          when the shop has no flyers; see FlyerCarousel. */}
+      <FlyerCarousel
+        flyers={storefront.flyers}
+        colors={colors}
+        shopName={storefront.shopName}
+        whatsappE164={storefront.whatsappE164}
+        onSelectCategory={setCategory}
+        autoAdvance={storefront.autoAdvance}
+      />
+      <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
+
+      {shown.length === 0 ? (
         <EmptyState colors={colors} />
       ) : (
         <FlatList
-          data={products}
+          testID="storefront-goods"
+          data={shown}
           // FlatList refuses to change numColumns on the fly (RN warns and
           // ignores it) -- `key` forces a fresh mount whenever the column
           // count crosses a breakpoint, which is the pattern RN's own error

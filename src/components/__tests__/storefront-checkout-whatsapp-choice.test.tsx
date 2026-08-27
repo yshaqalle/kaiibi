@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { AccessibilityInfo, type EmitterSubscription, Platform } from 'react-native';
 import { act, create, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
 
 // THE test the shipped defect needed and never got. Every other test that
@@ -21,6 +21,12 @@ jest.mock('@/lib/supabase', () => ({ supabase: { rpc: (...args: unknown[]) => mo
 
 const mockOpenExternalUrl = jest.fn();
 jest.mock('@/lib/external-url', () => ({ openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args) }));
+
+// ThemeMarket mounts FlyerCarousel even with no flyers (its hooks run
+// unconditionally); Task 4's mount effect calls
+// AccessibilityInfo.isReduceMotionEnabled(). Nothing here is about motion.
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -83,6 +89,10 @@ const storefront: PublicStorefront = {
   heroImageUrl: null,
   offersDelivery: false,
   paymentMode: 'on_collection',
+  // No flyers: these fixtures predate them, and a shop with none must
+  // render exactly as it did before they existed.
+  flyers: [],
+  autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

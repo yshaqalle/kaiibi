@@ -3,6 +3,10 @@ type FakeState = {
   rpcResult: { data: unknown; error: unknown };
   updateCalls: { table: string; payload: unknown }[];
   updateResult: { error: unknown };
+  insertCalls: { table: string; payload: unknown }[];
+  insertResult: { error: unknown };
+  deleteCalls: string[];
+  deleteResult: { error: unknown };
   eqCalls: [string, unknown][];
   inCalls: [string, unknown][];
   orderCalls: [string, unknown][];
@@ -30,6 +34,10 @@ jest.mock('@/lib/supabase', () => {
     rpcResult: { data: null, error: null },
     updateCalls: [],
     updateResult: { error: null },
+    insertCalls: [],
+    insertResult: { error: null },
+    deleteCalls: [],
+    deleteResult: { error: null },
     eqCalls: [],
     inCalls: [],
     orderCalls: [],
@@ -48,6 +56,22 @@ jest.mock('@/lib/supabase', () => {
           eq: (column: string, value: unknown) => {
             state.eqCalls.push([column, value]);
             return Promise.resolve(state.updateResult);
+          },
+        };
+      },
+      // Flyers are the first storefront-admin rows written by a plain insert
+      // (delivery areas go through saveDeliveryArea's own upsert-by-id) and
+      // the first deleted by one, so both chains join the fake here.
+      insert: (payload: unknown) => {
+        state.insertCalls.push({ table, payload });
+        return Promise.resolve(state.insertResult);
+      },
+      delete: () => {
+        state.deleteCalls.push(table);
+        return {
+          eq: (column: string, value: unknown) => {
+            state.eqCalls.push([column, value]);
+            return Promise.resolve(state.deleteResult);
           },
         };
       },
@@ -89,16 +113,24 @@ import {
   cancelOrder,
   completeOrder,
   countOrdersNeedingAction,
+  createFlyer,
+  deleteFlyer,
   discardDraft,
+  FLYER_LIMIT,
+  flyerErrorMessage,
   getOrderItems,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
+  listFlyers,
   listOrders,
   markOrderReady,
   orderErrorMessage,
   publishBlockers,
   publishDraft,
+  reorderFlyers,
   saveDraft,
+  setAutoAdvance,
+  updateFlyer,
 } from '@/lib/storefront-admin';
 
 beforeEach(() => {
@@ -106,6 +138,10 @@ beforeEach(() => {
   fake.rpcResult = { data: null, error: null };
   fake.updateCalls.length = 0;
   fake.updateResult = { error: null };
+  fake.insertCalls.length = 0;
+  fake.insertResult = { error: null };
+  fake.deleteCalls.length = 0;
+  fake.deleteResult = { error: null };
   fake.eqCalls.length = 0;
   fake.inCalls.length = 0;
   fake.orderCalls.length = 0;
@@ -677,5 +713,206 @@ describe('completeOrder', () => {
   it('throws the RPC error rather than swallowing it -- e.g. a stock shortfall discovered at hand-over', async () => {
     fake.rpcResult = { data: null, error: { message: 'insufficient_stock' } };
     await expect(completeOrder('order-1', 'cash')).rejects.toEqual({ message: 'insufficient_stock' });
+  });
+});
+
+// ── Flyers (Task 5) ─────────────────────────────────────────────────────
+//
+// The five-per-shop limit itself is a database trigger (20260930000000) and
+// is proved against a real database in verify-storefront-flyers.sql check 7.
+// What belongs here is only that these are thin, faithful wrappers around the
+// table -- the right columns, the right order -- and that the trigger's
+// refusal is turned into a sentence rather than passed through as the raw
+// token this repo has shipped to users before.
+
+describe('listFlyers', () => {
+  it("reads a shop's flyers in the order a customer will see them, mapping every column", async () => {
+    fake.selectResult = {
+      data: [
+        {
+          id: 'f1',
+          image_path: 'shop-1/storefront-flyer-1.jpg',
+          headline: '20% off all solar',
+          subline: 'This week only.',
+          link_kind: 'category',
+          link_value: 'Solar',
+          position: 0,
+          draft: false,
+          promotion_id: 'promo-solar',
+        },
+      ],
+      error: null,
+    };
+    const flyers = await listFlyers('shop-1');
+    expect(fake.selectCalls).toEqual([
+      { table: 'storefront_flyers', columns: 'id, image_path, headline, subline, link_kind, link_value, position, draft, promotion_id' },
+    ]);
+    expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
+    expect(fake.orderCalls).toEqual([['position', { ascending: true }]]);
+    expect(flyers).toEqual([
+      {
+        id: 'f1',
+        imagePath: 'shop-1/storefront-flyer-1.jpg',
+        headline: '20% off all solar',
+        subline: 'This week only.',
+        linkKind: 'category',
+        linkValue: 'Solar',
+        position: 0,
+        draft: false,
+        promotionId: 'promo-solar',
+      },
+    ]);
+  });
+
+  it('throws on failure rather than showing a shop an empty list of flyers it actually has', async () => {
+    fake.selectResult = { data: null, error: { message: 'boom' } };
+    await expect(listFlyers('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+describe('createFlyer', () => {
+  it('inserts the flyer under the shop, in snake_case, at the position it was given', async () => {
+    await createFlyer('shop-1', {
+      imagePath: 'shop-1/storefront-flyer-1.jpg',
+      headline: 'Ciid wanaagsan',
+      subline: null,
+      linkKind: 'none',
+      linkValue: null,
+      position: 2,
+      draft: true,
+      promotionId: null,
+    });
+    expect(fake.insertCalls).toEqual([
+      {
+        table: 'storefront_flyers',
+        payload: {
+          shop_id: 'shop-1',
+          image_path: 'shop-1/storefront-flyer-1.jpg',
+          headline: 'Ciid wanaagsan',
+          subline: null,
+          link_kind: 'none',
+          link_value: null,
+          position: 2,
+          draft: true,
+          promotion_id: null,
+        },
+      },
+    ]);
+  });
+
+  it('throws the trigger error rather than swallowing it, so the caller can say what happened', async () => {
+    fake.insertResult = { error: { message: 'flyer_limit_reached' } };
+    await expect(
+      createFlyer('shop-1', {
+        imagePath: 'x',
+        headline: null,
+        subline: null,
+        linkKind: 'none',
+        linkValue: null,
+        position: 5,
+        draft: false,
+        promotionId: null,
+      })
+    ).rejects.toEqual({ message: 'flyer_limit_reached' });
+  });
+});
+
+describe('updateFlyer', () => {
+  it('writes only the fields it was handed, so an edit to the headline cannot blank the image', async () => {
+    await updateFlyer('f1', { headline: 'New words', draft: false });
+    expect(fake.updateCalls).toEqual([{ table: 'storefront_flyers', payload: { headline: 'New words', draft: false } }]);
+    expect(fake.eqCalls).toEqual([['id', 'f1']]);
+  });
+
+  it('carries an explicitly cleared field through as null rather than dropping it', async () => {
+    await updateFlyer('f1', { promotionId: null, subline: null });
+    expect(fake.updateCalls).toEqual([{ table: 'storefront_flyers', payload: { promotion_id: null, subline: null } }]);
+  });
+
+  it('throws on failure rather than swallowing it', async () => {
+    fake.updateResult = { error: { message: 'boom' } };
+    await expect(updateFlyer('f1', { headline: 'x' })).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+describe('deleteFlyer', () => {
+  it('deletes the one row by id', async () => {
+    await deleteFlyer('f1');
+    expect(fake.deleteCalls).toEqual(['storefront_flyers']);
+    expect(fake.eqCalls).toEqual([['id', 'f1']]);
+  });
+
+  it('throws on failure rather than letting a row vanish from screen while it still exists', async () => {
+    fake.deleteResult = { error: { message: 'boom' } };
+    await expect(deleteFlyer('f1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+describe('reorderFlyers', () => {
+  it('writes each flyer its index in the order it was given, so the list itself is the truth', async () => {
+    await reorderFlyers(['b', 'a', 'c']);
+    expect(fake.updateCalls).toEqual([
+      { table: 'storefront_flyers', payload: { position: 0 } },
+      { table: 'storefront_flyers', payload: { position: 1 } },
+      { table: 'storefront_flyers', payload: { position: 2 } },
+    ]);
+    expect(fake.eqCalls).toEqual([
+      ['id', 'b'],
+      ['id', 'a'],
+      ['id', 'c'],
+    ]);
+  });
+
+  it('throws on failure rather than leaving the shop looking at an order that never saved', async () => {
+    fake.updateResult = { error: { message: 'boom' } };
+    await expect(reorderFlyers(['a', 'b'])).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// auto_advance is written LIVE, not staged into `draft` -- publish_storefront
+// (20260925000200) copies a fixed list of keys out of that column and
+// auto_advance is not one of them, so a staged value would never reach the
+// live page. Same posture as delivery areas, which the editor already tells
+// the shop save straight to the live page.
+describe('setAutoAdvance', () => {
+  it("writes the column directly rather than staging it in a draft that would never publish it", async () => {
+    await setAutoAdvance('shop-1', true);
+    expect(fake.updateCalls).toEqual([{ table: 'storefronts', payload: { auto_advance: true } }]);
+    expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it('throws on failure rather than swallowing it', async () => {
+    fake.updateResult = { error: { message: 'boom' } };
+    await expect(setAutoAdvance('shop-1', false)).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+describe('flyerErrorMessage', () => {
+  it("turns the trigger's flyer_limit_reached into a sentence naming the cap and the fix", () => {
+    const message = flyerErrorMessage({
+      message: 'flyer_limit_reached',
+      details: JSON.stringify({ resource: 'storefront_flyers', limit: 5, usage: 5 }),
+    });
+    expect(message).not.toBeNull();
+    expect(message).not.toContain('flyer_limit_reached');
+    expect(message).toContain('5');
+    expect(message).toMatch(/remove one/i);
+  });
+
+  it("reads the cap out of the refusal rather than assuming this build's own number", () => {
+    expect(flyerErrorMessage({ message: 'flyer_limit_reached', details: JSON.stringify({ limit: 3, usage: 3 }) })).toContain('3');
+  });
+
+  it('still says something useful when the refusal carries no detail at all', () => {
+    const message = flyerErrorMessage({ message: 'flyer_limit_reached' });
+    expect(message).toMatch(/remove one/i);
+    expect(message).toContain(String(FLYER_LIMIT));
+  });
+
+  it('returns null for anything else, so a caller keeps its own error path for a real failure', () => {
+    expect(flyerErrorMessage(new Error('network request failed'))).toBeNull();
+    expect(flyerErrorMessage({ message: 'module_not_included' })).toBeNull();
+    expect(flyerErrorMessage(null)).toBeNull();
   });
 });

@@ -49,6 +49,10 @@ const shop: PublicStorefront = {
   heroImageUrl: null,
   offersDelivery: true,
   paymentMode: 'on_collection',
+  // No flyers: these fixtures predate them, and a shop with none must
+  // render exactly as it did before they existed.
+  flyers: [],
+  autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

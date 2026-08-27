@@ -1,4 +1,4 @@
-import { FlatList } from 'react-native';
+import { AccessibilityInfo, type EmitterSubscription, FlatList } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { ThemeWindow } from '@/components/storefront/theme-window';
@@ -6,6 +6,12 @@ import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+
+// ThemeWindow mounts FlyerCarousel even with no flyers (its hooks run
+// unconditionally); Task 4's mount effect calls
+// AccessibilityInfo.isReduceMotionEnabled(). Nothing here is about motion.
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 // `findAll` matches a testID against every test instance carrying that prop
 // -- Pressable is composite and forwards testID down through a forwardRef
@@ -42,6 +48,10 @@ const shop: PublicStorefront = {
   heroImageUrl: null,
   offersDelivery: true,
   paymentMode: 'on_collection',
+  // No flyers: these fixtures predate them, and a shop with none must
+  // render exactly as it did before they existed.
+  flyers: [],
+  autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

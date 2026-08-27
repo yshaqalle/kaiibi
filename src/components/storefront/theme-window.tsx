@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { FlatList, Image, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
+import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
-  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, WhatsAppButton,
-  gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  CartButton, CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
+  WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 
 // The only theme that reads hero_image_url. When there isn't one the hero falls
@@ -16,6 +17,10 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
   const numColumns = gridColumnsForWidth(width);
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  // See theme-market.tsx's comment on this pair -- what is on show is the
+  // grid's state, and a flyer only reports the category it names.
+  const [category, setCategory] = useState<string | null>(null);
+  const shown = filterByCategory(products, category);
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -72,16 +77,32 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
           <Image source={{ uri: storefront.heroImageUrl }} style={styles.heroImage} resizeMode="cover" />
         ) : null}
         {storefront.headline ? (
-          <Text style={[styles.heroHead, { color: colors.ink }]}>{storefront.headline}</Text>
+          <Text testID="storefront-headline" style={[styles.heroHead, { color: colors.ink }]}>{storefront.headline}</Text>
         ) : null}
-        {storefront.about ? <Text style={[styles.heroAbout, { color: colors.muted }]}>{storefront.about}</Text> : null}
+        {storefront.about ? (
+          <Text testID="storefront-about" style={[styles.heroAbout, { color: colors.muted }]}>{storefront.about}</Text>
+        ) : null}
       </View>
 
-      {products.length === 0 ? (
+      {/* See theme-market.tsx's comment: below the name and the blurb -- here
+          that means below the whole hero panel, which is where Window puts
+          both -- and above the goods. */}
+      <FlyerCarousel
+        flyers={storefront.flyers}
+        colors={colors}
+        shopName={storefront.shopName}
+        whatsappE164={storefront.whatsappE164}
+        onSelectCategory={setCategory}
+        autoAdvance={storefront.autoAdvance}
+      />
+      <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
+
+      {shown.length === 0 ? (
         <EmptyState colors={colors} />
       ) : (
         <FlatList
-          data={products}
+          testID="storefront-goods"
+          data={shown}
           // See theme-market.tsx's comment on this same pattern.
           key={numColumns}
           numColumns={numColumns}

@@ -137,6 +137,42 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
   );
 }
 
+// Property 6 of the flyers brief: a slide with `link_kind = 'category'`
+// filters the page. Case- and whitespace-insensitive because the two sides
+// have different authors -- `link_value` is what the shop typed on the flyer,
+// `products.category` is what they typed on the product, months apart -- and
+// "solar " not matching "Solar" would be a dead end a customer cannot see the
+// cause of.
+//
+// Shared rather than written twice: Market and Window both do this, Counter
+// renders no flyers and so never calls it.
+export function filterByCategory(products: StorefrontProduct[], category: string | null): StorefrontProduct[] {
+  if (!category) return products;
+  const wanted = category.trim().toLowerCase();
+  return products.filter((p) => (p.category ?? '').trim().toLowerCase() === wanted);
+}
+
+// The way back out of that filter. Renders only while one is applied -- a
+// permanent "showing everything" chip would be a control that never does
+// anything -- and says which category it is showing, because the flyer that
+// set it may well have been scrolled past by now.
+export function CategoryFilterBar({
+  colors, category, onClear,
+}: { colors: PaletteColors; category: string | null; onClear: () => void }) {
+  if (!category) return null;
+  return (
+    <Pressable
+      testID="storefront-category-clear"
+      accessibilityRole="button"
+      accessibilityLabel={`Showing ${category} only. Show everything`}
+      onPress={onClear}
+      style={[styles.filterChip, { backgroundColor: colors.soft }]}
+    >
+      <Text style={[styles.filterChipText, { color: colors.ink }]}>{category} · Show everything ✕</Text>
+    </Pressable>
+  );
+}
+
 // A hardcoded numColumns=2 suits the 390px phone the plan was verified at,
 // but leaves a 1280px laptop with a couple of oversized tiles and vast empty
 // margins either side. Breakpoints roughly split phone / tablet / laptop --
@@ -469,6 +505,8 @@ const styles = StyleSheet.create({
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
   cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   cartText: { fontSize: 12.5, fontWeight: '800' },
+  filterChip: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14, marginTop: 12 },
+  filterChipText: { fontSize: 12.5, fontWeight: '800' },
   // Full-size default: ProductTile's grid tile, where the pair fills the
   // tile's own width evenly.
   actions: { flexDirection: 'row', gap: 6 },

@@ -6,6 +6,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { ContentDrawer, type ContentDrawerFocusRequest, type ContentDrawerValue, type SlugState } from '@/components/storefront/editor/content-drawer';
 import { DeliveryEditor, type SavedArea } from '@/components/storefront/editor/delivery-editor';
 import { DesignStrip } from '@/components/storefront/editor/design-strip';
+import { FlyerEditor, type FlyerFields } from '@/components/storefront/editor/flyer-editor';
 import { PublishBar } from '@/components/storefront/editor/publish-bar';
 import { StorefrontView } from '@/components/storefront/storefront-view';
 import { AppModal } from '@/components/ui/app-modal';
@@ -14,30 +15,40 @@ import { Caveat } from '@/components/ui/caveat';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { isPromotionLive } from '@/lib/discounts';
 import { describePlanError } from '@/lib/entitlements';
-import { uploadImage } from '@/lib/storage';
+import { posterCopyFor } from '@/lib/poster';
+import { listPromotions } from '@/lib/promotions';
+import { publicImageUrl, uploadImage } from '@/lib/storage';
 import {
   checkSlug,
   claimSlug,
   countOnlineProducts,
+  createFlyer,
   deleteDeliveryArea,
+  deleteFlyer,
   discardDraft,
   ensureStorefront,
   getMyStorefront,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
   listDeliveryAreas,
+  listFlyers,
   publishBlockers,
   publishDraft,
+  reorderFlyers,
   saveDeliveryArea,
   saveDraft,
+  setAutoAdvance,
   unpublish,
+  updateFlyer,
   type DeliveryArea,
   type EditableFields,
   type PublishBlocker,
+  type ShopFlyer,
   type ShopStorefront,
 } from '@/lib/storefront-admin';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { Promotion, PublicStorefront, StorefrontFlyer, StorefrontProduct } from '@/types/models';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
 // admin screen. The PREVIEW below is exempt: it renders the shop's own
@@ -83,8 +94,14 @@ function messageOf(err: unknown, fallback: string): string {
 }
 
 export default function StorefrontEditor() {
-  const { shop, locations } = useAuth();
+  const { shop, locations, hasModule } = useAuth();
   const shopId = shop?.id ?? null;
+  // The house pattern for a MODULE gate (entitlements.ts:28,44) -- the same
+  // hasModule() the sidebar, the tabs and people.tsx's marketing panel use.
+  // False does NOT hide the flyer panel: a shop without Promotions can still
+  // put up announcement flyers, and only the offer picker goes away, saying
+  // so rather than appearing broken.
+  const promotionsEnabled = hasModule('promotions');
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
 
@@ -124,6 +141,12 @@ export default function StorefrontEditor() {
   const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
   const [onlineProductCount, setOnlineProductCount] = useState(0);
   const [previewProducts, setPreviewProducts] = useState<StorefrontProduct[]>([]);
+  const [flyers, setFlyers] = useState<ShopFlyer[]>([]);
+  // EVERY unarchived promotion, not only the running ones. The picker offers
+  // only what is running (below), but the preview needs the whole list to
+  // tell "this flyer's offer has ended" (drop the panel, exactly as
+  // get_public_storefront does) apart from "this flyer never had one".
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
 
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -159,10 +182,15 @@ export default function StorefrontEditor() {
       setWorking({ ...row, ...(row.draft ?? {}) });
       setSlugDraft(row.slug ?? '');
 
-      const [areasResult, countResult, suffixResult] = await Promise.allSettled([
+      const [areasResult, countResult, suffixResult, flyersResult, promotionsResult] = await Promise.allSettled([
         listDeliveryAreas(shopId),
         countOnlineProducts(shopId),
         listAddressSuffixSuggestions(shopId),
+        listFlyers(shopId),
+        // Not even attempted without the module -- a shop that does not have
+        // Promotions has no offers to attach, and asking would only produce a
+        // refusal to swallow. The picker says so on its own.
+        promotionsEnabled ? listPromotions(shopId) : Promise.resolve([] as Promotion[]),
       ]);
       setDeliveryAreas(areasResult.status === 'fulfilled' ? areasResult.value ?? [] : []);
       setOnlineProductCount(countResult.status === 'fulfilled' ? countResult.value ?? 0 : 0);
@@ -170,6 +198,8 @@ export default function StorefrontEditor() {
       // location could not be read is offered no ending rather than a
       // number, which is the one thing this must never invent.
       setAddressSuffixes(suffixResult.status === 'fulfilled' ? suffixResult.value ?? [] : []);
+      setFlyers(flyersResult.status === 'fulfilled' ? flyersResult.value ?? [] : []);
+      setPromotions(promotionsResult.status === 'fulfilled' ? promotionsResult.value ?? [] : []);
     } catch (err) {
       const plan = describePlanError(err);
       if (plan) setPlanError(plan);
@@ -177,7 +207,7 @@ export default function StorefrontEditor() {
     } finally {
       setLoading(false);
     }
-  }, [shopId]);
+  }, [shopId, promotionsEnabled]);
 
   useEffect(() => {
     load();
@@ -318,6 +348,67 @@ export default function StorefrontEditor() {
   async function handleUploadHeroImage(localUri: string): Promise<string> {
     if (!shopId) throw new Error('No shop to upload for.');
     return uploadImage(`${shopId}/storefront-hero-${Date.now()}`, localUri);
+  }
+
+  // The same single upload path again, one directory along -- uploadImage
+  // returns an absolute public URL and `storefront_flyers.image_path` stores
+  // exactly what it returned (publicImageUrl passes an absolute URL straight
+  // back through, which is why no second uploader is needed to produce a
+  // bucket path). Timestamped, because uploadImage passes `upsert: false`.
+  async function handleUploadFlyerImage(localUri: string): Promise<string> {
+    if (!shopId) throw new Error('No shop to upload for.');
+    return uploadImage(`${shopId}/storefront-flyer-${Date.now()}`, localUri);
+  }
+
+  // None of these four swallow a failure: FlyerEditor catches, and it is what
+  // turns the five-per-shop trigger's `flyer_limit_reached` into a sentence.
+  // Each refetches rather than patching local state, so the list on screen is
+  // the list the database actually holds -- including the positions the
+  // trigger or another device may have changed underneath it.
+  async function refreshFlyers() {
+    if (!shopId) return;
+    setFlyers((await listFlyers(shopId)) ?? []);
+  }
+
+  async function handleCreateFlyer(fields: FlyerFields) {
+    if (!shopId) return;
+    // Appended at the end of the shop's own order. The database's `position`
+    // has no unique index (20260930000000) so a collision would not be
+    // refused -- it would just be an ambiguous order -- which is why this is
+    // the list length and not a guess.
+    await createFlyer(shopId, { ...fields, position: flyers.length });
+    await refreshFlyers();
+  }
+
+  async function handleUpdateFlyer(id: string, fields: FlyerFields) {
+    await updateFlyer(id, fields);
+    await refreshFlyers();
+  }
+
+  async function handleDeleteFlyer(id: string) {
+    await deleteFlyer(id);
+    await refreshFlyers();
+  }
+
+  async function handleReorderFlyers(orderedIds: string[]) {
+    await reorderFlyers(orderedIds);
+    await refreshFlyers();
+  }
+
+  // Live, not staged: publish_storefront copies a fixed list of keys out of
+  // `draft` and auto_advance is not one of them (see setAutoAdvance's own
+  // comment), so a staged value would sit there forever. Written first, then
+  // reflected on screen -- a failed write must not leave the switch showing a
+  // setting the page does not have.
+  async function handleAutoAdvanceChange(on: boolean) {
+    if (!shopId) return;
+    setPublishError(null);
+    try {
+      await setAutoAdvance(shopId, on);
+      setWorking((w) => (w ? { ...w, autoAdvance: on } : w));
+    } catch (err) {
+      setPublishError(describePlanError(err) ?? messageOf(err, 'Could not save that setting. Try again.'));
+    }
   }
 
   async function handleSaveArea(area: SavedArea) {
@@ -499,6 +590,45 @@ export default function StorefrontEditor() {
   // there too, so `null` here is correct, not a fallback.
   const primaryCity = locations.find((location) => location.isPrimary)?.city ?? null;
 
+  // What get_public_storefront (20260930000100) would return for this shop,
+  // reproduced client-side for the preview -- the same reason
+  // getStorefrontPreviewProducts exists rather than calling the public RPC:
+  // that function deliberately returns nothing while `published_at is null`,
+  // which is exactly when a shop is looking at this preview for the first
+  // time.
+  //
+  // Both halves of the rule are the SHARED implementation, not a second copy:
+  // isPromotionLive (src/lib/discounts.ts, "the one place 'is this offer
+  // running right now' is decided") is what the SQL's promotion_is_live was
+  // written from, and posterCopyFor (src/lib/poster.ts) is what its wording
+  // functions were ported from line for line. Calling them here is what keeps
+  // the preview from being a third opinion about one offer.
+  const previewFlyers: StorefrontFlyer[] = flyers
+    .filter((flyer) => !flyer.draft)
+    .map((flyer) => {
+      const promotion = flyer.promotionId ? promotions.find((p) => p.id === flyer.promotionId) ?? null : null;
+      return { flyer, promotion };
+    })
+    // An offer that has ended takes its whole panel with it -- the JPEG says
+    // 20% OFF in letters nothing here can edit, so stripping the derived line
+    // and leaving the picture up would satisfy the letter of "stops claiming
+    // a discount" and none of its point. A DELETED promotion is different and
+    // already handled: `on delete set null` leaves promotionId null, i.e. a
+    // plain announcement.
+    .filter(({ flyer, promotion }) => !flyer.promotionId || (promotion !== null && isPromotionLive(promotion)))
+    .map(({ flyer, promotion }) => {
+      const copy = promotion ? posterCopyFor({ promotion, shopName: shop?.name ?? '' }) : null;
+      return {
+        id: flyer.id,
+        imageUrl: publicImageUrl(flyer.imagePath),
+        headline: flyer.headline,
+        subline: flyer.subline,
+        linkKind: flyer.linkKind,
+        linkValue: flyer.linkValue,
+        offer: copy ? { value: copy.value, scope: copy.scope, when: copy.when } : null,
+      };
+    });
+
   const previewStorefront: PublicStorefront = {
     shopName: shop?.name ?? '',
     city: primaryCity,
@@ -511,6 +641,8 @@ export default function StorefrontEditor() {
     heroImageUrl: working.heroImageUrl,
     offersDelivery: working.offersDelivery,
     paymentMode: 'on_collection',
+    flyers: previewFlyers,
+    autoAdvance: working.autoAdvance,
   };
 
   const contentDrawer = (
@@ -580,6 +712,31 @@ export default function StorefrontEditor() {
           </Pressable>
         </BentoCard>
       )}
+
+      {/* Below the Content card, above Delivery: a flyer is part of what the
+          page SAYS, and the shop's chosen layout (DesignStrip, above) is what
+          decides whether flyers show at all -- which is the Counter notice
+          this panel carries. Writes here go straight to storefront_flyers and
+          each row's own `draft` column decides whether a customer sees it, so
+          nothing about flyers travels through the storefront draft or the
+          Publish button. */}
+      <FlyerEditor
+        flyers={flyers}
+        theme={working.theme}
+        // The picker only ever offers what the till would actually honour
+        // right now, through the shared isPromotionLive -- an offer that has
+        // ended is not attachable, which is a cheaper way of preventing a
+        // page that contradicts the till than detecting it afterwards.
+        promotions={promotions.filter((promotion) => isPromotionLive(promotion))}
+        promotionsEnabled={promotionsEnabled}
+        autoAdvance={working.autoAdvance}
+        onAutoAdvanceChange={handleAutoAdvanceChange}
+        onUploadImage={handleUploadFlyerImage}
+        onCreate={handleCreateFlyer}
+        onUpdate={handleUpdateFlyer}
+        onDelete={handleDeleteFlyer}
+        onReorder={handleReorderFlyers}
+      />
 
       <DeliveryEditor
         offersDelivery={working.offersDelivery}

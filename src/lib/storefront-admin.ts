@@ -3,7 +3,7 @@ import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
-import type { StorefrontProduct } from '@/types/models';
+import type { StorefrontFlyerLinkKind, StorefrontProduct } from '@/types/models';
 
 // The shop-side counterpart to storefront.ts's public reads: everything a
 // shop does to its OWN page -- the editor screen holds layout and state, this
@@ -30,6 +30,15 @@ export type ShopStorefront = {
   // even once, has chosen, whatever it chose, and is never told otherwise
   // again just because it later unpublished.
   firstPublishedAt: string | null;
+  // Whether the shop has asked the flyer band to move on its own
+  // (storefronts.auto_advance, 20260930000200). NOT in EditableFields below
+  // and deliberately so: publish_storefront (20260925000200) copies a fixed
+  // list of keys out of `draft` and auto_advance is not one of them, so a
+  // value staged there would never reach the live column. setAutoAdvance
+  // writes it live instead -- the same posture delivery areas already take,
+  // and the editor already tells the shop those save straight to the live
+  // page.
+  autoAdvance: boolean;
   // Unpublished edits, staged server-side (20260925000200_storefront_draft.sql)
   // so a shop that writes its page and taps Back loses nothing. Null means
   // "nothing staged" -- every field the shop has touched but not published is
@@ -84,6 +93,7 @@ function mapStorefrontRow(
     offers_delivery?: boolean | null;
     published_at?: string | null;
     first_published_at?: string | null;
+    auto_advance?: boolean | null;
     draft?: Record<string, unknown> | null;
   }
 ): ShopStorefront {
@@ -99,6 +109,7 @@ function mapStorefrontRow(
     offersDelivery: Boolean(sf.offers_delivery),
     publishedAt: sf.published_at ?? null,
     firstPublishedAt: sf.first_published_at ?? null,
+    autoAdvance: Boolean(sf.auto_advance),
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
 }
@@ -110,7 +121,7 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   const { data, error } = await supabase
     .from('shops')
     .select(
-      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, draft)'
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, auto_advance, draft)'
     )
     .eq('id', shopId)
     .maybeSingle();
@@ -177,6 +188,201 @@ export async function publishDraft(shopId: string): Promise<void> {
 export async function discardDraft(shopId: string): Promise<void> {
   const { error } = await supabase.from('storefronts').update({ draft: null }).eq('shop_id', shopId);
   if (error) throw error;
+}
+
+// ── Flyers ──────────────────────────────────────────────────────────────
+//
+// The shop-side counterpart to getPublicStorefront's `flyers`. That read
+// derives every word of an offer from the promotion row on every call
+// (20260930000100's header says why: "a page advertising a discount the till
+// refuses does it around the clock, to strangers"). Nothing here undoes that
+// -- a flyer stores a promotion_id and never a copy of the offer's words.
+//
+// `image_path` is `text not null` and holds whatever uploadImage returned.
+// That helper (src/lib/storage.ts) hands back an absolute public URL rather
+// than the bucket path it wrote to, and there is deliberately exactly ONE
+// upload path in this app, so the URL is what gets stored. publicImageUrl --
+// the reader that turns this column into something an <Image> can show --
+// passes an already-absolute URL straight through untouched, for exactly
+// this case (its own comment: hero_image_url, products.image_url and
+// shops.logo_url all store full URLs the same way). Adding a second uploader
+// that returned the path instead would buy nothing and cost the property
+// that there is only one.
+
+export type ShopFlyer = {
+  id: string;
+  imagePath: string;
+  headline: string | null;
+  subline: string | null;
+  linkKind: StorefrontFlyerLinkKind;
+  linkValue: string | null;
+  position: number;
+  draft: boolean;
+  promotionId: string | null;
+};
+
+// Everything about a flyer except its id -- what a create writes, and what an
+// update may write a subset of.
+export type NewFlyer = Omit<ShopFlyer, 'id'>;
+
+// What the UI says out loud ("3 of 5") and stops offering Add at. The DATABASE
+// is the authority (enforce_storefront_flyer_limit, 20260930000000) and this
+// is only the client's copy of the same number -- flyerErrorMessage below is
+// what happens when the two disagree, which is why it reads the cap out of
+// the refusal rather than printing this constant.
+export const FLYER_LIMIT = 5;
+
+function mapFlyerRow(row: {
+  id: string;
+  image_path: string;
+  headline: string | null;
+  subline: string | null;
+  link_kind: string;
+  link_value: string | null;
+  position: number;
+  draft: boolean;
+  promotion_id: string | null;
+}): ShopFlyer {
+  return {
+    id: row.id,
+    imagePath: row.image_path,
+    headline: row.headline ?? null,
+    subline: row.subline ?? null,
+    // Falls back the same way `theme` and `palette` do above, and for the
+    // same reason: the CHECK constraint makes an unknown value impossible,
+    // so this is one line rather than a branch anything downstream can reach.
+    linkKind: (['none', 'category', 'whatsapp'] as const).includes(row.link_kind as StorefrontFlyerLinkKind)
+      ? (row.link_kind as StorefrontFlyerLinkKind)
+      : 'none',
+    linkValue: row.link_value ?? null,
+    position: row.position,
+    draft: row.draft,
+    promotionId: row.promotion_id ?? null,
+  };
+}
+
+const FLYER_COLUMNS = 'id, image_path, headline, subline, link_kind, link_value, position, draft, promotion_id';
+
+// In `position` order -- the order a customer will see them in, which is the
+// only order the editor's own list is allowed to show, or dragging one row
+// would move a different one.
+export async function listFlyers(shopId: string): Promise<ShopFlyer[]> {
+  const { data, error } = await supabase
+    .from('storefront_flyers')
+    .select(FLYER_COLUMNS)
+    .eq('shop_id', shopId)
+    .order('position', { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as never[]).map(mapFlyerRow);
+}
+
+// Deliberately NOT pre-checked against FLYER_LIMIT here. The trigger is the
+// authority (a count(*) on the client is not safe against a second device
+// adding the sixth at the same moment, which is the whole reason
+// 20260930000000 uses a trigger and not an RLS `with check`), and its refusal
+// is a typed one flyerErrorMessage turns into a sentence.
+export async function createFlyer(shopId: string, flyer: NewFlyer): Promise<void> {
+  const { error } = await supabase.from('storefront_flyers').insert({
+    shop_id: shopId,
+    image_path: flyer.imagePath,
+    headline: flyer.headline,
+    subline: flyer.subline,
+    link_kind: flyer.linkKind,
+    link_value: flyer.linkValue,
+    position: flyer.position,
+    draft: flyer.draft,
+    promotion_id: flyer.promotionId,
+  });
+  if (error) throw error;
+}
+
+// A key ABSENT from the patch leaves its column untouched; a key present
+// holding null clears it. Same distinction publish_storefront draws with
+// `draft ? 'headline'` and the editor already draws with hasOwnProperty --
+// without it, detaching an offer (promotionId: null) would be indistinguishable
+// from not mentioning it, and would silently never happen.
+export async function updateFlyer(id: string, patch: Partial<NewFlyer>): Promise<void> {
+  const has = (key: keyof NewFlyer) => Object.prototype.hasOwnProperty.call(patch, key);
+  const row: Record<string, unknown> = {
+    ...(has('imagePath') && { image_path: patch.imagePath }),
+    ...(has('headline') && { headline: patch.headline }),
+    ...(has('subline') && { subline: patch.subline }),
+    ...(has('linkKind') && { link_kind: patch.linkKind }),
+    ...(has('linkValue') && { link_value: patch.linkValue }),
+    ...(has('position') && { position: patch.position }),
+    ...(has('draft') && { draft: patch.draft }),
+    ...(has('promotionId') && { promotion_id: patch.promotionId }),
+  };
+  const { error } = await supabase.from('storefront_flyers').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteFlyer(id: string): Promise<void> {
+  const { error } = await supabase.from('storefront_flyers').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Writes each flyer its index in the list it was handed, rather than swapping
+// a pair: the list on screen IS the intended order, so sending the whole
+// order leaves no arithmetic for a caller to get wrong and no way for two
+// rows to end up sharing a position. There is deliberately no unique index on
+// (shop_id, position) (20260930000000's own note -- a non-deferrable one
+// would refuse a swap halfway through), so the rows can be walked in order
+// with no intermediate state to dodge.
+//
+// Sequential, not Promise.all: at most five statements, and a failure partway
+// through should stop rather than race four more writes at a list the shop is
+// about to be told did not save.
+export async function reorderFlyers(orderedIds: string[]): Promise<void> {
+  for (let index = 0; index < orderedIds.length; index += 1) {
+    const { error } = await supabase
+      .from('storefront_flyers')
+      .update({ position: index })
+      .eq('id', orderedIds[index]);
+    if (error) throw error;
+  }
+}
+
+// Live, not staged -- see ShopStorefront.autoAdvance's own comment for why a
+// draft would swallow it.
+export async function setAutoAdvance(shopId: string, on: boolean): Promise<void> {
+  const { error } = await supabase.from('storefronts').update({ auto_advance: on }).eq('shop_id', shopId);
+  if (error) throw error;
+}
+
+// The sentence a shopkeeper reads when the flyer limit trigger refuses.
+//
+// enforce_storefront_flyer_limit (20260930000000) raises the same typed shape
+// enforce_shop_limit does -- message 'flyer_limit_reached', DETAIL carrying
+// {resource, limit, usage} as JSON -- specifically so a client can translate
+// it. parseLimitReached (entitlements.ts) deliberately does NOT recognise it:
+// that function's message is 'limit_reached' and its resource must be one of
+// LIMIT_RESOURCES, and five-per-shop is a fixed property of the design rather
+// than something a plan sells more of. So this is the sibling translator, the
+// same role orderErrorMessage plays for the order RPCs' own refusals.
+//
+// The cap is read out of the refusal rather than printed from FLYER_LIMIT: an
+// over-the-air JS bundle can outlive the migration that changed the trigger's
+// number, and the sentence a shop reads must be the number the database
+// actually just enforced.
+//
+// Returns null for anything else, so a caller keeps its own error path intact.
+export function flyerErrorMessage(err: unknown): string | null {
+  const e = err as { message?: unknown; details?: unknown; detail?: unknown } | null;
+  if (!e || typeof e !== 'object' || e.message !== 'flyer_limit_reached') return null;
+
+  const raw = typeof e.details === 'string' ? e.details : typeof e.detail === 'string' ? e.detail : null;
+  let limit = FLYER_LIMIT;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { limit?: unknown };
+      if (typeof parsed.limit === 'number') limit = parsed.limit;
+    } catch {
+      // A refusal whose DETAIL did not parse is still a refusal -- fall back
+      // to this build's own number rather than saying nothing.
+    }
+  }
+  return `Your page can show ${limit} flyers, and you already have ${limit}. Remove one before adding another.`;
 }
 
 // validateSlug runs before any round trip -- a structurally bad slug (too

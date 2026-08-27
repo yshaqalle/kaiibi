@@ -1,9 +1,16 @@
+import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { StorefrontView } from '@/components/storefront/storefront-view';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+
+// StorefrontView routes to ThemeMarket, which mounts FlyerCarousel even with
+// no flyers (its hooks run unconditionally); Task 4's mount effect calls
+// AccessibilityInfo.isReduceMotionEnabled(). Nothing here is about motion.
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
   if (node == null) return [];
@@ -12,9 +19,17 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
   return textsIn(node.children as ReactTestRendererJSON[] | null);
 }
 
-function renderView(storefront: PublicStorefront, products: StorefrontProduct[]): string[] {
+// ASYNC, and awaiting an async act(): StorefrontView routes through
+// ThemeMarket/ThemeWindow, which mount FlyerCarousel unconditionally (Task
+// 4's mount effect calls the mocked, promise-returning
+// AccessibilityInfo.isReduceMotionEnabled()). A sync act() returns before
+// that microtask settles, so its `.then` fires after the test -- and after
+// Jest tears the test environment down -- producing exactly the "trying to
+// `import` a file after the Jest environment has been torn down" warning
+// this replaced.
+async function renderView(storefront: PublicStorefront, products: StorefrontProduct[]): Promise<string[]> {
   let tree: ReturnType<typeof create> | undefined;
-  act(() => {
+  await act(async () => {
     tree = create(<StorefrontView storefront={storefront} products={products} />);
   });
   return textsIn(tree!.toJSON() as ReactTestRendererJSON);
@@ -32,6 +47,10 @@ const shop: PublicStorefront = {
   heroImageUrl: null,
   offersDelivery: true,
   paymentMode: 'on_collection',
+  // No flyers: these fixtures predate them, and a shop with none must
+  // render exactly as it did before they existed.
+  flyers: [],
+  autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [
@@ -40,8 +59,8 @@ const products: StorefrontProduct[] = [
 ];
 
 describe('StorefrontView', () => {
-  it.each(['market', 'counter', 'window'])('renders every product under the %s theme', (theme) => {
-    const texts = renderView({ ...shop, theme }, products);
+  it.each(['market', 'counter', 'window'])('renders every product under the %s theme', async (theme) => {
+    const texts = await renderView({ ...shop, theme }, products);
     // Case-insensitive: Window renders the shop name through an all-caps nav
     // style (storefront.shopName.toUpperCase()), a deliberate stylistic
     // transform the other two themes don't apply. The assertion cares that the
@@ -51,33 +70,33 @@ describe('StorefrontView', () => {
     expect(texts.filter((t) => t === 'LED bulb 9W').length).toBeGreaterThan(0);
   });
 
-  it('falls back to Market when the stored theme is unknown', () => {
-    const texts = renderView({ ...shop, theme: 'editorial_film' }, products);
+  it('falls back to Market when the stored theme is unknown', async () => {
+    const texts = await renderView({ ...shop, theme: 'editorial_film' }, products);
     expect(texts).toContain('Xamdi Electronics');
     expect(texts.filter((t) => t === 'Anker 20W charger').length).toBeGreaterThan(0);
   });
 
-  it('falls back to Market when the stored theme is an inherited prototype property, not thrown or garbage', () => {
+  it('falls back to Market when the stored theme is an inherited prototype property, not thrown or garbage', async () => {
     let texts: string[] = [];
-    expect(() => {
-      texts = renderView({ ...shop, theme: 'constructor' }, products);
-    }).not.toThrow();
+    await expect((async () => {
+      texts = await renderView({ ...shop, theme: 'constructor' }, products);
+    })()).resolves.not.toThrow();
     expect(texts).toContain('Xamdi Electronics');
     expect(texts.filter((t) => t === 'Anker 20W charger').length).toBeGreaterThan(0);
   });
 
-  it('offers WhatsApp when there is a number', () => {
-    const texts = renderView(shop, products);
+  it('offers WhatsApp when there is a number', async () => {
+    const texts = await renderView(shop, products);
     expect(texts.filter((t) => t === 'Message on WhatsApp').length).toBeGreaterThan(0);
   });
 
-  it('offers no WhatsApp button when there is no number', () => {
-    const texts = renderView({ ...shop, whatsappE164: null }, products);
+  it('offers no WhatsApp button when there is no number', async () => {
+    const texts = await renderView({ ...shop, whatsappE164: null }, products);
     expect(texts.filter((t) => t === 'Message on WhatsApp').length).toBe(0);
   });
 
-  it('shows an empty shop honestly rather than as a broken page', () => {
-    const texts = renderView(shop, []);
+  it('shows an empty shop honestly rather than as a broken page', async () => {
+    const texts = await renderView(shop, []);
     expect(texts).toContain('Nothing listed yet.');
   });
 });
