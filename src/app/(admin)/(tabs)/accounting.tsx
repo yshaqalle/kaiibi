@@ -137,6 +137,22 @@ export default function AccountingScreen() {
     },
     [router]
   );
+  // Hands the reader from the Reports hub to a screen on the ACCOUNTING tab.
+  // The three financial statements render there and nowhere else, and a card on
+  // Reports that only said so would be a signpost to a screen one press away.
+  //
+  // Both params in ONE setParams call, not two: `tab` decides which catalogue
+  // `view` is read against on the next mount, so a render that saw the new tab
+  // and the old view would resolve the view to 'hub' and land the reader on the
+  // Accounting hub instead of the statement they pressed.
+  const openLedgerView = useCallback(
+    (next: LedgerView) => {
+      setTabState('accounting');
+      setViewState(next);
+      router.setParams({ tab: 'accounting', view: next });
+    },
+    [router]
+  );
   const ledgerView: LedgerView = LEDGER_VIEWS.some((v) => v.key === view) ? (view as LedgerView) : 'hub';
   const reportView: ReportView = isReportView(view) ? view : 'hub';
 
@@ -295,7 +311,9 @@ export default function AccountingScreen() {
                 shell's window. Its hub card says "Every month" for that
                 reason. */}
             {tab === 'accounting' && view === 'close' && <ClosePeriodView setRefresh={setTabRefresh} onOpenView={setView} />}
-            {tab === 'reports' && reportView === 'hub' && <ReportsHub onOpen={setView} rangeLabel={rangeLabel} can={can} />}
+            {tab === 'reports' && reportView === 'hub' && (
+              <ReportsHub onOpen={setView} onOpenLedgerView={openLedgerView} rangeLabel={rangeLabel} can={can} />
+            )}
             {/* The Reports tab as it was, kept on a route of its own rather
                 than deleted: it holds a working profit and loss, a sales-tax
                 summary and a labour ratio, and the four dimmed cards on the hub

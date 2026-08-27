@@ -2,10 +2,12 @@ import { act, create, type ReactTestInstance } from 'react-test-renderer';
 
 import {
   isReportView,
+  LEDGER_STATEMENT_CARDS,
   REPORT_VIEWS,
   ReportsHub,
   reportViewMeta,
   STATEMENTS_CARD,
+  VALUATION_CARD,
   visibleReportViews,
   type ReportView,
 } from '@/components/accounting/reports/reports-hub';
@@ -15,6 +17,9 @@ const holding =
   (...granted: Permission[]) =>
   (permission: Permission) =>
     granted.includes(permission);
+
+/** Every card the hub can render, for a reader nothing is hidden from. */
+const allCards = () => visibleReportViews(holding('ledger.view', 'ledger.close'));
 
 describe('the reports catalogue', () => {
   it('marks exactly the reports that are buildable today as available', () => {
@@ -29,17 +34,71 @@ describe('the reports catalogue', () => {
       'lowstock',
       'movement',
     ]);
+    // ...and nothing in this list is anything else. The four cards the design
+    // drew as "not yet" are not reports this hub routes to, so they live
+    // outside it -- three as doors to the Accounting tab, one as a signpost.
+    expect(REPORT_VIEWS.every((v) => v.available)).toBe(true);
   });
 
-  it('gives every unavailable report a reason, because the card renders it', () => {
-    for (const v of REPORT_VIEWS) {
+  it('gives every unavailable card a reason, because the card renders it', () => {
+    for (const v of allCards()) {
       if (v.available) continue;
       expect(v.waitingOn.length).toBeGreaterThan(0);
     }
   });
 
-  it('gives every report a group, a scope and a blurb', () => {
-    for (const v of REPORT_VIEWS) {
+  it('gives a card a door exactly when it is available', () => {
+    // The two drive different things -- `available` the dimming and the footer,
+    // `door` the press target -- and a card that is dimmed but pressable, or
+    // bright but dead, is the defect either one exists to prevent.
+    for (const v of allCards()) {
+      expect(v.door !== null).toBe(v.available);
+    }
+  });
+
+  it('no card claims to be waiting on something that already shipped', () => {
+    // Posting landed in 2b (#74) and all three statements in 3a (#80), and FIFO
+    // cost layers are parked and superseded by the weighted average in 2a
+    // (#73). These four strings shipped from a mockup drawn before any of that
+    // and told the reader that working screens did not exist.
+    const said = allCards().flatMap((v) => [v.blurb, v.scope, v.waitingOn, v.action]);
+    expect(said).not.toContain('Available once sales and bills post to the ledger.');
+    expect(said).not.toContain('Available once cost layers land.');
+    expect(said).not.toContain('Needs the posting phase');
+    expect(said).not.toContain('Needs cost layers');
+    expect(said).not.toContain('Not yet');
+  });
+
+  it('sends the three statements to the screens that already render them', () => {
+    // Not a rewording of "not yet": the cards open the Income Statement, the
+    // Balance Sheet and the Cash Flow on the Accounting tab, and `key` IS the
+    // ledger view each one opens.
+    expect(LEDGER_STATEMENT_CARDS.map((v) => v.key)).toEqual(['income', 'balance', 'cashflow']);
+    for (const v of LEDGER_STATEMENT_CARDS) {
+      expect(v.available).toBe(true);
+      // The action says the press leaves the tab, before it leaves it.
+      expect(v.action).toBe('Open in Accounting');
+      // statement_lines(), balance_sheet() and cash_flow() are security definer
+      // and RAISE without this, and the seeded Manager does not hold it.
+      expect(v.requires).toBe('ledger.view');
+    }
+  });
+
+  it('says what inventory valuation actually is, rather than what it waits for', () => {
+    // The one card of the four that is still a signpost, because unlike the
+    // three above there is no screen behind it. What it must NOT say is that it
+    // is waiting on cost layers: those are parked and superseded, so the thing
+    // it claimed to wait for is never landing.
+    expect(VALUATION_CARD.available).toBe(false);
+    expect(VALUATION_CARD.scope).toBe('Weighted average');
+    expect(VALUATION_CARD.waitingOn).toBe('See Inventory Balance');
+    expect(VALUATION_CARD.blurb).toContain('moving weighted average');
+    // ...and the report it points at is a card on this same hub.
+    expect(REPORT_VIEWS.some((v) => v.label === 'Inventory Balance')).toBe(true);
+  });
+
+  it('gives every card a group, a scope and a blurb', () => {
+    for (const v of allCards()) {
       if (v.key === 'hub') continue;
       expect(v.group.length).toBeGreaterThan(0);
       expect(v.scope.length).toBeGreaterThan(0);
@@ -65,13 +124,19 @@ describe('the reports catalogue', () => {
     expect(isReportView('lowstock')).toBe(true);
     expect(isReportView('nonsense')).toBe(false);
     expect(isReportView(undefined)).toBe(false);
+    // A ledger view is NOT a report view, even though three cards on this hub
+    // open one. `?tab=reports&view=income` has to land on the hub rather than
+    // on a blank body, because the Reports tab does not render that screen.
+    for (const v of LEDGER_STATEMENT_CARDS) {
+      expect(isReportView(v.key)).toBe(false);
+    }
   });
 
   it('routes the Reports tab this hub replaced, so it is not deleted by omission', () => {
-    // The existing reports-tab.tsx holds a working P&L, a sales-tax summary and
-    // a labour ratio. Replacing that with four cards saying "not yet" is the one
+    // The existing reports-tab.tsx holds a sales-tax summary and a labour ratio
+    // nothing else shows. Replacing that with cards saying "not yet" is the one
     // outcome this phase must not produce -- so its view stays routable, and it
-    // keeps a card, even though it is not one of the eleven the design draws.
+    // keeps a card, even though it is not one of the seven this hub routes to.
     expect(isReportView('statements')).toBe(true);
     expect(REPORT_VIEWS.some((v) => v.key === 'statements')).toBe(false);
     expect(STATEMENTS_CARD.available).toBe(true);
@@ -99,15 +164,39 @@ describe('the reports catalogue', () => {
     expect(REPORT_VIEWS.find((v) => v.key === 'lowstock')?.followsRange).toBe(false);
   });
 
-  it('gates nothing, because every report reads a table under RLS rather than an RPC', () => {
+  it('gates the cards whose door raises, and only those', () => {
     // The rule the ledger hub set: gate a card whose door RAISES, leave open a
-    // card whose door returns nothing. All seven read tables directly, so a
-    // reader without the permission gets an honest empty report. If a later
-    // report arrives over a security-definer RPC, this assertion is where the
-    // question gets asked.
-    expect(visibleReportViews(holding()).map((v) => v.key)).toEqual(
-      visibleReportViews(holding('ledger.view', 'ledger.close')).map((v) => v.key)
-    );
+    // card whose door returns nothing. All seven reports read tables directly,
+    // so a reader without the permission gets an honest empty report. The three
+    // statement cards open security-definer RPCs that raise P0001 without
+    // ledger.view, so a reader without it is not offered them at all -- and the
+    // seeded Manager, who holds sales.view and not ledger.view, is exactly that
+    // reader on day one.
+    expect(visibleReportViews(holding()).map((v) => v.key)).toEqual([
+      'sales',
+      'item',
+      'employee',
+      'category',
+      'inventory',
+      'lowstock',
+      'movement',
+      'valuation',
+      'statements',
+    ]);
+    expect(visibleReportViews(holding('ledger.view')).map((v) => v.key)).toEqual([
+      'sales',
+      'item',
+      'employee',
+      'category',
+      'inventory',
+      'lowstock',
+      'movement',
+      'income',
+      'balance',
+      'cashflow',
+      'valuation',
+      'statements',
+    ]);
   });
 });
 
@@ -123,18 +212,28 @@ describe('the hub renders what the catalogue says', () => {
   // Rendered, not read off the source. A test that greps a file for a string
   // cannot tell a live card from a dead one, and this project has already
   // shipped a hub card that led to an empty screen with the suite green.
-  const renderHub = (onOpen = jest.fn(), rangeLabel: string | null = null) => {
+  const renderHub = (rangeLabel: string | null = null) => {
+    const onOpen = jest.fn();
+    const onOpenLedgerView = jest.fn();
     let tree!: ReturnType<typeof create>;
     act(() => {
-      tree = create(<ReportsHub onOpen={onOpen} rangeLabel={rangeLabel} can={() => true} />);
+      tree = create(
+        <ReportsHub onOpen={onOpen} onOpenLedgerView={onOpenLedgerView} rangeLabel={rangeLabel} can={() => true} />
+      );
     });
-    return { tree, onOpen };
+    return { tree, onOpen, onOpenLedgerView };
   };
+
+  /** The pressable wrapping the card with this label, if it has one. */
+  const pressableFor = (tree: ReturnType<typeof create>, label: string) =>
+    tree.root
+      .findAll((node) => typeof node.type !== 'string' && Boolean(node.props.onPress))
+      .find((node) => texts(node).includes(label));
 
   it('draws a card for every catalogued report and for the tab it replaced', () => {
     const { tree } = renderHub();
     const shown = texts(tree.root);
-    for (const v of REPORT_VIEWS) {
+    for (const v of allCards()) {
       expect(shown).toContain(v.label);
     }
     expect(shown).toContain(STATEMENTS_CARD.label);
@@ -142,49 +241,94 @@ describe('the hub renders what the catalogue says', () => {
 
   it('opens the view whose card was pressed, so no card can be wired to another', () => {
     // The mis-wiring this catches: two cards built in a loop that both close
-    // over the last key, or a card whose onPress names its neighbour.
-    for (const v of [...REPORT_VIEWS, STATEMENTS_CARD]) {
+    // over the last key, or a card whose onPress names its neighbour. Pressed,
+    // not grepped -- deleting a view branch once left this suite green with a
+    // live card leading to an empty screen.
+    for (const v of allCards()) {
       if (!v.available) continue;
-      const { tree, onOpen } = renderHub();
-      const pressable = tree.root
-        .findAll((node) => typeof node.type !== 'string' && Boolean(node.props.onPress))
-        .find((node) => texts(node).includes(v.label));
+      const { tree, onOpen, onOpenLedgerView } = renderHub();
+      const pressable = pressableFor(tree, v.label);
       expect(pressable).toBeDefined();
       act(() => {
         pressable!.props.onPress();
       });
-      expect(onOpen).toHaveBeenCalledWith(v.key);
-      expect(onOpen).toHaveBeenCalledTimes(1);
+      // A card either moves within this hub or hands off to the Accounting
+      // tab. Exactly one of the two happens, and with this card's own key.
+      const handsOff = v.door?.tab === 'accounting';
+      expect(handsOff ? onOpenLedgerView : onOpen).toHaveBeenCalledWith(v.key);
+      expect(handsOff ? onOpenLedgerView : onOpen).toHaveBeenCalledTimes(1);
+      expect(handsOff ? onOpen : onOpenLedgerView).not.toHaveBeenCalled();
+    }
+  });
+
+  it('sends Profit & Loss, the Balance Sheet and Cash Flow to the Accounting tab', () => {
+    // The whole point of the change: these three said "Not yet" about screens
+    // that shipped in 3a. Named individually rather than looped, so a card
+    // silently dropped from the catalogue fails here instead of vanishing.
+    const expected: [string, string][] = [
+      ['Profit & Loss', 'income'],
+      ['Balance Sheet', 'balance'],
+      ['Cash Flow', 'cashflow'],
+    ];
+    for (const [label, ledgerView] of expected) {
+      const { tree, onOpenLedgerView } = renderHub();
+      const pressable = pressableFor(tree, label);
+      expect(pressable).toBeDefined();
+      act(() => {
+        pressable!.props.onPress();
+      });
+      expect(onOpenLedgerView).toHaveBeenCalledWith(ledgerView);
     }
   });
 
   it('gives an unavailable card no press target at all, rather than one that refuses', () => {
     const { tree } = renderHub();
-    for (const v of REPORT_VIEWS) {
+    for (const v of allCards()) {
       if (v.available) continue;
-      const pressable = tree.root
-        .findAll((node) => typeof node.type !== 'string' && Boolean(node.props.onPress))
-        .find((node) => texts(node).includes(v.label));
-      expect(pressable).toBeUndefined();
+      expect(pressableFor(tree, v.label)).toBeUndefined();
     }
+    // Concretely: Inventory Valuation is drawn, and pressing it is not a thing.
+    expect(texts(tree.root)).toContain('Inventory Valuation');
+    expect(pressableFor(tree, 'Inventory Valuation')).toBeUndefined();
   });
 
   it('renders the reason on an unavailable card, in place of its action', () => {
     const { tree } = renderHub();
     const shown = texts(tree.root);
-    for (const v of REPORT_VIEWS) {
+    for (const v of allCards()) {
       if (v.available) continue;
       expect(shown).toContain(v.waitingOn);
     }
   });
 
+  it('hides a statement card from a reader whose RPC would raise', () => {
+    // Dropped rather than dimmed: the dimming means "nothing to show", and one
+    // appearance cannot also mean "not yours".
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <ReportsHub onOpen={jest.fn()} onOpenLedgerView={jest.fn()} rangeLabel={null} can={() => false} />
+      );
+    });
+    const shown = texts(tree.root);
+    expect(shown).not.toContain('Profit & Loss');
+    expect(shown).not.toContain('Cash Flow');
+    // ...while the seven reports, which read tables under RLS, are still there.
+    expect(shown).toContain('Sales Reports');
+    expect(shown).toContain('Inventory Balance');
+  });
+
   it('shows the picker’s real window on cards that follow it, not a fixed "7 days"', () => {
     // The static scope is only the fallback for before the picker has reported.
     // Once it has, a card that follows the range says what the range IS.
-    const { tree } = renderHub(jest.fn(), '1–14 Aug');
+    const { tree } = renderHub('1–14 Aug');
     const shown = texts(tree.root);
     expect(shown).toContain('1–14 Aug');
     // ...and a screen that ignores the picker still says so.
     expect(shown).toContain('As of today');
+    // The shell owns one range across every tab, so a statement opened from
+    // here runs for the window picked here -- except the balance sheet, which
+    // is a position at the range's END and says that instead of a window.
+    expect(shown).toContain('As at the range end');
   });
 });

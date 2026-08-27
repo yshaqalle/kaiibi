@@ -28,7 +28,14 @@ Buildable now, because the tables exist:
 | Low Stock & Reorder | `product_location_stock.reorder_level` |
 | Stock Movement | `stock_receipts`, `stock_transfers`, `stock_counts` |
 
-**Everything else on the hub renders as a dimmed card saying what it waits for.** P&L, Balance Sheet, Cash Flow and the receivables reports need phase 2b's posting; Inventory Valuation needs 2a's cost layers. A card that opens nothing is worse than a card that explains itself — and those cards are the only place in the app that says why a statement is missing.
+~~**Everything else on the hub renders as a dimmed card saying what it waits for.** P&L, Balance Sheet, Cash Flow and the receivables reports need phase 2b's posting; Inventory Valuation needs 2a's cost layers.~~
+
+**Superseded — this paragraph was written before 2a, 2b and 3a shipped, and Task 1 shipped its copy verbatim, so the hub told readers that working screens did not exist.** Corrected in the commit that followed Task 2:
+
+- **P&L, Balance Sheet and Cash Flow are not waiting on anything.** Posting shipped in [#74](https://github.com/yshaqalle/kaiibi/pull/74) (2b) and all three statements in [#80](https://github.com/yshaqalle/kaiibi/pull/80) (3a). They are now `LEDGER_STATEMENT_CARDS` in `reports-hub.tsx` — live cards that open the Accounting tab's screens, gated on `ledger.view` because those RPCs raise.
+- **Inventory Valuation is not waiting on cost layers.** FIFO layers are parked and superseded by the moving weighted average in [#73](https://github.com/yshaqalle/kaiibi/pull/73) (2a), so the thing it claimed to wait for is never landing. It is the one card still dimmed, and it names the valuation basis and points at Inventory Balance (Task 7) instead.
+
+A card that opens nothing is still worse than a card that explains itself — but a card saying "not yet" about a screen one tab away is worse than either. **Before writing any copy in Tasks 3–9, check what has shipped since this plan was written.**
 
 Explicitly not in this plan: any migration, any RPC, `refunds.reason`, `tax_filings`, purchase orders, and the existing Reports tab's P&L / sales-tax / category cards, which **stay exactly where they are** until 2b gives them ledger data.
 

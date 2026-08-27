@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { backfillFooter, LEDGER_VIEWS, visibleLedgerViews, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { LEDGER_STATEMENT_CARDS } from '@/components/accounting/reports/reports-hub';
 import type { Permission } from '@/lib/permissions';
 
 /** A `can` that grants exactly the permissions named. */
@@ -107,6 +108,21 @@ describe('the ledger hub catalogue', () => {
       // The hub is what the shell falls back to, not a branch of its own.
       if (view.key === 'hub') continue;
       expect(shell).toContain(`view === '${view.key}'`);
+    }
+  });
+
+  it('lands the Reports hub hand-off on a view this catalogue knows', () => {
+    // Three cards on the REPORTS hub open a screen on this tab, and the key
+    // they emit is the ledger view the shell routes to. This is the middle link
+    // of the chain: the hub test renders those cards and presses them, the test
+    // above proves each catalogued view has a branch that renders it, and this
+    // proves the key the press emits is one of them. Break any of the three and
+    // a working card starts opening the Accounting hub instead.
+    for (const card of LEDGER_STATEMENT_CARDS) {
+      expect(LEDGER_VIEWS.map((v) => v.key)).toContain(card.key);
+      // ...and it must be gated exactly as the ledger's own card for it is, or
+      // one hub offers a screen the other knows would refuse.
+      expect(LEDGER_VIEWS.find((v) => v.key === card.key)?.requires).toBe(card.requires);
     }
   });
 
