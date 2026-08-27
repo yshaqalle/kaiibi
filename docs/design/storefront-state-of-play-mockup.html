@@ -1,0 +1,435 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — What Exists, What the Address Is, Where a Flyer Goes</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --warn:#b07206; --warnwash:#fbf3e2; --warnln:#e8d6ab;
+    --accwash:#e6edff; --accink:#1b47b8;
+    --bad:#b3261e; --badwash:#fdeceb; --badln:#f0cdca;
+    --ok:#008340; --okwash:#e6f4ec; --okln:#bfe0cd;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:28px 0 8px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code,li code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  /* ---------- the address ---------- */
+  .urlBox{background:var(--sf);border:1px solid var(--ln);border-radius:18px;padding:26px 24px;margin-top:18px;}
+  .urlBig{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:clamp(19px,3.4vw,32px);font-weight:700;letter-spacing:-.02em;line-height:1.35;
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:0;}
+  .urlBig .you{color:var(--blue);}
+  .urlBig .fixed{color:var(--mut);}
+  .urlLegend{display:flex;gap:24px;flex-wrap:wrap;margin-top:16px;font-size:12.5px;color:var(--mut);}
+  .urlLegend b{color:var(--ink2);}
+  .urlWrong{margin-top:18px;padding-top:16px;border-top:1px solid var(--ln);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;color:var(--mut);}
+  .urlWrong s{color:#b3261e;text-decoration-thickness:2px;}
+
+  .decisions{display:grid;gap:10px;margin-top:18px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
+  .dx{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);border-radius:12px;
+    padding:13px 15px;background:var(--sf);}
+  .dx b{display:block;font-size:13px;margin-bottom:3px;}
+  .dx p{margin:0;font-size:13px;color:var(--ink2);}
+  .dx.no{border-left-color:#b3261e;}
+  .dx.done{border-left-color:#008340;}
+
+  /* ---------- status ---------- */
+  .ship{display:grid;gap:9px;margin-top:16px;}
+  .row{display:grid;grid-template-columns:104px 1fr 92px;gap:14px;align-items:start;
+    border:1px solid var(--ln);border-radius:13px;padding:12px 14px;background:var(--sf);}
+  .row .who{font-size:12px;font-weight:800;color:var(--ink2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .row .what b{display:block;font-size:13.5px;margin-bottom:2px;}
+  .row .what p{margin:0;font-size:12.5px;color:var(--mut);}
+  .tag{border-radius:999px;padding:4px 11px;font-size:10.5px;font-weight:800;letter-spacing:.04em;
+    text-align:center;white-space:nowrap;}
+  .tag.live{background:var(--okwash);color:#075e34;border:1px solid var(--okln);}
+  .tag.open{background:var(--accwash);color:var(--accink);border:1px solid #c3d3ff;}
+  .tag.todo{background:var(--pg2);color:var(--mut);border:1px solid var(--ln);}
+
+  /* ---------- flow ---------- */
+  .flow{display:flex;gap:0;flex-wrap:wrap;align-items:stretch;margin-top:16px;}
+  .step{flex:1;min-width:150px;border:1px solid var(--ln);background:var(--sf);padding:13px 14px;}
+  .step:first-child{border-radius:13px 0 0 13px;}
+  .step:last-child{border-radius:0 13px 13px 0;}
+  .step + .step{border-left:0;}
+  .step .n{font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--mut);text-transform:uppercase;}
+  .step b{display:block;font-size:13.5px;margin:3px 0 3px;}
+  .step p{margin:0;font-size:12px;color:var(--mut);line-height:1.45;}
+  .step.acc{background:var(--accwash);border-color:#c3d3ff;}
+  .step.acc .n,.step.acc p{color:var(--accink);opacity:.85;}
+  @media (max-width:760px){
+    .step,.step:first-child,.step:last-child{border-radius:13px;border-left:1px solid var(--ln);}
+    .step + .step{margin-top:8px;}
+  }
+
+  /* ---------- anatomy ---------- */
+  .anat{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:26px;align-items:start;margin-top:16px;}
+  @media (max-width:820px){ .anat{grid-template-columns:1fr;} }
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.bare{padding:0;overflow:hidden;background:#fff;}
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+
+  .ph{background:#fff;}
+  .band{position:relative;}
+  .bandTag{position:absolute;left:-9px;top:9px;background:var(--d-ink);color:#fff;font-size:9.5px;font-weight:800;
+    letter-spacing:.08em;padding:3px 7px;border-radius:5px;z-index:3;}
+  .bandTag.acc{background:var(--c1);}
+  .phHead{padding:15px 17px;border-bottom:1px solid var(--d-ln);display:flex;justify-content:space-between;
+    align-items:center;gap:10px;}
+  .phHead b{font-size:15px;font-weight:800;}
+  .phHead span{font-size:11.5px;color:var(--d-mut);display:block;font-weight:400;}
+  .miniBtn{border:1px solid var(--d-rule);border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:700;}
+  .blurb{padding:13px 17px;border-bottom:1px solid var(--d-ln);}
+  .blurb p{margin:0;font-size:12.5px;color:var(--d-ink2);}
+  .blurb p + p{margin-top:5px;color:var(--d-mut);font-size:11.5px;}
+
+  .carSlide{height:150px;display:flex;flex-direction:column;justify-content:flex-end;padding:15px;
+    color:#fff;position:relative;}
+  .carSlide h5{margin:0 0 3px;font-size:18px;font-weight:800;letter-spacing:-.02em;
+    text-shadow:0 1px 12px rgba(0,0,0,.42);}
+  .carSlide p{margin:0;font-size:12px;opacity:.94;text-shadow:0 1px 10px rgba(0,0,0,.42);}
+  .carCta{align-self:flex-start;margin-top:9px;background:#fff;color:#111;border-radius:999px;
+    padding:6px 13px;font-size:11.5px;font-weight:800;}
+  .dots{position:absolute;bottom:10px;right:13px;display:flex;gap:5px;}
+  .dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.5);}
+  .dot.on{background:#fff;width:16px;border-radius:999px;}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:14px;}
+  .card{border:1px solid var(--d-ln);border-radius:13px;padding:11px;}
+  .card b{display:block;font-size:12.5px;font-weight:700;}
+  .card .pr{font-size:14px;font-weight:800;margin-top:3px;}
+  .card .st{font-size:10.5px;color:var(--d-mut);}
+  .bar{background:var(--d-ink);color:#fff;padding:13px;text-align:center;font-size:13.5px;font-weight:800;}
+
+  .legend{display:flex;flex-direction:column;gap:11px;}
+  .lg{border:1px solid var(--ln);border-radius:13px;padding:13px 15px;background:var(--sf);}
+  .lg b{display:block;font-size:13px;margin-bottom:3px;}
+  .lg p{margin:0;font-size:12.5px;color:var(--ink2);}
+  .lg.acc{border-left:4px solid var(--blue);}
+
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);font-weight:800;}
+  td b{font-weight:700;}
+  tbody tr:last-child td{border-bottom:0;}
+  td.mono,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;}
+
+  ul.tight{margin:8px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);}
+  ul.tight li{margin-bottom:5px;}
+  .cap{font-size:12px;color:var(--mut);margin-top:9px;}
+  .swatches{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
+  .sw{border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:#fff;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Kaiibi · storefront · state of play</p>
+  <h1>What the storefront is now, what its address looks like, and where a flyer would sit</h1>
+  <p class="lede">
+    Four plans shipped and a fifth is in review. This is the whole thing on one page — the address a
+    shop hands to a customer, the two journeys that already work end to end, and the two gaps left.
+  </p>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>The address</h2>
+    <p class="h2sub">A subdomain, not a path. Getting this backwards is a mistake this codebase has already made once.</p>
+
+    <div class="urlBox">
+      <div class="urlBig">
+        <span class="fixed">https://</span><span class="you">xamdi-electronics</span><span class="fixed">.kaiibi.com</span>
+      </div>
+      <div class="urlLegend">
+        <span><b>The shop chooses</b> the blue part, once.</span>
+        <span><b>3–63 characters</b>, lowercase, digits and hyphens.</span>
+        <span><b>One label</b> — no dots inside it.</span>
+      </div>
+      <div class="urlWrong">
+        <s>kaiibi.com/xamdi-electronics</s> &nbsp;— never this. The resolver only ever accepts a subdomain,
+        so a path printed on a shop card is an address that does not work.
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px">
+      Every host serves the same bundle, so the hostname is the only thing telling
+      <code>xamdi-electronics.kaiibi.com</code> from the admin app. The resolver <b>fails closed</b>: anything
+      it does not positively recognise as one label plus the domain loads the normal app instead. That is
+      why <code>localhost</code> and preview URLs never accidentally serve a shop's page — and why
+      <code>a.b.kaiibi.com</code> resolves to nothing rather than guessing which half is the shop.
+    </p>
+
+    <h3>Names a shop cannot take</h3>
+    <p class="note">
+      About twenty are reserved, enforced in one place and read by both the app and the database so the
+      two cannot drift: <span class="mono">www · app · api · admin · platform · dashboard · account ·
+      accounts · billing · support · help · status · blog · docs · mail · smtp · ftp · cdn · static ·
+      assets</span>
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>What exists today</h2>
+    <p class="h2sub">Four merged, one in review, two not started.</p>
+
+    <div class="ship">
+      <div class="row">
+        <span class="who">PR #75</span>
+        <span class="what"><b>The page itself</b><p>Subdomain routing, three layouts, six colourways, public read through <code>security definer</code> functions. A draft shop, an unknown name and a failed read all render byte-identically — you cannot probe for which shops exist.</p></span>
+        <span class="tag live">Merged</span>
+      </div>
+      <div class="row">
+        <span class="who">PR #77</span>
+        <span class="what"><b>The editor</b><p>Claim the address, pick a design, write the blurb and hours, set delivery areas and their fees, publish. A draft column so a shop can prepare a page nobody can see yet.</p></span>
+        <span class="tag live">Merged</span>
+      </div>
+      <div class="row">
+        <span class="who">PR #79</span>
+        <span class="what"><b>Basket and checkout</b><p>Add to basket, check out with a name, a phone, collect-or-deliver and a landmark — or send the whole basket as a WhatsApp message instead. The order is the first thing an anonymous visitor is allowed to write.</p></span>
+        <span class="tag live">Merged</span>
+      </div>
+      <div class="row">
+        <span class="who">PR #82</span>
+        <span class="what"><b>Fulfilment</b><p>The order inbox, the state machine, and completion turning an order into a real sale in the books — with the delivery fee landing in its own <code>4300 Delivery Income</code> account rather than being mixed into sales.</p></span>
+        <span class="tag live">Merged</span>
+      </div>
+      <div class="row">
+        <span class="who">PR #85</span>
+        <span class="what"><b>The agreed price</b><p>A sale is filed at the price the customer was quoted, and a tax-charging shop can complete an order at all. Before this, either repricing an item or switching tax on stranded every open order.</p></span>
+        <span class="tag open">In review</span>
+      </div>
+      <div class="row">
+        <span class="who">next</span>
+        <span class="what"><b>The address follows the shop's name</b><p>Derived from the name, and a collision offers a suffix instead of a blank box.</p></span>
+        <span class="tag todo">Drawn</span>
+      </div>
+      <div class="row">
+        <span class="who">next</span>
+        <span class="what"><b>Flyers</b><p>Posters and offers at the top of the page.</p></span>
+        <span class="tag todo">Drawn</span>
+      </div>
+    </div>
+
+    <h3>Three layouts, six colourways</h3>
+    <p class="note">
+      A <b>layout</b> decides the shape of the page; a <b>colourway</b> is four values the layout renders
+      through. A new shop that has uploaded nothing and chosen nothing gets <b>Market</b> and <b>Ink</b>,
+      which is meant to look deliberate rather than unfinished.
+    </p>
+    <table>
+      <thead><tr><th style="width:16%">Layout</th><th>Best for</th><th style="width:26%">Flyers?</th></tr></thead>
+      <tbody>
+        <tr><td><b>Market</b> <span style="color:var(--mut)">(default)</span></td>
+            <td>Even grid, price forward. Works with any number of photos — including none.</td>
+            <td><b style="color:#008340">Yes</b></td></tr>
+        <tr><td><b>Window</b></td>
+            <td>Big opening statement, larger tiles. Best when the shop has photos.</td>
+            <td><b style="color:#008340">Yes</b></td></tr>
+        <tr><td><b>Counter</b></td>
+            <td>A price list, for a long catalogue with no photos.</td>
+            <td><b style="color:#b3261e">No — by design</b></td></tr>
+      </tbody>
+    </table>
+    <div class="swatches">
+      <span class="sw" style="background:#101014">Ink · anything</span>
+      <span class="sw" style="background:#2c6e49">Palm · grocery, pharmacy</span>
+      <span class="sw" style="background:#a2542b">Clay · hardware, textiles</span>
+      <span class="sw" style="background:#1f5f7a">Sea · electronics, tools</span>
+      <span class="sw" style="background:#b07206">Saffron · food, spice</span>
+      <span class="sw" style="background:#6b2f5e">Plum · cosmetics, salon</span>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>The two journeys that already work</h2>
+
+    <h3>A customer</h3>
+    <div class="flow">
+      <div class="step"><span class="n">1</span><b>Opens the link</b><p>From a WhatsApp message or a printed card.</p></div>
+      <div class="step"><span class="n">2</span><b>Browses</b><p>Only items the shop switched on for online. Out-of-stock says so.</p></div>
+      <div class="step"><span class="n">3</span><b>Basket, or asks</b><p>Add to basket to buy, or Ask to open WhatsApp about that one item.</p></div>
+      <div class="step"><span class="n">4</span><b>Checks out</b><p>Name, phone, collect or deliver, a landmark. No card — payment happens in person.</p></div>
+      <div class="step"><span class="n">5</span><b>Gets a number</b><p>"#7. We'll call you when it's ready."</p></div>
+    </div>
+
+    <h3>The shop</h3>
+    <div class="flow">
+      <div class="step"><span class="n">1</span><b>New</b><p>The order lands in the inbox with what was asked for and the total.</p></div>
+      <div class="step"><span class="n">2</span><b>Accept</b><p>Or cancel with a reason the customer can be told.</p></div>
+      <div class="step"><span class="n">3</span><b>Ready</b><p>Picked and waiting. The shop calls.</p></div>
+      <div class="step"><span class="n">4</span><b>Complete</b><p>Asks how they paid — cash, ZAAD, e-Dahab.</p></div>
+      <div class="step acc"><span class="n">5</span><b>It becomes a sale</b><p>Stock drops, the journal balances, the delivery fee posts to 4300.</p></div>
+    </div>
+
+    <p class="note" style="margin-top:16px">
+      Step 5 is the one worth pausing on. An order is not money — until it completes, the inbox says so
+      in as many words: <i>"$23.00 across 1 order still open is what customers have asked for, not money
+      the shop has taken."</i> Completion is what puts it in the books, and it is the same posting path a
+      counter sale uses, so the two cannot disagree.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>Where a flyer fits</h2>
+    <p class="h2sub">Between who the shop is and what it sells.</p>
+
+    <div class="anat">
+      <div>
+        <div class="frameHead"><b>Market, with two flyers</b><i>xamdi-electronics.kaiibi.com</i></div>
+        <div class="frame bare">
+          <div class="ph">
+            <div class="band">
+              <span class="bandTag">1 · WHO</span>
+              <div class="phHead">
+                <div><b>Xamdi Electronics</b><span>Hargeisa</span></div>
+                <span class="miniBtn">Basket · 2</span>
+              </div>
+            </div>
+            <div class="band">
+              <span class="bandTag">2 · WHERE</span>
+              <div class="blurb">
+                <p>Everything for the house and the phone.</p>
+                <p>Open 8am–9pm, Road No.1. Message us before you come and we'll set it aside.</p>
+              </div>
+            </div>
+            <div class="band">
+              <span class="bandTag acc">3 · WHAT'S ON</span>
+              <div class="carSlide" style="background:linear-gradient(135deg,#1f5f7a,#3b8fb0)">
+                <h5>20% off all solar</h5>
+                <p>This week only — lanterns, panels and batteries.</p>
+                <span class="carCta">See solar →</span>
+                <div class="dots"><span class="dot on"></span><span class="dot"></span></div>
+              </div>
+            </div>
+            <div class="band">
+              <span class="bandTag">4 · GOODS</span>
+              <div class="grid2">
+                <div class="card"><b>Solar lantern</b><div class="pr">$14.00</div><div class="st">In stock</div></div>
+                <div class="card"><b>Power bank</b><div class="pr">$18.00</div><div class="st">In stock</div></div>
+                <div class="card"><b>LED bulb ×4</b><div class="pr">$6.00</div><div class="st">In stock</div></div>
+                <div class="card"><b>HDMI cable</b><div class="pr">$5.00</div><div class="st">In stock</div></div>
+              </div>
+            </div>
+            <div class="bar">Checkout · $23.00</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="lg"><b>1 · Who — the shop's name and town</b>
+          <p>A customer arriving from a forwarded link needs to know they are in the right place before
+          anything else happens.</p></div>
+        <div class="lg"><b>2 · Where — blurb and opening hours</b>
+          <p>Already there. In Hargeisa the hours and the landmark are half the reason the page exists.</p></div>
+        <div class="lg acc"><b>3 · What's on — the flyers</b>
+          <p><b>This is the new band.</b> It sits directly above the goods it points at, so tapping it and
+          arriving at the solar items is one continuous movement. Putting it above the shop's name would
+          make the loudest thing on the page arrive before the customer knows whose page it is.</p>
+          <p style="margin-top:7px">The fourth surface for one offer: the till <b>applies</b> it, the poster
+          <b>prints</b> it, a campaign <b>sends</b> it, this <b>shows</b> it — all reading the same
+          promotion row.</p></div>
+        <div class="lg"><b>4 · Goods</b>
+          <p>Unchanged. Only items the shop switched on for online, priced from the same products the till
+          uses.</p></div>
+      </div>
+    </div>
+
+    <p class="cap">
+      This places the band lower than the first sketch of it did, which put flyers immediately under the
+      header. Tying the poster to the goods beats tying it to the masthead.
+    </p>
+
+    <h3>What a flyer is, and is not</h3>
+    <table>
+      <thead><tr><th style="width:30%">Question</th><th>Answer</th></tr></thead>
+      <tbody>
+        <tr><td><b>How many?</b></td><td>Up to five. <b>None renders nothing at all</b> — no empty frame, no
+            "add a flyer" placeholder facing a customer. <b>One renders static</b>, with no dots and no
+            arrows, because a carousel of one with controls nobody can use is a lie about what is there.</td></tr>
+        <tr><td><b>Can it be tapped?</b></td><td>Three choices: nothing, show a category, or ask on WhatsApp
+            about that offer. A flyer that cannot be acted on is decoration.</td></tr>
+        <tr><td><b>Does it move?</b></td><td>Not unless the shop turns it on, and never for a customer whose
+            device asks for reduced motion — their preference beats the shop's setting. It stops for good
+            the moment somebody touches or focuses it.</td></tr>
+        <tr><td><b>Where do the images live?</b></td><td>The same upload path logos and product photos already
+            use. No fourth one, and no new bucket.</td></tr>
+        <tr><td><b>Can it be prepared in advance?</b></td><td>Yes — the editor already has a draft column, so
+            next week's poster can exist without being live.</td></tr>
+        <tr><td><b>Does it know about a real offer?</b></td><td><b>It must, when it claims one.</b> A flyer
+            carries the same optional link to a promotion that a printed poster and a WhatsApp campaign
+            already do. With one attached, the offer's words — "20% off solar, through Saturday" — are
+            <b>derived from that row, not typed</b>, so the page cannot advertise a discount the till will
+            not give. Only the headline is free text, because "Ciid wanaagsan" is not derivable from a
+            discount row. With none attached it is a plain announcement: new stock, a change of hours.
+            <br><br>The flyer <i>reads</i> the promotion; it never applies one. Nothing about the discount
+            engine changes.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>What is left</h2>
+    <table>
+      <thead><tr><th style="width:26%">Gap</th><th>What it costs</th><th style="width:18%">State</th></tr></thead>
+      <tbody>
+        <tr><td><b>Address follows the name</b></td>
+            <td>No schema. Editor logic plus a suffix field. The address is derived while unclaimed and frozen once claimed — a rename must never move a link already printed on a card.</td>
+            <td><b>Drawn, not planned</b></td></tr>
+        <tr><td><b>Flyers</b></td>
+            <td>One table, one boolean, and the existing public read extended rather than a fourth one added — an unpublished shop and an unknown name have to stay indistinguishable, which is only true if flyers travel on the same call.</td>
+            <td><b>Drawn, not planned</b></td></tr>
+        <tr><td><b>Paying online</b></td>
+            <td>Deliberately not built. The column that would carry it exists and permits one value, so adding a provider later does not need a migration to the orders table.</td>
+            <td>Not planned</td></tr>
+        <tr><td><b>Refunding a delivery fee</b></td>
+            <td>"Does returning one item out of a five-item delivery refund the trip?" is a product question, not a schema one.</td>
+            <td>Deferred, on purpose</td></tr>
+        <tr><td><b>Scheduling a flyer</b></td>
+            <td>Worth wanting, much bigger. Draft plus a tap runs a week's promotion today.</td>
+            <td>Out of scope</td></tr>
+        <tr><td><b>Redirecting an old address</b></td>
+            <td>Needs a history table and a resolver that fails <i>open</i> — the opposite of how the current one is built, and the reason it is safe.</td>
+            <td>Out of scope</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
