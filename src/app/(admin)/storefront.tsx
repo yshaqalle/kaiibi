@@ -709,6 +709,11 @@ export default function StorefrontEditor() {
         status={status}
         blockers={blockers}
         dirty={dirty}
+        // The CLAIMED address, not the draft one being typed in the drawer:
+        // this is the address that actually resolves, and it is only shown
+        // once the page is live.
+        slug={working.slug}
+        shopName={shop?.name ?? ''}
         onEdit={handleEdit}
         onFocusBlocker={focusBlocker}
         onGoToInventory={handleGoToInventory}

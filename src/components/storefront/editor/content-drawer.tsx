@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
+import { copyText } from '@/lib/copy-text';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { pickPhotoFromLibrary } from '@/lib/photo-picker';
 import { applySuffix, deriveSlugFromName, type SlugProblem } from '@/lib/storefront-slug';
@@ -295,23 +296,20 @@ export function ContentDrawer({
     if (value.slug !== claimed) onChange({ slug: claimed });
   }
 
-  // A shop's address is worth nothing in an app it cannot get out of. Two
-  // real paths and no new dependency: a browser has a clipboard, and a phone
-  // has the share sheet -- whose first action is Copy, and which is how this
-  // link actually reaches a WhatsApp status in the first place. expo-clipboard
-  // would mean a new native build for one button.
+  // A shop's address is worth nothing in an app it cannot get out of. HOW the
+  // text gets out (clipboard on the web, the share sheet on a phone, and no
+  // new dependency for either) lives in copyText -- shared with the publish
+  // bar, which offers the same copy on a live page. This function is only
+  // what it MEANS here: the word on the button, and the sentence when it did
+  // not work.
   async function handleCopyAddress() {
     setCopyError(null);
-    const clipboard = (globalThis as { navigator?: { clipboard?: { writeText?: (text: string) => Promise<void> } } })
-      .navigator?.clipboard;
-    try {
-      if (clipboard?.writeText) await clipboard.writeText(fullAddress);
-      else await Share.share({ message: fullAddress });
+    if (await copyText(fullAddress)) {
       setCopied(true);
-    } catch {
-      setCopied(false);
-      setCopyError('Could not copy your address — write it down instead.');
+      return;
     }
+    setCopied(false);
+    setCopyError('Could not copy your address — write it down instead.');
   }
 
   // The ending on screen: the shop's own if it has typed one, otherwise the

@@ -62,3 +62,17 @@ export function openWhatsApp(phone: string, text?: string): void {
   const link = whatsappLink(phone, text) ?? `https://wa.me/${text ? `?text=${encodeURIComponent(text)}` : ''}`;
   openExternalUrl(link);
 }
+
+// A message with NO recipient decided yet -- WhatsApp opens on its own
+// contact picker with the words already written, and the shopkeeper chooses
+// who gets it (or posts it to a status, which is how a shop link actually
+// travels here).
+//
+// This is the same no-number path openWhatsApp already falls back to, given a
+// name so a caller does not have to pass an empty string and hope. It is not
+// the "message this customer" case the note above warns about: there is no
+// number that could have been dialled, so there is nothing to hide the button
+// for.
+export function shareOnWhatsApp(text: string): void {
+  openWhatsApp('', text);
+}
