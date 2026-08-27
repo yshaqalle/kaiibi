@@ -95,6 +95,11 @@ declare
   v_arr    text[];
   v_txt    text;
   v_status text;
+  -- Check 13: a value for auto_close_periods that DIFFERS from whatever the
+  -- checks above left, so the write the trigger must refuse is a real change.
+  -- `is distinct from old` is what the trigger fires on, and a no-op update is
+  -- not one.
+  v_target text;
   v_date   date;
   v_bigint bigint;
 begin
@@ -1068,6 +1073,107 @@ begin
   if (select p.status from public.accounting_periods p where p.id = v_e_mar) <> 'open' then
     raise exception 'FAIL: E''s re-opened March did not stay open';
   end if;
+
+  -- =====================================================================
+  -- 13. THE AUTO-CLOSE SETTING IS GATED WHERE IT IS WRITTEN, not only on
+  --     the screen that shows it.
+  --
+  --     The settings nav item carries `permission: 'ledger.close'` and says
+  --     so in a comment. The write is a plain PostgREST PATCH on `shops`, and
+  --     the `own shops update` policy admits
+  --     `owner_id = auth.uid() OR has_shop_permission(id, 'settings.access')`
+  --     -- so the gate was entirely in the client. Measured, on a member
+  --     holding settings.access and no ledger permission at all:
+  --
+  --       has ledger.close? f   has settings.access? t
+  --       RESULT: auto_close_periods="automatic" written by settings.access
+  --               with NO ledger permission
+  --
+  --     Bounded -- close_due_periods() still refuses to fire for a caller
+  --     without ledger.close -- but 20261005000200 exists because "books do
+  --     not close themselves" was judged dangerous enough to change a shipped
+  --     default and migrate every row, and the decision to turn that back on
+  --     belongs behind the same permission as the act.
+  --
+  --     MUTATION: drop the guard_period_close_policy trigger -> (a) and (b)
+  --     both red.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  insert into public.roles (shop_id, name, permissions)
+    values (v_h, 'Office', array['settings.access'])
+    returning id into v_role;
+  insert into public.shop_members (shop_id, user_id, role_id, active)
+    values (v_h, v_strange, v_role, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_strange)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  --     The premise: this member really does hold settings.access and really
+  --     does not hold ledger.close. Without both halves the refusals below
+  --     could be a member who cannot touch `shops` at all.
+  if not public.has_shop_permission(v_h, 'settings.access') then
+    raise exception 'FAIL 13: the fixture member does not hold settings.access, so the gate is not being tested';
+  end if;
+  if public.has_shop_permission(v_h, 'ledger.close') then
+    raise exception 'FAIL 13: the fixture member holds ledger.close, so the gate is not being tested';
+  end if;
+
+  --     (a) THE MODE.
+  v_txt := (select s.auto_close_periods from public.shops s where s.id = v_h);
+  v_target := case when v_txt = 'automatic' then 'never' else 'automatic' end;
+  begin
+    update public.shops set auto_close_periods = v_target where id = v_h;
+    raise exception 'FAIL 13: settings.access alone rewrote when the books close (% -> %)', v_txt, v_target;
+  exception
+    when others then
+      v_status := sqlerrm;
+      if v_status like 'FAIL 13:%' then raise; end if;
+      if v_status is distinct from 'You do not have permission to change when this shop''s books close.' then
+        raise exception 'FAIL 13: the write refused with "%"', v_status;
+      end if;
+  end;
+  if (select s.auto_close_periods from public.shops s where s.id = v_h) is distinct from v_txt then
+    raise exception 'FAIL 13: auto_close_periods moved from % to % despite the refusal',
+      v_txt, (select s.auto_close_periods from public.shops s where s.id = v_h);
+  end if;
+
+  --     (b) AND THE GRACE DAYS, which for a shop already on 'automatic' ARE
+  --         the setting: cutting them from 15 to 5 closes every month that
+  --         ended more than five days ago on the next read. Gating the mode
+  --         and leaving this open would gate the switch and not the wire.
+  begin
+    -- 5, 10 or 15 -- the column's own check constraint -- so this is a real
+    -- change and not a constraint violation dressed up as a refusal.
+    update public.shops set period_close_grace_days =
+      (select case when s.period_close_grace_days = 15 then 5 else 15 end
+         from public.shops s where s.id = v_h)
+     where id = v_h;
+    raise exception 'FAIL 13: settings.access alone moved the grace period';
+  exception
+    when others then
+      v_status := sqlerrm;
+      if v_status like 'FAIL 13:%' then raise; end if;
+      if v_status is distinct from 'You do not have permission to change when this shop''s books close.' then
+        raise exception 'FAIL 13: the grace-day write refused with "%"', v_status;
+      end if;
+  end;
+
+  --     (c) AND THE REST OF THE SETTINGS SCREEN STILL WORKS. A guard that
+  --         refuses every update to `shops` would pass (a) and (b) and break
+  --         every other panel the same member is meant to use.
+  update public.shops set name = 'Grace Books, renamed' where id = v_h;
+  if (select s.name from public.shops s where s.id = v_h) <> 'Grace Books, renamed' then
+    raise exception 'FAIL 13: settings.access could no longer rename the shop';
+  end if;
+
+  --     (d) AND THE CLOSER CAN STILL SET IT, or the gate has locked out the
+  --         one person it was drawn around.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_closer)::text, true);
+  update public.shops set auto_close_periods = 'automatic', period_close_grace_days = 5
+   where id = v_h;
+  if (select s.auto_close_periods from public.shops s where s.id = v_h) <> 'automatic' then
+    raise exception 'FAIL 13: a ledger.close holder could not change the setting the screen is gated on';
+  end if;
+  raise notice '13 OK: only a closer decides whether the books close themselves';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
