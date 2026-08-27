@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { backfillFooter, LEDGER_VIEWS, visibleLedgerViews, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
 import type { Permission } from '@/lib/permissions';
 
@@ -78,6 +81,32 @@ describe('the ledger hub catalogue', () => {
     for (const view of LEDGER_VIEWS) {
       if (view.group === null) continue;
       expect(view.action.startsWith('+')).toBe(view.creates);
+    }
+  });
+
+  it('gives every catalogued view a branch in the shell that actually renders it', () => {
+    // The first test in this file says the catalogue "lists exactly the twelve
+    // views the shell can route to" -- and nothing checked that the shell can.
+    // Measured: deleting the `view === 'assets'` branch from accounting.tsx
+    // left the whole suite green. The card would still appear on the hub, the
+    // crumb would still say Fixed Assets, and the body below it would be empty.
+    //
+    // Read off the SOURCE rather than by rendering the tab twelve times: the
+    // shell needs a shop, a session, a date range and a permission set per
+    // view, and a test that expensive is one that gets skipped. What can go
+    // wrong here is a key added to the catalogue and not to the shell, and the
+    // source says whether it was.
+    const shell = readFileSync(
+      join(__dirname, '..', '..', 'app', '(admin)', '(tabs)', 'accounting.tsx'),
+      'utf8'
+    );
+    // Guard the guard: if the shell ever stops matching this shape, every
+    // assertion below would pass vacuously.
+    expect(shell).toContain("view === 'trial'");
+    for (const view of LEDGER_VIEWS) {
+      // The hub is what the shell falls back to, not a branch of its own.
+      if (view.key === 'hub') continue;
+      expect(shell).toContain(`view === '${view.key}'`);
     }
   });
 
