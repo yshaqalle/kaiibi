@@ -58,6 +58,7 @@ import {
   publishDraft,
   saveDraft,
   setAutoAdvance,
+  checkSlug,
 } from '@/lib/storefront-admin';
 import StorefrontEditor from '@/app/(admin)/storefront';
 
@@ -217,6 +218,46 @@ describe('storefront editor', () => {
 
     expect(saveDraft).toHaveBeenCalledWith('s1', { headline: 'Fresh produce, delivered daily.' });
     expect(publishDraft).not.toHaveBeenCalled();
+  });
+
+  // A verdict that lands after the shopkeeper has typed on is a verdict about
+  // a string that is no longer in the field, and clearTimeout cannot stop it:
+  // by then the timer has already fired and checkSlug is in flight.
+  //
+  // This is not cosmetic staleness. ContentDrawer freezes a collision base off
+  // the CURRENT value.slug the moment it sees 'taken', so a late 'taken' for
+  // "xamdi-a" arriving while the field reads "xamdi-electronics" would freeze
+  // the longer value as the base and open a suffix field beneath it -- walking
+  // the shop into appending to an address nothing ever said was taken.
+  it('ignores an availability verdict for a slug the shopkeeper has already typed past', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+
+    let resolveFirst: ((value: string) => void) | undefined;
+    (checkSlug as jest.Mock).mockImplementationOnce(
+      () => new Promise<string>((resolve) => { resolveFirst = resolve; }),
+    );
+
+    const tree = await renderScreen();
+    const slugInput = tree.root.findAll((n) => n.props?.testID === 'content-drawer-slug-input')[0];
+    expect(slugInput).toBeDefined();
+
+    // Types one address and waits for the check to actually be in flight.
+    await act(async () => { slugInput.props.onChangeText('xamdi-a'); });
+    await act(async () => { jest.advanceTimersByTime(500); await Promise.resolve(); });
+    expect(checkSlug).toHaveBeenCalledWith('xamdi-a');
+    expect(resolveFirst).toBeDefined();
+
+    // ...then types on, before that first answer comes back.
+    await act(async () => { slugInput.props.onChangeText('xamdi-electronics'); });
+
+    // The stale answer lands. It was about 'xamdi-a', not what is on screen.
+    await act(async () => { resolveFirst!('taken'); await Promise.resolve(); });
+
+    // No suffix field, and no frozen base: the shop was never told the address
+    // it is actually holding is taken.
+    expect(tree.root.findAll((n) => n.props?.testID === 'content-drawer-suffix-input')).toHaveLength(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'content-drawer-slug-base')).toHaveLength(0);
   });
 
   // B1: a shop must never be told it published something it did not.

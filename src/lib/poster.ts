@@ -1,6 +1,6 @@
 import { formatCents } from '@/lib/currency';
 import { instantToEndDateInput, instantToStartDateInput } from '@/lib/promotion-dates';
-import type { Promotion } from '@/types/models';
+import type { Promotion, PromotionOfferFacts } from '@/types/models';
 
 // Every word a poster prints, derived from records that already exist.
 //
@@ -59,7 +59,7 @@ function shortDate(dateInput: string): string {
   return `${DAYS[at.getDay()]} ${day}`;
 }
 
-function windowLine(promotion: Promotion): string | null {
+function windowLine(promotion: PromotionOfferFacts): string | null {
   const from = promotion.startsAt ? instantToStartDateInput(promotion.startsAt) : null;
   // Stored exclusive, printed inclusive: an offer stored as ending at midnight
   // on the 17th ran through the whole of the 16th, and the 16th is what a
@@ -74,20 +74,49 @@ function windowLine(promotion: Promotion): string | null {
   return `${sameMonth ? shortDate(from!) : longDate(from!)} — ${longDate(to!)}`;
 }
 
-function scopeLine(promotion: Promotion): string {
+function scopeLine(promotion: PromotionOfferFacts): string {
   if (promotion.scope === 'category' && promotion.scopeValue) return `All ${promotion.scopeValue}`;
   if (promotion.scope === 'brand' && promotion.scopeValue) return `Anything by ${promotion.scopeValue}`;
   return 'Everything in store';
 }
 
-export function posterCopyFor(input: PosterCopyInput): PosterCopy {
-  const { promotion } = input;
-  const headline = input.headline?.trim();
+// The three lines an offer is entitled to claim, derived from the promotion
+// row and from nothing else.
+//
+// THIS IS THE ONE PLACE THE WORDING LIVES, and it has to stay that way. The
+// printed poster (posterCopyFor, below) and the shop's public page
+// (src/components/storefront/flyer-carousel.tsx, reading the raw facts
+// get_public_storefront hands back) both come through here, so the paper on
+// the door and the page at the shop's address cannot read two ways about one
+// offer. This used to be a second, hand-ported copy in SQL --
+// 20260930000100_public_storefront_flyers.sql -- kept honest only by a
+// database check that re-asserted poster.test.ts's cases against it. That
+// check was a guard around the duplication; deleting the duplication is the
+// fix, and 20260930000300_flyer_offer_facts.sql is where it went.
+//
+// WHAT DID *NOT* MOVE: whether an offer is running at all. That stays in SQL
+// (promotion_is_live), decided by the server before a flyer is ever handed to
+// a client. An expired offer's words are never rendered here because the
+// flyer carrying them never arrives. Only the WORDING is a client's job.
+export type OfferCopy = Pick<PosterCopy, 'value' | 'scope' | 'when'>;
+
+export function offerCopyFor(promotion: PromotionOfferFacts): OfferCopy {
   return {
-    headline: headline ? headline : null,
+    // formatCents (src/lib/currency.ts), never a hand-rolled '$' -- the same
+    // formatter the till and the receipt use.
     value: promotion.discountType === 'percentage' ? `${promotion.discountValue}%` : formatCents(promotion.discountValue),
     scope: scopeLine(promotion),
     when: windowLine(promotion),
+  };
+}
+
+export function posterCopyFor(input: PosterCopyInput): PosterCopy {
+  const headline = input.headline?.trim();
+  return {
+    headline: headline ? headline : null,
+    // Delegated, not duplicated: a poster and a public page derive one offer
+    // through one function, so neither can drift from the other.
+    ...offerCopyFor(input.promotion),
     shopName: input.shopName,
     branch: input.branch ?? null,
     address: input.address ?? null,

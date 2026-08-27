@@ -17,7 +17,6 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { isPromotionLive } from '@/lib/discounts';
 import { describePlanError } from '@/lib/entitlements';
-import { posterCopyFor } from '@/lib/poster';
 import { listPromotions } from '@/lib/promotions';
 import { publicImageUrl, uploadImage } from '@/lib/storage';
 import {
@@ -247,12 +246,30 @@ export default function StorefrontEditor() {
       return;
     }
     setSlugState('checking');
+    // `cancelled`, not just clearTimeout. Once checkSlug is in flight the
+    // timer is already spent, so clearing it stops nothing -- and a verdict
+    // that lands after the shopkeeper has typed on is a verdict about a
+    // string that is no longer in the field.
+    //
+    // That is not a cosmetic staleness. ContentDrawer freezes a collision
+    // base off `value.slug` the moment it sees 'taken', so a late 'taken'
+    // for "xamdi" arriving while the field reads "xamdi-electronics" would
+    // freeze the LONGER value as the base and open a suffix field under it --
+    // walking the shop into an address it was never told was taken.
+    let cancelled = false;
     const handle = setTimeout(() => {
       checkSlug(trimmed)
-        .then((result) => setSlugState(result ?? 'idle'))
-        .catch(() => setSlugState('idle'));
+        .then((result) => {
+          if (!cancelled) setSlugState(result ?? 'idle');
+        })
+        .catch(() => {
+          if (!cancelled) setSlugState('idle');
+        });
     }, 400);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [slugDraft, working?.slug]);
 
   // Cancels any pending autosave timer without flushing it -- used on
@@ -600,9 +617,11 @@ export default function StorefrontEditor() {
   // Both halves of the rule are the SHARED implementation, not a second copy:
   // isPromotionLive (src/lib/discounts.ts, "the one place 'is this offer
   // running right now' is decided") is what the SQL's promotion_is_live was
-  // written from, and posterCopyFor (src/lib/poster.ts) is what its wording
-  // functions were ported from line for line. Calling them here is what keeps
-  // the preview from being a third opinion about one offer.
+  // written from, and the WORDING is not done here at all -- the preview hands
+  // FlyerCarousel the promotion's raw facts, exactly as get_public_storefront
+  // now does (20260930000300), and the band words them through offerCopyFor.
+  // One derivation for the preview, the public page and the printed poster,
+  // rather than three opinions about one offer.
   const previewFlyers: StorefrontFlyer[] = flyers
     .filter((flyer) => !flyer.draft)
     .map((flyer) => {
@@ -616,18 +635,22 @@ export default function StorefrontEditor() {
     // already handled: `on delete set null` leaves promotionId null, i.e. a
     // plain announcement.
     .filter(({ flyer, promotion }) => !flyer.promotionId || (promotion !== null && isPromotionLive(promotion)))
-    .map(({ flyer, promotion }) => {
-      const copy = promotion ? posterCopyFor({ promotion, shopName: shop?.name ?? '' }) : null;
-      return {
-        id: flyer.id,
-        imageUrl: publicImageUrl(flyer.imagePath),
-        headline: flyer.headline,
-        subline: flyer.subline,
-        linkKind: flyer.linkKind,
-        linkValue: flyer.linkValue,
-        offer: copy ? { value: copy.value, scope: copy.scope, when: copy.when } : null,
-      };
-    });
+    .map(({ flyer, promotion }) => ({
+      id: flyer.id,
+      imageUrl: publicImageUrl(flyer.imagePath),
+      headline: flyer.headline,
+      subline: flyer.subline,
+      linkKind: flyer.linkKind,
+      linkValue: flyer.linkValue,
+      offer: promotion ? {
+        discountType: promotion.discountType,
+        discountValue: promotion.discountValue,
+        scope: promotion.scope,
+        scopeValue: promotion.scopeValue,
+        startsAt: promotion.startsAt,
+        endsAt: promotion.endsAt,
+      } : null,
+    }));
 
   const previewStorefront: PublicStorefront = {
     shopName: shop?.name ?? '',
