@@ -43,3 +43,29 @@ export function validateSlug(input: string): SlugProblem | null {
   if (RESERVED.has(input)) return 'reserved';
   return null;
 }
+
+// What we SUGGEST while a shop's address is still unclaimed: normalizeSlug
+// applied to their name. It derives; it does not judge -- a name that
+// normalizes to a reserved word (deriveSlugFromName('Admin') -> 'admin') is
+// still returned as-is, and validateSlug is what refuses it. Keeping that
+// judgement in one place is the point.
+export function deriveSlugFromName(shopName: string): string {
+  const normalized = normalizeSlug(shopName);
+  if (normalized.length <= 63) return normalized;
+
+  // Truncating at 63 can land mid-word on what was an internal hyphen,
+  // producing a trailing hyphen that validateSlug then rejects -- so strip
+  // any trailing hyphen AFTER truncating, not before.
+  return normalized.slice(0, 63).replace(/-+$/, '');
+}
+
+// Joins a base slug with a suffix (e.g. a second word from the shop's name)
+// when the plain suggestion is already taken. It normalizes the join so it
+// never produces a leading/trailing/double hyphen, but it does NOT truncate
+// the result if it overflows 63 characters -- that's validateSlug's call to
+// make, same as everywhere else in this file.
+export function applySuffix(base: string, suffix: string): string {
+  const normalizedSuffix = normalizeSlug(suffix);
+  if (normalizedSuffix === '') return base;
+  return normalizeSlug(`${base}-${normalizedSuffix}`);
+}

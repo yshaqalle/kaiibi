@@ -90,6 +90,12 @@ jest.mock('@/lib/supabase', () => {
             state.orderCalls.push([column, opts]);
             return chain;
           },
+          // primaryLocation's terminal pair -- the only query here that ends
+          // in .limit(1).maybeSingle() rather than being awaited as a list.
+          // Both read the same selectResult, so a test sets `data` to a single
+          // row object (or null) rather than an array.
+          limit: () => chain,
+          maybeSingle: () => Promise.resolve(state.selectResult),
           then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
             Promise.resolve(state.selectResult).then(resolve, reject),
         };
@@ -114,6 +120,7 @@ import {
   flyerErrorMessage,
   getOrderItems,
   getStorefrontPreviewProducts,
+  listAddressSuffixSuggestions,
   listFlyers,
   listOrders,
   markOrderReady,
@@ -211,6 +218,51 @@ describe('discardDraft', () => {
   it('throws on failure rather than swallowing it', async () => {
     fake.updateResult = { error: { message: 'boom' } };
     await expect(discardDraft('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// What a shop is offered to APPEND when the address derived from its name is
+// already another shop's. The rule that matters is the one it cannot break:
+// every suggestion comes from a place the shop actually trades in, so no code
+// path here can produce a counter.
+describe('listAddressSuffixSuggestions', () => {
+  it('offers the neighbourhood first, then the city', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Koodbuur', city: 'Hargeisa' }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual(['koodbuur', 'hargeisa']);
+  });
+
+  it('resolves the same primary location the rest of the data layer does', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Road No 1', city: 'Berbera' }, error: null };
+    await listAddressSuffixSuggestions('shop-1');
+    // Primary first, then oldest -- the ordering complete_sale defaults to.
+    expect(fake.orderCalls).toEqual([
+      ['is_primary', { ascending: false }],
+      ['created_at', { ascending: true }],
+    ]);
+    expect(fake.selectCalls).toEqual([
+      { table: 'shop_locations', columns: 'id, neighborhood, city', options: undefined },
+    ]);
+  });
+
+  it('normalizes a suggestion into something that can be a web address', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Road No 1', city: null }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual(['road-no-1']);
+  });
+
+  it('offers a place once when the neighbourhood and the city are the same word', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Berbera', city: 'Berbera' }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual(['berbera']);
+  });
+
+  // THE property, said as plainly as it can be said: a shop with no
+  // neighbourhood and no city is offered NOTHING, not '2'. A number reads
+  // like a mistake; the editor asks for the part of town instead.
+  it('offers nothing -- never a number -- when the shop has no place recorded', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: null, city: null }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual([]);
+
+    fake.selectResult = { data: null, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual([]);
   });
 });
 
@@ -461,16 +513,21 @@ describe('orderErrorMessage', () => {
     expect(msg).toMatch(/stock/i);
   });
 
-  // The known, accepted limitation named in the review: a tax-charging shop
-  // hits this on every order until checkout learns about tax. Must read as
-  // "these prices have moved", never the raw code.
-  it('maps order_total_changed to a sentence about prices moving, not an arithmetic-bug-sounding code', () => {
+  // NARROWED BY 20260929000200. This code no longer means "a price moved" or
+  // "your shop charges tax" -- both of those now complete normally. It means
+  // the order's stored total is not the sum of its own lines, which is why the
+  // detail carries `lines_cents` beside `quoted_cents`. Must still read as a
+  // sentence, never the raw code, and must not go back to blaming a price
+  // change: a shopkeeper sent to re-check their prices would find nothing
+  // wrong with them.
+  it('maps order_total_changed to a sentence about the order not adding up, not an arithmetic-bug-sounding code', () => {
     const msg = orderErrorMessage({
       message: 'order_total_changed',
-      details: JSON.stringify({ quoted_cents: 1000, message: 'payments total 1200 does not match sale total 1000' }),
+      details: JSON.stringify({ quoted_cents: 900, lines_cents: 800, message: 'payments total 900 is more than sale total 800' }),
     });
-    expect(msg).toMatch(/price|total/i);
+    expect(msg).toMatch(/total/i);
     expect(msg).not.toBe('order_total_changed');
+    expect(msg).not.toMatch(/tax/i);
   });
 
   it('maps order_product_deleted, naming the product from the detail payload', () => {
@@ -485,6 +542,25 @@ describe('orderErrorMessage', () => {
 
   it('maps order_has_no_items', () => {
     expect(orderErrorMessage({ message: 'order_has_no_items' })).toMatch(/cancel/i);
+  });
+
+  // ADDED BY 20260929000250. 20260929000200 files every order line at the
+  // agreed price, which puts it behind complete_sale's per-line ceiling for
+  // one -- and an order line CAN exceed it, because
+  // order_items.line_total_cents is a plain integer. Such an order completed
+  // before that branch; untranslated it came back as complete_sale's raw
+  // `agreed price for X is out of range: ...`, straight onto the shop's
+  // screen through the `default: return null` below.
+  it('maps order_line_out_of_range to a sentence, not complete_sale\'s raw English about an agreed price', () => {
+    const msg = orderErrorMessage({
+      message: 'order_line_out_of_range',
+      details: JSON.stringify({
+        message: 'agreed price for Generator is out of range: 600000000 x 2 is more than the 1000000000 cents one line may carry',
+      }),
+    });
+    expect(msg).not.toBe('order_line_out_of_range');
+    expect(msg).not.toMatch(/agreed price/i);
+    expect(msg).toMatch(/line/i);
   });
 
   it('maps invalid_payment_method', () => {

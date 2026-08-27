@@ -152,6 +152,416 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // `A journal entry needs at least two lines; this one has 0.` -- a new
   // failure, at the till, for an operation that worked before this branch.
   ['20260908000900', 'a sale that moves no money posts nothing', 'jsonb_array_length(v_lines)'],
+  // 20260929000000. A storefront order is a promise made earlier, so a line can
+  // be filed at the price the customer was quoted rather than the price on the
+  // shelf today.
+  //
+  // A NEW, DISTINCTLY-NAMED FIELD. Carts have carried `unit_price_cents` since
+  // 0001 and this function has always ignored it -- verify-complete-sale-baseline
+  // sends 9999 in it on EVERY cart while asserting the product's own price, so
+  // that is pinned behaviour, not an accident. The token is therefore the read
+  // of the new field, not the bare column name: `unit_price_cents` appears in
+  // the sale_items insert either way and would be green against a function that
+  // had lost the agreed price entirely.
+  ['20260929000000', 'a line may be filed at the price the customer was quoted', "v_item->>'agreed_unit_price_cents'"],
+  // AND coalesce, not `case when v_agreed_price > 0`. Zero is a price -- the
+  // item a shop promised to throw in -- and the natural-looking version reads it
+  // as "no agreed price" and charges the customer list for it. The token is the
+  // resolution itself, which a rewrite cannot satisfy while getting this wrong.
+  ['20260929000000', 'absent and zero are different answers', 'coalesce(v_agreed_price, v_product.price_cents)'],
+  // ...and the line is computed from the resolved price. Losing this while
+  // keeping the declarations leaves a function that accepts the field, files it
+  // on sale_items.unit_price_cents and then charges list for it -- a receipt
+  // that disagrees with the money taken, and every total still balancing.
+  //
+  // THE TOKEN WAS WIDENED BY 20260929000050's SECOND FIX WAVE, and the property
+  // is unchanged: the same arithmetic, on the same resolved price, computed in
+  // bigint so the bound below it can be reached. `v_line := v_unit_price *
+  // v_qty - v_line_discount` was the 32-bit multiplication that overflowed on a
+  // line priced from the shelf.
+  ['20260929000000', 'the line total follows the agreed price', 'v_line_cents := v_unit_price::bigint * v_qty - v_line_discount'],
+  // An agreed price and a promotion are two answers to one question: an offer is
+  // a reduction OFF the list price, recomputed server-side from
+  // products.price_cents, and an agreed price REPLACES the list price. Lose the
+  // refusal and one of the two is silently discarded, with no way afterwards to
+  // say which price the customer was actually promised. The token is the message
+  // because that message is a caller's only handle on it -- complete_sale raises
+  // plain P0001 and the text is what a client matches to say this in the
+  // shopkeeper's own words.
+  ['20260929000000', 'an agreed price alongside a promotion is refused, by name',
+    "'an agreed price cannot be combined with a promotion on the same line (%)'"],
+  ['20260929000000', 'a negative agreed price is refused', 'v_agreed_price < 0'],
+  // Bounded on the LINE and in BIGINT, not on the unit and not in integer. A
+  // unit price inside the 32-bit ceiling can still make a line outside it (3 at
+  // 1,000,000,000), and unbounded that is a bare `integer out of range` thrown
+  // from the middle of the register's write path with nothing to say which line.
+  // The token is the whole comparison: `c_max_line_cents` alone survives a
+  // rewrite that keeps the constant and tests the unit.
+  ['20260929000000', 'an agreed price whose line would overflow is refused before it does',
+    'v_agreed_price::bigint * v_qty > c_max_line_cents'],
+  // THE COST DOES NOT MOVE. Cost is what the shop actually paid; an agreement
+  // about the SELLING price says nothing about it, and deriving it from the
+  // agreed price misstates COGS and every gross-profit figure downstream --
+  // making stock given away look free. 20260804000000 froze this column and the
+  // agreed price does not get to unfreeze it. The token is the insert's VALUES
+  // list around it, not the bare `v_product.cost_cents`, so it pins the cost
+  // sitting BESIDE the agreed price rather than merely being mentioned.
+  ['20260929000000', 'the frozen cost still comes from the product, never the agreed price',
+    'v_line, v_line_discount, v_product.cost_cents,'],
+  // 20260929000050. THE ONE THAT WAS ALREADY A HOLE. 20260929000000 shipped the
+  // agreed price ungated, arguing complete_sale had no signal to gate it on --
+  // while calling has_shop_permission(p_shop_id, 'discounts.manual') twelve
+  // statements above the block, in the same loop, for a line discount with no
+  // promotion behind it. So a cashier who could not take one cent off through
+  // `discount_cents` could file the whole line at one cent through
+  // `agreed_unit_price_cents`: same money, same till, same person, gate gone.
+  //
+  // TWO TOKENS JOINED INTO ONE, because the property is the PAIRING. The
+  // permission call alone already appears twice in this function and would be
+  // green against a version that lost this check entirely; the comparison alone
+  // is satisfiable by a rewrite that tests the direction and then does nothing
+  // with the answer.
+  ['20260929000050', 'an agreed price below the shelf price needs discounts.manual',
+    "v_agreed_price < v_product.price_cents\n         and not public.has_shop_permission(p_shop_id, 'discounts.manual')"],
+  // ...and it is refused BY NAME. complete_sale raises plain P0001, so the text
+  // is a caller's only handle -- and Task 4's storefront fulfilment is the
+  // caller that will meet it, when a shop raised a price after an order was
+  // placed. The product name is last so the prefix stays matchable.
+  ['20260929000050', 'the undercut refusal names itself so a client can say it',
+    "'not authorized to file a line below the shelf price (%)'"],
+  // BIGINT AT THE PARSE. As `::integer` this line raised
+  // `value "3000000000" is out of range for type integer` -- a Postgres cast
+  // error naming a type -- one statement BEFORE the bound that exists to turn
+  // exactly that into a sentence. The bound was unreachable for every value it
+  // was written to catch.
+  ['20260929000050', 'the agreed price is parsed wide enough for its own bound to be reached',
+    "nullif(v_item->>'agreed_unit_price_cents', '')::bigint"],
+  // ...and narrowed only AFTER the bound has passed. The token carries the cast
+  // rather than the coalesce alone (which the 20260929000000 entry above already
+  // pins), because a rewrite that moves the narrowing back up to the parse
+  // satisfies the coalesce and restores the defect.
+  ['20260929000050', 'and narrowed to integer only after the bound has passed',
+    'coalesce(v_agreed_price, v_product.price_cents)::integer'],
+  // THE PER-LINE BOUND IS NOT THE SALE'S. Three lines of 1,000,000,000 each pass
+  // the line bound individually -- that is what per-line means -- and then
+  // overflow `v_gross_cents integer` in the accumulation, giving the caller the
+  // bare `integer out of range` from mid-function that the line bound's own
+  // comment claimed to prevent. The token is the widened comparison: the bare
+  // constant survives a rewrite that declares it and never tests against it.
+  //
+  // THE CONSTANT IN IT IS c_max_int_cents, NOT c_max_sale_cents, and that is the
+  // second fix wave. c_max_sale_cents was 1,000,000,000 -- the AGREED price's
+  // ceiling -- applied to the running total of every line, so a plain till sale
+  // of a 1,500,000,000 product with no agreed price anywhere, which the register
+  // accepted before this branch because it fits in an integer, came back
+  // `this sale is out of range`. The token pins the corrected pairing, because
+  // the comparison alone is satisfiable by one measured against the wrong bound.
+  ['20260929000050', 'the running total cannot overflow either',
+    'v_gross_cents::bigint + v_line_cents > c_max_int_cents'],
+  // ...and neither can a SINGLE line priced from the shelf. Only the agreed
+  // price was bounded before its own multiplication; a product priced
+  // 1,500,000,000 with a quantity of 3 and no agreed price overflowed
+  // `v_unit_price * v_qty` and raised a bare `integer out of range` from
+  // mid-loop.
+  //
+  // THE COMPARISON JOINED TO ITS OWN RAISE, and the bare comparison was tried
+  // first and rejected by mutation: `v_line_cents > c_max_int_cents` is a
+  // SUBSTRING of the running-total test three statements below
+  // (`v_gross_cents::bigint + v_line_cents > c_max_int_cents`), so deleting this
+  // bound outright left the entry green on the other one's text. Joined to the
+  // message, it can only be satisfied by the statement it is about.
+  ['20260929000050', 'a line priced from the shelf cannot overflow either',
+    "if v_line_cents > c_max_int_cents then\n      raise exception 'this line is out of range"],
+  // THE TWO BOUNDS ARE DIFFERENT FIGURES ON PURPOSE, and collapsing them is the
+  // regression fix wave 2 repaired. 2,147,483,647 is where `v_line integer` and
+  // `v_gross_cents integer` stop holding the answer -- so nothing that ever
+  // succeeded can reach it and a crash becomes a sentence. 1,000,000,000 is a
+  // distrust of a caller's number and belongs only where one arrives. A rewrite
+  // that sets this constant to the agreed price's ceiling refuses ordinary till
+  // sales the register has always accepted; baseline check 23 is the other half
+  // of this guard.
+  ['20260929000050', 'the arithmetic ceiling is int32, not the agreed price ceiling',
+    'c_max_int_cents constant bigint := 2147483647'],
+  // 20260929000100. A STOREFRONT QUOTES A TOTAL AND THE CUSTOMER ACCEPTS IT, so
+  // completing that order at a tax-charging shop must charge the figure that was
+  // agreed -- the tax comes OUT of it rather than being added on top of it.
+  //
+  // THE PARAMETER AND ITS COALESCE IN ONE TOKEN, because the coalesce is the
+  // half that costs money if it goes. The flag arrives from a caller and a
+  // caller can send an explicit NULL; read raw, `if not p_prices_include_tax` is
+  // NULL rather than TRUE for such a call, the add-on branch is skipped, and the
+  // sale goes out UNTAXED with nothing said about it. The bare parameter name
+  // would be green against exactly that.
+  ['20260929000100', 'a caller may say the prices already include tax, and a null flag is not one',
+    'v_prices_include_tax boolean := coalesce(p_prices_include_tax, false)'],
+  // THE TAX IS WHAT ROUNDS, and this is the substance of the change rather than
+  // a detail of it. Extraction is not the inverse of addition: at a gross of
+  // 1001 and a rate of 4% the exact net is 962.5 and the exact tax 38.5, so
+  // rounding the TAX gives 39 and rounding the NET gives 38 -- the same sale, a
+  // cent apart. The till rounds the tax (`round(v_total_cents * v_tax_rate /
+  // 100)`), so a quoted sale rounds the same quantity, or 2100 and 4000 stop
+  // reconciling by a cent per order. The token is the whole expression: the
+  // variable name survives a rewrite that rounds the net into it. Baseline check
+  // 27a is the behavioural half.
+  ['20260929000100', 'the tax is extracted by rounding the TAX, not the net',
+    'round(v_total_cents * v_tax_rate / (100 + v_tax_rate))'],
+  // ...AND IT LEAVES THE RUNNING TOTAL AT ONCE, which is what makes the rest of
+  // the function need no second branch. From this statement on v_total_cents is
+  // the tax-exclusive merchandise figure in both directions, so the loyalty earn
+  // below it is the SAME LINE it has always been and a quoted sale earns on the
+  // same kind of figure a counter sale does. Lose this and the quote is charged
+  // with its own tax added on top of itself AND the customer earns points on the
+  // state's share.
+  ['20260929000100', 'the extracted tax comes back out of the running total, before the points are earned',
+    'v_total_cents := v_total_cents - v_included_tax_cents;'],
+  // ...and the tax is NOT then added on top as well. The token is the guard
+  // joined to the statement it guards, so it cannot be satisfied by a rewrite
+  // that keeps the till's line and drops the condition -- which is the whole
+  // defect: the customer is billed the quote plus tax on the quote.
+  ['20260929000100', 'a quoted sale is not taxed on top as well',
+    'if v_tax_enabled and not v_prices_include_tax then\n    v_tax_cents := round(v_total_cents * v_tax_rate / 100)::integer;'],
+  // REVENUE IS CREDITED NET OF THE TAX INSIDE THE QUOTE, and this one is not a
+  // presentation choice: the debits come to G + I and crediting revenue at G + I
+  // alongside the state's T leaves the entry heavier by exactly T, so
+  // post_journal_entry refuses it and a tax-charging shop cannot complete a
+  // quoted order AT ALL. The token is the negated amount rather than the bare
+  // subtraction, so it pins the figure that actually reaches the journal line.
+  ['20260929000100', 'revenue is credited net of the tax that was inside the quote',
+    '-(v_gross_cents + v_item_discount_cents - v_included_tax_cents)'],
+  // TWO ENTRIES WERE DELETED HERE BY 20260929000150, and they are written out
+  // rather than removed silently so the next reader does not put them back.
+  //
+  // 20260929000100 gated the tax-inclusive flag itself on `discounts.manual`
+  // -- refused at a tax-charging shop with `not authorized to file a sale at
+  // prices that already include tax` -- and guarded that gate with two tokens
+  // here. 20260929000150 removed the gate, so both entries went with it.
+  //
+  // The argument for the gate was that the flag moves what the shop KEEPS: the
+  // same two items at a 5% shop collect 2520 and leave 2400 of revenue without
+  // it and collect 2400 and leave 2286 with it. It does not survive the
+  // payments-equality check -- a caller who sets the flag must actually COLLECT
+  // the lower figure, so it is the customer paying less at the shop's own
+  // published price, not the till going short -- and Task 4 makes
+  // complete_storefront_order set this flag for EVERY storefront order at a
+  // tax-charging shop, so the gate made ORDINARY online fulfilment need a
+  // discounting permission. The whole argument is in 20260929000150's header.
+  //
+  // WHAT IS EMPHATICALLY NOT DELETED is the `discounts.manual` gate on an
+  // UNDERCUT through `agreed_unit_price_cents`, two entries above
+  // ('20260929000050'). That one is about a cashier inventing a figure at the
+  // counter and it stays.
+  //
+  // 20260929000200. ...WITH ONE EXEMPTION, AND ONLY ONE: the shop honouring a
+  // quote it published itself. A shop that RAISES a price after a customer
+  // ordered makes every fulfilment of that order an undercut, so without this
+  // the ordinary act of handing over a web order needs a discounting
+  // permission -- the same category error 20260929000150 removed from the tax
+  // flag. An order's frozen price is not a caller's number:
+  // place_storefront_order reads it off products.price_cents server-side
+  // (20260927000000:409).
+  //
+  // The token is the EXEMPTION JOINED TO THE GATE IT QUALIFIES, so it cannot
+  // be satisfied by a version that keeps the table and stops asking the
+  // permission question first -- which would make the lookup run for every
+  // till sale and, worse, read as the primary rule.
+  ['20260929000200', 'a storefront fulfilment may honour its own quote without discounts.manual',
+    "and not public.has_shop_permission(p_shop_id, 'discounts.manual')\n         and not exists (\n           select 1\n             from public.storefront_order_fulfilments f"],
+  // AND THE MARK IS THIS TRANSACTION'S, which is the whole reason the
+  // exemption is safe to grant. Transaction ids are monotonic and never
+  // reused, so a mark left behind by an earlier call authorises nothing later.
+  // Lose this line and any row that survived in that table -- by a dropped
+  // delete, a restore, a superuser's hand -- becomes a standing permission to
+  // undercut. verify-order-transitions check 52b is the behavioural half.
+  ['20260929000200', 'the fulfilment mark must be stamped by THIS transaction',
+    'where f.xact_id = pg_current_xact_id()'],
+  // AND IT IS NARROWED BY THE ORDER'S OWN LINES. The marked order must actually
+  // carry this product at exactly this price, so a fulfilment in flight excuses
+  // the prices that order quoted and nothing beside them. Without this join a
+  // marked transaction could file ANY line at ANY price below the shelf.
+  //
+  // Not literally per line: quantity is not matched, and one mark is not
+  // consumed by the call that uses it. Neither is reachable -- both need a
+  // second statement inside the transaction that holds the mark, and
+  // complete_storefront_order deletes it before it returns. 20260929000200's
+  // header states the whole of what is and is not enforced.
+  ['20260929000200', 'the exemption covers only the product and price that order quoted',
+    'and oi.product_id = v_product.id\n              and oi.unit_price_cents = v_agreed_price'],
+];
+
+// complete_storefront_order joins this file at its FIFTH full reproduction,
+// and it should have joined at its second.
+//
+// It is complete_sale's only other caller that posts money, it is re-created
+// in full by every migration that touches it, and 20260929000200 gave it four
+// edits the whole storefront branch rests on. The proof that this list was
+// missing rather than merely absent: deleting
+// `delete from public.storefront_order_fulfilments where order_id =
+// p_order_id;` from that migration left ALL 216 assertions in this file green,
+// while re-opening the exact undercut check 51b exists to refuse -- a cashier
+// with no `discounts.manual` filing a line below the shelf price at the TILL,
+// in the same transaction, on a mark this function left lying around. Only a
+// database check caught it, and only after the migration had been applied.
+// This file exists to fail before that.
+//
+// The list runs from 20260928000200, the function's first definition, not from
+// Task 4 -- a copy-forward from the wrong ancestor takes out whatever it takes
+// out, and "the edits Task 4 happened to make" is not a category the next
+// mistake will respect.
+const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
+  // 20260928000200, the original. The row lock is first because everything
+  // below it reads v_order: without `for update` two shop phones tapping
+  // "Handed over" together both read 'ready' and both post a whole sale, and
+  // the status guard below -- which is what refuses the second one -- never
+  // sees the first.
+  ['20260928000200', 'the order row is locked before anything is decided from it',
+    'from public.orders where id = p_order_id for update'],
+  ['20260928000200', "an outsider cannot complete another shop's order",
+    'if not public.is_shop_member(v_order.shop_id) then'],
+  ['20260928000200', 'a shop without the storefront module cannot complete an order',
+    "public.shop_has_module(v_order.shop_id, 'storefront')"],
+  // THE GUARD JOINED TO ITS REFUSAL. The transition trigger below would also
+  // refuse most of these, but NOT completed -> completed: that reaches the
+  // trigger as a same-status call and is waved through, so without this guard a
+  // second call posts a whole second sale. The bare status comparison would be
+  // green against a version that tested it and did nothing.
+  ['20260928000200', 'an order that is not ready cannot be completed, and a completed one cannot be completed twice',
+    "if v_order.status <> 'ready' then\n    raise exception 'invalid_order_transition'"],
+  // 'unpaid' is deliberately NOT in the list: an order handed over at the door
+  // has been paid for, and this function has no customer record to leave a
+  // balance against. Checked here rather than left to complete_sale, so getting
+  // it wrong costs no stock decrement first.
+  ['20260928000200', 'the payment method is a closed list, checked before anything is written',
+    "p_payment_method not in ('cash', 'zaad', 'edahab', 'other')"],
+  // THE SNAPSHOT, not a fresh product lookup -- the property the whole feature
+  // is built on. The token is the aggregate's tail rather than the table name:
+  // this function reads order_items twice (the payload, and lines_cents in the
+  // order_total_changed branch), so `from public.order_items` alone would stay
+  // green against a version that built the payload from products.
+  ['20260928000200', "the sale is built from the order's own frozen lines",
+    "order by oi.product_name), '[]'::jsonb)"],
+  ['20260928000200', 'a line whose product was deleted is named, not handed to complete_sale',
+    "raise exception 'order_product_deleted'"],
+  ['20260928000200', 'an order with no items is refused rather than posting an empty sale',
+    "raise exception 'order_has_no_items'"],
+  // THE GOODS, AND ONLY THE GOODS. complete_sale refuses a payment larger than
+  // the total it computed from the items, so tendering subtotal + delivery fee
+  // fails every order that carries a fee. The fee's own movement is route B
+  // below.
+  ['20260928000200', 'the delivery fee is not tendered with the goods',
+    "'amount_cents', v_order.subtotal_cents))"],
+  // 4300 Delivery Income, NEVER 4000 Sales Revenue: delivery carries no cost of
+  // sales, so folding it into goods revenue flatters gross margin on every
+  // report. 20260928000000 created the account for exactly this.
+  ['20260928000200', 'the delivery fee posts to 4300 Delivery Income, never 4000',
+    "'code',         '4300',"],
+  // The date is READ OFF the entry complete_sale just posted, never recomputed,
+  // so it inherits both the Africa/Mogadishu rule and the closed-period
+  // redirect for free. Two entries for one order in two different months is a
+  // reconciliation problem with no fix once a period closes.
+  ['20260928000200', "the fee entry is dated from the sale's own entry, not recomputed",
+    'select je.entry_date into v_entry_date'],
+  // complete_sale raises plain P0001 and the text is the only handle there is,
+  // so this function turns the ones a shop can act on into codes with a JSON
+  // detail. Losing the mapping puts complete_sale's raw English on the shop's
+  // screen, which is what orderErrorMessage's `default: return null` does with
+  // anything it does not know.
+  ['20260928000200', "complete_sale's raw refusals are translated into codes a client can say",
+    "raise exception 'insufficient_stock'"],
+  // 20260928000400. The fee entry's id is KEPT and stamped onto the order, so
+  // the entry is reachable by more than a description string -- delete_sale's
+  // fourth UNION branch reverses it through this column. The token is the whole
+  // SET list: it pins the id landing on the order AND the status, sale link and
+  // fee link moving in ONE statement, which is also the only shape the
+  // transition trigger accepts.
+  ['20260928000400', 'the fee entry is linked to the order, and the whole completion lands in one statement',
+    "set status = 'completed', sale_id = v_sale_id, delivery_entry_id = v_fee_entry_id"],
+  // 20260928000500. Written as the table owner BEFORE the order is touched, so
+  // the trigger fired by the UPDATE above finds it already there. Without it
+  // that trigger cannot tell a real completion from a direct status write.
+  ['20260928000500', 'the completion is provenanced before the order status moves',
+    'insert into public.storefront_order_completions (order_id, sale_id)'],
+  // 20260928000600. THE GATE JOINED TO ITS REFUSAL, because
+  // has_shop_permission is not otherwise called in this function but a rewrite
+  // that keeps the call and drops the raise is exactly the mistake this
+  // catches. A member who cannot ring up a sale at the counter cannot ring one
+  // up through the storefront either.
+  ['20260928000600', 'completing an order needs pos.access, stated here rather than found three calls deep',
+    "if not public.has_shop_permission(v_order.shop_id, 'pos.access') then\n    raise exception 'pos_access_required'"],
+
+  // ── 20260929000200: Task 4's four load-bearing edits ─────────────────────
+  //
+  // Each one was bite-tested by deleting the code it guards and confirming
+  // this file goes red naming the entry. They are the four that make a
+  // fulfilment charge the price the customer agreed to, and each fails
+  // differently and quietly if a copy-forward drops it.
+  //
+  // THE FIELD IS `agreed_unit_price_cents`, and `unit_price_cents` is not it.
+  // Carts have carried the latter since 0001 and complete_sale has always
+  // ignored it -- verify-complete-sale-baseline sends 9999 in it on every cart
+  // while asserting the product's own price. The token therefore carries the
+  // NEW key beside the column it is built from: the bare column name is in the
+  // payload either way, and would be green against a payload that had lost the
+  // agreed price entirely and gone back to charging today's shelf price.
+  ['20260929000200', 'every line is sent at the price the order quoted',
+    "'agreed_unit_price_cents', oi.unit_price_cents)"],
+  // ...AND THE MARK THAT MAKES complete_sale ACCEPT IT. A shop that RAISED a
+  // price after a customer ordered turns every fulfilment of that order into a
+  // line below the shelf price, which needs `discounts.manual`
+  // (20260929000050). This row is the provenance that exempts it, and it is
+  // written BEFORE complete_sale runs because complete_sale is what reads it.
+  // Lose it and a re-priced order is refused, at a shop whose prices are its
+  // own, with a message about shelf prices that names neither orders nor
+  // discounting.
+  ['20260929000200', 'the fulfilment marks itself, so complete_sale can see the quote is the shop\'s own',
+    'insert into public.storefront_order_fulfilments (order_id)\n    values (p_order_id)'],
+  // ...AND THE MARK COMES STRAIGHT BACK DOWN. THE ONE THE REVIEW PROVED WAS
+  // UNGUARDED: deleting this statement left every other assertion in this file
+  // green while re-opening check 51b -- the same cashier, without
+  // `discounts.manual`, undercutting the same product through complete_sale
+  // DIRECTLY, later in the same transaction, on a mark this function had left
+  // live. The exemption must last exactly as long as the call it exists for.
+  //
+  // The `where` clause is in the token, not just the table name: an unqualified
+  // `delete from public.storefront_order_fulfilments` would be green here and
+  // would also be a different statement.
+  ['20260929000200', 'the fulfilment mark is deleted the moment complete_sale returns',
+    'delete from public.storefront_order_fulfilments where order_id = p_order_id;'],
+  // ...AND THE SALE IS FILED TAX-INCLUSIVE. A storefront quotes a total and the
+  // customer accepts THAT total; there is no second, larger figure to collect
+  // at the door. Without this a tax-charging shop cannot complete ANY order --
+  // complete_sale adds the tax on top of the quote and then refuses the quoted
+  // payment against its own larger total, which came back as
+  // `order_total_changed`: a sentence about prices moving, given to a shop
+  // whose prices had not moved. The token is the argument as it is passed,
+  // trailing `);` and all, so it pins the flag actually REACHING complete_sale
+  // rather than being mentioned in the comment above the call.
+  ['20260929000200', 'a storefront sale is filed at prices that already include tax',
+    'p_prices_include_tax  => true);'],
+  // ...and what order_total_changed narrowed TO. It now fires only when the
+  // order ROW disagrees with the order's own LINES, and the detail carries both
+  // figures so the disagreement is legible without a second query against rows
+  // that may have moved since. 20260929000250's declaration comment says why
+  // this stays although no client reads it.
+  ['20260929000200', "the narrowed refusal carries the order's own line total",
+    "'lines_cents',  v_lines_cents,"],
+
+  // ── 20260929000250 ───────────────────────────────────────────────────────
+  //
+  // Filing every line at the agreed price also puts every line behind that
+  // field's per-line ceiling of 1,000,000,000 cents. order_items.line_total_cents
+  // is a plain `integer`, so an order line above that ceiling is storable and
+  // completed before this branch -- and after it, complete_sale's raw
+  // `agreed price for X is out of range: ...` went straight to the shop's
+  // screen through orderErrorMessage's `default: return null`.
+  //
+  // TWO ENTRIES, the match and the code, because they fail differently: a
+  // rewrite that widens the pattern swallows refusals this function has never
+  // seen and should have re-raised, and one that keeps the branch and changes
+  // the code silently un-translates it again at the client.
+  ['20260929000250', "the agreed price's own line bound is recognised, not re-raised as raw English",
+    "v_msg like 'agreed price for % is out of range%' then"],
+  ['20260929000250', 'and refused with a code a client can turn into a sentence',
+    "raise exception 'order_line_out_of_range'"],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
@@ -1001,6 +1411,7 @@ const CASH_FLOW_EDITS: Edit[] = [
 
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
+  ['complete_storefront_order', COMPLETE_STOREFRONT_ORDER_EDITS],
   ['reopen_accounting_period', REOPEN_ACCOUNTING_PERIOD_EDITS],
   ['statement_lines', STATEMENT_LINES_EDITS],
   ['balance_sheet', BALANCE_SHEET_EDITS],

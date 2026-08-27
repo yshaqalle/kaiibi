@@ -31,6 +31,7 @@ import {
   ensureStorefront,
   getMyStorefront,
   getStorefrontPreviewProducts,
+  listAddressSuffixSuggestions,
   listDeliveryAreas,
   listFlyers,
   publishBlockers,
@@ -130,6 +131,13 @@ export default function StorefrontEditor() {
   const [slugDraft, setSlugDraft] = useState('');
   const [slugState, setSlugState] = useState<SlugState>('idle');
 
+  // The endings offered when a shop's derived address is already taken --
+  // its own neighbourhood, then its city. Read here rather than from
+  // useAuth().locations so it resolves the SAME primary location the rest of
+  // the data layer does (primary first, then oldest), and so "the shop's
+  // location" has one meaning across this app, not two.
+  const [addressSuffixes, setAddressSuffixes] = useState<string[]>([]);
+
   const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
   const [onlineProductCount, setOnlineProductCount] = useState(0);
   const [previewProducts, setPreviewProducts] = useState<StorefrontProduct[]>([]);
@@ -174,9 +182,10 @@ export default function StorefrontEditor() {
       setWorking({ ...row, ...(row.draft ?? {}) });
       setSlugDraft(row.slug ?? '');
 
-      const [areasResult, countResult, flyersResult, promotionsResult] = await Promise.allSettled([
+      const [areasResult, countResult, suffixResult, flyersResult, promotionsResult] = await Promise.allSettled([
         listDeliveryAreas(shopId),
         countOnlineProducts(shopId),
+        listAddressSuffixSuggestions(shopId),
         listFlyers(shopId),
         // Not even attempted without the module -- a shop that does not have
         // Promotions has no offers to attach, and asking would only produce a
@@ -185,6 +194,10 @@ export default function StorefrontEditor() {
       ]);
       setDeliveryAreas(areasResult.status === 'fulfilled' ? areasResult.value ?? [] : []);
       setOnlineProductCount(countResult.status === 'fulfilled' ? countResult.value ?? 0 : 0);
+      // Settled beside the others, and empty when it fails: a shop whose
+      // location could not be read is offered no ending rather than a
+      // number, which is the one thing this must never invent.
+      setAddressSuffixes(suffixResult.status === 'fulfilled' ? suffixResult.value ?? [] : []);
       setFlyers(flyersResult.status === 'fulfilled' ? flyersResult.value ?? [] : []);
       setPromotions(promotionsResult.status === 'fulfilled' ? promotionsResult.value ?? [] : []);
     } catch (err) {
@@ -639,6 +652,8 @@ export default function StorefrontEditor() {
       onClaimSlug={handleClaimSlug}
       slugState={slugState}
       shopName={shop?.name ?? ''}
+      claimedSlug={working.slug}
+      suffixSuggestions={addressSuffixes}
       onUploadHeroImage={handleUploadHeroImage}
       focusRequest={focusRequest}
     />

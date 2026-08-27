@@ -420,6 +420,53 @@ export async function claimSlug(shopId: string, slug: string): Promise<string> {
   return data as string;
 }
 
+// The one answer to "which location does this shop mean when it names none":
+// primary first, then oldest -- the same order complete_sale itself defaults
+// to (20260908000300_sale_entry_date.sql:182-189). checkOrderFulfilment below
+// and listAddressSuffixSuggestions both read it from here rather than each
+// running its own query, because two rules for "the shop's location" is how a
+// shop ends up quoting stock from one branch and an address from another.
+// Returns null -- never throws -- when the shop has no location at all; what
+// that means differs per caller (a blocker for stock, an empty suggestion
+// list for an address).
+async function primaryLocation(
+  shopId: string
+): Promise<{ id: string; neighborhood: string | null; city: string | null } | null> {
+  const { data, error } = await supabase
+    .from('shop_locations')
+    .select('id, neighborhood, city')
+    .eq('shop_id', shopId)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { id: string; neighborhood: string | null; city: string | null } | null) ?? null;
+}
+
+// What to offer a shop whose derived address is already taken: the part of
+// town it trades in, then the town. Neighbourhood first because it is what
+// distinguishes two shops with the same name in the same city -- which is the
+// whole collision.
+//
+// DELIBERATELY INCAPABLE OF RETURNING A NUMBER. There is no counter here and
+// no fallback that invents one: a shop with neither neighbourhood nor city
+// gets an empty list, and the editor asks it for the part of town instead.
+// `xamdi-electronics-2` reads like a mistake; `xamdi-electronics-koodbuur`
+// reads like an address a customer can trust.
+//
+// Normalized through normalizeSlug so what is offered is already a legal DNS
+// label ('Road No 1' -> 'road-no-1'), and de-duplicated so a location whose
+// neighbourhood and city are the same word offers it once.
+export async function listAddressSuffixSuggestions(shopId: string): Promise<string[]> {
+  const location = await primaryLocation(shopId);
+  if (!location) return [];
+  const candidates = [location.neighborhood, location.city]
+    .map((part) => normalizeSlug(part ?? ''))
+    .filter((part) => part.length > 0);
+  return [...new Set(candidates)];
+}
+
 function mapDeliveryAreaRow(row: { id: string; name: string; fee_cents: number; sort_order: number }): DeliveryArea {
   return { id: row.id, name: row.name, feeCents: row.fee_cents, sortOrder: row.sort_order };
 }
@@ -825,17 +872,38 @@ export function orderErrorMessage(err: unknown): string | null {
       return "There isn't enough stock to complete this order. Restock the short item(s) above, or cancel the order if you can't get more in time.";
 
     case 'order_total_changed':
-      // B1's known, accepted limitation: complete_sale re-prices from today's
-      // products.price_cents and adds the shop's own tax, while the order was
-      // quoted tax-exclusive at checkout time -- so a tax-charging shop hits
-      // this on every order until a later branch teaches checkout about tax.
-      // Said as "these prices have moved", never the raw code.
-      return "This order's total no longer matches what the customer was quoted at checkout -- most likely a price changed, or your shop charges tax that the storefront didn't add at checkout. Confirm the amount with the customer before completing it.";
+      // NARROWED BY 20260929000200, and the sentence with it. This used to be
+      // B1's known limitation -- complete_sale re-priced from today's
+      // products.price_cents and added the shop's tax on top of a quote taken
+      // before it, so a re-priced product stranded its order and a
+      // tax-charging shop hit this on EVERY order. Both are fixed: the order's
+      // own snapshot is what the sale is filed at, and the tax comes out of the
+      // quoted total rather than being added to it.
+      // What is left is an order whose stored total is not the sum of its own
+      // lines -- which the storefront cannot produce and no app screen can
+      // write -- so the sentence no longer blames a price change or tax, and
+      // says the one thing a shopkeeper can actually do about it.
+      return "This order's own total doesn't add up to the items on it, so it can't be completed as it stands. Check the order with the customer and re-take it, or get in touch with support.";
 
     case 'order_product_deleted': {
       const products = typeof detail?.products === 'string' ? detail.products : 'A product on this order';
       return `${products} no longer exists in your catalogue, so this order can't be completed as it stands. Cancel it and ask the customer to reorder, or add the product back first.`;
     }
+
+    case 'order_line_out_of_range':
+      // ADDED BY 20260929000250, for a refusal 20260929000200 created. Filing
+      // each line at the price the customer agreed to puts it behind
+      // complete_sale's per-line ceiling for an agreed price (1,000,000,000
+      // cents), which an order line can exceed -- order_items.line_total_cents
+      // is a plain integer -- and such an order completed before that branch.
+      // Untranslated it arrived as complete_sale's own English, naming a field
+      // (`agreed price`) no storefront screen has ever shown.
+      //
+      // The detail carries that message unchanged, for a bug report; the
+      // sentence says the one thing the shop can do, which is not "fix the
+      // price" -- the price is the one it published -- but "this line is too
+      // big to ring up as one line".
+      return "One line on this order is priced too high for a single sale line to carry, so it can't be completed as it stands. Re-take the order with that line split into smaller quantities, or get in touch with support.";
 
     case 'order_has_no_items':
       return "This order has nothing left to complete. Cancel it instead.";
@@ -864,8 +932,9 @@ export function orderErrorMessage(err: unknown): string | null {
 // Task 3: what a shop needs to know before "accept" is offered -- which
 // lines of this order it cannot currently fill, and by how much. `orders`
 // carries no location_id of its own, so this resolves the same location
-// complete_sale defaults to when none is given: primary first, then oldest
-// (20260908000300_sale_entry_date.sql:182-189). Stock is then read from
+// complete_sale defaults to when none is given -- primary first, then oldest
+// (20260908000300_sale_entry_date.sql:182-189) -- through primaryLocation
+// above, which is the single place that rule lives. Stock is then read from
 // product_location_stock there -- the exact table and location complete_sale
 // checks at payment time -- never products.stock, which is a column a
 // trigger recomputes and silently reverts direct reads of any staleness
@@ -882,15 +951,7 @@ export function orderErrorMessage(err: unknown): string | null {
 // so the "never auto-resolve a shortfall" rule lives in exactly one place,
 // provable without a database.
 export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
-  const { data: location, error: locationError } = await supabase
-    .from('shop_locations')
-    .select('id')
-    .eq('shop_id', shopId)
-    .order('is_primary', { ascending: false })
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (locationError) throw locationError;
+  const location = await primaryLocation(shopId);
   if (!location) throw new Error(`shop ${shopId} has no location to check stock against`);
 
   const { data: items, error: itemsError } = await supabase
@@ -907,7 +968,7 @@ export async function checkOrderFulfilment(shopId: string, orderId: string): Pro
     const { data: stockRows, error: stockError } = await supabase
       .from('product_location_stock')
       .select('product_id, stock')
-      .eq('location_id', (location as { id: string }).id)
+      .eq('location_id', location.id)
       .in('product_id', productIds);
     if (stockError) throw stockError;
     for (const row of (stockRows ?? []) as { product_id: string; stock: number }[]) {
