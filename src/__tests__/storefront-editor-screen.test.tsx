@@ -1,5 +1,5 @@
 import { act, create, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
-import { AccessibilityInfo, type EmitterSubscription, Dimensions, TextInput } from 'react-native';
+import { AccessibilityInfo, type EmitterSubscription, Dimensions, Text, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Forces the wide (two-column) layout, where ContentDrawer renders inline
@@ -17,6 +17,14 @@ Dimensions.set({
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 jest.mock('@/lib/storefront-admin');
+// The screen (and ScreenHeader inside it) navigates for real. Only the router
+// is replaced -- everything else expo-router exports is left actual, so this
+// stays a test of the screen rather than of a stubbed module.
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => ({ push: mockPush, replace: jest.fn(), back: jest.fn(), canGoBack: () => false }),
+}));
 // The flyer panel's offer picker reads the shop's promotions. Mocked rather
 // than left to the real module, which would reach the (empty) supabase mock
 // above inside a Promise.allSettled and fail silently -- a test asserting
@@ -48,9 +56,11 @@ jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest
 
 import { useAuth } from '@/hooks/use-auth';
 import { listPromotions } from '@/lib/promotions';
+import { ContentDrawer } from '@/components/storefront/editor/content-drawer';
 import {
   countOnlineProducts,
   discardDraft,
+  publishBlockers,
   ensureStorefront,
   getMyStorefront,
   getStorefrontPreviewProducts,
@@ -84,6 +94,21 @@ async function renderScreen(): Promise<ReactTestRenderer> {
     );
   });
   return tree!;
+}
+
+// The pressable a Caveat draws for its action, found by the words on it.
+// Throws when no caveat offers that label, which is the point: an action that
+// was never rendered cannot be pressed.
+function caveatAction(tree: ReactTestRenderer, label: string) {
+  const match = tree.root
+    .findAll((node) => node.props?.accessibilityRole === 'link' && typeof node.props?.onPress === 'function')
+    .find((node) =>
+      node
+        .findAllByType(Text)
+        .some((t) => (Array.isArray(t.props.children) ? t.props.children : [t.props.children]).includes(label))
+    );
+  if (!match) throw new Error(`no caveat offers the action "${label}"`);
+  return match;
 }
 
 const BASE = {
@@ -505,5 +530,49 @@ describe('storefront editor', () => {
 
     expect(setAutoAdvance).toHaveBeenCalledWith('s1', true);
     expect(saveDraft).not.toHaveBeenCalledWith('s1', expect.objectContaining({ autoAdvance: true }));
+  });
+
+  // A `wrong` caveat whose action does nothing is the failure caveat.tsx's own
+  // header names. `no_products` cannot be fixed on this screen -- the fix is a
+  // product marked to sell online, added in Inventory -- so the action has to
+  // take the shopkeeper there, and the assertion is the navigation itself.
+  it('takes the no-products blocker to Inventory when its action is pressed', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (publishBlockers as jest.Mock).mockReturnValue(['no_products']);
+    const tree = await renderScreen();
+
+    const action = caveatAction(tree, 'Go to Inventory');
+    await act(async () => {
+      action.props.onPress();
+    });
+
+    expect(mockPush).toHaveBeenCalledWith('/inventory');
+    // And it did not quietly publish an unpublishable page on the way.
+    expect(publishDraft).not.toHaveBeenCalled();
+  });
+
+  // The other two blockers are fixed by a field in this drawer, and must keep
+  // jumping to it rather than being swept into the new navigation.
+  it.each([
+    ['no_slug', 'slug'],
+    ['no_whatsapp', 'whatsapp'],
+  ])('focuses the %s field rather than navigating', async (blocker, field) => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (publishBlockers as jest.Mock).mockReturnValue([blocker]);
+    const tree = await renderScreen();
+
+    expect(tree.root.findByType(ContentDrawer).props.focusRequest).toBeNull();
+
+    const action = caveatAction(tree, 'Fix this');
+    await act(async () => {
+      action.props.onPress();
+    });
+
+    expect(tree.root.findByType(ContentDrawer).props.focusRequest).toEqual(
+      expect.objectContaining({ field })
+    );
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

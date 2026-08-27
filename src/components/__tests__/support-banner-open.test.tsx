@@ -12,7 +12,13 @@ jest.mock('expo-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => children,
   usePathname: () => '/dashboard',
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  // The rail's Orders row refetches its count on focus. Nothing here is about
+  // that; run the callback once, the way mounting does.
+  useFocusEffect: (cb: () => void | (() => void)) => cb(),
 }));
+// The rail asks how many orders are waiting. Stubbed at zero so this file
+// stays about the support banner.
+jest.mock('@/lib/storefront-admin', () => ({ countOrdersNeedingAction: jest.fn(async () => 0) }));
 jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
     session: { user: { id: 'user-a' } },

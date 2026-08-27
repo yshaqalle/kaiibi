@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -94,6 +95,7 @@ function messageOf(err: unknown, fallback: string): string {
 
 export default function StorefrontEditor() {
   const { shop, locations, hasModule } = useAuth();
+  const router = useRouter();
   const shopId = shop?.id ?? null;
   // The house pattern for a MODULE gate (entitlements.ts:28,44) -- the same
   // hasModule() the sidebar, the tabs and people.tsx's marketing panel use.
@@ -449,9 +451,18 @@ export default function StorefrontEditor() {
     focusTokenRef.current += 1;
     if (first === 'no_slug') setFocusRequest({ field: 'slug', token: focusTokenRef.current });
     else if (first === 'no_whatsapp') setFocusRequest({ field: 'whatsapp', token: focusTokenRef.current });
-    // no_products has no field in this drawer to jump to -- PublishBar's own
-    // caveat already names the fix (add a product marked to sell online),
-    // which lives in Inventory, not here.
+    // no_products has no field in this drawer to jump to: the fix is a product
+    // marked to sell online, which is added in Inventory. Its caveat carries
+    // its own "Go to Inventory" action (handleGoToInventory below) rather than
+    // this one, because a press on Publish should not throw the shopkeeper off
+    // the screen they are editing -- a press on the caveat that names the
+    // destination should.
+  }
+
+  // Where the no_products blocker's fix actually lives. Pushed, not replaced,
+  // so the back gesture returns to the half-finished page they were editing.
+  function handleGoToInventory() {
+    router.push('/inventory');
   }
 
   // THE PROPERTY THIS FUNCTION EXISTS FOR: Publish is never disabled
@@ -689,6 +700,8 @@ export default function StorefrontEditor() {
         blockers={blockers}
         dirty={dirty}
         onEdit={handleEdit}
+        onFocusBlocker={focusBlocker}
+        onGoToInventory={handleGoToInventory}
         onTogglePreview={handleTogglePreview}
         onPublish={handlePublish}
         onUnpublish={handleUnpublish}

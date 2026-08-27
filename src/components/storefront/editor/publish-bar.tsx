@@ -24,6 +24,25 @@ const BLOCKER_COPY: Record<PublishBlocker, string> = {
   no_products: 'Add at least one product marked to sell online.',
 };
 
+// WHERE each blocker's fix actually is, which is not the same place for all
+// three -- and the label has to say so.
+//
+// Every blocker renders as a `wrong` caveat, and caveat.tsx's header is
+// explicit that a `wrong` caveat must always carry an action that can remove
+// its cause: one that cannot trains people to ignore the whole family. Two of
+// these are fixed by a field in this very drawer, so "Fix this" is the honest
+// word for them. `no_products` is not: a product marked to sell online is
+// added in Inventory, a different screen, so its action names that
+// destination rather than promising an edit right here.
+//
+// Per-blocker rather than a branch inside one shared handler, so the label and
+// the thing it does are decided in one place and cannot drift apart.
+const BLOCKER_ACTION: Record<PublishBlocker, { label: string; goes: 'here' | 'inventory' }> = {
+  no_slug: { label: 'Fix this', goes: 'here' },
+  no_whatsapp: { label: 'Fix this', goes: 'here' },
+  no_products: { label: 'Go to Inventory', goes: 'inventory' },
+};
+
 // THE PROPERTY THIS FILE EXISTS FOR: Publish is never disabled. A greyed-out
 // button with no explanation is precisely the failure this screen prevents --
 // pressing it always calls onPublish, blockers or not. What a blocker means
@@ -33,6 +52,8 @@ export function PublishBar({
   blockers,
   dirty,
   onEdit,
+  onFocusBlocker,
+  onGoToInventory,
   onTogglePreview,
   onPublish,
   onUnpublish,
@@ -40,7 +61,20 @@ export function PublishBar({
   status: 'draft' | 'live';
   blockers: PublishBlocker[];
   dirty: boolean;
+  /** The Edit button. Opens the editor; knows nothing about blockers. */
   onEdit: () => void;
+  /**
+   * Jumps to the field that fixes this blocker, on this screen. Called only
+   * for the blockers BLOCKER_ACTION marks `here` -- which is why it takes the
+   * blocker rather than being one shared "open the editor": "Fix this" has to
+   * land on the slug box or the WhatsApp box, not merely nearby.
+   */
+  onFocusBlocker: (blocker: PublishBlocker) => void;
+  /**
+   * Leaves this screen for Inventory, which is where the only fix for
+   * `no_products` lives. Separate on purpose -- see BLOCKER_ACTION above.
+   */
+  onGoToInventory: () => void;
   onTogglePreview: () => void;
   onPublish: () => void;
   /** Ignored while `status` is 'draft' -- there is nothing live to unpublish. */
@@ -91,11 +125,18 @@ export function PublishBar({
         </Pressable>
       </View>
 
-      {blockers.map((blocker) => (
-        <Caveat key={blocker} tone="wrong" action={{ label: 'Fix this', onPress: onEdit }}>
-          {BLOCKER_COPY[blocker]}
-        </Caveat>
-      ))}
+      {blockers.map((blocker) => {
+        const { label, goes } = BLOCKER_ACTION[blocker];
+        return (
+          <Caveat
+            key={blocker}
+            tone="wrong"
+            action={{ label, onPress: goes === 'inventory' ? onGoToInventory : () => onFocusBlocker(blocker) }}
+          >
+            {BLOCKER_COPY[blocker]}
+          </Caveat>
+        );
+      })}
 
       {confirmingUnpublish ? (
         <>
