@@ -1407,6 +1407,323 @@ const CASH_FLOW_EDITS: Edit[] = [
   // balance sheet's cash and not the cash flow's, and reconciliation 5 would
   // report a discrepancy whose cause is not in the arithmetic at all.
   ['20261004000100', 'the cash flow ignores a close too', "e.source <> 'close'"],
+  // 1590 is IN the investing range now. Excluded, a DISPOSAL's write-back of
+  // accumulated depreciation was read by no section of this statement at all,
+  // and the proof row failed by exactly it -- reproduced in 20261006000300's
+  // header. The exclusion read as harmless because the only thing that had ever
+  // moved 1590 was the monthly charge, where it cancels.
+  ['20261006000300', '1590 is inside the investing range, so a disposal is not invisible',
+    "m.acct_code between '1500' and '1599'), 0)::bigint"],
+  // ...and the charge is taken back out of it, which is what keeps a month of
+  // ordinary depreciation OUT of investing now that 1590 is read there. Both
+  // halves are load-bearing: with only the first, depreciation appears as an
+  // investing inflow and the proof fails by the charge instead.
+  ['20261006000300', 'and the depreciation charge is taken back out of the range',
+    "- coalesce(sum(m.mv_amt) filter (where m.acct_code = '6800'), 0)::bigint,"],
+];
+
+// ── The fixed-asset register (phase 3c) ────────────────────────────────────
+//
+// Pinned at their FIRST definition, the way transfer_funds was, rather than
+// after a copy-forward has already lost something. Every entry below
+// corresponds to a mutation that was run against verify-fixed-assets.sql and
+// reddened it.
+const CREATE_FIXED_ASSET_EDITS: Edit[] = [
+  // ledger.post, not budgets.manage: transfer_funds took the cash permission
+  // because banking the float is a cash operation; capitalising a purchase is a
+  // bookkeeping judgement that changes this month's profit and every month
+  // after it.
+  ['20261006000100', 'gated on ledger.post',
+    "has_shop_permission(p_shop_id, 'ledger.post')"],
+  // TWICE in one condition, and both halves are separate defects: the range is
+  // what balance_sheet() calls fixed assets, and 1590 is the contra account an
+  // asset booked into would present negative in and then depreciate itself.
+  ['20261006000100', 'the asset account is inside 1500-1599',
+    "p_account_code not between '1500' and '1599'"],
+  ['20261006000100', 'and it is never 1590 Accumulated Depreciation',
+    "p_account_code = '1590'"],
+  // Null means ON CREDIT. A default of '1000' would invent a cash payment out
+  // of an omitted argument, and the entry balances either way.
+  ['20261006000100', 'no payment account means on credit, never the till',
+    "coalesce(p_paid_from_code, '2000')"],
+  ['20261006000100', 'a payment comes from one of the four cash accounts',
+    "p_paid_from_code <> all (array['1000', '1010', '1020', '1021'])"],
+  ['20261006000100', 'zero and negative costs are refused before journal_lines sees them',
+    'p_cost_cents <= 0'],
+  ['20261006000100', 'a life of no months is refused, and run_depreciation divides by it',
+    'p_life_months <= 0'],
+  // Dr the asset, Cr the money. Swap them and the entry still balances, still
+  // posts, and records the shop selling something it just bought.
+  ['20261006000100', 'Dr the asset account',
+    "jsonb_build_object('code', p_account_code, 'amount_cents', p_cost_cents,"],
+  ['20261006000100', 'Cr the money, or what is now owed for it',
+    "jsonb_build_object('code', v_credit_code, 'amount_cents', -p_cost_cents,"],
+  ['20261006000100', 'the accounts are looked up in THIS shop', 'where a.shop_id = p_shop_id'],
+  ['20261006000100', 'the date comes from shop_local_date()',
+    'coalesce(p_acquired_on, public.shop_local_date())'],
+  ['20261006000100', 'an acquisition in a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  ['20261006000100', 'it posts under its own source', ", 'asset');"],
+  // The register keeps the TRUE date even when the entry was redirected, which
+  // is what run_depreciation counts months from.
+  ['20261006000100', 'the register records the true acquisition date',
+    'p_shop_id, v_name, p_cost_cents, v_acquired, p_life_months'],
+  // This door takes the shop lock too, and it is the one place where the reason
+  // is not obvious: run_depreciation builds a month's LINES and its CHARGE ROWS
+  // in two statements, which in READ COMMITTED are two snapshots. An asset
+  // created between them lands in one derivation and not the other, and the
+  // run's own assertion then aborts a month-end that had nothing wrong with it.
+  ['20261008000000', 'the shop lock is taken before the register is read',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(p_shop_id));'],
+];
+
+const DISPOSE_FIXED_ASSET_EDITS: Edit[] = [
+  // Read from the ASSET's shop, never from an argument: this function takes no
+  // shop id, and looking one up from the row is what stops a caller in one shop
+  // disposing of another shop's van by id.
+  ['20261006000100', "gated on ledger.post against the ASSET's shop",
+    "has_shop_permission(v_asset.shop_id, 'ledger.post')"],
+  ['20261006000100', 'an asset is not disposed of twice', 'v_asset.disposed_on is not null'],
+  // Summed from the charge rows, which is the only structure that can say how
+  // much of 1590 belongs to ONE asset.
+  ['20261006000100', "this asset's own accumulated depreciation, from its charge rows",
+    'from public.depreciation_charges dc'],
+  // Computed, never plugged.
+  ['20261006000100', 'the gain or loss is cost less depreciation less proceeds',
+    'v_gain_loss := v_asset.cost_cents - v_accumulated - v_proceeds;'],
+  // The FULL cost. Crediting the net book value instead leaves the sold asset's
+  // accumulated depreciation in 1590 forever.
+  ['20261006000100', 'the asset account is credited by its FULL cost',
+    "'amount_cents', -v_asset.cost_cents"],
+  ['20261006000100', 'and 1590 is debited by what this asset took',
+    "'code', '1590', 'amount_cents', v_accumulated"],
+  ['20261006000100', 'the difference lands in 6900, a debit for a loss and a credit for a gain',
+    "'code', '6900', 'amount_cents', v_gain_loss"],
+  ['20261006000100', 'proceeds arrive in the account the caller named',
+    "'code', p_received_into_code, 'amount_cents', v_proceeds"],
+  ['20261006000100', 'a disposal in a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  // Every date this function decides comes from shop_local_date(): the disposal
+  // date when the caller gave none, the future-date refusal it is measured
+  // against, and the date a redirected entry is recognised on. now()::date
+  // resolves in UTC and every market kaiibi serves is UTC+3, so at a month
+  // boundary the entry lands in the wrong period -- permanently, once that
+  // period closes. No fixture can redden this: the two agree for 21 hours of
+  // every day and the divergence cannot be forced from a session, which is why
+  // it is pinned here and the function itself is tested in
+  // verify-shop-local-date.sql.
+  ['20261006000100', 'every date it decides comes from shop_local_date()',
+    'public.shop_local_date()', 3],
+  // The shop lock, and the RE-READ under it. Neither is decoration: without the
+  // lock a concurrent run_depreciation charged a month this disposal had already
+  // written back the accumulated depreciation it could see, and the balance
+  // sheet read `Total fixed assets -40000` for an asset the register said the
+  // shop no longer owned -- permanently, because nothing writes it back. Without
+  // the re-read the lock is taken and then every figure below is still decided
+  // from the snapshot taken before it, which is the same defect with a lock in
+  // front of it. See 20261008000000's header.
+  ['20261008000000', 'the shop lock is taken before anything is decided',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(v_asset.shop_id));'],
+  ['20261008000000', 'and the asset row is re-read under it',
+    'where id = p_asset_id for update;'],
+];
+
+const RUN_DEPRECIATION_EDITS: Edit[] = [
+  ['20261006000200', 'gated on ledger.post',
+    "has_shop_permission(p_shop_id, 'ledger.post')"],
+  // A month must END before it is depreciated -- 20261005000000's rule for a
+  // close, for the same reason: the entry is dated the month's end, and an
+  // entry dated in the future opens a period nobody has traded in.
+  //
+  // Pinned on the CLAMP rather than on the name. `v_last_complete` alone occurs
+  // three times -- the declaration and both arms of the least() -- so dropping
+  // the clamp leaves two of them standing and a presence-only pin green. That
+  // is the shape of pin this file found 55 of; the fix it prescribes is a
+  // specific token, not a count, because the declaration is not a rule.
+  ['20261006000200', 'a month must end before it is depreciated',
+    'least(date_trunc(\'month\', coalesce(p_through, v_last_complete))::date,\n                    v_last_complete)'],
+  // THE ROUNDING. Without the last month carrying the remainder an asset
+  // depreciates to a few cents short of its cost, on the balance sheet, forever.
+  // TWICE: once building the lines and once writing the charge rows, and the two
+  // must agree or the ledger and the register drift apart.
+  ['20261006000200', 'the last month of the life carries the remainder, in BOTH derivations',
+    '(d.cost_cents / d.life_months) * (d.life_months - 1)'],
+  ['20261006000200', 'and in the charge rows written from the same rule',
+    '(fa.cost_cents / fa.life_months) * (fa.life_months - 1)'],
+  // NEVER PAST COST. A month past the life is not charged, so 1590 cannot
+  // exceed 1500 for an asset however far the run is asked to go.
+  ['20261006000200', 'a month past the asset’s life is not charged',
+    'between 1 and d.life_months'],
+  // A disposed asset takes NO charge, for any month -- not merely none from the
+  // month it left. Written as the month comparison it shipped with, a run
+  // reaching back over a month the shop still owned the asset in charged it
+  // after the disposal had already written back the nothing it could see, and
+  // the balance sheet's fixed assets went negative and stayed there. Both
+  // derivations need it or the ledger and the register part company, so the
+  // count is pinned: keeping one and losing the other is the failure this
+  // entry exists to catch.
+  ['20261006000200', 'a disposed asset takes no charge at all, in BOTH derivations',
+    'and fa.disposed_on is null', 2],
+  // THE TENANT BOUNDARY, in all three queries that read the register: the
+  // earliest-acquisition probe, the due CTE and the charge-row insert. Phase
+  // 3a's review removed exactly this predicate from three functions and the
+  // whole suite passed; here dropping it from either of the last two left the
+  // suite green as well, until check 17 started running one shop's depreciation
+  // after the other shop had assets. A count, because each occurrence is a
+  // separate query that can lose it on its own.
+  ['20261006000200', 'the assets are this shop’s own, in every query that reads them',
+    'where fa.shop_id = p_shop_id', 3],
+  ['20261006000200', 'a month already charged is skipped, in BOTH derivations',
+    'where dc.asset_id = fa.id and dc.charge_month = v_month', 2],
+  // The zero-charge filter the LINES always had and the charge rows did not.
+  // floor(cost / life) is 0 whenever the cost in cents is under the life in
+  // months; journal_lines refuses a zero line so the entry was safe, and the
+  // insert then died on depreciation_charges' own check constraint and took the
+  // whole run with it.
+  // Re-indented and re-punctuated by 20261008000000, which wrapped the insert in
+  // a data-modifying CTE so the run can read back what it wrote -- so the
+  // statement now ends in `returning` rather than in a semicolon. The RULE is
+  // unchanged and the entry keeps naming the migration that introduced it.
+  ['20261006000200', 'a charge that rounds to zero is not written as a charge row',
+    '                  end) > 0\n          returning amount_cents)'],
+  // THE LOCK, and it is the whole of the fix for a month posted twice. Two
+  // overlapping runs both evaluated the `due` CTE, both decided the month was
+  // due, and the second one blocked inside post_journal_entry on the reference
+  // counter -- which is AFTER the decision. It then posted its own entry and
+  // its charge-row insert, re-evaluated under a new snapshot, wrote nothing.
+  // 7 entries for 6 months, 1590 at -840000 against charge rows of 720000, and
+  // the cash-flow proof still tied because the duplicate moves 1590 and 6800 by
+  // equal and opposite amounts. See 20261008000000's header.
+  ['20261008000000', 'the shop lock is taken BEFORE the run decides anything',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(p_shop_id));'],
+  // The sibling of `disposed_on is null`, in BOTH derivations for the same
+  // reason the count is pinned there: an asset whose acquisition entry was
+  // voided has its cost in no account, so every further monthly charge drives
+  // Total fixed assets more negative, without bound.
+  ['20261008000000', 'a voided acquisition takes no charge, in BOTH derivations',
+    "where je.id = fa.journal_entry_id and je.status = 'posted')", 2],
+  // The entry and the charge rows are ONE fact, and they are written by two
+  // statements. This is what makes a disagreement between them loud instead of
+  // silent-and-balanced -- the failure mode no totals check, no trial balance
+  // and no cash-flow proof can see.
+  ['20261008000000', 'what was written is checked against what was posted',
+    'if v_written <> v_total then'],
+  ['20261006000200', 'a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  ['20261006000200', 'it posts under its own source', ", 'depreciation');"],
+  // The charge row records the MONTH, not the entry's date. After a redirect
+  // the date no longer says which month the charge is for, and idempotency read
+  // off the ledger would charge that month again on every run forever.
+  ['20261006000200', 'the charge row records the month, not the date it was posted on',
+    'charge_month, amount_cents, journal_entry_id)'],
+  ['20261006000200', 'the date comes from shop_local_date()', 'public.shop_local_date()'],
+];
+
+const DELETE_FIXED_ASSET_EDITS: Edit[] = [
+  ['20261006000100', 'gated on ledger.post against the asset’s shop',
+    "has_shop_permission(v_asset.shop_id, 'ledger.post')"],
+  ['20261006000100', 'a depreciated asset is not deleted',
+    'from public.depreciation_charges dc where dc.asset_id = v_asset.id'],
+  ['20261006000100', 'nor is a disposed one', 'v_asset.disposed_on is not null'],
+  // The reversal, and the three things phase 2b lost by omitting one of them.
+  ['20261006000100', 'the reversal carries the SAME source as the entry it reverses',
+    "v_old.source, 'posted', v_old.location_id, v_old.id, auth.uid()"],
+  ['20261006000100', 'its lines are NEGATED, which is what makes it a reversal',
+    'account_id, -amount_cents, location_id, memo'],
+  ['20261006000100', 'and the original is marked reversed rather than left standing',
+    "set status = 'reversed', reverses_entry_id = v_reversal_id"],
+  // A reversal into a closed month is recognised in the open one, dated from
+  // shop_local_date() like every other date this file decides.
+  ['20261006000100', 'a reversal into a closed month is recognised in the open one, at the shop’s own date',
+    'v_reversal_date := public.shop_local_date();'],
+  // The lock and the re-read under it. "This asset has not been depreciated" is
+  // read one statement and the row is deleted another; a run committing in
+  // between charges the asset, the delete's cascade takes the charge rows with
+  // the register row, and the depreciation ENTRY is left crediting 1590 for an
+  // asset the books now say was never bought.
+  ['20261008000000', 'the shop lock is taken before anything is decided',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(v_asset.shop_id));'],
+  ['20261008000000', 'and the asset row is re-read under it',
+    'where id = p_asset_id for update;'],
+];
+
+// transfer_funds joins this file at its FIRST definition rather than its second.
+// Every other function here was pinned only once a copy-forward had already lost
+// something; the point of doing it on day one is that phase 3c's remaining tasks
+// re-create nothing of this, but phase 4 might, and by then nobody will remember
+// which of these lines is load-bearing. Every entry below corresponds to a
+// mutation that was run against verify-transfers.sql and reddened it.
+const TRANSFER_FUNDS_EDITS: Edit[] = [
+  // The gate, and WHICH gate. ledger.post is the obvious one and it is wrong:
+  // banking the float is a cash operation, budgets.manage is what every other
+  // Cash & Budgets door uses, and the default Manager who does the banking
+  // holds it while holding no ledger permission at all.
+  ['20261006000000', 'gated on budgets.manage, not ledger.post',
+    "has_shop_permission(p_shop_id, 'budgets.manage')"],
+  // TWICE, and the count is the rule rather than a mention: one guard for the
+  // source leg and one for the destination. Drop either and the other still
+  // reads correctly while a transfer can invent revenue on the leg that lost
+  // its check.
+  ['20261006000000', 'both legs must be one of the four cash accounts',
+    "<> all (array['1000', '1010', '1020', '1021'])", 2],
+  ['20261006000000', 'from and to must differ', 'if p_from_code = p_to_code then'],
+  ['20261006000000', 'zero and negative are refused before journal_lines sees them',
+    'p_amount_cents <= 0'],
+  // security definer bypasses RLS on accounts, so this is the tenant boundary
+  // at this door. Phase 3a lost exactly this filter from three functions and
+  // the suite stayed green because no fixture had a second shop.
+  ['20261006000000', 'the accounts are looked up in THIS shop', 'where a.shop_id = p_shop_id'],
+  ['20261006000000', 'a retired account is not a destination', 'a.archived_at is null'],
+  // The direction, both halves. Dr the destination, Cr the source -- swap them
+  // and the entry still balances, still posts, and moves the money backwards.
+  ['20261006000000', 'Dr the destination',
+    "jsonb_build_object('code', p_to_code, 'amount_cents', p_amount_cents,"],
+  ['20261006000000', 'Cr the source',
+    "jsonb_build_object('code', p_from_code, 'amount_cents', -p_amount_cents,"],
+  ['20261006000000', 'a date in a closed month is recognised in the open one',
+    "coalesce(v_period_status, 'not open')"],
+  ['20261006000000', "it posts under its own source, so statements can tell it apart", ", 'transfer');"],
+  // Not now()::date and not current_date: both resolve in UTC and every market
+  // is UTC+3, so an evening transfer lands on the wrong day and, at a month
+  // boundary, in the wrong period -- permanently, once that period closes.
+  ['20261006000000', 'the date comes from shop_local_date()',
+    'coalesce(p_on, public.shop_local_date())'],
+  ['20261006000000', "the user's note survives onto the entry", "coalesce(' — ' || v_note, '')"],
+  // Alone among phase 3c's three user-dated doors, this one had no future
+  // check -- create_fixed_asset and dispose_fixed_asset both refuse one. A
+  // transfer dated 400 days out was accepted, opened an accounting period for a
+  // month nobody had traded in, and put a figure on the transfer picker
+  // (195000) that the balance sheet, the trial balance and the cash flow all
+  // disagreed with (120000).
+  ['20261008000100', 'a transfer is not dated in the future',
+    'A transfer cannot be dated in the future'],
+];
+
+// The picker beside it, pinned from its second definition -- the one that gave
+// it the upper date bound its own header had claimed since day one.
+const LIST_TRANSFER_ACCOUNTS_EDITS: Edit[] = [
+  // The SAME permission the write takes. Not ledger.view: the Manager who banks
+  // the float does not hold it, and a reader gated differently from the writer
+  // is a picker that is empty for exactly the people the door was built for.
+  ['20261007000200', 'gated on budgets.manage, the same string the write takes',
+    "has_shop_permission(p_shop_id, 'budgets.manage')"],
+  // security definer bypasses RLS on accounts. Mutation-tested: dropping this
+  // reddens verify-transfers.
+  ['20261007000200', 'the accounts are this shop’s own', 'where a.shop_id = p_shop_id'],
+  ['20261007000200', 'exactly the four codes the write accepts',
+    "a.code in ('1000', '1010', '1020', '1021')"],
+  ['20261007000200', 'a retired account is not offered', 'a.archived_at is null'],
+  ['20261007000200', 'closes are not cash events, the way the proof row reads it',
+    "e.source <> 'close'"],
+  ['20261007000200', 'posted and reversed, the way the proof row reads it',
+    "e.status in ('posted', 'reversed')"],
+  // THE UPPER BOUND. cash_flow()'s proof row carries `e.entry_date <= p_to` and
+  // this had no date predicate at all, so the picker counted a future-dated
+  // entry that no statement did -- a second definition of how much is in the
+  // till, which is the exact thing the function's header says it exists to
+  // avoid.
+  ['20261008000100', 'and it stops at today, which is what makes those two claims true',
+    'e.entry_date <= public.shop_local_date()'],
 ];
 
 describe.each([
@@ -1436,6 +1753,12 @@ describe.each([
   ['reverse_stock_receipt_entry', REVERSE_STOCK_RECEIPT_ENTRY_EDITS],
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
+  ['transfer_funds', TRANSFER_FUNDS_EDITS],
+  ['list_transfer_accounts', LIST_TRANSFER_ACCOUNTS_EDITS],
+  ['create_fixed_asset', CREATE_FIXED_ASSET_EDITS],
+  ['dispose_fixed_asset', DISPOSE_FIXED_ASSET_EDITS],
+  ['delete_fixed_asset', DELETE_FIXED_ASSET_EDITS],
+  ['run_depreciation', RUN_DEPRECIATION_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);
 
@@ -1519,6 +1842,41 @@ describe('post_journal_entry is not executable by PUBLIC', () => {
     // authenticated is src/lib/ledger.ts and every RPC the app calls; without
     // it the till stops. service_role is the backend key. A revoke that took
     // either with it would be worse than the hole it closes.
+    expect(text).toContain(`grant execute on function ${signature} to authenticated;`);
+    expect(text).toContain(`grant execute on function ${signature} to service_role;`);
+  });
+
+  it('revokes before it grants, so the grants are the whole list', () => {
+    expect(text.indexOf(`revoke execute on function ${signature} from public;`)).toBeLessThan(
+      text.indexOf(`grant execute on function ${signature} to authenticated;`)
+    );
+  });
+});
+
+// The same check for transfer_funds, for the same reason and on day one rather
+// than after the fact. It is `security definer`, it moves money, and
+// PostgreSQL's default grant hands EXECUTE to PUBLIC -- which `anon` belongs to.
+// has_shop_permission answers false for a caller with no user, so the gate holds
+// on its own today; the whole lesson of 20261005000400 is that one barrier
+// believed to be two is how a hole ships.
+describe('transfer_funds is not executable by PUBLIC', () => {
+  const signature = 'public.transfer_funds(uuid, text, text, integer, date, text)';
+  const files = readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+    .filter((name) =>
+      readFileSync(join(MIGRATIONS, name), 'utf8').includes(
+        'create or replace function public.transfer_funds('
+      )
+    );
+  const file = files[files.length - 1];
+  const text = readFileSync(join(MIGRATIONS, file), 'utf8');
+
+  it('revokes the PUBLIC default grant', () => {
+    expect(text).toContain(`revoke execute on function ${signature} from public;`);
+  });
+
+  it('still grants it to the roles that call it', () => {
     expect(text).toContain(`grant execute on function ${signature} to authenticated;`);
     expect(text).toContain(`grant execute on function ${signature} to service_role;`);
   });

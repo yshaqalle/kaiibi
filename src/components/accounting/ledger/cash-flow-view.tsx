@@ -159,6 +159,24 @@ export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; 
                 <StatementRow label={row.label} amountCents={row.amountCents} variant={variantFor(row)} />
               </View>
             ))}
+            {/* WHAT THE INVESTING LABEL CANNOT CARRY.
+                'Equipment bought, less equipment sold' (20261007000100) names
+                both halves, and there is one more thing to say that will not
+                fit in a row label: "sold" means AT BOOK VALUE, not at the price
+                it fetched. The difference between the two is the gain or the
+                loss, and that is already inside Net profit at the top of this
+                statement -- so a reader who looks for the sale price in the
+                investing section and does not find it is looking in the right
+                place for the wrong number.
+
+                'context', not 'wrong': every figure above is correct and the
+                statement proves out beside it. This explains a presentation,
+                and there is nothing for the reader to do about it. */}
+            <Caveat tone="context">
+              Equipment sold appears in Investing at its book value — what it was still worth in the books — and not at
+              the price it fetched. The difference between those two is the gain or loss on the sale, and that is
+              already inside Net profit above.
+            </Caveat>
           </BentoCard>
         </BentoCell>
 

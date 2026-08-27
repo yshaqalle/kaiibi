@@ -41,16 +41,16 @@
 --     Cr 4000  31000 sales          Dr 5000   3300 cost of it
 --     Dr 5000  12000 cost           Dr 6100   2100 utilities, on account
 --     Dr 6000   4300 rent           Dr 6200   7400 wages, accrued
---     Dr 6300    800 marketing      Dr 6800    500 depreciation
---     Cr 6300    800 refunded       Dr 3100   1700 owner's draw
---     Dr 1500  24000 the van
+--     Dr 6300    800 marketing      Dr 1510    600 shelving, on credit
+--     Cr 6300    800 refunded       Dr 6800    700 depreciation
+--     Dr 1500  24000 the van        Dr 3100   1700 owner's draw
 --     Dr 6800    600 depreciation
 --     ---------------------        ---------------------
---     PROFIT   14100               LOSS      -4300
+--     PROFIT   14100               LOSS      -4500
 --
 -- March is closed. April is not.
 --
--- ## THE DEPRECIATION, AND WHY IT IS POSTED BY HAND
+-- ## THE DEPRECIATION, AND WHY IT IS NO LONGER POSTED BY HAND
 --
 -- 6800 is the one account this statement suite reads that a CLOSE ALSO TOUCHES.
 -- `Add back depreciation` in the cash flow is 6800's movement, and 6800 is an
@@ -61,15 +61,23 @@
 -- twice and the proof row fails by exactly it. Read the closed month on its own
 -- and the add-back reads 0 and the statement is out by the whole month's charge.
 --
--- Nothing in kaiibi posts to 6800 until phase 3c ships run_depreciation, so a
--- fixture that closes a month has an empty add-back and the defect is invisible:
--- 0 - 0 = 0. verify-statements.sql posts a depreciation entry BY HAND for
--- exactly that reason and this file -- the one built to span a close -- did not,
--- which is why 20261004000100 shipped with the whole suite green either side of
--- it. So: a van, and a charge in BOTH months, hand-posted at source
--- 'depreciation' exactly as verify-statements.sql posts its own. The charges are
--- 600 and 500 rather than one figure twice, so an add-back that read one month
--- for the other could not pass.
+-- That defect (20261004000100) survived a whole phase because nothing in kaiibi
+-- posted to 6800 at all: every fixture that closed a month had an empty add-back
+-- and 0 - 0 = 0. This file was written with the charge HAND-POSTED, as a stand-in
+-- for the run_depreciation that had not shipped. It has shipped
+-- (20261006000200), so the stand-in is gone: a real fixed-asset register, real
+-- create_fixed_asset calls, and ONE run_depreciation over both months. The
+-- charge that the close must not net away is now produced by the code that will
+-- produce it in production, which is the whole point of a fixture.
+--
+-- WHAT THAT COST, said plainly: the two months used to carry 600 and 500, two
+-- different figures, so an add-back that read one month for the other could not
+-- pass. Straight-line depreciation on ONE asset gives the same figure every
+-- month, so the difference is bought instead with a SECOND asset -- shelving,
+-- acquired on 1 April, ON CREDIT -- which makes March 600 and April 700 and
+-- exercises the on-credit purchase path at the same time. The closed month's
+-- figure, and every figure pinned to March, are unchanged from the hand-posted
+-- version.
 --
 -- The van is not decoration either. Accumulated depreciation with no asset
 -- behind it is a fixture that could not happen, and 1500 is inside the
@@ -159,13 +167,11 @@ begin
     jsonb_build_array(jsonb_build_object('code', '5000', 'amount_cents',  12000),
                       jsonb_build_object('code', '1200', 'amount_cents', -12000)),
     v_loc, 'sale');
-  -- The van, bought for cash. 1500 is inside the 1500-1599 range the cash
-  -- flow's investing line reads and the balance sheet calls fixed assets, and
-  -- it is what the depreciation below depreciates.
-  perform public.post_journal_entry(v_shop, '2026-03-05', 'A van, for cash',
-    jsonb_build_array(jsonb_build_object('code', '1500', 'amount_cents',  24000),
-                      jsonb_build_object('code', '1000', 'amount_cents', -24000)),
-    v_loc, 'asset');
+  -- The van, bought for cash THROUGH THE REGISTER. 1500 is inside the 1500-1599
+  -- range the cash flow's investing line reads and the balance sheet calls fixed
+  -- assets, and it is what run_depreciation below depreciates. 40 months at
+  -- 24000 is 600 a month, which is the figure this file was written around.
+  perform public.create_fixed_asset(v_shop, 'A van', 24000, '2026-03-05', 40, '1000');
   perform public.post_journal_entry(v_shop, '2026-03-15', 'March rent',
     jsonb_build_array(jsonb_build_object('code', '6000', 'amount_cents',  4300),
                       jsonb_build_object('code', '1000', 'amount_cents', -4300)),
@@ -180,14 +186,6 @@ begin
     jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  800),
                       jsonb_build_object('code', '6300', 'amount_cents', -800)),
     v_loc);
-  -- March's depreciation, hand-posted: see the header. 6800 is an EXPENSE, so
-  -- the close below CREDITS it -- and this charge lands in the month that gets
-  -- closed, which is the whole point of putting it here. 1590 is the seeded
-  -- contra asset and is deliberately outside the investing range.
-  perform public.post_journal_entry(v_shop, '2026-03-31', 'March depreciation on the van',
-    jsonb_build_array(jsonb_build_object('code', '6800', 'amount_cents',  600),
-                      jsonb_build_object('code', '1590', 'amount_cents', -600)),
-    v_loc, 'depreciation');
 
   -- ── SHOP A, APRIL 2026 ────────────────────────────────────────────────
   perform public.post_journal_entry(v_shop, '2026-04-08', 'April sale, on credit',
@@ -206,15 +204,20 @@ begin
     jsonb_build_array(jsonb_build_object('code', '6200', 'amount_cents',  7400),
                       jsonb_build_object('code', '2200', 'amount_cents', -7400)),
     v_loc, 'payroll');
-  -- April's depreciation, in the OPEN month, and a different figure from
-  -- March's. With a charge in both months the add-back across the close reads
-  -- 1100 when it is right and 500 when the closing entry is being counted --
-  -- two non-zero numbers, so neither side of the comparison can pass by being
-  -- empty.
-  perform public.post_journal_entry(v_shop, '2026-04-30', 'April depreciation on the van',
-    jsonb_build_array(jsonb_build_object('code', '6800', 'amount_cents',  500),
-                      jsonb_build_object('code', '1590', 'amount_cents', -500)),
-    v_loc, 'depreciation');
+  -- Shelving, ON CREDIT, in the OPEN month: 600 over 6 months is 100 a month
+  -- from April. It is what makes April's charge (700) differ from March's (600),
+  -- which one straight-line asset cannot do -- see the header. With a charge in
+  -- both months the add-back across the close reads 1300 when it is right and
+  -- 700 when the closing entry is being counted, two non-zero numbers, so
+  -- neither side of the comparison can pass by being empty.
+  perform public.create_fixed_asset(v_shop, 'Display shelving', 600, '2026-04-01', 6, null, '1510');
+  -- ONE CALL, both months. Straight-line, month by month, Dr 6800 / Cr 1590 at
+  -- source 'depreciation' -- the same source the hand-posted stand-in used, from
+  -- the function that will do it in production. March's charge lands in the
+  -- month that gets closed, which is the whole point of it being here.
+  if public.run_depreciation(v_shop, '2026-04-30') <> 2 then
+    raise exception 'FIXTURE: run_depreciation wrote a number of entries other than 2 (March and April)';
+  end if;
   perform public.post_journal_entry(v_shop, '2026-04-20', 'Owner drawing',
     jsonb_build_array(jsonb_build_object('code', '3100', 'amount_cents',  1700),
                       jsonb_build_object('code', '1000', 'amount_cents', -1700)),
@@ -257,8 +260,8 @@ begin
   --    that had it all along.
   select amount_cents into v_equity_before from public.balance_sheet(v_shop, '2026-04-30')
    where section = 'equity' and is_total;
-  if v_equity_before is distinct from 68100 then
-    raise exception 'FAIL: total equity before the close is %, expected 68100', v_equity_before;
+  if v_equity_before is distinct from 67900 then
+    raise exception 'FAIL: total equity before the close is %, expected 67900', v_equity_before;
   end if;
 
   --    THE DEPRECIATION IS REALLY THERE, IN BOTH MONTHS, BEFORE ANYTHING
@@ -274,15 +277,15 @@ begin
     join public.accounts a on a.id = l.account_id
    where e.shop_id = v_shop and e.status in ('posted', 'reversed')
      and a.code = '6800';
-  if v_dep_lines <> 2 or v_amount <> 600 then
-    raise exception 'FAIL: the fixture must post depreciation in BOTH months -- % lines in 6800 totalling % up to 31 March, expected 2 and 600. Without a non-zero charge in the CLOSED month every add-back check below is 0 - 0 = 0 and proves nothing.',
+  if v_dep_lines <> 3 or v_amount <> 600 then
+    raise exception 'FAIL: the fixture must post depreciation in BOTH months -- % lines in 6800 totalling % up to 31 March, expected 3 and 600. Without a non-zero charge in the CLOSED month every add-back check below is 0 - 0 = 0 and proves nothing.',
       v_dep_lines, v_amount;
   end if;
   if (select coalesce(sum(l.amount_cents), 0) from public.journal_lines l
         join public.journal_entries e on e.id = l.entry_id
         join public.accounts a on a.id = l.account_id
        where e.shop_id = v_shop and e.status in ('posted', 'reversed')
-         and a.code = '6800' and e.entry_date between '2026-04-01' and '2026-04-30') <> 500 then
+         and a.code = '6800' and e.entry_date between '2026-04-01' and '2026-04-30') <> 700 then
     raise exception 'FAIL: the OPEN month must carry depreciation too, and a different figure from the closed month''s';
   end if;
   if (select amount_cents from public.balance_sheet(v_shop, '2026-04-30') where code = '3900')
@@ -291,8 +294,8 @@ begin
       (select amount_cents from public.balance_sheet(v_shop, '2026-04-30') where code = '3900');
   end if;
   if (select amount_cents from public.statement_lines(v_shop, '2026-03-01', '2026-04-30')
-       where section = 'net_profit') is distinct from 9800 then
-    raise exception 'FAIL: the two months'' trading is %, expected 9800 (14100 profit less a 4300 loss)',
+       where section = 'net_profit') is distinct from 9600 then
+    raise exception 'FAIL: the two months'' trading is %, expected 9600 (14100 profit less a 4500 loss)',
       (select amount_cents from public.statement_lines(v_shop, '2026-03-01', '2026-04-30') where section = 'net_profit');
   end if;
 
@@ -363,11 +366,11 @@ begin
 
   -- 5. THE INCOME STATEMENT STILL SHOWS THE SHOP'S TRADING. The whole reason
   --    for excluding source = 'close'. A window spanning the close reads
-  --    14100 - 4300 = 9800, and March on its own still reads 14100.
+  --    14100 - 4500 = 9600, and March on its own still reads 14100.
   select amount_cents into v_is_profit from public.statement_lines(v_shop, '2026-03-01', '2026-04-30')
    where section = 'net_profit';
-  if v_is_profit is distinct from 9800 then
-    raise exception 'FAIL: the income statement spanning the close reads %, expected 9800. -4300 means closing entries are being counted and March vanished from its own income statement.', v_is_profit;
+  if v_is_profit is distinct from 9600 then
+    raise exception 'FAIL: the income statement spanning the close reads %, expected 9600. -4500 means closing entries are being counted and March vanished from its own income statement.', v_is_profit;
   end if;
   if (select amount_cents from public.statement_lines(v_shop, '2026-03-01', '2026-03-31')
        where section = 'net_profit') is distinct from 14100 then
@@ -432,8 +435,8 @@ begin
   --     is what it has not yet retained. Both forms are asserted.
   --
   --     (a) the open period's own window, where the original form holds.
-  if v_bs_profit is distinct from -4300 then
-    raise exception 'FAIL: balance sheet "Profit this period" is %, expected April''s loss of -4300. 9800 means the closed profit is being counted twice -- once here and once in 3900.',
+  if v_bs_profit is distinct from -4500 then
+    raise exception 'FAIL: balance sheet "Profit this period" is %, expected April''s loss of -4500. 9600 means the closed profit is being counted twice -- once here and once in 3900.',
       v_bs_profit;
   end if;
   if (select amount_cents from public.statement_lines(v_shop, '2026-04-01', '2026-04-30')
@@ -473,8 +476,8 @@ begin
     raise exception 'FAIL: reconciliation 4 -- total assets % against total liabilities and equity %, off by % (14100 = the closed profit counted twice)',
       v_bs_assets, v_bs_credits, v_bs_assets - v_bs_credits;
   end if;
-  if v_bs_assets is distinct from 77600 then
-    raise exception 'FAIL: the balance sheet balances at %, but the fixture''s assets are 77600 (41000 cash + 9000 receivables + 4700 stock + 24000 van - 1100 accumulated depreciation)', v_bs_assets;
+  if v_bs_assets is distinct from 78000 then
+    raise exception 'FAIL: the balance sheet balances at %, but the fixture''s assets are 78000 (41000 cash + 9000 receivables + 4700 stock + 24000 van + 600 shelving - 1300 accumulated depreciation)', v_bs_assets;
   end if;
 
   -- 6.5 Cash flow closing cash = balance sheet cash.
@@ -521,11 +524,11 @@ begin
   --     AND THE ADD-BACK ITSELF, NAMED. The proof row above catches this
   --     defect, but only ever reports "off by 600" -- this says which line
   --     moved. Both months' depreciation is trading depreciation and the close
-  --     is not allowed to net any of it away: 600 + 500.
+  --     is not allowed to net any of it away: 600 + 700.
   select amount_cents into v_cf_dep from public.cash_flow(v_shop, '2026-03-01', '2026-04-30')
    where section = 'operating' and label = 'Add back depreciation';
-  if v_cf_dep is distinct from 1100 then
-    raise exception 'FAIL: add back depreciation across the close reads %, expected 1100 (600 March + 500 April). 500 means the add-back is reading 6800 through the closing entry that credited it, so March''s 600 is subtracted from net profit and never added back.',
+  if v_cf_dep is distinct from 1300 then
+    raise exception 'FAIL: add back depreciation across the close reads %, expected 1300 (600 March + 700 April). 700 means the add-back is reading 6800 through the closing entry that credited it, so March''s 600 is subtracted from net profit and never added back.',
       v_cf_dep;
   end if;
 
@@ -576,8 +579,8 @@ begin
   --     this -- and an assertion that the van is still there passes for a
   --     reason rather than because the line was empty.
   if (select amount_cents from public.cash_flow(v_shop, '2026-03-01', '2026-04-30')
-       where section = 'investing' and is_total) is distinct from -24000 then
-    raise exception 'FAIL: cash used in investing across the close is %, expected -24000 (the van). 0 = the fixed-asset range stopped being read; -24600 = 1590 is being counted as investing and the depreciation is in there twice.',
+       where section = 'investing' and is_total) is distinct from -24600 then
+    raise exception 'FAIL: cash used in investing across the close is %, expected -24600 (the van and the shelving). 0 = the fixed-asset range stopped being read.',
       (select amount_cents from public.cash_flow(v_shop, '2026-03-01', '2026-04-30')
         where section = 'investing' and is_total);
   end if;
@@ -640,9 +643,9 @@ begin
   if (select amount_cents from public.balance_sheet(v_shop, '2026-04-30') where code = '3900')
      is distinct from 14100
      or (select amount_cents from public.balance_sheet(v_shop, '2026-04-30') where section = 'total_assets')
-        is distinct from 77600
+        is distinct from 78000
      or (select amount_cents from public.statement_lines(v_shop, '2026-03-01', '2026-04-30')
-          where section = 'net_profit') is distinct from 9800 then
+          where section = 'net_profit') is distinct from 9600 then
     raise exception 'FAIL: shop A''s figures moved when the other shop closed a month -- retained %, assets %, profit %',
       (select amount_cents from public.balance_sheet(v_shop, '2026-04-30') where code = '3900'),
       (select amount_cents from public.balance_sheet(v_shop, '2026-04-30') where section = 'total_assets'),
@@ -667,8 +670,8 @@ begin
       (select amount_cents from public.statement_lines(v_shop, '2026-03-01', '2026-03-31') where section = 'net_profit');
   end if;
   if (select amount_cents from public.balance_sheet(v_shop, '2026-04-30')
-       where section = 'equity' and label = 'Profit this period') is distinct from 9800 then
-    raise exception 'FAIL: profit this period is % after re-opening March, expected 9800 -- nothing is retained any more',
+       where section = 'equity' and label = 'Profit this period') is distinct from 9600 then
+    raise exception 'FAIL: profit this period is % after re-opening March, expected 9600 -- nothing is retained any more',
       (select amount_cents from public.balance_sheet(v_shop, '2026-04-30')
         where section = 'equity' and label = 'Profit this period');
   end if;

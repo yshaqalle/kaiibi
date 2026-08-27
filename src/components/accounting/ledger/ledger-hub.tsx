@@ -19,6 +19,7 @@ export type LedgerView =
   | 'income'
   | 'balance'
   | 'cashflow'
+  | 'assets'
   | 'close';
 
 // The catalogue, in one place, because four things read it: the hub's cards,
@@ -200,6 +201,34 @@ export const LEDGER_VIEWS: {
     scope: 'The chosen range',
     action: 'Run report',
     creates: false,
+    requires: 'ledger.view',
+  },
+  // The design gives Assets a group of its own with one card in it, and it
+  // stays that way rather than being folded into "Ledger and journals": what
+  // the shop OWNS is not a way of writing to the books, it is a thing the books
+  // describe. A one-card group renders correctly since the hub moved to
+  // BentoGrid -- a cell takes its span and no more.
+  {
+    key: 'assets',
+    label: 'Fixed Assets',
+    blurb: 'Equipment and property, what it cost and what it is worth now.',
+    group: 'Assets',
+    icon: 'cube-outline',
+    // Not "the chosen range". The register is a position read at an instant --
+    // there is no such thing as a book value for the last seven days -- and
+    // this screen ignores the shell's date picker entirely.
+    scope: 'As of today',
+    // It writes to the books: recording equipment posts Dr the 15xx account /
+    // Cr the money. Same reason Post History and Close a Period take the filled
+    // button rather than the quiet one.
+    action: '+ Add asset',
+    creates: true,
+    // list_fixed_assets() and fixed_asset_summary() are security definer and
+    // RAISE P0001 without ledger.view, exactly as the three statements do -- so
+    // this card belongs to the gated family and not to the four that read
+    // tables under RLS and get an honest empty state. The WRITE doors need
+    // ledger.post, and the screen says so itself rather than hiding the card
+    // from a bookkeeper who may legitimately read the register.
     requires: 'ledger.view',
   },
   {

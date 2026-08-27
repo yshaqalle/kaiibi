@@ -44,6 +44,15 @@ function mapShopRow(row: any): Shop {
     expiryTrackingEnabled: row.expiry_tracking_enabled,
     expiryWarningLeadDays: row.expiry_warning_lead_days,
     // Defaulted rather than read straight through, for the reason the loyalty
+    // fields give above: a row fetched before 20261003000100 reaches this
+    // database has no such columns, and `undefined` in the settings panel would
+    // render as an unselected radio group that saves nothing. The fallbacks are
+    // the column defaults AFTER 20261005000200 moved auto_close_periods to
+    // 'ask' -- never 'automatic', which is a mode no shop may end up in by
+    // accident.
+    autoClosePeriods: row.auto_close_periods ?? 'ask',
+    periodCloseGraceDays: row.period_close_grace_days ?? 10,
+    // Defaulted rather than read straight through, for the reason the loyalty
     // fields give above: a row fetched before migration 20260822000000 reaches
     // this database has no such column, and the drawer tally must fall back to
     // an empty note list rather than crash on an undefined map.
@@ -136,6 +145,7 @@ export async function updateShop(id: string, input: Partial<{
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
   notifyViaPush: boolean; notifyViaEmail: boolean; notifyViaWhatsapp: boolean;
   defaultLowStockLevel: number; expiryTrackingEnabled: boolean; expiryWarningLeadDays: number;
+  autoClosePeriods: 'automatic' | 'ask' | 'never'; periodCloseGraceDays: number;
   cashDenominations: Record<string, number[]>;
 }>): Promise<Shop> {
   const { data, error } = await supabase
@@ -172,6 +182,8 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.defaultLowStockLevel !== undefined && { default_low_stock_level: input.defaultLowStockLevel }),
       ...(input.expiryTrackingEnabled !== undefined && { expiry_tracking_enabled: input.expiryTrackingEnabled }),
       ...(input.expiryWarningLeadDays !== undefined && { expiry_warning_lead_days: input.expiryWarningLeadDays }),
+      ...(input.autoClosePeriods !== undefined && { auto_close_periods: input.autoClosePeriods }),
+      ...(input.periodCloseGraceDays !== undefined && { period_close_grace_days: input.periodCloseGraceDays }),
       ...(input.cashDenominations !== undefined && { cash_denominations: input.cashDenominations }),
     })
     .eq('id', id)

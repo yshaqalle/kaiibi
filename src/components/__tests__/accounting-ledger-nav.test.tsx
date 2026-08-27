@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { backfillFooter, LEDGER_VIEWS, visibleLedgerViews, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
 import type { Permission } from '@/lib/permissions';
 
@@ -5,7 +8,7 @@ import type { Permission } from '@/lib/permissions';
 const holding = (...granted: Permission[]) => (permission: Permission) => granted.includes(permission);
 
 describe('the ledger hub catalogue', () => {
-  it('lists exactly the eleven views the shell can route to', () => {
+  it('lists exactly the twelve views the shell can route to', () => {
     // In hub order, which is also the order the groups render in: the ledger
     // and its journals, then the three statements they add up to, then
     // oversight. The three statements sit between Post History and the Audit
@@ -15,6 +18,10 @@ describe('the ledger hub catalogue', () => {
     // Close a Period joins Oversight, ahead of the Audit Log: closing is
     // control of the books rather than a way of writing to them, and every
     // close and re-open lands in the log next door.
+    //
+    // Fixed Assets sits between the statements and Oversight, in a group of its
+    // own: what the shop OWNS is not a way of writing to the books and not
+    // control of them, it is a thing the books describe.
     expect(LEDGER_VIEWS.map((v) => v.key)).toEqual([
       'hub',
       'accounts',
@@ -25,6 +32,7 @@ describe('the ledger hub catalogue', () => {
       'income',
       'balance',
       'cashflow',
+      'assets',
       'close',
       'audit',
     ]);
@@ -59,14 +67,46 @@ describe('the ledger hub catalogue', () => {
     // and writing to the ledger should not look like the same act.
     // Post History joins it: replaying a shop's history writes to the books.
     // So does Close a Period: a close posts a journal entry that zeroes every
-    // P&L account into 3900 Retained Earnings.
-    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual(['entry', 'backfill', 'close']);
+    // P&L account into 3900 Retained Earnings. So does Fixed Assets: recording
+    // equipment posts Dr the 15xx account / Cr the money.
+    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual([
+      'entry',
+      'backfill',
+      'assets',
+      'close',
+    ]);
   });
 
   it('starts a creating action with a plus and a reading action without one', () => {
     for (const view of LEDGER_VIEWS) {
       if (view.group === null) continue;
       expect(view.action.startsWith('+')).toBe(view.creates);
+    }
+  });
+
+  it('gives every catalogued view a branch in the shell that actually renders it', () => {
+    // The first test in this file says the catalogue "lists exactly the twelve
+    // views the shell can route to" -- and nothing checked that the shell can.
+    // Measured: deleting the `view === 'assets'` branch from accounting.tsx
+    // left the whole suite green. The card would still appear on the hub, the
+    // crumb would still say Fixed Assets, and the body below it would be empty.
+    //
+    // Read off the SOURCE rather than by rendering the tab twelve times: the
+    // shell needs a shop, a session, a date range and a permission set per
+    // view, and a test that expensive is one that gets skipped. What can go
+    // wrong here is a key added to the catalogue and not to the shell, and the
+    // source says whether it was.
+    const shell = readFileSync(
+      join(__dirname, '..', '..', 'app', '(admin)', '(tabs)', 'accounting.tsx'),
+      'utf8'
+    );
+    // Guard the guard: if the shell ever stops matching this shape, every
+    // assertion below would pass vacuously.
+    expect(shell).toContain("view === 'trial'");
+    for (const view of LEDGER_VIEWS) {
+      // The hub is what the shell falls back to, not a branch of its own.
+      if (view.key === 'hub') continue;
+      expect(shell).toContain(`view === '${view.key}'`);
     }
   });
 
@@ -112,6 +152,7 @@ describe('Post History is gated on ledger.close', () => {
       'income',
       'balance',
       'cashflow',
+      'assets',
       'audit',
     ]);
   });
@@ -211,15 +252,22 @@ describe('the three statements are gated on ledger.view', () => {
     }
   });
 
-  it('gates exactly the five cards whose RPC raises, and no others', () => {
+  it('gates exactly the six cards whose RPC raises, and no others', () => {
     // The six ungated cards read TABLES under RLS: a reader without the
     // permission gets no rows and an empty state, not an exception. Gating
     // those too would be a different decision and is not this one.
+    //
+    // Fixed Assets belongs to the RAISING family: list_fixed_assets() and
+    // fixed_asset_summary() are security definer and raise P0001 without
+    // ledger.view, exactly as the three statements do. Its WRITE doors need
+    // ledger.post, and the screen says so itself rather than the card hiding
+    // from a bookkeeper who may legitimately read the register.
     expect(LEDGER_VIEWS.filter((v) => v.requires !== null).map((v) => v.key)).toEqual([
       'backfill',
       'income',
       'balance',
       'cashflow',
+      'assets',
       'close',
     ]);
   });

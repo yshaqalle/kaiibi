@@ -99,6 +99,17 @@ export type Shop = {
   // own `expiryDate` set — see getExpiringProducts (lib/products.ts).
   expiryTrackingEnabled: boolean;
   expiryWarningLeadDays: number;
+  // How a month gets closed (Settings -> Closing the books). Shipped in
+  // 20261003000100 with nothing in the app able to write them, so no shop could
+  // turn auto-close on; the panel that writes them landed with phase 3c.
+  //
+  // The default is 'ask' DELIBERATELY (20261005000200): 'automatic' switches on
+  // phase 2b's sixty-six "redate a posting out of a closed month" branches,
+  // which have never fired for a real shop.
+  autoClosePeriods: 'automatic' | 'ask' | 'never';
+  // 5, 10 or 15 — the database's CHECK admits exactly those three, so a typo'd
+  // 100 cannot quietly turn the feature off.
+  periodCloseGraceDays: number;
   createdAt: string;
 };
 

@@ -36,6 +36,30 @@ declare
   v_bs_credits bigint;   -- total liabilities and equity
   v_bs_cash    bigint;
   v_cf_cash    bigint;
+  -- Check 29 (task 5): two more shops whose books are made ENTIRELY by the
+  -- phase-3c RPCs. Shop A's asset and depreciation entries are hand-written, so
+  -- its 1500-1599 balance can never be tied to the register; these two can.
+  v_user_c uuid := gen_random_uuid();
+  v_user_d uuid := gen_random_uuid();
+  v_shop_c uuid;
+  v_shop_d uuid;
+  v_loc_c  uuid;
+  v_loc_d  uuid;
+  v_m1     date;   -- the first day of last month, the last COMPLETE month
+  v_m2     date;   -- the first day of the month before that
+  v_fridge uuid;
+  v_shelf  uuid;
+  v_oven   uuid;
+  v_till   uuid;
+  v_runs   integer;
+  -- The transfer bracket: read before it, re-read after it, and nothing on any
+  -- statement may have moved.
+  v_t_profit  bigint;
+  v_t_assets  bigint;
+  v_t_change  bigint;
+  v_t_1000    bigint;
+  v_t_1010    bigint;
+  v_codes  text[];
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -1192,6 +1216,551 @@ begin
          where section = 'proof' and label = 'Movement in cash accounts') then
     raise exception 'FAIL: 1200 moved through 2300, which NO cash-flow section reads, and the statement still proved out. Either a residual line has been added -- which makes the proof tautological -- or 2300 has quietly been folded into a section.';
   end if;
+
+  -- =====================================================================
+  -- 29. THE FIVE RECONCILIATIONS ON A SHOP THAT USED PHASE 3C (task 5).
+  --
+  --     Checks 1-28 prove the statements against a fixture whose fixed asset
+  --     and whose depreciation charge are HAND-WRITTEN journal entries. That was
+  --     the only way to exercise those rows before 3c shipped, and it has two
+  --     limits this block exists to remove:
+  --
+  --       * the register cannot be tied to the ledger, because shop A's 1510
+  --         balance corresponds to no fixed_assets row at all; and
+  --       * the investing section and the depreciation add-back are exercised
+  --         only against lines someone wrote to make them non-zero, which is
+  --         the thing this file's opening paragraph says proves nothing.
+  --
+  --     So: two more shops, C and D, whose ENTIRE fixed-asset position is
+  --     created by create_fixed_asset, run_depreciation, dispose_fixed_asset
+  --     and transfer_funds. Every figure below is a consequence of those calls.
+  --
+  --     WHY TWO, AND WHY INTERLEAVED. A second shop is necessary and it is not
+  --     sufficient. Dropping BOTH tenant filters from run_depreciation left the
+  --     suite green once before, because every run in the script happened before
+  --     the other shop had any asset to steal -- the filters were untested for
+  --     an ordering reason, not a coverage one. The sequence below therefore
+  --     alternates: D owns an asset before C's first run, C owns two before D's
+  --     second, and each shop's totals are asserted. An unfiltered run charges
+  --     the other shop's asset into its own 6800 AND consumes the
+  --     (asset_id, charge_month) row the rightful owner's later run needs, so
+  --     both shops move and in opposite directions.
+  --
+  --     Placed after check 28 rather than before it: 28 posts into shop A only,
+  --     and these are different shops, so neither can disturb the other.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+           'verify-statements-' || u || '@example.test', '', now(), now(), now()
+      from unnest(array[v_user_c, v_user_d]) u;
+  insert into public.shops (owner_id, name) values (v_user_c, 'QA Register Shop') returning id into v_shop_c;
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_c, 'Main', true)
+    returning id into v_loc_c;
+  insert into public.shops (owner_id, name) values (v_user_d, 'QA Register Shop Two') returning id into v_shop_d;
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_d, 'Main', true)
+    returning id into v_loc_d;
+  perform set_config('role', 'authenticated', true);
+
+  --     Both months are derived from shop_local_date(), never from a literal
+  --     and never from now()::date. run_depreciation charges COMPLETE months
+  --     only and clamps to the first day of last month, so a fixture that dated
+  --     an acquisition "40 days back" would take one charge in some months of
+  --     the year and two in others, and the expected figures below would be
+  --     right roughly half the time. These two are the only dates used.
+  v_m1 := (date_trunc('month', public.shop_local_date()) - interval '1 month')::date;
+  v_m2 := (date_trunc('month', public.shop_local_date()) - interval '2 months')::date;
+
+  --     C: 80000 of capital, in cash, two months back.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_c)::text, true);
+  perform public.post_journal_entry(v_shop_c, v_m2, 'Opening capital',
+    jsonb_build_array(
+      jsonb_build_object('code', '1000', 'amount_cents',  80000),
+      jsonb_build_object('code', '3000', 'amount_cents', -80000)),
+    v_loc_c, 'opening');
+
+  --     D FIRST, so that D owns an asset before C ever runs depreciation.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_d)::text, true);
+  perform public.post_journal_entry(v_shop_d, v_m2, 'Opening capital',
+    jsonb_build_array(
+      jsonb_build_object('code', '1000', 'amount_cents',  250000),
+      jsonb_build_object('code', '3000', 'amount_cents', -250000)),
+    v_loc_d, 'opening');
+  --     36000 over 12 months = 3000 a month, paid out of the till.
+  v_oven := public.create_fixed_asset(v_shop_d, 'QA Oven', 36000, v_m2, 12, '1000', '1500');
+
+  --     C buys a fridge: 9600 over 24 months = 400 a month, paid out of the
+  --     till, so investing carries a CASH outflow and not only an accrual.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_c)::text, true);
+  v_fridge := public.create_fixed_asset(v_shop_c, 'QA Fridge', 9600, v_m2, 24, '1000', '1500');
+
+  --     D RUNS FIRST, while C's fridge exists and has never been charged. An
+  --     unfiltered run takes it, and C's own run below then finds the month
+  --     already charged and reads 600 instead of 1800.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_d)::text, true);
+  v_runs := public.run_depreciation(v_shop_d, null);
+  if v_runs <> 2 then
+    raise exception 'FAIL: shop D''s first run wrote % entries, expected 2 (one for each complete month the oven has been owned)', v_runs;
+  end if;
+
+  --     C buys shelving on CREDIT: 7200 over 12 months = 600 a month, into 1510
+  --     rather than 1500, so more than one account in the range is exercised.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_c)::text, true);
+  v_shelf := public.create_fixed_asset(v_shop_c, 'QA Shelving', 7200, v_m1, 12, null, '1510');
+
+  --     D buys a till counter on credit, 24000 over 24 months = 1000 a month.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_d)::text, true);
+  v_till := public.create_fixed_asset(v_shop_d, 'QA Till Counter', 24000, v_m1, 24, null, '1500');
+
+  --     NOW C runs, with two of D's assets sitting there and one of them
+  --     uncharged. Two entries: 400 for the month before last (the fridge
+  --     alone), 1000 for last month (fridge 400 + shelving 600).
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_c)::text, true);
+  v_runs := public.run_depreciation(v_shop_c, null);
+  if v_runs <> 2 then
+    raise exception 'FAIL: shop C''s run wrote % entries, expected 2 -- if it is 3 or more, run_depreciation is charging another shop''s assets', v_runs;
+  end if;
+
+  --     D runs again. IDEMPOTENCY, in the same breath as the tenant filter: the
+  --     oven's two months are already charged and must not be charged twice, so
+  --     exactly one entry is due -- last month, for the counter.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_d)::text, true);
+  v_runs := public.run_depreciation(v_shop_d, null);
+  if v_runs <> 1 then
+    raise exception 'FAIL: shop D''s second run wrote % entries, expected 1 (the counter''s first month; the oven''s two months are already charged)', v_runs;
+  end if;
+
+  --     D SELLS THE COUNTER for 12800 into the bank. This is the case that
+  --     found 3c's third unread account: a disposal DEBITS 1590, and while the
+  --     investing section excluded 1590 that debit was read by no section of the
+  --     cash flow at all and the proof failed by exactly it. Cost 24000 less
+  --     1000 of accumulated depreciation is a book value of 23000; 12800 of
+  --     proceeds makes a loss of 10200 into 6900.
+  perform public.dispose_fixed_asset(v_till, public.shop_local_date(), 12800, '1010');
+
+  --     C pays a month's rent, so that net profit is not depreciation alone and
+  --     reconciliation 3 has something other than 6800 to net.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_c)::text, true);
+  perform public.post_journal_entry(v_shop_c, v_m1, 'Rent, paid',
+    jsonb_build_array(
+      jsonb_build_object('code', '6000', 'amount_cents',  3300),
+      jsonb_build_object('code', '1000', 'amount_cents', -3300)),
+    v_loc_c);
+
+  -- ---------------------------------------------------------------------
+  -- 29.1 A TRANSFER MOVES NOTHING ON ANY STATEMENT.
+  --
+  --      Both legs are cash, so net profit, total assets and the cash flow's
+  --      net change must all read exactly what they read before it. Task 1
+  --      established that a Dr/Cr swap leaves the proof IDENTICAL -- the two
+  --      lines cancel inside the same total -- so the proof cannot catch a
+  --      transfer posted backwards and the two ACCOUNT BALANCES are what
+  --      catch it. Both are asserted: the three totals must not move, and
+  --      1000 must fall by exactly what 1010 rises by.
+  -- ---------------------------------------------------------------------
+  select amount_cents into v_t_profit from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'net_profit';
+  select amount_cents into v_t_assets from public.balance_sheet(v_shop_c, public.shop_local_date())
+   where section = 'total_assets';
+  select amount_cents into v_t_change from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'net_change';
+  select coalesce(sum(amount_cents) filter (where code = '1000'), 0),
+         coalesce(sum(amount_cents) filter (where code = '1010'), 0)
+    into v_t_1000, v_t_1010
+    from public.balance_sheet(v_shop_c, public.shop_local_date());
+
+  if v_t_1000 <> 67100 or v_t_1010 <> 0 then
+    raise exception 'FAIL: before the transfer shop C holds % in the till and % in the bank, expected 67100 and 0',
+      v_t_1000, v_t_1010;
+  end if;
+
+  perform public.transfer_funds(v_shop_c, '1000', '1010', 1350, public.shop_local_date(), 'QA banking the float');
+
+  if (select amount_cents from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01')
+       where section = 'net_profit') is distinct from v_t_profit then
+    raise exception 'FAIL: a transfer changed net profit, from % to %', v_t_profit,
+      (select amount_cents from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01') where section = 'net_profit');
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_c, public.shop_local_date())
+       where section = 'total_assets') is distinct from v_t_assets then
+    raise exception 'FAIL: a transfer changed total assets, from % to %', v_t_assets,
+      (select amount_cents from public.balance_sheet(v_shop_c, public.shop_local_date()) where section = 'total_assets');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+       where section = 'net_change') is distinct from v_t_change then
+    raise exception 'FAIL: a transfer changed the cash flow''s net change, from % to %', v_t_change,
+      (select amount_cents from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01') where section = 'net_change');
+  end if;
+
+  --      ...and the two balances DID move, in opposite directions and by the
+  --      same 1350. A transfer posted Dr the source / Cr the destination passes
+  --      all three assertions above and fails both of these.
+  select coalesce(sum(amount_cents) filter (where code = '1000'), 0),
+         coalesce(sum(amount_cents) filter (where code = '1010'), 0)
+    into v_t_1000, v_t_1010
+    from public.balance_sheet(v_shop_c, public.shop_local_date());
+  if v_t_1000 <> 65750 then
+    raise exception 'FAIL: the till reads % after sending 1350 to the bank, expected 65750 (68450 = the transfer was posted backwards)', v_t_1000;
+  end if;
+  if v_t_1010 <> 1350 then
+    raise exception 'FAIL: the bank reads % after receiving 1350 from the till, expected 1350 (-1350 = the transfer was posted backwards)', v_t_1010;
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 29.2 THE FIVE RECONCILIATIONS, on shop C.
+  --
+  --      Shop C's ledger, in full, and every line of it written by a phase-3c
+  --      RPC except the capital and the rent:
+  --
+  --        1000 Till       80000 - 9600 - 3300 - 1350 =  65750
+  --        1010 Bank                                      1350
+  --        1500 Equipment  the fridge                     9600
+  --        1510 Fittings   the shelving                   7200
+  --        1590 Accum dep  400 + 400 + 600               -1400
+  --        2000 Payables   the shelving, unpaid          -7200
+  --        3000 Capital                                 -80000
+  --        6000 Rent                                      3300
+  --        6800 Depreciation                              1400
+  --
+  --        Income statement   net profit                 -4700
+  --        Balance sheet      current assets             67100
+  --                           fixed assets 16800 - 1400  15400
+  --                           TOTAL ASSETS               82500
+  --                           payables                    7200
+  --                           capital 80000, loss -4700  75300
+  --                           TOTAL L + E                82500
+  --        Cash flow          net profit                 -4700
+  --                           add back depreciation      +1400
+  --                           increase in payables       +7200
+  --                           cash from operations        3900
+  --                           investing -15400 - 1400   -16800
+  --                           financing                 +80000
+  --                           NET CHANGE                 67100  = the cash held
+  --
+  --      Note the investing figure: -16800 is the COST of what was bought, and
+  --      it is reached as -(the movement in 1500-1599, 1590 included) less the
+  --      movement in 6800. The two halves of that expression are what the
+  --      add-back and the contra account would otherwise double-count.
+  -- ---------------------------------------------------------------------
+  select amount_cents into v_is_profit from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'net_profit';
+  select amount_cents into v_bs_profit from public.balance_sheet(v_shop_c, public.shop_local_date())
+   where section = 'equity' and label = 'Profit this period';
+  select amount_cents into v_cf_profit from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Net profit';
+  select -coalesce(sum(l.amount_cents), 0)::bigint, count(*)
+    into v_tb_profit, v_tb_lines
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where e.shop_id = v_shop_c
+     and e.status in ('posted', 'reversed')
+     and e.entry_date between '2000-01-01' and '2100-01-01'
+     and a.type in ('revenue', 'cost_of_sales', 'expense');
+  if v_tb_lines = 0 then
+    raise exception 'FAIL: shop C''s independent derivation read no journal lines, so reconciliation 3 is vacuous';
+  end if;
+  select amount_cents into v_bs_assets from public.balance_sheet(v_shop_c, public.shop_local_date())
+   where section = 'total_assets';
+  select amount_cents into v_bs_credits from public.balance_sheet(v_shop_c, public.shop_local_date())
+   where section = 'total_liabilities_equity';
+  select coalesce(sum(amount_cents), 0) into v_bs_cash from public.balance_sheet(v_shop_c, public.shop_local_date())
+   where code in ('1000', '1010', '1020', '1021');
+  select amount_cents into v_cf_cash from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'proof' and label like 'Cash at%' order by sort_order desc limit 1;
+
+  if v_is_profit is null or v_bs_profit is null or v_cf_profit is null
+     or v_bs_assets is null or v_bs_credits is null or v_cf_cash is null then
+    raise exception 'FAIL: shop C is missing a figure the reconciliations need -- income %, balance sheet %, cash flow %, assets %, liabilities+equity %, closing cash %',
+      v_is_profit, v_bs_profit, v_cf_profit, v_bs_assets, v_bs_credits, v_cf_cash;
+  end if;
+
+  if v_is_profit <> v_bs_profit then
+    raise exception 'FAIL: 29 reconciliation 1 -- income statement net profit % against balance sheet profit this period %, off by %',
+      v_is_profit, v_bs_profit, v_is_profit - v_bs_profit;
+  end if;
+  if v_is_profit <> v_cf_profit then
+    raise exception 'FAIL: 29 reconciliation 2 -- income statement net profit % against cash flow net profit %, off by %',
+      v_is_profit, v_cf_profit, v_is_profit - v_cf_profit;
+  end if;
+  if v_is_profit <> v_tb_profit then
+    raise exception 'FAIL: 29 reconciliation 3 -- income statement net profit % against the trial balance netted independently %, off by % (over % journal lines)',
+      v_is_profit, v_tb_profit, v_is_profit - v_tb_profit, v_tb_lines;
+  end if;
+  if v_is_profit <> -4700 then
+    raise exception 'FAIL: shop C''s three statements agree on a net profit of %, but 3300 of rent and 1400 of depreciation make a loss of -4700', v_is_profit;
+  end if;
+  if v_bs_assets <> v_bs_credits then
+    raise exception 'FAIL: 29 reconciliation 4 -- total assets % against total liabilities and equity %, off by %',
+      v_bs_assets, v_bs_credits, v_bs_assets - v_bs_credits;
+  end if;
+  if v_bs_assets <> 82500 then
+    raise exception 'FAIL: shop C''s balance sheet balances at %, expected 82500', v_bs_assets;
+  end if;
+  if v_cf_cash <> v_bs_cash then
+    raise exception 'FAIL: 29 reconciliation 5 -- cash flow closing cash % against balance sheet cash %, off by %',
+      v_cf_cash, v_bs_cash, v_cf_cash - v_bs_cash;
+  end if;
+  if v_cf_cash <> 67100 then
+    raise exception 'FAIL: shop C''s two statements agree cash is %, expected 67100', v_cf_cash;
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 29.3 THE PROOF, WITH INVESTING AND THE ADD-BACK BOTH NON-ZERO.
+  --
+  --      This is the assertion the whole phase is for. Every fixture before 3c
+  --      had investing at 0 and the add-back at 0, and 0 - 0 = 0 hid a defect
+  --      three separate times: the add-back reading an account a close credits
+  --      (3b), and the investing section excluding the account a disposal
+  --      debits (3c). Both figures are non-zero here, and they are asserted at
+  --      their figures as well as through the proof, because a proof that ties
+  --      cannot say which of the two rows was wrong.
+  -- ---------------------------------------------------------------------
+  select amount_cents into v_amount from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'operating' and label = 'Add back depreciation';
+  if v_amount is distinct from 1400 then
+    raise exception 'FAIL: shop C''s depreciation add-back reads %, expected 1400 -- three run_depreciation charges of 400, 400 and 600', v_amount;
+  end if;
+  select amount_cents into v_amount from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+   where section = 'investing' and is_total;
+  if v_amount is distinct from -16800 then
+    raise exception 'FAIL: shop C''s investing reads %, expected -16800 = the 9600 fridge and the 7200 shelving at cost (-15400 = the add-back was not subtracted, so accumulated depreciation was counted as a cash flow)', v_amount;
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01') where section = 'net_change')
+     is distinct from (select amount_cents from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+          where section = 'proof' and label = 'Movement in cash accounts') then
+    raise exception 'FAIL: shop C''s cash flow does not prove out -- net change % against observed movement %',
+      (select amount_cents from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01') where section = 'net_change'),
+      (select amount_cents from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')
+        where section = 'proof' and label = 'Movement in cash accounts');
+  end if;
+
+  --      NO SIXTH SECTION. A residual "other movements" row would make every
+  --      proof above tie by construction and destroy the only check that can
+  --      catch a sign error. verify-statements-across-a-close.sql asserts the
+  --      same thing for the same reason; it is asserted here too because this
+  --      is the block whose figures would tempt someone to add one.
+  if (select count(distinct section) from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01')) <> 5 then
+    raise exception 'FAIL: the cash flow has % sections, expected exactly 5 -- a residual section makes the proof tautological',
+      (select count(distinct section) from public.cash_flow(v_shop_c, '2000-01-01', '2100-01-01'));
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 29.4 THE INCOME STATEMENT'S DEPRECIATION LINE.
+  --
+  --      The design: "Depreciation is new. Equipment wearing out is a real cost
+  --      of trading, and leaving it out overstated profit every month." Until
+  --      run_depreciation shipped, no shop had a 6800 line and the statement
+  --      simply did not show one -- statement_lines() emits a row per account
+  --      that MOVED, so an absent charge is an absent row and not a zero.
+  -- ---------------------------------------------------------------------
+  select amount_cents into v_amount from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01', true)
+   where code = '6800' and section = 'operating_expenses';
+  if v_amount is distinct from 1400 then
+    raise exception 'FAIL: the income statement''s depreciation line reads %, expected 1400', coalesce(v_amount::text, 'absent');
+  end if;
+  if (select label from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01', true) where code = '6800')
+     is distinct from 'Depreciation' then
+    raise exception 'FAIL: the 6800 line is labelled %, expected Depreciation',
+      coalesce((select label from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01', true) where code = '6800'), 'nothing');
+  end if;
+
+  --      ...and the SUMMARY does not carry it as its own row, because the
+  --      detail flag is what splits operating expenses per account. Asserted so
+  --      that the check above is known to be reading the detail statement and
+  --      not passing on a row the summary happens to emit.
+  if exists (select 1 from public.statement_lines(v_shop_c, '2000-01-01', '2100-01-01', false) where code = '6800') then
+    raise exception 'FAIL: the summary income statement carries a per-account 6800 row';
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 29.5 THE REGISTER AND THE LEDGER AGREE.
+  --
+  --      Cost less accumulated depreciation is net book value, and net book
+  --      value is the balance sheet's fixed-asset total. Two independent
+  --      derivations: the register sums depreciation_charges per asset, the
+  --      balance sheet sums journal_lines over 1500-1599. They are written by
+  --      the same call and read by different code, so a run_depreciation that
+  --      wrote a charge row and a journal line of different sizes -- or wrote
+  --      one and not the other -- separates them here and nowhere else.
+  -- ---------------------------------------------------------------------
+  select cost_cents, accumulated_cents, net_book_cents
+    into v_amount, v_t_1000, v_t_1010
+    from public.fixed_asset_summary(v_shop_c);
+  if v_amount <> 16800 or v_t_1000 <> 1400 or v_t_1010 <> 15400 then
+    raise exception 'FAIL: shop C''s register reads cost %, accumulated % and net book %, expected 16800, 1400 and 15400',
+      v_amount, v_t_1000, v_t_1010;
+  end if;
+  if v_amount - v_t_1000 <> v_t_1010 then
+    raise exception 'FAIL: the register''s own arithmetic does not hold -- % less % is not %', v_amount, v_t_1000, v_t_1010;
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_c, public.shop_local_date())
+       where section = 'fixed_assets' and is_total) is distinct from v_t_1010 then
+    raise exception 'FAIL: the balance sheet''s fixed assets read % against the register''s net book value of %',
+      (select amount_cents from public.balance_sheet(v_shop_c, public.shop_local_date())
+        where section = 'fixed_assets' and is_total), v_t_1010;
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 29.6 SHOP D: THE DISPOSAL, AND THE OTHER HALF OF THE TENANT BOUNDARY.
+  --
+  --        1000 Till       250000 - 36000                214000
+  --        1010 Bank       the counter's proceeds         12800
+  --        1500 Equipment  the oven; the counter has gone 36000
+  --        1590 Accum dep  3000 + 3000 + 1000, less the
+  --                        1000 written back on disposal  -6000
+  --        2000 Payables   the counter, never paid       -24000
+  --        3000 Capital                                -250000
+  --        6800 Depreciation                              7000
+  --        6900 Other      the loss on disposal           10200
+  --
+  --        net profit                                   -17200
+  --        TOTAL ASSETS 226800 + 30000                  256800
+  --        TOTAL L + E  24000 + 232800                  256800
+  --        cash flow    ops 13800, investing -37000,
+  --                     financing 250000, net change    226800  = the cash held
+  --
+  --      Investing of -37000 is -(36000 - 6000) - 7000. The 1000 of accumulated
+  --      depreciation the disposal wrote back is INSIDE that first bracket --
+  --      it is what makes the figure -37000 rather than -38000 -- and while
+  --      1590 was excluded from the range it was read by no section at all and
+  --      the proof failed by exactly 1000.
+  -- ---------------------------------------------------------------------
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_d)::text, true);
+
+  if (select amount_cents from public.statement_lines(v_shop_d, '2000-01-01', '2100-01-01')
+       where section = 'net_profit') is distinct from -17200 then
+    raise exception 'FAIL: shop D''s net profit is %, expected -17200 (7000 of depreciation and a 10200 loss on disposal)',
+      (select amount_cents from public.statement_lines(v_shop_d, '2000-01-01', '2100-01-01') where section = 'net_profit');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01')
+       where section = 'operating' and label = 'Add back depreciation') is distinct from 7000 then
+    raise exception 'FAIL: shop D''s depreciation add-back reads %, expected 7000 -- if it reads 6000 the disposal''s write-back of 1590 has leaked into it',
+      (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01')
+        where section = 'operating' and label = 'Add back depreciation');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01')
+       where section = 'investing' and is_total) is distinct from -37000 then
+    raise exception 'FAIL: shop D''s investing reads %, expected -37000 (-38000 = the 1000 of accumulated depreciation the disposal wrote back is read by no section)',
+      (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01') where section = 'investing' and is_total);
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01') where section = 'net_change')
+     is distinct from (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01')
+          where section = 'proof' and label = 'Movement in cash accounts') then
+    raise exception 'FAIL: shop D''s cash flow does not prove out after a disposal -- net change % against observed movement %',
+      (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01') where section = 'net_change'),
+      (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01')
+        where section = 'proof' and label = 'Movement in cash accounts');
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01')
+       where section = 'net_change') is distinct from 226800 then
+    raise exception 'FAIL: shop D''s net change in cash is %, expected 226800',
+      (select amount_cents from public.cash_flow(v_shop_d, '2000-01-01', '2100-01-01') where section = 'net_change');
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date()) where section = 'total_assets')
+     is distinct from (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date())
+          where section = 'total_liabilities_equity') then
+    raise exception 'FAIL: shop D''s balance sheet does not balance -- % against %',
+      (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date()) where section = 'total_assets'),
+      (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date()) where section = 'total_liabilities_equity');
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date())
+       where section = 'total_assets') is distinct from 256800 then
+    raise exception 'FAIL: shop D''s total assets is %, expected 256800',
+      (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date()) where section = 'total_assets');
+  end if;
+
+  --      A DISPOSED ASSET IS OFF THE BALANCE SHEET AND STILL IN THE REGISTER.
+  --      The register's live totals must be the oven alone, and they must tie
+  --      to the ledger just as shop C's do.
+  select cost_cents, accumulated_cents, net_book_cents
+    into v_amount, v_t_1000, v_t_1010
+    from public.fixed_asset_summary(v_shop_d);
+  if v_amount <> 36000 or v_t_1000 <> 6000 or v_t_1010 <> 30000 then
+    raise exception 'FAIL: shop D''s register reads cost %, accumulated % and net book % -- expected 36000, 6000 and 30000, the oven alone',
+      v_amount, v_t_1000, v_t_1010;
+  end if;
+  if (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date())
+       where section = 'fixed_assets' and is_total) is distinct from 30000 then
+    raise exception 'FAIL: shop D''s fixed assets read % against the register''s net book value of 30000',
+      (select amount_cents from public.balance_sheet(v_shop_d, public.shop_local_date())
+        where section = 'fixed_assets' and is_total);
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 29.7 EVERY ACCOUNT PHASE 3C CAN MOVE IS READ BY SOME SECTION.
+  --
+  --      The proof identity is the whole reason this matters. Every journal
+  --      entry sums to zero, so the negated movements of the non-cash accounts
+  --      add up to the movement of the cash accounts -- EXACTLY when every
+  --      non-cash account is read by exactly one section. An account read by
+  --      none falls straight through, and the difference lands in the proof
+  --      row. That has now happened three times on this project: 3a predicted
+  --      3900, 3b found 6800 read by a section that a close also credits, and
+  --      3c found 1590 debited by a disposal and excluded from investing.
+  --
+  --      This is the fourth attempt, done by enumeration rather than by
+  --      waiting for a figure to be wrong: take every account the transfer,
+  --      asset and depreciation sources actually touched across both shops --
+  --      including the disposal, which is source 'asset' -- and check each one
+  --      against the sections cash_flow() reads. The predicate below is a
+  --      hand-maintained mirror of that function and is not proof on its own;
+  --      what makes it worth having is that it names the offender, where the
+  --      proof rows above only say that something is missing.
+  -- ---------------------------------------------------------------------
+  perform set_config('role', 'postgres', true);
+  select array_agg(distinct a.code order by a.code) into v_codes
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where e.shop_id in (v_shop_c, v_shop_d)
+     and e.source in ('transfer', 'asset', 'depreciation')
+     and not (
+          a.code in ('1000', '1010', '1020', '1021')                 -- the proof's observed cash
+       or a.code in ('6800', '1100', '1200', '2000', '2100', '2200') -- operating
+       or a.code between '1500' and '1599'                           -- investing
+       or a.code in ('3000', '3100')                                 -- financing
+       or a.type in ('revenue', 'cost_of_sales', 'expense')           -- inside net profit
+     );
+  if v_codes is not null then
+    raise exception 'FAIL: phase 3c moved %, which no cash-flow section reads -- the proof will fail by whatever lands there', v_codes;
+  end if;
+
+  --      ...and the check is only worth anything if those sources moved
+  --      accounts at all. Six is the count for this fixture: 1000, 1010, 1500,
+  --      1510, 1590, 2000 and 6800 and 6900 -- eight, and asserted as a floor
+  --      rather than a figure so that adding to the story above does not
+  --      require editing this line.
+  select count(distinct a.code) into v_amount
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where e.shop_id in (v_shop_c, v_shop_d)
+     and e.source in ('transfer', 'asset', 'depreciation');
+  if v_amount < 8 then
+    raise exception 'FAIL: the phase-3c sources touched only % accounts, so the enumeration above is close to vacuous', v_amount;
+  end if;
+
+  --      THE UNACCOUNTED SET, pinned. Over a whole seeded chart the accounts no
+  --      section reads are 2300 Loyalty Points Liability and 3900 Retained
+  --      Earnings, and check 28 above demonstrates that the proof genuinely
+  --      breaks when one of them moves. Pinning the set means a NEW seeded
+  --      account that no section reads reddens here on the day it is added,
+  --      rather than on the day a shop first posts to it.
+  select array_agg(a.code order by a.code) into v_codes
+    from public.accounts a
+   where a.shop_id = v_shop_c
+     and not (
+          a.code in ('1000', '1010', '1020', '1021')
+       or a.code in ('6800', '1100', '1200', '2000', '2100', '2200')
+       or a.code between '1500' and '1599'
+       or a.code in ('3000', '3100')
+       or a.type in ('revenue', 'cost_of_sales', 'expense')
+     );
+  if v_codes is distinct from array['2300', '3900'] then
+    raise exception 'FAIL: the accounts no cash-flow section reads are %, expected exactly {2300, 3900} -- a new one is a hole in the proof identity', v_codes;
+  end if;
+  perform set_config('role', 'authenticated', true);
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

@@ -54,12 +54,21 @@ export function Row({ label, badge, desc, children }: { label: string; badge?: R
 export function Btn({
   children,
   danger,
+  selected,
   onPress,
   disabled,
   accessibilityLabel,
 }: {
   children: React.ReactNode;
   danger?: boolean;
+  /**
+   * This button is the CHOSEN one of a set — a filled state, not a hover or a
+   * press. Added for the settings a shop picks between rather than switches on
+   * (three close modes, three grace windows), where a Toggle cannot express
+   * three states and a row of identical outline buttons cannot say which is
+   * in force.
+   */
+  selected?: boolean;
   onPress?: () => void;
   disabled?: boolean;
   accessibilityLabel?: string;
@@ -69,9 +78,25 @@ export function Btn({
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [styles.btn, danger && styles.btnDanger, disabled && styles.btnDisabled, pressed && !disabled && styles.btnPressed]}
+      role="button"
+      style={({ pressed }) => [
+        styles.btn,
+        danger && styles.btnDanger,
+        selected && styles.btnSelected,
+        disabled && styles.btnDisabled,
+        pressed && !disabled && styles.btnPressed,
+      ]}
     >
-      <Text style={[styles.btnText, danger && styles.btnTextDanger, disabled && styles.btnTextDisabled]}>{children}</Text>
+      <Text
+        style={[
+          styles.btnText,
+          danger && styles.btnTextDanger,
+          selected && styles.btnTextSelected,
+          disabled && styles.btnTextDisabled,
+        ]}
+      >
+        {children}
+      </Text>
     </Pressable>
   );
 }
@@ -220,10 +245,12 @@ const styles = StyleSheet.create({
 
   btn: { paddingVertical: 6, paddingHorizontal: 13, borderRadius: 8, borderWidth: 1, borderColor: gray.border, backgroundColor: 'transparent' },
   btnDanger: { borderColor: gray.dangerBorder },
+  btnSelected: { backgroundColor: gray.text, borderColor: gray.text },
   btnDisabled: { opacity: 0.4 },
   btnPressed: { backgroundColor: gray.borderLight },
   btnText: { fontSize: 12, fontWeight: '700', color: gray.text },
   btnTextDanger: { color: gray.danger },
+  btnTextSelected: { color: '#FFFFFF' },
   btnTextDisabled: { color: gray.textMuted },
 
   toggle: { width: 42, height: 24, borderRadius: 20, backgroundColor: '#D1D5DB', padding: 3, justifyContent: 'center' },
