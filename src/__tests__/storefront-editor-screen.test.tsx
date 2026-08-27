@@ -17,6 +17,15 @@ Dimensions.set({
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 jest.mock('@/lib/storefront-admin');
+// The flyer panel's offer picker reads the shop's promotions. Mocked rather
+// than left to the real module, which would reach the (empty) supabase mock
+// above inside a Promise.allSettled and fail silently -- a test asserting
+// "the picker is not offered" would then pass for the wrong reason.
+jest.mock('@/lib/promotions', () => ({
+  listPromotions: jest.fn(async () => []),
+  discountLabel: jest.requireActual('@/lib/promotions').discountLabel,
+  scopeLabel: jest.requireActual('@/lib/promotions').scopeLabel,
+}));
 // `useAuth()` throws outside an `<AuthProvider>` (src/hooks/use-auth.tsx),
 // and this screen owns no fetch of its own for WHICH shop it is editing --
 // that comes from context, same as every other (admin) route. Mocked as a
@@ -24,7 +33,10 @@ jest.mock('@/lib/storefront-admin');
 // preview's city comes from the primary location) without disturbing the
 // rest.
 jest.mock('@/hooks/use-auth', () => ({
-  useAuth: jest.fn(() => ({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] })),
+  // hasModule is part of the contract this screen reads (Task 5 gates the
+  // flyer panel's OFFER picker on `promotions`) -- returning true keeps every
+  // test in this file about the editor rather than about entitlements.
+  useAuth: jest.fn(() => ({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [], hasModule: () => true })),
 }));
 
 // The wide layout's preview renders StorefrontView -> ThemeMarket, which
@@ -35,14 +47,17 @@ jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
 jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 import { useAuth } from '@/hooks/use-auth';
+import { listPromotions } from '@/lib/promotions';
 import {
   countOnlineProducts,
   discardDraft,
   ensureStorefront,
   getMyStorefront,
   getStorefrontPreviewProducts,
+  listFlyers,
   publishDraft,
   saveDraft,
+  setAutoAdvance,
 } from '@/lib/storefront-admin';
 import StorefrontEditor from '@/app/(admin)/storefront';
 
@@ -76,7 +91,23 @@ const BASE = {
   headline: 'Everything for the house and the phone.', about: null,
   heroImageUrl: null, offersDelivery: false, publishedAt: null,
   firstPublishedAt: null,
+  autoAdvance: false,
   draft: null,
+};
+
+const SOLAR_PROMOTION = {
+  id: 'promo-solar', shopId: 's1', locationId: null, name: '20% off solar',
+  discountType: 'percentage' as const, discountValue: 20,
+  scope: 'category' as const, scopeValue: 'Solar',
+  active: true, startsAt: null, endsAt: null, autoApply: true,
+  archivedAt: null, createdAt: '2026-08-01T00:00:00.000Z',
+};
+
+const LIVE_FLYER = {
+  id: 'fly-1', imagePath: 'https://cdn.example/solar.jpg',
+  headline: 'Solar week', subline: null,
+  linkKind: 'none' as const, linkValue: null,
+  position: 0, draft: false, promotionId: null,
 };
 
 describe('storefront editor', () => {
@@ -86,11 +117,13 @@ describe('storefront editor', () => {
     // Reinstated every test -- `mockReturnValue` (unlike `mockReturnValueOnce`)
     // survives `clearAllMocks()`, so the city test's override would otherwise
     // leak into whichever test runs after it.
-    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] });
+    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [], hasModule: () => true });
     // Every test renders the preview, which now fetches admin-side (B3) --
     // default to empty so a test that doesn't care about products isn't
     // left with an unresolved automock jest.fn() (undefined has no .then).
     (getStorefrontPreviewProducts as jest.Mock).mockResolvedValue([]);
+    (listFlyers as jest.Mock).mockResolvedValue([]);
+    (listPromotions as jest.Mock).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -323,6 +356,7 @@ describe('storefront editor', () => {
   it('shows the primary location city in the preview, like the live page does', async () => {
     (useAuth as jest.Mock).mockReturnValue({
       shop: { id: 's1', name: 'Xamdi Electronics' },
+      hasModule: () => true,
       locations: [
         {
           id: 'loc-1', shopId: 's1', name: 'Branch', code: null,
@@ -349,5 +383,86 @@ describe('storefront editor', () => {
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
     expect(texts.join(' ')).toContain('Hargeisa');
     expect(texts.join(' ')).not.toContain('Berbera');
+  });
+
+  // Context 2: `promotions` is a MODULE entitlement (entitlements.ts:28,44).
+  // A shop without it must still be able to add ANNOUNCEMENT flyers; only the
+  // offer picker goes, and it has to SAY so rather than appearing broken or
+  // absent.
+  it('keeps the flyer panel for a shop without the promotions module, minus the offer picker', async () => {
+    (useAuth as jest.Mock).mockReturnValue({
+      shop: { id: 's1', name: 'Xamdi Electronics' },
+      locations: [],
+      hasModule: (module: string) => module !== 'promotions',
+    });
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    const tree = await renderScreen();
+
+    // The panel itself is still there -- announcement flyers keep working.
+    expect(tree.root.findAll((node) => node.props?.testID === 'flyer-editor-add').length).toBeGreaterThan(0);
+    // And the picker is never even asked for.
+    expect(listPromotions).not.toHaveBeenCalled();
+
+    await act(async () => {
+      tree.root.findAll((node) => node.props?.testID === 'flyer-editor-add')[0].props.onPress();
+    });
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toMatch(/needs Promotions/i);
+    expect(texts).toMatch(/isn't included in your plan/i);
+  });
+
+  it('asks for the promotions the picker will offer when the module IS on', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (listPromotions as jest.Mock).mockResolvedValue([SOLAR_PROMOTION]);
+    await renderScreen();
+    expect(listPromotions).toHaveBeenCalledWith('s1');
+  });
+
+  // The preview is the customer's page, not the editor's list: a draft flyer
+  // is deliberately not on it, and neither is a flyer whose offer has ended
+  // (20260930000100 -- "the panel goes", because the offer is also in the
+  // JPEG, which nothing here can edit).
+  it('previews only the flyers a customer would actually see', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (listPromotions as jest.Mock).mockResolvedValue([
+      { ...SOLAR_PROMOTION, id: 'promo-over', name: 'Finished', active: false },
+    ]);
+    (listFlyers as jest.Mock).mockResolvedValue([
+      LIVE_FLYER,
+      { ...LIVE_FLYER, id: 'fly-2', headline: 'Next week', draft: true, position: 1 },
+      { ...LIVE_FLYER, id: 'fly-3', headline: 'Offer that ended', promotionId: 'promo-over', position: 2 },
+    ]);
+    const tree = await renderScreen();
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+
+    // All three are in the shop's own list...
+    expect(tree.root.findAll((node) => node.props?.testID === 'flyer-editor-row-fly-2').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((node) => node.props?.testID === 'flyer-editor-row-fly-3').length).toBeGreaterThan(0);
+    // ...and the live, still-running one is the only one the preview carries.
+    // ('Next week' and 'Offer that ended' appear once each, in the editor row;
+    // 'Solar week' appears twice -- once in the row, once in the preview.)
+    expect(texts.split('Solar week').length - 1).toBe(2);
+    expect(texts.split('Next week').length - 1).toBe(1);
+    expect(texts.split('Offer that ended').length - 1).toBe(1);
+  });
+
+  // Requirement 8: auto_advance had a column and a public read but no
+  // control. The switch writes it LIVE, because publish_storefront copies a
+  // fixed list of draft keys and auto_advance is not one of them.
+  it('writes auto-advance straight to the live column rather than staging it in the draft', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (setAutoAdvance as jest.Mock).mockResolvedValue(undefined);
+    const tree = await renderScreen();
+
+    await act(async () => {
+      tree.root.findAll((node) => node.props?.testID === 'flyer-editor-auto-advance')[0].props.onValueChange(true);
+    });
+
+    expect(setAutoAdvance).toHaveBeenCalledWith('s1', true);
+    expect(saveDraft).not.toHaveBeenCalledWith('s1', expect.objectContaining({ autoAdvance: true }));
   });
 });
