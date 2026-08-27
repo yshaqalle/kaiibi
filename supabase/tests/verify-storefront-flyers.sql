@@ -40,6 +40,25 @@ declare
   v_errmsg       text;
   v_detail       text;
   v_count        integer;
+  -- The public read (checks 16 onwards).
+  v_shop_f       uuid; -- has a storefront and a live flyer, NEVER published
+  v_shop_g       uuid; -- published, and deliberately holds no flyers at all
+  v_live_id      uuid; -- started in the past, no end: live today and every day after
+  v_ended_id     uuid;
+  v_paused_id    uuid;
+  v_archived_id  uuid;
+  v_future_id    uuid;
+  v_doomed_id    uuid; -- live, then deleted, to separate "expired" from "deleted"
+  v_foreign_id   uuid; -- a promotion belonging to a DIFFERENT shop
+  v_plain_flyer  uuid;
+  v_offer_flyer  uuid;
+  v_doomed_flyer uuid;
+  v_flyers       jsonb;
+  v_panel        jsonb;
+  v_copy         jsonb;
+  v_missing      text;
+  v_present      text;
+  v_case         record;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     values (v_owner_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -453,6 +472,354 @@ begin
   end if;
   if v_errmsg is distinct from 'module_not_included' then
     raise exception 'FAIL: the de-entitled write was refused for the wrong reason (got %)', v_errmsg;
+  end if;
+
+  -- ================================================================
+  -- The public read (20260930000100). Everything above is the owner's
+  -- side of the table; everything below is what a stranger with no
+  -- session sees at the shop's address.
+  -- ================================================================
+
+  -- Shop A becomes the published fixture. Its flyers so far were written to
+  -- prove RLS and the limit; the page is a different question, so it starts
+  -- from an empty wall.
+  delete from public.storefront_flyers where shop_id = v_shop_a;
+  update public.storefronts set published_at = now() where shop_id = v_shop_a;
+
+  -- Published, and holds nothing. The "no flyers" arm of check 22.
+  insert into public.shops (owner_id, name) values (v_owner_id, 'Flyer Shop G') returning id into v_shop_g;
+  update public.shops set slug = 'flyer-shop-g' where id = v_shop_g;
+  insert into public.storefronts (shop_id, published_at) values (v_shop_g, now());
+
+  -- Has a page and a live, non-draft flyer, and is NEVER published. The whole
+  -- shop must stay invisible, flyers included.
+  insert into public.shops (owner_id, name) values (v_owner_id, 'Flyer Shop F') returning id into v_shop_f;
+  update public.shops set slug = 'flyer-shop-f' where id = v_shop_f;
+  insert into public.storefronts (shop_id) values (v_shop_f);
+  insert into public.storefront_flyers (shop_id, image_path, position, draft)
+    values (v_shop_f, 'flyers/unpublished-shop.jpg', 0, false);
+
+  -- The offers. `starts_at` on the live one is a FIXED instant in the past
+  -- with no end, so its window line ("From Friday 14 August") is a constant
+  -- this check can assert against forever -- a window built from now() would
+  -- have to be re-derived by the test, which is how a check comes to assert
+  -- the implementation against itself.
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, starts_at)
+    values (v_shop_a, 'Running since Friday', 'percentage', 20, 'store', timestamptz '2026-08-14 00:00:00+03')
+    returning id into v_live_id;
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, starts_at, ends_at)
+    values (v_shop_a, 'Last week', 'percentage', 30, 'store', now() - interval '14 days', now() - interval '1 day')
+    returning id into v_ended_id;
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, active)
+    values (v_shop_a, 'Paused', 'percentage', 15, 'store', false)
+    returning id into v_paused_id;
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, archived_at)
+    values (v_shop_a, 'Archived', 'percentage', 15, 'store', now())
+    returning id into v_archived_id;
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, starts_at)
+    values (v_shop_a, 'Next week', 'percentage', 25, 'store', now() + interval '7 days')
+    returning id into v_future_id;
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, scope_value)
+    values (v_shop_a, 'Shoes', 'fixed', 250, 'category', 'Shoes')
+    returning id into v_doomed_id;
+  -- Live, and someone else's. A flyer is not entitled to advertise it.
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope)
+    values (v_shop_g, 'Another shop''s offer', 'percentage', 50, 'store')
+    returning id into v_foreign_id;
+
+  -- Inserted deliberately OUT OF POSITION ORDER. A read that came back in
+  -- insertion order would otherwise pass check 16's ordering assertion by
+  -- accident. created_at cannot break the tie either -- now() is frozen for
+  -- the whole transaction, so all four share one timestamp.
+  insert into public.storefront_flyers (shop_id, image_path, position, draft, promotion_id)
+    values (v_shop_a, 'flyers/pub-doomed.jpg', 3, false, v_doomed_id) returning id into v_doomed_flyer;
+  insert into public.storefront_flyers (shop_id, image_path, headline, subline, link_kind, link_value, position, draft)
+    values (v_shop_a, 'flyers/pub-plain.jpg', 'Cusub', 'New stock in', 'category', 'Shoes', 0, false)
+    returning id into v_plain_flyer;
+  insert into public.storefront_flyers (shop_id, image_path, position, draft, promotion_id)
+    values (v_shop_a, 'flyers/pub-offer.jpg', 2, false, v_live_id) returning id into v_offer_flyer;
+  insert into public.storefront_flyers (shop_id, image_path, position, draft)
+    values (v_shop_a, 'flyers/pub-draft.jpg', 1, true);
+
+  -- ------------------------------------------------ 16. the page carries its live flyers, in position order
+  -- On the EXISTING call, not a new one. A second RPC would let an
+  -- unpublished shop, an unknown slug and a failed read be told apart by
+  -- which call errors -- see check 23.
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-a') g;
+
+  if v_flyers is null then
+    raise exception 'FAIL: get_public_storefront returned no flyers at all for a published shop that has three';
+  end if;
+  if jsonb_typeof(v_flyers) is distinct from 'array' then
+    raise exception 'FAIL: flyers came back as % rather than an array', coalesce(jsonb_typeof(v_flyers), '<null>');
+  end if;
+  if jsonb_array_length(v_flyers) <> 3 then
+    raise exception 'FAIL: expected 3 live flyers on the page, got % (%)',
+      jsonb_array_length(v_flyers), v_flyers::text;
+  end if;
+
+  -- Position order, not insertion order.
+  if (v_flyers->0->>'image_path') is distinct from 'flyers/pub-plain.jpg'
+     or (v_flyers->1->>'image_path') is distinct from 'flyers/pub-offer.jpg'
+     or (v_flyers->2->>'image_path') is distinct from 'flyers/pub-doomed.jpg' then
+    raise exception 'FAIL: the flyers did not come back in position order (%)', v_flyers::text;
+  end if;
+
+  -- The panel's own fields, which the renderer needs and which nothing else
+  -- above proves travel.
+  v_panel := v_flyers->0;
+  if (v_panel->>'id') is distinct from v_plain_flyer::text then
+    raise exception 'FAIL: a flyer came back without its id -- a list has no stable key';
+  end if;
+  if (v_panel->>'headline') is distinct from 'Cusub' then
+    raise exception 'FAIL: the headline did not travel to the page (got %)', coalesce(v_panel->>'headline', '<null>');
+  end if;
+  if (v_panel->>'subline') is distinct from 'New stock in' then
+    raise exception 'FAIL: the subline did not travel to the page (got %)', coalesce(v_panel->>'subline', '<null>');
+  end if;
+  if (v_panel->>'link_kind') is distinct from 'category' or (v_panel->>'link_value') is distinct from 'Shoes' then
+    raise exception 'FAIL: the link did not travel to the page (% / %)',
+      coalesce(v_panel->>'link_kind', '<null>'), coalesce(v_panel->>'link_value', '<null>');
+  end if;
+  if (v_panel->>'position') is distinct from '0' then
+    raise exception 'FAIL: position did not travel to the page (got %)', coalesce(v_panel->>'position', '<null>');
+  end if;
+
+  -- ------------------------------------------------ 17. a draft flyer is not on the page
+  -- Named rather than counted. The count above would also be satisfied by the
+  -- draft appearing and something else silently dropping out.
+  if exists (select 1 from jsonb_array_elements(v_flyers) e where e->>'image_path' = 'flyers/pub-draft.jpg') then
+    raise exception 'FAIL: a draft flyer was published to the street';
+  end if;
+
+  -- ------------------------------------------------ 18. the offer is DERIVED, in the printed poster's words
+  -- src/lib/poster.ts: "a poster cannot contradict the till". Neither can the
+  -- page. `value`, `scope` and `when` are computed from the promotion row on
+  -- every read; nothing here is stored on the flyer.
+  v_panel := v_flyers->1->'offer';
+  if v_panel is null or jsonb_typeof(v_panel) is distinct from 'object' then
+    raise exception 'FAIL: a flyer with a live promotion carried no offer (%)', (v_flyers->1)::text;
+  end if;
+  if (v_panel->>'value') is distinct from '20%' then
+    raise exception 'FAIL: the offer value read % rather than 20%%', coalesce(v_panel->>'value', '<null>');
+  end if;
+  if (v_panel->>'scope') is distinct from 'Everything in store' then
+    raise exception 'FAIL: the offer scope read % rather than "Everything in store"', coalesce(v_panel->>'scope', '<null>');
+  end if;
+  if (v_panel->>'when') is distinct from 'From Friday 14 August' then
+    raise exception 'FAIL: the offer window read % rather than "From Friday 14 August"', coalesce(v_panel->>'when', '<null>');
+  end if;
+
+  -- The fixed-money, category-scoped one, so neither branch of value/scope is
+  -- taken on trust from the percentage case alone.
+  v_panel := v_flyers->2->'offer';
+  if (v_panel->>'value') is distinct from '$2.50' then
+    raise exception 'FAIL: a fixed discount read % rather than $2.50', coalesce(v_panel->>'value', '<null>');
+  end if;
+  if (v_panel->>'scope') is distinct from 'All Shoes' then
+    raise exception 'FAIL: a category offer read % rather than "All Shoes"', coalesce(v_panel->>'scope', '<null>');
+  end if;
+
+  -- A flyer with no promotion behind it claims nothing -- and says so as JSON
+  -- null rather than by omitting the key, so a renderer has one thing to test.
+  if jsonb_typeof(v_flyers->0->'offer') is distinct from 'null' then
+    raise exception 'FAIL: a flyer with no promotion carried an offer anyway (%)', (v_flyers->0)::text;
+  end if;
+
+  -- ------------------------------------------------ 19. the page's words and the paper's words are the same words
+  -- Every case in src/lib/__tests__/poster.test.ts, against the SQL that
+  -- derives the same three fields. If these two ever disagree, one offer reads
+  -- two ways -- 20% on the door and 30% on the phone.
+  for v_case in
+    select * from (values
+      ('percentage', 20, 'store',    null,      null::timestamptz, null::timestamptz,
+       'value', '20%'),
+      ('fixed',      250, 'store',    null,      null, null,
+       'value', '$2.50'),
+      ('percentage', 20, 'store',    null,      null, null,
+       'scope', 'Everything in store'),
+      ('percentage', 20, 'category', 'Shoes',   null, null,
+       'scope', 'All Shoes'),
+      ('percentage', 20, 'brand',    'Somtel',  null, null,
+       'scope', 'Anything by Somtel'),
+      ('percentage', 20, 'store',    null,      null, timestamptz '2026-08-17 00:00:00+03',
+       'when', 'Until Sunday 16 August'),
+      ('percentage', 20, 'store',    null,      timestamptz '2026-08-14 00:00:00+03', null,
+       'when', 'From Friday 14 August'),
+      ('percentage', 20, 'store',    null,      timestamptz '2026-08-14 00:00:00+03', timestamptz '2026-08-17 00:00:00+03',
+       'when', 'Friday 14 — Sunday 16 August'),
+      -- Not in poster.test.ts, but it is the other branch of `sameMonth`:
+      -- the left half keeps its month when the window crosses one.
+      ('percentage', 20, 'store',    null,      timestamptz '2026-07-30 00:00:00+03', timestamptz '2026-08-02 00:00:00+03',
+       'when', 'Thursday 30 July — Saturday 1 August')
+    ) as t(dtype, dvalue, scope, scope_value, starts_at, ends_at, field, expected)
+  loop
+    v_copy := public.promotion_offer_copy(v_case.dtype, v_case.dvalue, v_case.scope, v_case.scope_value,
+                                          v_case.starts_at, v_case.ends_at);
+    if (v_copy->>v_case.field) is distinct from v_case.expected then
+      raise exception 'FAIL: the page and the poster disagree -- % read % rather than % (%)',
+        v_case.field, coalesce(v_copy->>v_case.field, '<null>'), v_case.expected, v_copy::text;
+    end if;
+  end loop;
+
+  -- An offer with no window prints no date line at all -- as JSON null, not
+  -- the string "null" and not a missing key.
+  v_copy := public.promotion_offer_copy('percentage', 20, 'store', null, null, null);
+  if jsonb_typeof(v_copy->'when') is distinct from 'null' then
+    raise exception 'FAIL: an offer with no window still printed a date line (%)', v_copy::text;
+  end if;
+
+  -- ------------------------------------------------ 20. AN OFFER THAT IS OVER STOPS BEING CLAIMED
+  -- The property the whole feature exists for. A shop can take a poster off
+  -- the door; a page advertising a discount the till refuses does it around
+  -- the clock, to strangers, at the address printed on the shop's card.
+  --
+  -- The rule matched here is src/lib/discounts.ts's isPromotionLive -- active,
+  -- unarchived, started, not ended -- which is the one place the till decides
+  -- the same question. The migration header says why the page takes NO part of
+  -- complete_sale's boundary slack.
+  for v_case in
+    select * from (values
+      (v_ended_id,    'had ended'),
+      (v_paused_id,   'had been paused'),
+      (v_archived_id, 'had been archived'),
+      (v_future_id,   'had not started yet'),
+      (v_foreign_id,  'belonged to another shop')
+    ) as t(promo_id, why)
+  loop
+    update public.storefront_flyers set promotion_id = v_case.promo_id where id = v_offer_flyer;
+    select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-a') g;
+
+    if exists (select 1 from jsonb_array_elements(v_flyers) e where e->>'image_path' = 'flyers/pub-offer.jpg') then
+      raise exception 'FAIL: a flyer whose promotion % was still on the page (%)', v_case.why, v_flyers::text;
+    end if;
+    -- ...and it took nothing else with it. Without this, a read that returned
+    -- an empty array for any reason at all would pass the line above.
+    if jsonb_array_length(v_flyers) <> 2 then
+      raise exception 'FAIL: dropping a flyer whose promotion % left % panels rather than 2 (%)',
+        v_case.why, jsonb_array_length(v_flyers), v_flyers::text;
+    end if;
+  end loop;
+
+  -- The other direction, which is what stops the loop above passing against a
+  -- function that simply never returns a flyer with a promotion on it.
+  update public.storefront_flyers set promotion_id = v_live_id where id = v_offer_flyer;
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-a') g;
+  if not exists (select 1 from jsonb_array_elements(v_flyers) e where e->>'image_path' = 'flyers/pub-offer.jpg') then
+    raise exception 'FAIL: a flyer whose promotion is live did not come back (%)', v_flyers::text;
+  end if;
+
+  -- ------------------------------------------------ 21. a DELETED promotion leaves a plain announcement
+  -- Deliberately not the same outcome as expiry, and the migration header
+  -- argues why: `on delete set null` (20260930000000) leaves the flyer with a
+  -- null promotion_id, which is byte-for-byte a flyer that never had an offer
+  -- -- there is nothing left to drop it on. Deletion is also the attended
+  -- case: an owner is in the editor when it happens.
+  select e into v_panel from jsonb_array_elements(v_flyers) e where e->>'image_path' = 'flyers/pub-doomed.jpg';
+  if jsonb_typeof(v_panel->'offer') is distinct from 'object' then
+    raise exception 'FAIL: the doomed flyer was not claiming an offer BEFORE its promotion was deleted -- check 21 would prove nothing';
+  end if;
+
+  delete from public.promotions where id = v_doomed_id;
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-a') g;
+
+  if not exists (select 1 from jsonb_array_elements(v_flyers) e where e->>'image_path' = 'flyers/pub-doomed.jpg') then
+    raise exception 'FAIL: deleting a promotion took the flyer off the page (%)', v_flyers::text;
+  end if;
+  select e into v_panel from jsonb_array_elements(v_flyers) e where e->>'image_path' = 'flyers/pub-doomed.jpg';
+  if jsonb_typeof(v_panel->'offer') is distinct from 'null' then
+    raise exception 'FAIL: a flyer kept claiming an offer after the promotion was deleted (%)', v_panel::text;
+  end if;
+  if (select promotion_id from public.storefront_flyers where id = v_doomed_flyer) is not null then
+    raise exception 'FAIL: the deleted promotion did not leave promotion_id null -- the premise of this check is gone';
+  end if;
+
+  -- ------------------------------------------------ 22. a shop with no flyers reads as an empty list, never as null
+  -- Two states, not three. A null here would give a renderer a second way to
+  -- spell "no flyers" and an anonymous caller a way to tell a shop that has
+  -- never had one from a shop whose flyers are all drafts.
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-g') g;
+  if v_flyers is null or v_flyers::text is distinct from '[]' then
+    raise exception 'FAIL: a published shop with no flyers returned % rather than []',
+      coalesce(v_flyers::text, '<null>');
+  end if;
+
+  update public.storefront_flyers set draft = true where shop_id = v_shop_a;
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-a') g;
+  if v_flyers::text is distinct from '[]' then
+    raise exception 'FAIL: a shop whose flyers are all drafts returned % rather than [] -- it is distinguishable from a shop with none',
+      coalesce(v_flyers::text, '<null>');
+  end if;
+  update public.storefront_flyers set draft = false where shop_id = v_shop_a and image_path <> 'flyers/pub-draft.jpg';
+
+  -- ------------------------------------------------ 23. the anti-enumeration property still holds
+  -- Plan 1 built this deliberately: an unpublished shop and an unknown slug
+  -- render byte-identically, so nobody can walk names and learn which shops
+  -- are on kaiibi before they open. Flyers travel on the SAME call precisely
+  -- so a second RPC cannot reintroduce the distinction by erroring, or by
+  -- taking a different amount of time, on one of the two.
+  if (select count(*) from public.get_public_storefront('flyer-shop-f')) <> 0 then
+    raise exception 'FAIL: an unpublished shop answered the public read -- its flyer is on the street';
+  end if;
+  if (select count(*) from public.get_public_storefront('no-such-flyer-shop')) <> 0 then
+    raise exception 'FAIL: an unknown slug answered the public read';
+  end if;
+
+  select coalesce((select row(g.*)::text from public.get_public_storefront('flyer-shop-f') g), '<no rows>')
+    into v_missing;
+  select coalesce((select row(g.*)::text from public.get_public_storefront('no-such-flyer-shop') g), '<no rows>')
+    into v_present;
+  -- Asserted to be the no-rows sentinel as well as equal: two identical ROWS
+  -- would satisfy equality alone while both shops were being published.
+  if v_missing is distinct from '<no rows>' or v_present is distinct from v_missing then
+    raise exception 'FAIL: an unpublished shop (%) and an unknown slug (%) do not read alike', v_missing, v_present;
+  end if;
+
+  -- ------------------------------------------------ 24. anon may make the call, and still owns nothing
+  -- The grant and the absence of a grant are one check, because either alone
+  -- is satisfiable by the wrong thing: execute without a table grant is the
+  -- design, a table grant is the design failing, and no execute at all is a
+  -- public page nobody can load.
+  if not has_function_privilege('anon', 'public.get_public_storefront(text)', 'EXECUTE') then
+    raise exception 'FAIL: anon cannot execute get_public_storefront -- the public page is unreadable';
+  end if;
+  if has_table_privilege('anon', 'public.storefront_flyers', 'SELECT')
+     or has_table_privilege('anon', 'public.storefront_flyers', 'INSERT')
+     or has_table_privilege('anon', 'public.storefront_flyers', 'UPDATE')
+     or has_table_privilege('anon', 'public.storefront_flyers', 'DELETE') then
+    raise exception 'FAIL: the public read migration handed anon a table grant on storefront_flyers';
+  end if;
+
+  -- And for real, as anon, through the one path that is meant to work. The
+  -- offer derivation is reached from inside a `security definer` function, so
+  -- the helper functions need no grant of their own -- check 25 pins that.
+  set local role anon;
+  if current_user is distinct from 'anon' then
+    raise exception 'FAIL: set local role anon did not take effect (current_user = %)', current_user;
+  end if;
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-a') g;
+  reset role;
+
+  if v_flyers is null or jsonb_array_length(v_flyers) <> 3 then
+    raise exception 'FAIL: anon could not read the flyers through the function (%)',
+      coalesce(v_flyers::text, '<null>');
+  end if;
+  if (v_flyers->1->'offer'->>'value') is distinct from '20%' then
+    raise exception 'FAIL: anon got a flyer with no derived offer on it (%)', (v_flyers->1)::text;
+  end if;
+
+  -- ------------------------------------------------ 25. the derivation is not a second public API
+  -- Postgres grants EXECUTE to PUBLIC on every new function. The migration
+  -- revokes it, so the offer wording is reachable only through
+  -- get_public_storefront's explicit column list -- and check 24 has already
+  -- proven anon still gets its flyers regardless, because a definer function
+  -- runs its body as the owner.
+  if has_function_privilege('anon',
+       'public.promotion_offer_copy(text,integer,text,text,timestamptz,timestamptz)', 'EXECUTE') then
+    raise exception 'FAIL: anon can call promotion_offer_copy directly -- the revoke from public did not happen';
+  end if;
+  if has_function_privilege('anon', 'public.promotion_is_live(boolean,timestamptz,timestamptz,timestamptz,timestamptz)', 'EXECUTE') then
+    raise exception 'FAIL: anon can call promotion_is_live directly -- the revoke from public did not happen';
   end if;
 
   raise notice 'ALL CHECKS PASSED';
