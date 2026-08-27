@@ -16,13 +16,8 @@ import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-v
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
-import { CategorySalesView } from '@/components/accounting/reports/category-sales-view';
-import { EmployeeSalesView } from '@/components/accounting/reports/employee-sales-view';
-import { InventoryBalanceView } from '@/components/accounting/reports/inventory-balance-view';
-import { ItemPerformanceView } from '@/components/accounting/reports/item-performance-view';
-import { LowStockView } from '@/components/accounting/reports/low-stock-view';
+import { REPORT_SCREENS, hasReportScreen } from '@/components/accounting/reports/report-screens';
 import { ReportsHub, isReportView, reportViewMeta, type ReportView } from '@/components/accounting/reports/reports-hub';
-import { SalesReportView } from '@/components/accounting/reports/sales-report-view';
 import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Colors } from '@/constants/theme';
@@ -320,22 +315,19 @@ export default function AccountingScreen() {
             {tab === 'reports' && reportView === 'hub' && (
               <ReportsHub onOpen={setView} onOpenLedgerView={openLedgerView} rangeLabel={rangeLabel} can={can} />
             )}
-            {/* The seven reports. Each takes the shell's range and store
-                filter, exactly as the day-to-day tabs do, so a reader who
-                picked 30 days and one branch on the hub keeps both on
-                arrival. */}
-            {tab === 'reports' && reportView === 'sales' && <SalesReportView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
-            {tab === 'reports' && reportView === 'item' && <ItemPerformanceView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
-            {tab === 'reports' && reportView === 'employee' && <EmployeeSalesView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
-            {tab === 'reports' && reportView === 'category' && <CategorySalesView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
-            {/* No `dateRange` on either of these two: stock on hand and a
-                shortfall are positions read at an instant -- there is no such
-                thing as the stock a shop held over the last seven days -- so
-                they ignore the shell's window, and their hub cards say "As of
-                today" for that reason. They keep the STORE filter, because
-                which shelf is empty is a real question. */}
-            {tab === 'reports' && reportView === 'inventory' && <InventoryBalanceView locationFilter={locationFilter} setRefresh={setTabRefresh} />}
-            {tab === 'reports' && reportView === 'lowstock' && <LowStockView locationFilter={locationFilter} setRefresh={setTabRefresh} />}
+            {/* The seven reports, dispatched through REPORT_SCREENS rather
+                than as seven `&&` lines. The map is a Record over every
+                routable ReportView, so a screen deleted from it -- or a report
+                added to the catalogue without one -- fails to compile. The
+                ledger's routing above is the seven-line version, and it is
+                guarded by a test that reads THIS FILE as text and searches it
+                for `view === 'assets'`; a grep passes on a branch rendering
+                the wrong component and on one commented out. Each screen takes
+                the shell's range and store filter, so a reader who picked 30
+                days and one branch on the hub keeps both on arrival. */}
+            {tab === 'reports' && hasReportScreen(reportView)
+              ? REPORT_SCREENS[reportView]({ dateRange, locationFilter, setRefresh: setTabRefresh })
+              : null}
             {/* The Reports tab as it was, kept on a route of its own rather
                 than deleted: it holds a working profit and loss, a sales-tax
                 summary and a labour ratio, and the four dimmed cards on the hub

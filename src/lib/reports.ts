@@ -1,5 +1,13 @@
 import { listLocations } from '@/lib/locations';
-import { categoryLabel, effectiveReorderLevel, employeeLabel, type LabelledLine, type LabelledSale } from '@/lib/report-math';
+import {
+  categoryLabel,
+  effectiveReorderLevel,
+  employeeLabel,
+  sequenceMovements,
+  type LabelledLine,
+  type LabelledSale,
+  type MovementRow,
+} from '@/lib/report-math';
 import { getSalesAndRefundsInRange } from '@/lib/sales';
 import type { PeriodRefund } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
@@ -303,4 +311,151 @@ export async function loadCategoryReport(
     loadProductCategories(shopId),
   ]);
   return linesByCategory(sales, categories);
+}
+
+// ---------------------------------------------------------------------------
+// Stock movement (Task 9)
+// ---------------------------------------------------------------------------
+
+// THREE TABLES, ONE SEQUENCE, NORMALISED HERE. `stock_receipts`,
+// `stock_transfers` and `stock_counts` have different shapes and different
+// notions of what a quantity is, and "what happened to my stock" is a single
+// list. A component interleaving three arrays would be a fourth place the
+// ordering rule could be wrong, so they become `MovementRow` before they leave
+// this file and `sequenceMovements` puts them in order.
+//
+// WHY THERE IS NO "WHO" COLUMN, and why `by` is always null. Every one of the
+// three tables records `created_by` as an auth.users uuid, and nothing readable
+// turns that into a name: `profiles` carries only the "own profile" policy, so
+// a reader sees their own row and nobody else's -- which is why the audit log
+// renders "A person" rather than a name. The one mapping that does exist,
+// `shop_members.full_name`, is reachable only through `list_shop_staff`, and
+// that function RAISES `not authorized for shop %` for anyone without
+// staff.manage, people.payroll.manage, people.timesheet.view or
+// people.timeoff.approve (migration 20260803010000). Calling it here would
+// throw the whole screen for a stock clerk looking at deliveries, and would
+// make this the one report of the seven depending on an RPC that raises --
+// which by the hub's own rule would force its card to be gated. A column
+// reading "A person" on every row is not worth either price. `by` stays on
+// MovementRow for the day a readable mapping exists.
+
+type ReceiptDbRow = {
+  id: string;
+  created_at: string;
+  supplier_name: string | null;
+  reference: string | null;
+  location_id: string;
+  stock_receipt_items: { quantity: number }[] | null;
+};
+
+type TransferDbRow = {
+  id: string;
+  created_at: string;
+  note: string | null;
+  from_location_id: string;
+  to_location_id: string;
+  stock_transfer_items: { quantity: number }[] | null;
+};
+
+type CountDbRow = {
+  id: string;
+  created_at: string;
+  note: string | null;
+  location_id: string;
+  stock_count_items: { variance: number }[] | null;
+};
+
+function sumBy<T>(rows: T[] | null, value: (row: T) => number): number {
+  return (rows ?? []).reduce((sum, row) => sum + value(row), 0);
+}
+
+/** Everything that happened to stock in the range, as one ordered sequence. */
+export async function loadStockMovement(
+  shopId: string,
+  since: Date,
+  until: Date | undefined,
+  locationId: string | null
+): Promise<MovementRow[]> {
+  const from = since.toISOString();
+  const to = until?.toISOString();
+  const locations = await listLocations(shopId);
+  const names = new Map(locations.map((location) => [location.id, location.name]));
+  const named = (id: string) => names.get(id) ?? 'Unknown store';
+
+  const [receipts, transfers, counts] = await Promise.all([
+    fetchAllRows<ReceiptDbRow>((a, b) => {
+      let query = supabase
+        .from('stock_receipts')
+        .select('id, created_at, supplier_name, reference, location_id, stock_receipt_items(quantity)')
+        .eq('shop_id', shopId)
+        .gte('created_at', from);
+      if (to) query = query.lte('created_at', to);
+      if (locationId) query = query.eq('location_id', locationId);
+      return query.range(a, b) as unknown as PromiseLike<{ data: ReceiptDbRow[] | null; error: unknown }>;
+    }),
+    fetchAllRows<TransferDbRow>((a, b) => {
+      let query = supabase
+        .from('stock_transfers')
+        .select('id, created_at, note, from_location_id, to_location_id, stock_transfer_items(quantity)')
+        .eq('shop_id', shopId)
+        .gte('created_at', from);
+      if (to) query = query.lte('created_at', to);
+      // Either end of the move counts as this branch's business: stock leaving
+      // the kiosk is as much a kiosk movement as stock arriving there, and a
+      // filter on one end alone would hide half of them.
+      if (locationId) query = query.or(`from_location_id.eq.${locationId},to_location_id.eq.${locationId}`);
+      return query.range(a, b) as unknown as PromiseLike<{ data: TransferDbRow[] | null; error: unknown }>;
+    }),
+    fetchAllRows<CountDbRow>((a, b) => {
+      let query = supabase
+        .from('stock_counts')
+        .select('id, created_at, note, location_id, stock_count_items(variance)')
+        .eq('shop_id', shopId)
+        .gte('created_at', from);
+      if (to) query = query.lte('created_at', to);
+      if (locationId) query = query.eq('location_id', locationId);
+      return query.range(a, b) as unknown as PromiseLike<{ data: CountDbRow[] | null; error: unknown }>;
+    }),
+  ]);
+
+  return sequenceMovements([
+    ...receipts.map((row): MovementRow => ({
+      id: row.id,
+      kind: 'received',
+      at: row.created_at,
+      // Free text, and often left blank by whoever opened the box. "Delivery"
+      // rather than an empty headline, which reads as a broken row.
+      what: row.supplier_name?.trim() || 'Delivery',
+      detail: row.reference,
+      where: named(row.location_id),
+      by: null,
+      units: sumBy(row.stock_receipt_items, (item) => item.quantity),
+    })),
+    ...transfers.map((row): MovementRow => ({
+      id: row.id,
+      kind: 'transfer',
+      at: row.created_at,
+      what: 'Stock transfer',
+      detail: row.note,
+      where: `${named(row.from_location_id)} → ${named(row.to_location_id)}`,
+      by: null,
+      // Positive: a transfer MOVES stock rather than changing how much there
+      // is, so this is units moved and the KPI strip totals it apart from the
+      // other two rather than adding it to them.
+      units: sumBy(row.stock_transfer_items, (item) => item.quantity),
+    })),
+    ...counts.map((row): MovementRow => ({
+      id: row.id,
+      kind: 'count',
+      at: row.created_at,
+      what: 'Stock-take',
+      detail: row.note,
+      where: named(row.location_id),
+      by: null,
+      // SIGNED, and never absolute. `variance` is counted minus previous, so a
+      // stock-take that wrote 284 units off is -284 -- which is the fact the
+      // report exists to show, and an absolute value would render it as a gain.
+      units: sumBy(row.stock_count_items, (item) => item.variance),
+    })),
+  ]);
 }
