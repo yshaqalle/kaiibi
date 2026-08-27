@@ -8,7 +8,37 @@
 
 **Tech Stack:** Expo SDK 57, React Native, TypeScript, Jest. No new dependencies.
 
-**Mockup:** [`docs/design/reports-hub-mockup.html`](../../design/reports-hub-mockup.html) — read it first. Every string quoted in this plan comes from there and ships verbatim.
+**Mockup:** [`docs/design/reports-hub-mockup.html`](../../design/reports-hub-mockup.html) — read it first. Every string quoted in this plan comes from there and ships verbatim, **except where this plan now says otherwise**: the mockup predates phases 2b, 3a and 3c, and its copy for four cards asserted that shipped screens did not exist. See Task 1.
+
+---
+
+## ⚠️ Status — partly built. Read before starting.
+
+**Branch `reports-hub`, at `3666d5b`** (pushed; **no PR, deliberately**). Cut from `main` at `708cd6e`.
+
+| | |
+|---|---|
+| **Task 1** hub and routing | ✅ `fa8db0c` |
+| **Task 2** `report-math.ts` | ✅ `142bf9b` |
+| Hub copy fix (not in the original plan) | ✅ `3666d5b` |
+| **Tasks 3–9** the seven reports | ❌ not started |
+| **Task 10** prove it in the browser | ❌ not started |
+
+**Do not open a PR until Task 9 lands.** The seven report cards are live on the hub *now* and open empty screens. A PR invites a merge that ships a broken hub.
+
+**This plan's stated baselines are fiction.** It pins "expected lint after" at 83–89 per task; phase 3 has shipped since and the real figure is **122**. Measured on `3666d5b`: `tsc` clean · **186 suites / 3360 tests** · lint **122 (56 errors, 66 warnings)** · `test:db` **42** · DB head `20261008000200`. **Measure your own and hold those** — a plan that pins a moving baseline teaches its reader to ignore a real regression.
+
+**Batch Tasks 3–9 three or four at a time.** They share `report-math.ts` and one view template, so a dispatch per task is mostly overhead.
+
+**What Task 1 decided, that the rest inherit:**
+
+- **Nothing is gated.** All seven reports read tables under RLS with no RPC, so they give honest empty states; gating would hide a working report from someone entitled to see it. The rule this project follows is *gate a card whose RPC **raises*** — which is why the three statement cards **are** gated on `ledger.view`.
+- **`REPORT_VIEWS` holds exactly the seven built here, all `available`**, pinned by a test. A card that is not a hub report lives outside that list — `STATEMENTS_CARD` and the three Accounting hand-off cards are the precedent.
+- **Routing is tested by rendering and pressing every card**, never by grepping source text. The Accounting shell's routing test greps, and deleting a view branch there left the suite green with a live card leading to an empty screen. Do not copy that.
+
+**A fuller ledger — every decision, correction and mutation — is at `.superpowers/sdd/progress.md`, which is gitignored and therefore local-only.** If it is gone, this section is the record.
+
+---
 
 ## Global Constraints
 
