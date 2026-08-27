@@ -110,6 +110,23 @@ xcrun simctl launch <udid> com.kaiibisteam.kaiibi
 xcrun simctl terminate <udid> com.kaiibisteam.kaiibi
 ```
 
+**A simulator build ignores `--port`, and this is why "deep links are
+unreliable".** `expo-dev-client` is NOT a dependency of this project, so an
+installed debug build has no launcher to re-point: it carries no
+`main.jsbundle` and falls back to fetching JS from `localhost:8081` at runtime,
+whatever URL you launched it with. `expo run:ios --port 8082` sets the launch
+URL, builds, installs — and the app still loads from 8081. Verified 2026-08-27:
+a fresh build on a spare simulator kept serving another worktree's branch and
+that worktree's `.env` (production Supabase), so the screen showed a production
+shop while the local one was seeded and expected. Zero bundling lines in the
+8082 log is the tell.
+
+So **to test native you must own port 8081.** If another session's Metro holds
+it, either stop that Metro or wait — no flag routes around this. Check first:
+`lsof -tiTCP:8081 -sTCP:LISTEN`, then confirm which tree it serves with
+`lsof -p <pid> | awk '$4=="cwd"'`, and check that tree's branch AND `.env`
+before trusting anything the app shows.
+
 **Deep links are unreliable on iOS.** `simctl openurl` succeeded once on the
 iPhone but on the iPad raised a SpringBoard *"Open in 'Ka Iibi'?"* alert that
 blocks the screen; recover with `simctl launch`. With Maestro available,
