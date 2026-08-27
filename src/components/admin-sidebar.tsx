@@ -166,6 +166,11 @@ export function AdminSidebar({
   // The same hook the settings sidebar's Orders row uses -- one server-side
   // count, not a second list of orders pulled down to be counted here.
   const ordersBadge = useOrdersNeedingActionBadge();
+  // Mirrors the route guard for /storefront and /orders (permissions.ts:177,181)
+  // AND the module, the same pair the settings sidebar already gates them on.
+  // Matching the guard is the rule this file's header states: filtering here
+  // keeps the nav from offering a destination that would just bounce back.
+  const storefrontEnabled = hasModule('storefront') && can('settings.access');
 
   // Lets the shop logo be changed straight from the sidebar avatar, not just
   // from Settings — a quick "click your logo to change it" affordance. The
@@ -251,6 +256,52 @@ export function AdminSidebar({
           {/* Under the bar in both worlds: the compact header is a fixed 52
               tall and takes no inset, where the top bar grows with it. */}
           <View style={[styles.menuSheet, { top: compact ? 56 : insets.top + 50 }]}>
+            {/* Storefront and Orders live here on a phone, not in the bottom
+                bar. The bar is five items across a 390pt screen at flex: 1;
+                a seventh would leave each about 55pt with a label truncated
+                to "Storefr…", and POS and Inventory are what a shopkeeper
+                reaches for all day.
+                Here they are ONE tap from ☰ instead of four (☰ → Settings →
+                the pane picker → Storefront), which is where they were: filed
+                under Settings › Business between Vendors and Receipt. A sales
+                channel that takes customer orders is not configuration, and a
+                walkthrough at this width is what found it -- of 11 shops on
+                the system, 1 had published a page.
+                The rail (navItems above) shows them as first-class entries at
+                tablet width and up, where there is room. */}
+            {storefrontEnabled && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/storefront');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.menuItemIcon}>🌐</Text>
+                  <Text style={styles.menuItemText}>Storefront</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/orders');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.menuItemIcon}>🛍</Text>
+                  <Text style={styles.menuItemText}>Orders</Text>
+                  {/* The one signal that a customer is waiting. It was only
+                      ever rendered inside the settings sidebar, four taps
+                      down -- a count nobody was going to see. */}
+                  {ordersBadge > 0 ? (
+                    <View style={styles.menuBadgeSlot}>
+                      <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
+                    </View>
+                  ) : null}
+                </Pressable>
+                <View style={styles.menuDivider} />
+              </>
+            )}
             {canEditShop && (
               <>
                 <Pressable
@@ -361,5 +412,6 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
   menuItemIcon: { fontSize: 15, color: '#111111' },
   menuItemText: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  menuBadgeSlot: { marginLeft: 'auto' },
   menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#ECECEC' },
 });
