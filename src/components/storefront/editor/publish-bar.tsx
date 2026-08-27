@@ -4,7 +4,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
+import { copyText } from '@/lib/copy-text';
+import { APP_DOMAIN } from '@/lib/storefront-host';
 import type { PublishBlocker } from '@/lib/storefront-admin';
+import { shareOnWhatsApp } from '@/lib/whatsapp';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
 // screen.
@@ -43,6 +46,18 @@ const BLOCKER_ACTION: Record<PublishBlocker, { label: string; goes: 'here' | 'in
   no_products: { label: 'Go to Inventory', goes: 'inventory' },
 };
 
+// The message a shop sends its customers, written to be forwarded: it names
+// the shop (a message passed on has no other context), says what the link is
+// for in the plain register the rest of this app uses, and ends on the
+// address so it is the last thing read and the easy thing to tap.
+//
+// The address is passed in, never rebuilt here -- it is assembled once, from
+// APP_DOMAIN, at the one place below that also renders it on screen.
+function sharePageMessage(shopName: string, address: string): string {
+  const who = shopName.trim();
+  return `${who || 'Our shop'} is now online — see what we sell and order from your phone: ${address}`;
+}
+
 // THE PROPERTY THIS FILE EXISTS FOR: Publish is never disabled. A greyed-out
 // button with no explanation is precisely the failure this screen prevents --
 // pressing it always calls onPublish, blockers or not. What a blocker means
@@ -51,6 +66,8 @@ export function PublishBar({
   status,
   blockers,
   dirty,
+  slug,
+  shopName = '',
   onEdit,
   onFocusBlocker,
   onGoToInventory,
@@ -61,6 +78,14 @@ export function PublishBar({
   status: 'draft' | 'live';
   blockers: PublishBlocker[];
   dirty: boolean;
+  /**
+   * The address the page is reachable at, or null while the shop has claimed
+   * none. Only ever rendered (and only ever shareable) while `status` is
+   * 'live' -- see the share block below.
+   */
+  slug: string | null;
+  /** Named in the WhatsApp message, which gets forwarded away from any context. */
+  shopName?: string;
   /** The Edit button. Opens the editor; knows nothing about blockers. */
   onEdit: () => void;
   /**
@@ -81,6 +106,21 @@ export function PublishBar({
   onUnpublish: () => void;
 }) {
   const [confirmingUnpublish, setConfirmingUnpublish] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+
+  // The address, assembled from APP_DOMAIN and nothing else. The slug is a
+  // SUBDOMAIN, not a path: slugFromHostname (src/lib/storefront-host.ts) only
+  // ever resolves `<slug>.kaiibi.com`, and this screen has already shipped the
+  // `kaiibi.com/<slug>` form once -- an address a shopkeeper printed on a card
+  // and that never worked. The test round-trips what is rendered here through
+  // that same router function so the two cannot drift again.
+  const claimedSlug = slug?.trim() ?? '';
+  // ONLY when live. A draft page's address does not resolve, so offering to
+  // send it would hand a shopkeeper a link that 404s -- and they would only
+  // find out from the customer who tried it.
+  const shareable = status === 'live' && claimedSlug.length > 0;
+  const address = `${claimedSlug}.${APP_DOMAIN}`;
 
   const statusLabel = status === 'draft' ? 'Draft' : dirty ? 'Unsaved changes' : 'Live';
   const statusStyle =
@@ -91,6 +131,19 @@ export function PublishBar({
   function confirmUnpublish() {
     setConfirmingUnpublish(false);
     onUnpublish();
+  }
+
+  // HOW the text gets out is copyText's business (clipboard on the web, the
+  // share sheet on a phone, no new dependency) -- the same one function the
+  // content drawer's Copy link goes through. This is only what it means here.
+  async function handleCopyLink() {
+    setCopyFailed(false);
+    if (await copyText(address)) {
+      setCopied(true);
+      return;
+    }
+    setCopied(false);
+    setCopyFailed(true);
   }
 
   return (
@@ -124,6 +177,42 @@ export function PublishBar({
           <Text style={styles.publishButtonText}>Publish</Text>
         </Pressable>
       </View>
+
+      {/* A page nobody has the link to is a page nobody visits. This sits ON
+          the publish bar rather than behind "Edit page content →", because a
+          shop that has just pressed Publish is standing right here and is
+          never in that drawer. */}
+      {shareable ? (
+        <View style={styles.shareBlock}>
+          <Text style={styles.shareEyebrow}>Your page is at</Text>
+          <Text testID="publish-bar-address" style={styles.shareAddress}>
+            {address}
+          </Text>
+          <View style={styles.shareRow}>
+            {/* WhatsApp first: it is how these shops reach customers, and it
+                is the action that actually sends the link to someone rather
+                than only putting it somewhere. */}
+            <Pressable
+              testID="publish-bar-share-whatsapp"
+              onPress={() => shareOnWhatsApp(sharePageMessage(shopName, address))}
+              style={styles.shareButton}
+            >
+              <Text style={styles.shareButtonText}>Share on WhatsApp</Text>
+            </Pressable>
+            <Pressable
+              testID="publish-bar-copy-link"
+              onPress={handleCopyLink}
+              style={[styles.secondaryButton, styles.shareSecondary]}
+            >
+              <Text style={styles.secondaryButtonText}>{copied ? 'Copied' : 'Copy link'}</Text>
+            </Pressable>
+          </View>
+          {/* 'context', not 'wrong': nothing about the page is broken, and the
+              address it failed to copy is on screen directly above -- there is
+              no cause left for an action to remove. */}
+          {copyFailed ? <Caveat tone="context">Could not copy your address — write it down instead.</Caveat> : null}
+        </View>
+      ) : null}
 
       {blockers.map((blocker) => {
         const { label, goes } = BLOCKER_ACTION[blocker];
@@ -169,6 +258,39 @@ const styles = StyleSheet.create({
   statusTextDraft: { color: theme.bentoMuted2 },
   statusTextLive: { color: theme.bentoUpInk },
   statusTextUnsaved: { color: theme.bentoWarn },
+
+  // Set apart from the Preview/Edit/Publish row above it: those act on the
+  // page, this one is about getting the page to somebody. The soft ground and
+  // the rule are the same pair every other grouped bento panel uses.
+  shareBlock: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    backgroundColor: theme.bentoSoft,
+  },
+  shareEyebrow: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: theme.bentoMuted,
+  },
+  shareAddress: { marginTop: 6, fontSize: 14.5, fontWeight: '800', color: theme.bentoInk },
+  shareRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 },
+  // The accent pair, not a green "WhatsApp brand" one: this is an admin
+  // screen and its palette is bento's, not another company's.
+  shareButton: {
+    backgroundColor: theme.bentoAccentWash,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  shareButtonText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoAccentInk },
+  // The outlined button sits on `bentoSoft` here, not on the card, so it needs
+  // its own ground to still read as a button rather than a hairline box.
+  shareSecondary: { backgroundColor: theme.bentoSurface },
 
   secondaryButton: {
     borderWidth: 1,

@@ -47,6 +47,10 @@ const DEFAULT_PROPS: PublishBarProps = {
   status: 'draft',
   blockers: [] as PublishBlocker[],
   dirty: false,
+  // No claimed address by default, so the share block this file says nothing
+  // about stays out of every assertion here. It has its own test file
+  // (storefront-share-live-page.test.tsx).
+  slug: null,
   onEdit: jest.fn(),
   onFocusBlocker: jest.fn(),
   onGoToInventory: jest.fn(),
