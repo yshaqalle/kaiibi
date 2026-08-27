@@ -14,21 +14,41 @@
 
 ## ⚠️ Status — partly built. Read before starting.
 
-**Branch `reports-hub`, at `3666d5b`** (pushed; **no PR, deliberately**). Cut from `main` at `708cd6e`.
+**Branch `reports-hub`, at `e417849`** (**unpushed since `3666d5b`; no PR**). Cut from `main` at `708cd6e`.
 
 | | |
 |---|---|
 | **Task 1** hub and routing | ✅ `fa8db0c` |
 | **Task 2** `report-math.ts` | ✅ `142bf9b` |
 | Hub copy fix (not in the original plan) | ✅ `3666d5b` |
-| **Tasks 3–9** the seven reports | ❌ not started |
+| **Tasks 3–5** sales, item, employee | ✅ `cad4e7e` |
+| **Tasks 6–8** category, inventory, low stock | ✅ `aeaa2e0` |
+| **Task 9** stock movement + exhaustive routing | ✅ `e417849` |
 | **Task 10** prove it in the browser | ❌ not started |
 
-**Do not open a PR until Task 9 lands.** The seven report cards are live on the hub *now* and open empty screens. A PR invites a merge that ships a broken hub.
+**All seven reports are built and routed. Still do not open a PR** — Task 10 is the only thing left, and nothing here has been seen in a browser. Every figure was verified by test and by type, which is exactly the kind of verification that missed this phase's two worst defects.
 
-**This plan's stated baselines are fiction.** It pins "expected lint after" at 83–89 per task; phase 3 has shipped since and the real figure is **122**. Measured on `3666d5b`: `tsc` clean · **186 suites / 3360 tests** · lint **122 (56 errors, 66 warnings)** · `test:db` **42** · DB head `20261008000200`. **Measure your own and hold those** — a plan that pins a moving baseline teaches its reader to ignore a real regression.
+**This plan's stated baselines are fiction.** It pins "expected lint after" at 83–89 per task; phase 3 shipped since and the real figure was **122** before this work. **Measure your own and hold those** — a plan that pins a moving baseline teaches its reader to ignore a real regression.
 
-**Batch Tasks 3–9 three or four at a time.** They share `report-math.ts` and one view template, so a dispatch per task is mostly overhead.
+| | `3666d5b` (before) | `e417849` (now) |
+|---|---|---|
+| `tsc` | clean | clean |
+| `npm test` | 186 suites / 3360 tests | 186 suites / **3381** tests |
+| `npm run lint` | 122 (56 err, 66 warn) | **129** (63 err, 66 warn) |
+| `npm run test:db` | 42 | 42 |
+| DB head | `20261008000200` | unchanged |
+
+**The +7 lint is exactly one per new data-loading view**, all of it the mount-effect rule `use-refresh-on-focus.ts:28-31` depends on. Anything above 129 is a real regression. The +21 tests are all `report-math.ts`.
+
+**Batching worked and is worth repeating.** Tasks 3–9 went in three commits, not seven: they share the roll-ups in `report-math.ts` and one read each in `reports.ts`, so a commit per task would have put code in the first that only the last used.
+
+**What Tasks 3–9 decided, that Task 10 and anything after inherit:**
+
+- **`reports.ts` does not re-implement the sales read.** `sales.ts`'s pages past PostgREST's 1000-row cap and its mapping has been corrected repeatedly; a second copy would be a second opinion on what a sale is. The four sales reports shape its result and issue it once per screen.
+- **Revenue on a per-cashier or per-store row means takings less tax, never net of refunds.** A refund is handled by whoever is on the till when the customer returns, so charging it to either cashier is a guess. The screens say so.
+- **Task 8 does not use `getLowStockProducts`.** That function defaults a null reorder level to 5, which turns "nobody has set a level" into "the level is 5" — the exact conflation the screen exists to avoid.
+- **Stock Movement has no "Who" column.** `profiles` carries only the "own profile" policy, and the one readable name mapping, `list_shop_staff`, **raises** without one of four people-permissions — which would both throw the screen for a stock clerk and force the card to be gated.
+- **Routing is a `Record`, not a chain of `&&`.** `REPORT_SCREENS` in `report-screens.tsx` is exhaustive over `ReportView`, so a deleted screen or an uncatalogued report **fails `tsc`**. This replaces the defect the ledger's nav test still guards by grepping `accounting.tsx` for `view === 'assets'`. If you touch report routing, do not reintroduce the grep.
 
 **What Task 1 decided, that the rest inherit:**
 
@@ -336,7 +356,13 @@ Check each of the seven renders with real data, and that the four dimmed cards d
 > **`browser_click` gives false negatives on this app.** Playwright's click does not deliver the pointer sequence React Native Web's `Pressable` needs — it silently does nothing, including on pre-existing tabs. Dispatch the full `pointerdown` / `mousedown` / `pointerup` / `mouseup` / `click` sequence instead. This cost an hour in #64 and looked exactly like an app bug.
 
 - [ ] **Step 4: Full suite.** `npx tsc --noEmit && npm test && npm run lint && npm run test:db`
-Expected: clean; 141 suites / ~2132 tests; **89** lint; **17** database checks — unchanged, because this phase touches no database.
+
+~~Expected: clean; 141 suites / ~2132 tests; **89** lint; **17** database checks.~~ **Superseded — those are the fictional baselines.** Measured on `e417849`, which is where Task 10 starts: `tsc` clean · **186 suites / 3381 tests** · lint **129 (63 errors, 66 warnings)** · `test:db` **42**. Task 10 changes no arithmetic, so any movement in the first three numbers is a regression it introduced.
+
+**Two things to actually look for, because tests and types cannot see them:**
+
+- **The four dimmed/handed-off cards.** Inventory Valuation must not navigate at all; P&L, Balance Sheet and Cash Flow must land on the *Accounting* tab with the range picked on Reports still applied.
+- **The caveats that turn on data.** Item Performance's uncosted caveat is `wrong` with a door to `/inventory?filter=nocost`; Low Stock renders three different states (`none-configured` as `wrong`, partial as `partial`, populated as `context`). A shop with every reorder level set will show none of them, which is not the same as them being broken.
 
 ---
 
