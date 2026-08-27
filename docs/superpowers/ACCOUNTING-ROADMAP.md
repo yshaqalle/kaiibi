@@ -15,10 +15,10 @@ _Last verified 2026-08-25 against `main` and the linked project._
 | **2a** A permitted cost formula | ✅ merged & deployed — #73, a moving weighted average |
 | **2b** Auto-posting | ✅ merged & deployed — #74, plus #76 and #78 |
 | **3a** The statements | ✅ merged & deployed — #80, income statement / balance sheet / cash flow |
-| **3b** Period close | 📋 **plan ready**, not built — read the warning below first |
-| **3c** New transactions | 📋 **plan ready**, not built — independent of 3b |
+| **3b** Period close | ✅ merged — #83, close/re-open, exceptions, auto-close, the screen. **Read "what 3b changed for everyone" below.** |
+| **3c** New transactions | 📋 **plan ready**, not built — independent of 3b, but now owes it a Settings control |
 | **Reports hub** | 📋 plan ready, not built — independent of everything else |
-| **4** The remaining reports | ✏️ needs a plan — sixteen; several need 3b |
+| **4** The remaining reports | ✏️ needs a plan — sixteen; the several that needed 3b are now unblocked |
 | **5** The small gaps | ✏️ needs a plan — `refunds.reason`, `tax_filings` |
 | **FIFO cost layers** | ⏸️ parked — design and plan merged, superseded by 2a |
 
@@ -26,11 +26,28 @@ _Last verified 2026-08-25 against `main` and the linked project._
 
 **Phase 3 was split into 3a / 3b / 3c** because they are independent subsystems and, as one plan, no statement would have shipped until fixed assets did.
 
-### Before writing 3b — the cash flow's proof will break
+### What 3b changed for everyone — read before writing 3c or 4
 
-`cash_flow()` has a **proof** section asserting that its net change equals the observed movement in the cash accounts. `2300 Loyalty Points Liability` and `3900 Retained Earnings` are in **no** cash-flow section. Nothing posts to them today — but **3b's period close posts to `3900` by definition**, and any `cash_flow` window spanning a close will then fail its proof by exactly the amount closed.
+**A month can now be final.** `close_accounting_period` rolls a month's P&L into `3900 Retained Earnings` with a journal entry of source `'close'`. Three rules follow, and anything new that reads or writes the ledger has to land on the right side of each.
 
-Do not "fix" this by adding a residual *other movements* line. That makes the proof tie by construction and destroys the only check capable of catching a sign error. `verify-statements.sql` carries a negative test asserting the proof **does** fail when an unaccounted account moves — keep it, and give `3900` a real section instead.
+**1. Two of the three statements exclude `source = 'close'`; one deliberately does not.** `statement_lines()` and `cash_flow()` exclude it. `balance_sheet()` reads `3900` as the ledger holds it and subtracts the P&L side of closing entries instead — excluding it there would make `3900` read zero forever. **Any new read of the ledger must pick a side on purpose.**
+
+**2. The cash flow's proof did break, and not where this file predicted.** The prediction was that `3900`'s movement would break it. The real defect was subtler and the 3a reasoning that dismissed it was wrong: `cash_flow()`'s *Add back depreciation* line reads `6800`, an **expense** account, so a close credits it like any other P&L account. Net profit keeps the closed month's depreciation as a cost — `statement_lines()` excludes the closing entry — while the add-back that should cancel it no longer does. The same amount, subtracted twice.
+
+It hid because **nothing posts to `6800` until 3c ships `run_depreciation`**, so every fixture that closed a month had an empty add-back and `0 - 0 = 0`. `verify-statements-across-a-close.sql` now posts depreciation by hand in both months for exactly this reason. **3c: when `run_depreciation` lands, that fixture is the one that proves it.**
+
+**3. Still no residual *other movements* line, and never add one.** It makes the proof tie by construction and destroys the only check capable of catching a sign error. There is now a test asserting `cash_flow()` has not grown a section, and `verify-statements.sql` still carries the negative test that the proof **does** fail when an unaccounted account moves. `2300 Loyalty Points Liability` remains unaccounted, as does `3900` moved by anything that is not a close — an `'opening'` entry carrying pre-kaiibi retained earnings would fail the proof by exactly itself, and should.
+
+### Two things 3b left for 3c
+
+- **Auto-close is built and unreachable.** `auto_close_periods` defaults to `'ask'` and **nothing writes the column**, so no shop can turn it on. The default is deliberate: nothing before #83 ever wrote `status='closed'`, so phase 2b's 66 "redate to today" branches have never fired for a real shop, and defaulting to `'automatic'` would have activated all of them at deploy — backdated CSV import would book historical entries into the current month. **3c owes it a Settings control** (`automatic` / `ask` / `never`, grace 5/10/15).
+- **`open_period_for` has an `EXECUTE` revoke but no membership predicate** — one would refuse the backfill. Named, not fixed.
+
+### The `PUBLIC` grant audit — real work, not yet done
+
+#83 found that **`anon` held `EXECUTE` on `post_journal_entry`** via the default `PUBLIC` grant, never revoked. Combined with a gate that only checked `'manual'` sources, a request with **no `Authorization` header** could post forged entries into any shop by id. Present since 2a.
+
+Fixed there for `post_journal_entry` and `open_period_for`. **The default `PUBLIC` grant is still on nearly every function in the schema.** The rest are safe *by argument* — and on this exact line, three separate arguments were reviewed, approved, and wrong before it was settled by measuring a real HTTP request. A schema-wide grant audit is its own piece of work and it should happen.
 
 ### Migration numbering — `202610*` belongs to accounting
 
@@ -100,9 +117,9 @@ Plan: [`plans/2026-08-25-financial-statements.md`](plans/2026-08-25-financial-st
 
 ## Step 4b — Period close (3b)
 
-**Plan written:** [`plans/2026-08-25-period-close.md`](plans/2026-08-25-period-close.md). Read it and execute; the prompt below is kept only for a fresh re-plan.
+**✅ Built and merged — #83.** Plan: [`plans/2026-08-25-period-close.md`](plans/2026-08-25-period-close.md). The prompt below is kept only for a fresh re-plan, and is now **out of date in one respect**: it says closed still permits an adjusting entry dated into the month, and `'locked'` is a state nothing writes yet.
 
-**Read "Before writing 3b" above first — this breaks the cash flow's proof, and how you handle that is the interesting part of the task.**
+**What shipped that the plan did not anticipate:** a period cannot be closed until it has **ended** (`ends_on >= shop_local_date()` refuses, and `p_force` cannot override). Closing the current month sent every phase-2b "redate to today" escape back into the month it had just closed — till, expenses, bills, deliveries and payroll all failed outright.
 
 ```
 Write the implementation plan for phase 3b of the kaiibi accounting work --
