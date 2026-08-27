@@ -111,12 +111,22 @@ export function LowStockView({
 
       {/* 'wrong', and it earns the tone: the report on screen is not answering
           the question the reader asked, the cause is removable, and the action
-          removes it. Anything softer here reads as "all good". */}
+          removes it. Anything softer here reads as "all good".
+
+          The last sentence exists because the two screens genuinely disagree
+          and a reader deserves to know why rather than concluding one of them
+          is broken. Inventory's tile calls getLowStockProducts, which takes a
+          `defaultLowStockLevel` of 5 and so reads a null level as five units;
+          this report will not guess a number nobody entered. Naming the
+          difference is honest. Silently matching it would mean reporting a
+          reorder list against a level the shop never set. */}
       {stock !== null && reading.emptyReason === 'none-configured' ? (
         <Caveat tone="wrong" action={{ label: 'Set reorder levels in Inventory', onPress: () => router.push('/inventory') }}>
           This report is empty because no product has a reorder level, not because the shelves are healthy.
           Until a level is set somewhere there is nothing to measure stock against, and an empty reorder list
-          means only that the question has not been asked.
+          means only that the question has not been asked. Inventory&apos;s &ldquo;low stock&rdquo; count can
+          still show a figure here — it falls back to five units where no level is set, and this report will
+          not guess a number on your behalf.
         </Caveat>
       ) : null}
 
