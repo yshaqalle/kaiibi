@@ -63,3 +63,76 @@ export function instantToEndDateInput(iso: string): string {
   const stored = new Date(iso);
   return formatDateInput(new Date(stored.getFullYear(), stored.getMonth(), stored.getDate() - 1));
 }
+
+// ---------------------------------------------------------------------------
+// THE SHOP'S CALENDAR DAY -- for anything a CUSTOMER reads.
+//
+// EVERYTHING ABOVE THIS LINE RESOLVES IN THE DEVICE'S TIMEZONE, AND MUST KEEP
+// DOING SO. That pair is the promotions DATE PICKER's inverse: an owner picks
+// "the 17th" on their own phone, it is stored as local midnight of the 18th,
+// and the picker reads it back as the 17th. Breaking that symmetry would move
+// every existing promotion's dates in the editor. The helpers below are an
+// ADDITION, not a replacement.
+//
+// WHAT THEY ARE FOR. The shop's public storefront prints an offer's window to
+// customers (src/lib/poster.ts's windowLine, reached from the flyer band).
+// Resolved in the reader's timezone, a customer in London or Minneapolis --
+// and Somaliland shops have a real diaspora audience -- is shown a different
+// day from the one the offer actually runs, because a window stored as
+// Mogadishu midnight is still the previous afternoon anywhere west of UTC+3.
+// The shop's day is the only day that is true for every reader.
+//
+// 'Africa/Mogadishu' IS A PLATFORM CONSTANT, exactly as it is in
+// supabase/migrations/20260908000320_shop_local_date.sql -- read that file's
+// header before touching this. Every market kaiibi serves is UTC+3, there is
+// deliberately NO shops.timezone column, and that was considered and declined
+// rather than missed. When kaiibi sells into a market that is not UTC+3, that
+// function and this constant are the two places that change together.
+//
+// WHY A FIXED OFFSET AND NOT Intl.DateTimeFormat({ timeZone }). East Africa
+// Time has been +03:00 with no daylight saving since 1931, so for every
+// instant this app can hold, the offset IS the zone -- exactly, not
+// approximately. A fixed offset also cannot depend on the JS runtime shipping
+// a full timezone database, which Hermes on an older Android build does not
+// guarantee. The equivalence is not left as an assertion in a comment:
+// promotion-dates.test.ts checks these helpers against Intl's own
+// 'Africa/Mogadishu' across a year of instants, so if it ever stops holding
+// the suite says so rather than the page quietly shifting a day.
+export const SHOP_TIME_ZONE = 'Africa/Mogadishu';
+
+const SHOP_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
+// One shop day is always exactly this, which is true here and only here:
+// arithmetic in elapsed milliseconds is exact in a zone with no DST.
+const SHOP_DAY_MS = 24 * 60 * 60 * 1000;
+
+// The 'YYYY-MM-DD' of the shop's local day an instant falls on.
+//
+// Read with the getUTC* accessors AFTER shifting, never the local ones: a
+// shifted instant's UTC fields ARE the shop's wall clock by construction, and
+// give the same answer on every device. Using getFullYear/getMonth/getDate
+// here would put the reader's zone straight back in.
+function shopDateInput(instantMs: number): string {
+  const shifted = new Date(instantMs + SHOP_UTC_OFFSET_MS);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// ISO instant -> 'YYYY-MM-DD' of the SHOP's day it falls on. The customer-
+// facing counterpart of instantToStartDateInput: same meaning, resolved in
+// the shop's zone instead of the reader's.
+export function instantToShopStartDate(iso: string): string {
+  return shopDateInput(Date.parse(iso));
+}
+
+// ISO instant -> 'YYYY-MM-DD' of the shop's day BEFORE the one the instant
+// falls on. The customer-facing counterpart of instantToEndDateInput, and it
+// keeps that function's stored-exclusive/shown-inclusive reversal intact: an
+// offer stored as ending at midnight on the 17th ran through the whole of the
+// 16th, and the 16th is what a customer needs to read. The subtraction
+// happens in elapsed time before the shop's day is read off, so the shift and
+// the reversal cannot interact to move the answer by a day.
+export function instantToShopEndDate(iso: string): string {
+  return shopDateInput(Date.parse(iso) - SHOP_DAY_MS);
+}
