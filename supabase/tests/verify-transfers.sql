@@ -510,6 +510,109 @@ begin
   end if;
   raise notice '10 OK: a closed month redirects, keeping the true date, the status and the note';
 
+  -- =====================================================================
+  -- 11. THE PICKER THE DOOR NEEDS, GATED THE SAME WAY THE DOOR IS.
+  --
+  --     `accounts` is readable on ledger.view alone (20260904000100:51), and
+  --     the treasurer -- the person this whole gate was chosen for -- does not
+  --     hold it. Without list_transfer_accounts (20261007000200) they could
+  --     call transfer_funds and could not read the two account names to call it
+  --     with: an empty picker over a working RPC.
+  --
+  --     So: the same permission, exactly the four codes, the shop's own names,
+  --     the archived one gone, and the balance agreeing with the ledger.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  --     Shop B renames its bank to a name that sorts after shop A's, so an
+  --     unfiltered read picks the wrong one and check (b) says so.
+  update public.accounts set name = 'Shop B''s bank, and only shop B''s'
+   where shop_id = v_shop_b and code = '1010';
+
+  --     (a) THE TREASURER CAN READ IT. budgets.manage and no ledger permission
+  --         at all -- which is the default Manager's shape and the reason this
+  --         function exists.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_treasurer)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*)::integer into v_rows from public.list_transfer_accounts(v_shop);
+  if v_rows is distinct from 3 then
+    raise exception 'FAIL 11: the picker offers % accounts, expected 3 -- 1000, 1010 and 1021, with the archived 1020 gone',
+      v_rows;
+  end if;
+  select string_agg(t.code, ',' order by t.code) into v_sections
+    from public.list_transfer_accounts(v_shop) t;
+  if v_sections is distinct from '1000,1010,1021' then
+    raise exception 'FAIL 11: the picker offers %, expected exactly 1000,1010,1021 -- an archived account is one transfer_funds refuses',
+      v_sections;
+  end if;
+
+  --     ...and the treasurer genuinely cannot read the chart directly, or this
+  --     check is asserting nothing about why the function had to exist.
+  select count(*)::integer into v_rows2 from public.accounts a where a.shop_id = v_shop;
+  if v_rows2 <> 0 then
+    raise exception 'FAIL 11: the treasurer read % rows of the chart under RLS -- list_transfer_accounts is solving a problem that no longer exists, or the chart has been opened up',
+      v_rows2;
+  end if;
+
+  --     (b) IN THIS SHOP'S OWN WORDS. security definer bypasses RLS, so the
+  --         shop filter inside the function is the whole of the boundary.
+  select t.name into v_desc from public.list_transfer_accounts(v_shop) t where t.code = '1010';
+  if v_desc like '%Shop B%' then
+    raise exception 'FAIL 11: shop A''s bank is called "%" -- the name came from the shop next door', v_desc;
+  end if;
+
+  --     (c) THE BALANCE AGREES WITH THE LEDGER, derived here a second way --
+  --         straight off the lines rather than through the function -- so the
+  --         two cannot both be wrong in the same direction.
+  select t.balance_cents into v_amt from public.list_transfer_accounts(v_shop) t where t.code = '1000';
+  perform set_config('role', 'postgres', true);
+  select coalesce(sum(l.amount_cents), 0)::bigint into v_before
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where a.shop_id = v_shop and a.code = '1000'
+     and e.status in ('posted', 'reversed') and e.source <> 'close';
+  if v_amt is distinct from v_before then
+    raise exception 'FAIL 11: the picker says the till holds % and the ledger says %', v_amt, v_before;
+  end if;
+  if v_before = 0 then
+    raise exception 'FAIL 11: the till reads zero, so this check would pass for a function that returns nothing';
+  end if;
+
+  --     (d) THE BOOKKEEPER IS REFUSED. ledger.view and ledger.post, no
+  --         budgets.manage: they can read the whole chart directly and still
+  --         may not open this door, because the door is about moving money.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_book)::text, true);
+  perform set_config('role', 'authenticated', true);
+  begin
+    perform 1 from public.list_transfer_accounts(v_shop);
+    raise exception 'FAIL 11: a ledger.post holder without budgets.manage opened the transfer picker';
+  exception
+    when others then
+      v_msg := sqlerrm;
+      if v_msg like 'FAIL 11:%' then raise; end if;
+      if v_msg is distinct from 'You do not have permission to move money between accounts.' then
+        raise exception 'FAIL 11: the picker refused with "%", expected transfer_funds'' own sentence', v_msg;
+      end if;
+  end;
+
+  --     (e) AND NEXT DOOR'S TREASURER IS REFUSED, holding the permission
+  --         legitimately in their own shop.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_treasurer_b)::text, true);
+  begin
+    perform 1 from public.list_transfer_accounts(v_shop);
+    raise exception 'FAIL 11: shop B''s treasurer read shop A''s cash balances';
+  exception
+    when others then
+      v_msg := sqlerrm;
+      if v_msg like 'FAIL 11:%' then raise; end if;
+      if v_msg is distinct from 'You do not have permission to move money between accounts.' then
+        raise exception 'FAIL 11: the cross-shop read refused with "%"', v_msg;
+      end if;
+  end;
+  raise notice '11 OK: the picker opens on budgets.manage, offers only the live four, in this shop''s words, at the ledger''s figures';
+
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
