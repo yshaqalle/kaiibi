@@ -308,4 +308,49 @@ describe('a taken address costs a suffix, not a rethink', () => {
     expect(d.texts()).not.toMatch(/clear and try again/i);
     expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: '' }));
   });
+
+  // Review finding #1: the derivation effect bailed on `claimedSlug` and
+  // `slugTouchedRef`, but not on a held `collisionBase` -- and the suffix
+  // input never sets `slugTouchedRef`. A rename while a suffix is in play
+  // would silently reassemble `value.slug` (and therefore `fullAddress`, and
+  // whatever Claim reads) from the FRESH derived name, while the row kept
+  // showing the frozen base. The shop would see one address and claim
+  // another.
+  it('does not let a rename swap the address while a suffix is being typed', () => {
+    const d = collide(['koodbuur', 'hargeisa']);
+    d.type('content-drawer-suffix-input', 'koodbuur');
+    d.update({ shopName: 'Xamdi Electronics and Solar' });
+
+    // The row still reads the frozen base...
+    expect(d.texts()).toContain('xamdi-electronics-');
+    // ...and the full address -- the exact value Claim submits, since Claim
+    // reads value.slug and fullAddress is built from that same value.slug --
+    // still describes the SAME address the row shows, not one silently
+    // rebuilt from the new name.
+    const full = textsIn(d.find('content-drawer-full-address').props.children).join('');
+    expect(full).toBe(`xamdi-electronics-koodbuur.${APP_DOMAIN}`);
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-and-solar' }));
+  });
+
+  // Review finding #2: once a collision opened the suffix field there was no
+  // way back to a plain, editable address short of reloading the app. This is
+  // the quiet way out -- and, once taken, typing into the reopened field is
+  // the shop's own and must survive a later rename, the same rule
+  // `slugTouchedRef` already enforces for the ordinary address field.
+  it('lets the shop back out of suffix mode to edit the whole address again', () => {
+    const d = collide(['koodbuur', 'hargeisa']);
+    expect(d.has('content-drawer-suffix-input')).toBe(true);
+
+    d.press('content-drawer-suffix-exit');
+
+    expect(d.has('content-drawer-suffix-input')).toBe(false);
+    expect(d.has('content-drawer-slug-input')).toBe(true);
+
+    d.type('content-drawer-slug-input', 'burco-traders');
+    d.update({ shopName: 'Something Else Entirely' });
+    expect(d.valueOf('content-drawer-slug-input')).toBe('burco-traders');
+    expect(d.onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'something-else-entirely' })
+    );
+  });
 });

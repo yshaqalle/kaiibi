@@ -166,20 +166,29 @@ export function ContentDrawer({
   const offeredSuffix = suffixSuggestions[0] ?? '';
 
   // While nothing is claimed, the address IS the shop's name, and follows it.
-  // Three things stop it, in this order: a claimed address (never re-derived
+  // Four things stop it, in this order: a claimed address (never re-derived
   // -- a rename must not move a printed link), an address the shop typed
-  // itself, and a name that normalizes to nothing.
+  // itself, a name that normalizes to nothing, and a collision base held for
+  // suffix mode. That last guard matters even though the suffix field's own
+  // effect (below) reassembles `collisionBase + suffixDraft` on every render
+  // where either changes -- a renamed shop changes NEITHER of those, so
+  // without this guard this effect would overwrite `value.slug` with the
+  // freshly derived (unsuffixed) name while the row still shows the frozen
+  // base, and the address on screen and the address Claim submits would
+  // silently diverge.
   useEffect(() => {
     if (claimedSlug) return;
     if (slugTouchedRef.current) return;
+    if (collisionBase !== null) return;
     if (!derived) return;
     if (derived === value.slug.trim()) return; // already there; writing again would loop
     onChange({ slug: derived });
     // value.slug and onChange are deliberately out: this effect reacts to the
-    // NAME changing (and to the address being claimed), and re-running it on
-    // every keystroke of the address is precisely what it must not do.
+    // NAME changing (and to the address being claimed or a collision
+    // starting/ending), and re-running it on every keystroke of the address
+    // is precisely what it must not do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [derived, claimedSlug]);
+  }, [derived, claimedSlug, collisionBase]);
 
   // The collision itself: freeze what the shop has so a field can be opened
   // to append to it. Adjusted DURING RENDER rather than from an effect --
@@ -190,6 +199,20 @@ export function ContentDrawer({
   // refused SUFFIX out of the base and the shop from being walked backwards.
   if (slugState === 'taken' && collisionBase === null && value.slug.trim()) {
     setCollisionBase(value.slug.trim());
+  }
+
+  // The way OUT of suffix mode: a shop that decides to use a different name
+  // entirely, not just a different ending, has otherwise no way back to a
+  // plain, editable address field short of reloading the app. Clears both
+  // pieces of frozen state -- the base and the typed ending -- and nothing
+  // else: `value.slug` is left exactly as assembled, because it becomes the
+  // plain input's value the moment `inSuffixMode` goes false, and a shop who
+  // hasn't typed since is free to have it re-derive on the next rename (the
+  // ordinary rule above), while a shop who DOES type into it immediately
+  // marks it touched through that input's own `onChangeText`, same as ever.
+  function exitSuffixMode() {
+    setCollisionBase(null);
+    setTypedSuffix(null);
   }
 
   // The ending on screen: the shop's own if it has typed one, otherwise the
@@ -356,6 +379,15 @@ export function ContentDrawer({
           bento's caveat vocabulary disagree. */}
       {inSuffixMode ? <Caveat tone="context">{collisionText(collisionBase)}</Caveat> : null}
 
+      {/* The way out. Quiet on purpose -- the suffix field is the path most
+          shops want, and this is only for the one who has decided the whole
+          name should change, not just the ending. */}
+      {inSuffixMode ? (
+        <Pressable testID="content-drawer-suffix-exit" onPress={exitSuffixMode} style={styles.suffixExitRow}>
+          <Text style={styles.suffixExitText}>Use a different name instead</Text>
+        </Pressable>
+      ) : null}
+
       {showSuggestion ? (
         <Pressable
           testID="content-drawer-slug-suggestion-accept"
@@ -517,6 +549,11 @@ const styles = StyleSheet.create({
 
   suggestionRow: { alignSelf: 'flex-start', marginTop: 8 },
   suggestionText: { fontSize: 12, fontWeight: '700', color: theme.bentoAccentInk },
+
+  // Deliberately NOT accent-coloured, unlike suggestionText above -- this is
+  // the quiet way out, not the path most shops should take.
+  suffixExitRow: { alignSelf: 'flex-start', marginTop: 8 },
+  suffixExitText: { fontSize: 12, fontWeight: '600', color: theme.bentoMuted },
 
   claimButton: {
     marginTop: 12,
