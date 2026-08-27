@@ -1,7 +1,8 @@
 import { listLocations } from '@/lib/locations';
-import { categoryLabel, employeeLabel, type LabelledLine, type LabelledSale } from '@/lib/report-math';
+import { categoryLabel, effectiveReorderLevel, employeeLabel, type LabelledLine, type LabelledSale } from '@/lib/report-math';
 import { getSalesAndRefundsInRange } from '@/lib/sales';
 import type { PeriodRefund } from '@/lib/sales-reporting';
+import { supabase } from '@/lib/supabase';
 import type { Sale, ShopLocation } from '@/types/models';
 
 // The reads the seven reports need, and the row -> model shaping that goes with
@@ -169,4 +170,137 @@ export function linesByCategory(sales: Sale[], categories: Map<string, string | 
       };
     })
   );
+}
+
+// ---------------------------------------------------------------------------
+// Stock on hand (Tasks 7 and 8)
+// ---------------------------------------------------------------------------
+
+// PostgREST caps an unbounded select at 1000 rows and returns the first page
+// with no error, so a shop with 400 products across three branches would see a
+// stock report that silently stopped two thirds of the way down. Local rather
+// than shared with sales.ts's identical helper only because that one is not
+// exported; if a third caller appears, hoist both.
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(runPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await runPage(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
+/** One product's stock at one store, with everything needed to judge it. */
+export type StockOnHandRow = {
+  productId: string;
+  productName: string;
+  category: string | null;
+  locationId: string;
+  locationName: string;
+  stock: number;
+  /**
+   * What one unit cost, from `products.cost_cents`. Null where nobody has
+   * costed the product -- null and not zero, because zero is a real answer.
+   */
+  costCents: number | null;
+  /** The level in force here: the branch override, else the product's own. */
+  reorderLevel: number | null;
+};
+
+type StockOnHandDbRow = {
+  product_id: string;
+  location_id: string;
+  stock: number;
+  reorder_level: number | null;
+  products: { name: string; category: string | null; cost_cents: number | null; reorder_level: number | null } | null;
+};
+
+/**
+ * Stock on hand per product per store, for Inventory Balance and Low Stock.
+ *
+ * Deliberately NOT `getLowStockProducts`, which defaults a missing reorder
+ * level to 5. That is the right call for a dashboard nudge and the wrong one
+ * for a report: it turns "nobody has set a level" into "the level is 5", which
+ * is precisely the conflation the low-stock screen exists to avoid. Null
+ * travels all the way through to `lowStockReading`, which reports the two
+ * cases differently.
+ *
+ * Read from `product_location_stock`, not from `products.stock`: the shop-wide
+ * rollup hides a branch that is out of an item while another overflows, and
+ * that branch is the one that needs reordering.
+ *
+ * A row with no `products` join is dropped. It cannot happen through the
+ * foreign key (`on delete cascade`), and inventing a name for it would put a
+ * row called "Unknown" on a reorder list nobody can act on.
+ */
+export async function loadStockOnHand(
+  shopId: string,
+  locationId: string | null,
+  locations: ShopLocation[]
+): Promise<StockOnHandRow[]> {
+  const rows = await fetchAllRows<StockOnHandDbRow>((from, to) => {
+    let query = supabase
+      .from('product_location_stock')
+      .select('product_id, location_id, stock, reorder_level, products!inner(name, category, cost_cents, reorder_level, shop_id)')
+      .eq('products.shop_id', shopId);
+    if (locationId) query = query.eq('location_id', locationId);
+    return query.range(from, to) as unknown as PromiseLike<{ data: StockOnHandDbRow[] | null; error: unknown }>;
+  });
+
+  const names = new Map(locations.map((location) => [location.id, location.name]));
+  return rows
+    .filter((row): row is StockOnHandDbRow & { products: NonNullable<StockOnHandDbRow['products']> } => row.products !== null)
+    .map((row) => ({
+      productId: row.product_id,
+      productName: row.products.name,
+      category: row.products.category,
+      locationId: row.location_id,
+      locationName: names.get(row.location_id) ?? 'Unknown store',
+      stock: row.stock,
+      costCents: row.products.cost_cents,
+      reorderLevel: effectiveReorderLevel(row.reorder_level, row.products.reorder_level),
+    }));
+}
+
+/** Stock on hand plus the branch list, which the store column needs to name. */
+export async function loadInventoryReport(shopId: string, locationId: string | null): Promise<StockOnHandRow[]> {
+  const locations = await listLocations(shopId);
+  return loadStockOnHand(shopId, locationId, locations);
+}
+
+// ---------------------------------------------------------------------------
+// Categories (Task 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every product's category, for tagging sale lines.
+ *
+ * Two columns rather than `listProducts`, which selects `*` plus every
+ * product's per-store stock rows -- three joins and a hundred columns to read
+ * one string per product.
+ */
+export async function loadProductCategories(shopId: string): Promise<Map<string, string | null>> {
+  const rows = await fetchAllRows<{ id: string; category: string | null }>((from, to) =>
+    supabase.from('products').select('id, category').eq('shop_id', shopId).range(from, to)
+  );
+  return new Map(rows.map((row) => [row.id, row.category]));
+}
+
+/** Sale lines tagged with their product's category, in one read. */
+export async function loadCategoryReport(
+  shopId: string,
+  since: Date,
+  until: Date | undefined,
+  locationId: string | null
+): Promise<LabelledLine[]> {
+  const [{ sales }, categories] = await Promise.all([
+    loadSalesReport(shopId, since, until, locationId),
+    loadProductCategories(shopId),
+  ]);
+  return linesByCategory(sales, categories);
 }

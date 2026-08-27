@@ -306,7 +306,70 @@ export function stockValueCents(rows: { stock: number; costCents: number | null 
   return { valueCents, unvalued };
 }
 
+/** One bucket's stock: a store's shelves, or one product across every store. */
+export type StockGroup = {
+  key: string;
+  label: string;
+  stock: number;
+  costCents: number | null;
+};
+
+export type StockGroupRow = {
+  key: string;
+  label: string;
+  units: number;
+  valueCents: number;
+  /** Rows in this bucket with no cost recorded, so the value is understated. */
+  unvalued: number;
+  /** Rows in the bucket. One product held at one store is one row. */
+  rows: number;
+};
+
+/**
+ * Stock bucketed and valued, most valuable bucket first.
+ *
+ * Ranked on VALUE rather than on units, because the question a stock report is
+ * asked is where the money is sitting, and a bucket holding nine thousand
+ * plastic bags outranks one holding the freezer stock on any unit count.
+ *
+ * Ties break on label then key, for the reason `rollUpLines` does: a shop with
+ * three empty branches would otherwise see them reshuffle on every refresh.
+ */
+export function rollUpStock(rows: StockGroup[]): StockGroupRow[] {
+  const grouped = groupBy(rows, (row) => row.key);
+  return Object.entries(grouped)
+    .map(([key, group]) => {
+      const { valueCents, unvalued } = stockValueCents(group);
+      return {
+        key,
+        label: group[0].label,
+        units: group.reduce((sum, row) => sum + row.stock, 0),
+        valueCents,
+        unvalued,
+        rows: group.length,
+      };
+    })
+    .sort((a, b) => b.valueCents - a.valueCents || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+}
+
 export type ReorderRow = { stock: number; reorderLevel: number | null };
+
+/**
+ * The reorder level actually in force for a product at one store.
+ *
+ * `product_location_stock.reorder_level` is a per-branch OVERRIDE and null
+ * there means "use the product's own value" -- a flagship carries deeper stock
+ * than a kiosk, and a shop that does not care sets nothing. Null on BOTH means
+ * nobody has set a level at all, which is a third state and the one the
+ * low-stock report's empty message turns on.
+ *
+ * `??`, never `||`. An override of 0 is a real instruction -- "this branch does
+ * not stock this, never reorder it" -- and falsiness would throw it away and
+ * silently reinstate the product's shop-wide level.
+ */
+export function effectiveReorderLevel(locationLevel: number | null, productLevel: number | null): number | null {
+  return locationLevel ?? productLevel;
+}
 
 /**
  * How many units short of the reorder level a row is, or null when no level is

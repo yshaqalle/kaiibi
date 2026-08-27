@@ -16,8 +16,11 @@ import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-v
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { CategorySalesView } from '@/components/accounting/reports/category-sales-view';
 import { EmployeeSalesView } from '@/components/accounting/reports/employee-sales-view';
+import { InventoryBalanceView } from '@/components/accounting/reports/inventory-balance-view';
 import { ItemPerformanceView } from '@/components/accounting/reports/item-performance-view';
+import { LowStockView } from '@/components/accounting/reports/low-stock-view';
 import { ReportsHub, isReportView, reportViewMeta, type ReportView } from '@/components/accounting/reports/reports-hub';
 import { SalesReportView } from '@/components/accounting/reports/sales-report-view';
 import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
@@ -324,6 +327,15 @@ export default function AccountingScreen() {
             {tab === 'reports' && reportView === 'sales' && <SalesReportView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
             {tab === 'reports' && reportView === 'item' && <ItemPerformanceView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
             {tab === 'reports' && reportView === 'employee' && <EmployeeSalesView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
+            {tab === 'reports' && reportView === 'category' && <CategorySalesView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
+            {/* No `dateRange` on either of these two: stock on hand and a
+                shortfall are positions read at an instant -- there is no such
+                thing as the stock a shop held over the last seven days -- so
+                they ignore the shell's window, and their hub cards say "As of
+                today" for that reason. They keep the STORE filter, because
+                which shelf is empty is a real question. */}
+            {tab === 'reports' && reportView === 'inventory' && <InventoryBalanceView locationFilter={locationFilter} setRefresh={setTabRefresh} />}
+            {tab === 'reports' && reportView === 'lowstock' && <LowStockView locationFilter={locationFilter} setRefresh={setTabRefresh} />}
             {/* The Reports tab as it was, kept on a route of its own rather
                 than deleted: it holds a working profit and loss, a sales-tax
                 summary and a labour ratio, and the four dimmed cards on the hub

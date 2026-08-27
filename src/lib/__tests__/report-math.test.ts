@@ -1,6 +1,7 @@
 import {
   averageCents,
   categoryLabel,
+  effectiveReorderLevel,
   employeeLabel,
   groupBy,
   grossProfitCents,
@@ -10,6 +11,7 @@ import {
   reorderShortfall,
   reorderUrgency,
   rollUpLines,
+  rollUpStock,
   rollUpSales,
   sequenceMovements,
   shareOfTotal,
@@ -176,6 +178,85 @@ describe('stock value', () => {
   it('multiplies cost by units held, not by row count', () => {
     // 7 x 300 = 2100, which is visibly neither 300 nor 7.
     expect(stockValueCents([{ stock: 7, costCents: 300 }]).valueCents).toBe(2100);
+  });
+});
+
+describe('rolling stock up by bucket', () => {
+  const held = (over: Partial<Parameters<typeof rollUpStock>[0][number]>) => ({
+    key: 'k',
+    label: 'L',
+    stock: 1,
+    costCents: 100,
+    ...over,
+  });
+
+  it('values each bucket and counts its unvalued rows separately', () => {
+    // Main: 10 x 300 = 3000 plus an uncosted row. Kiosk: 4 x 250 = 1000.
+    // No two of 3000/1000/300/250 sum to another, so a row credited to the
+    // wrong store cannot land on the right total.
+    const rows = rollUpStock([
+      held({ key: 'main', label: 'Main', stock: 10, costCents: 300 }),
+      held({ key: 'kiosk', label: 'Kiosk', stock: 4, costCents: 250 }),
+      held({ key: 'main', label: 'Main', stock: 7, costCents: null }),
+    ]);
+    expect(rows).toEqual([
+      { key: 'main', label: 'Main', units: 17, valueCents: 3000, unvalued: 1, rows: 2 },
+      { key: 'kiosk', label: 'Kiosk', units: 4, valueCents: 1000, unvalued: 0, rows: 1 },
+    ]);
+  });
+
+  it('counts uncosted units in the unit total even though they carry no value', () => {
+    // The 7 uncosted units above are on the shelf and someone has to count
+    // them. Dropping them from `units` would make the report disagree with the
+    // stock-take, which is the one thing it must not do.
+    const rows = rollUpStock([
+      held({ key: 'a', stock: 5, costCents: null }),
+      held({ key: 'a', stock: 2, costCents: 100 }),
+    ]);
+    expect(rows[0]).toMatchObject({ units: 7, valueCents: 200, unvalued: 1 });
+  });
+
+  it('ranks by value rather than by units, so a pallet of bags cannot outrank the freezer', () => {
+    // Bags: 9000 units at 1 cent = 9000. Freezer: 3 units at 50000 = 150000.
+    // A report sorted on units inverts these.
+    const rows = rollUpStock([
+      held({ key: 'bags', label: 'Bags', stock: 9000, costCents: 1 }),
+      held({ key: 'freezer', label: 'Freezer', stock: 3, costCents: 50000 }),
+    ]);
+    expect(rows.map((r) => r.key)).toEqual(['freezer', 'bags']);
+  });
+
+  it('breaks a value tie on the label, so empty branches do not reshuffle', () => {
+    // Three branches holding nothing, fed in reverse order.
+    const rows = rollUpStock([
+      held({ key: 'c', label: 'Cabin', stock: 0 }),
+      held({ key: 'b', label: 'Beach', stock: 0 }),
+      held({ key: 'a', label: 'Airport', stock: 0 }),
+    ]);
+    expect(rows.map((r) => r.label)).toEqual(['Airport', 'Beach', 'Cabin']);
+  });
+});
+
+describe('the reorder level in force', () => {
+  it('lets a branch override the product', () => {
+    expect(effectiveReorderLevel(12, 30)).toBe(12);
+  });
+
+  it('falls back to the product when the branch has no override', () => {
+    expect(effectiveReorderLevel(null, 30)).toBe(30);
+  });
+
+  it('keeps a branch override of zero rather than falling through to the product', () => {
+    // Zero is a real instruction -- "this branch does not stock this" -- and is
+    // falsy, so an implementation using `||` silently reinstates the shop-wide
+    // level of 30 and puts the product on a reorder list it was taken off.
+    expect(effectiveReorderLevel(0, 30)).toBe(0);
+  });
+
+  it('is null when nobody has set a level anywhere', () => {
+    // The third state, and the one the low-stock empty message turns on. Zero
+    // here would report every product as adequately stocked.
+    expect(effectiveReorderLevel(null, null)).toBeNull();
   });
 });
 
