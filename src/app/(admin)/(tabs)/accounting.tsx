@@ -9,6 +9,7 @@ import { BackfillView } from '@/components/accounting/ledger/backfill-view';
 import { BalanceSheetView } from '@/components/accounting/ledger/balance-sheet-view';
 import { CashFlowView } from '@/components/accounting/ledger/cash-flow-view';
 import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
+import { ClosePeriodView } from '@/components/accounting/ledger/close-period-view';
 import { IncomeStatementView } from '@/components/accounting/ledger/income-statement-view';
 import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-view';
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
@@ -262,6 +263,11 @@ export default function AccountingScreen() {
                 says "As of today" for that reason. */}
             {tab === 'accounting' && view === 'balance' && <BalanceSheetView dateRange={dateRange} setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'cashflow' && <CashFlowView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {/* No `dateRange`: a period is a calendar month the ledger already
+                owns, so this screen lists every one of them rather than the
+                shell's window. Its hub card says "Every month" for that
+                reason. */}
+            {tab === 'accounting' && view === 'close' && <ClosePeriodView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}

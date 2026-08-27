@@ -49,7 +49,32 @@ function newestDefinitionOf(fn: string): { file: string; body: string } {
   return { file, body: text.slice(start, end) };
 }
 
-type Edit = [introducedIn: string, what: string, token: string];
+// `times` is optional and means "and it must appear EXACTLY this many times".
+//
+// Without it an entry asserts presence only, and a token that occurs twice in a
+// function is satisfied by either one -- so a copy-forward that drops the tenant
+// filter from ONE of balance_sheet's two CTEs, or that loses ONE of
+// close_accounting_period's two branches, stays green. That is a pin that argues
+// it is guarding something while guarding nothing.
+//
+// It is deliberately opt-in rather than defaulted to 1. This file used to
+// DISCLOSE the problem in prose, at close_accounting_period, and named three
+// tokens as the whole of it. Re-running that as a script over every entry rather
+// than by eye finds FIFTY-FIVE of the 229 presence-only entries whose token
+// occurs more than once -- so the disclosure was not a known limit with three
+// instances, it was a general property of the file with three noticed. Most are
+// in complete_sale and edit_sale, where the token is a variable or parameter
+// name mentioned throughout a 350-line body: `p_customer_id` ten times,
+// `v_item_discount_cents` nine, `v_pending_points` three. An exact count on
+// those would pin the shape of the code rather than the rule, and any honest
+// refactor reddens it for nothing.
+//
+// So `times` is set where the SECOND occurrence is itself a rule somebody could
+// drop on its own -- a per-CTE tenant filter, a per-branch audit field -- and
+// left off where the count is only how often a name gets typed. Where two
+// occurrences are DIFFERENT rules that share a prefix, the fix is a second
+// entry naming one of them, not a count: see list_accounting_periods.
+type Edit = [introducedIn: string, what: string, token: string, times?: number];
 
 const COMPLETE_SALE_EDITS: Edit[] = [
   ['0005', 'split payments across methods', 'insert into public.sale_payments'],
@@ -1130,9 +1155,271 @@ const DELETE_INVOICE_PAYMENT_EDITS: Edit[] = [
   ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
 ];
 
+// post_journal_entry and open_period_for join this file at their SECOND and
+// THIRD definitions respectively, which is the point at which a copy-forward
+// can start losing things.
+//
+// post_journal_entry is the only door into the ledger and every posting RPC
+// calls it. 20260908000150 replaced its racing `count(*) + 1` reference with a
+// counter; 20261002000100 gave it `p_adjusting`. A copy taken from
+// 20260904000500 restores the race at the till, and a copy taken from
+// 20260908000150 silently removes the only way an owner can post a late bill
+// into a month that has closed -- with no test in this file to say so until
+// now.
+const POST_JOURNAL_ENTRY_EDITS: Edit[] = [
+  ['20260904000500', 'manual entries need ledger.post, and only manual ones',
+    "p_source = 'manual' and not has_shop_permission(p_shop_id, 'ledger.post')"],
+  ['20260904000500', 'an entry that does not balance is refused, naming the difference',
+    'debits and credits differ by'],
+  ['20260904000500', 'an unknown account code is named back to the caller', 'No such account'],
+  ['20260904000500', 'the period gate decides whether the month accepts it', 'open_period_for'],
+  // The PROPERTY, not merely a mention of the table: the counter is read and
+  // incremented in ONE statement, which is what serialises two concurrent
+  // posts. A read followed by a write is the race all over again.
+  ['20260908000150', 'the reference comes from a counter, in one statement',
+    'on conflict (shop_id, year) do update set next_number'],
+  // Specific to the FORWARDING, not to the parameter existing. A copy that
+  // declares p_adjusting and then calls open_period_for with two arguments
+  // compiles, gates nothing, and refuses every adjusting entry.
+  ['20261002000100', 'a deliberate adjusting entry reaches the period gate',
+    'public.open_period_for(p_shop_id, p_entry_date, p_adjusting)'],
+  // THE TENANT BOUNDARY. This function is security definer, and for its whole
+  // life the only gate on it applied to p_source = 'manual' -- so any other
+  // source let a stranger write entries into any shop.
+  //
+  // THE RULE, pinned on its own, so that TIGHTENING the qualifier around it is
+  // not a test failure. The entry that shipped here pinned the whole predicate
+  // INCLUDING `auth.uid() is not null and`, and that qualifier was the hole:
+  // a request with no Authorization header has no uid, failed the first
+  // conjunct, and posted into any shop. Correcting it therefore reddened this
+  // very entry with `has lost "every source needs a member of the shop"` --
+  // a guard arguing against its own fix, which is worse than no guard. Whatever
+  // guards the qualifier must be able to change as the qualifier is understood
+  // better; what must never change is that membership is tested at all.
+  ['20261005000100', 'every source needs a member of the shop, not just manual',
+    'not public.is_shop_member(p_shop_id)'],
+  // THE QUALIFIER, pinned separately and on its CURRENT correct form. The
+  // exemption is for a caller that did not arrive through PostgREST -- psql, a
+  // migration, or a trigger fired by one -- and NOT for a caller that merely
+  // has no user, which is every anonymous request. `coalesce(…, '') <> ''`
+  // rather than `is not null` because set_config(…, null, …) leaves the empty
+  // string; see 20261005000400's header for both, verified against the live
+  // stack and over real HTTP.
+  ['20261005000400', 'the exemption is for a caller with no JWT AT ALL, not for one with no user',
+    "coalesce(current_setting('request.jwt.claims', true), '') <> ''"],
+];
+
+const OPEN_PERIOD_FOR_EDITS: Edit[] = [
+  ['20260904000200', 'a month is opened on first use rather than seeded',
+    'on conflict (shop_id, starts_on) do update'],
+  // Locked is checked FIRST and SEPARATELY. Folded into the closed branch it
+  // becomes re-openable by an adjusting entry, which is the one thing locked
+  // exists to prevent.
+  ['20261002000100', 'locked refuses everything, ahead of and apart from closed',
+    "if v_status = 'locked' then"],
+  ['20261002000100', 'a closed month still accepts a deliberate adjusting entry', 'p_adjusting'],
+  // ledger.close, never ledger.post: ordinary posting is precisely what a
+  // closed period refuses, so gating the adjusting door on it permits everyone
+  // who could already post.
+  ['20261002000100', 'and only from somebody who may close the month',
+    "has_shop_permission(p_shop_id, 'ledger.close')"],
+];
+
+const CLOSE_ACCOUNTING_PERIOD_EDITS: Edit[] = [
+  ['20261002000100', 'gated on ledger.close', "has_shop_permission(p_shop_id, 'ledger.close')"],
+  ['20261002000100', 'serialised per shop, so two taps write one entry',
+    'pg_advisory_xact_lock(74922'],
+  ['20261002000100', 'the period is scoped to the shop', 'id = p_period_id and shop_id = p_shop_id'],
+  ['20261002000100', 'a locked period refuses harder than a closed one', "v_period.status = 'locked'"],
+  ['20261002000100', 'closing a closed period is an error, not a no-op', "v_period.status = 'closed'"],
+  // Each line is MINUS the balance, for every P&L type alike. Two branches that
+  // are algebraically identical is a mutation that cannot redden anything.
+  ['20261002000100', 'every closing line is minus the account balance',
+    '(-sum(l.amount_cents))::bigint as amt'],
+  // An account that traded and was fully reversed nets to zero, and
+  // journal_lines refuses a zero amount.
+  ['20261002000100', 'an account with a zero balance gets no line',
+    'having sum(l.amount_cents) <> 0'],
+  ['20261002000100', 'the close reads only posted and reversed lines, never drafts',
+    "e.status in ('posted', 'reversed')"],
+  ['20261002000100', 'a month that did not trade closes with no entry at all',
+    'if v_lines is null then'],
+  ['20261002000100', 'a month that broke even gets no 3900 line', 'if v_sum <> 0 then'],
+  ['20261002000100', "the entry is dated the period's last day", 'v_period.ends_on'],
+  // ── Task 3 (20261003000100) added these three and nothing pinned them ────
+  //
+  // p_force shipped ACCEPTED AND UNREAD in 20261002000100, so a copy taken from
+  // that ancestor still compiles, still takes the parameter, and silently
+  // closes over every outstanding item without ever refusing -- which is the
+  // whole of the 'ask' mode gone, with no error anywhere.
+  ['20261003000100', 'an un-forced close REFUSES while anything is outstanding',
+    'if v_exceptions is not null and not p_force then'],
+  // TWICE -- once in the no-trading branch and once in the ordinary one -- as
+  // are the 'event' and 'forced' tokens below.
+  //
+  // This was DISCLOSED as a known limit and left unguarded, on the grounds that
+  // pinning them per-branch would mean pinning indentation. That reasoning was
+  // right and its conclusion was not: counting the occurrences pins neither
+  // indentation nor position, and it catches exactly the copy that keeps one
+  // branch and loses the other. The disclosure also undercounted -- see the
+  // audit note on `type Edit` -- which is why these now assert rather than
+  // apologise. verify-period-exceptions-and-auto-close H1/H2 remains the
+  // behavioural guard for the no-trading branch.
+  ['20261003000100', 'what was outstanding is recorded against the period, in BOTH branches',
+    'exceptions = v_exceptions', 2],
+  // 'event' is what tells the explicit audit row apart from the trigger's
+  // row-diff twin. Without it listPeriodCloseEvents() matches both, every closed
+  // month appears twice, and the By column on the Close a Period screen picks
+  // whichever came back first.
+  ['20261003000100', 'the explicit audit row says which event it records, in BOTH branches',
+    "'event', 'close'", 2],
+  ['20261003000100', 'the audit row records whether the close was forced, in BOTH branches',
+    "'forced', p_force", 2],
+  // ── The final review of phase 3b (20261005000000) ───────────────────────
+  //
+  // A month that has not ENDED must not close. Closing the current month stops
+  // the till: phase 2b's escape from a closed month is to redate the posting to
+  // today, and when the closed month is the current month, today is inside it
+  // and open_period_for raises. Pinned on the comparison itself -- `ends_on`
+  // alone appears four times in this function, and `shop_local_date` would
+  // survive a mutation to now()::date only if it were spelled out with it.
+  ['20261005000000', 'a period that has not ended cannot be closed',
+    'v_period.ends_on >= public.shop_local_date()'],
+];
+
+// list_accounting_periods joins at its SECOND definition, which is the point at
+// which a copy-forward can start losing things. It is the ONLY door through
+// which anything reads a shop's periods, and it is also where auto-close lives:
+// a copy taken from 20261003000100 restores a read gate that refuses the very
+// role the Close a Period screen is gated on, and a copy that drops the
+// `perform close_due_periods` line turns auto-close off entirely with every
+// other check in this repo still green -- there being no scheduler, that line is
+// the whole feature.
+const LIST_ACCOUNTING_PERIODS_EDITS: Edit[] = [
+  ['20261003000100', 'the read is what closes a due period, there being no scheduler',
+    'perform public.close_due_periods(p_shop_id)'],
+  ['20261003000100', 'the grace date is null unless the shop is on automatic',
+    "s.auto_close_periods = 'automatic'"],
+  // `case when p.status = 'open'` occurs TWICE, and unlike the pairs above the
+  // two are DIFFERENT rules -- the exceptions column and the auto-close grace
+  // date -- so counting alone would not say which survived. The pair of entries
+  // does: this one requires both occurrences, and the next names the grace one
+  // exactly (it fits on one line). Whichever goes missing, one of the two
+  // reddens. Pinning the exceptions one directly would mean pinning the
+  // indentation of a wrapped expression, which a reformat turns red for nothing.
+  ['20261003000100', 'outstanding is computed for open periods only',
+    "case when p.status = 'open'", 2],
+  ['20261003000100', "and the grace date is the OTHER of those two, not both of them",
+    "case when p.status = 'open' then p.ends_on + v_grace end"],
+  // The STANDING entry: a re-opened month's closing entry is 'reversed', and a
+  // copy that drops either half reports a rolled profit for a month that rolled
+  // nothing.
+  ['20261003000100', 'only a closing entry still standing counts as the roll',
+    "e.status = 'posted'"],
+  ['20261003000100', 'a reversal is not itself the roll', 'e.reverses_entry_id is null'],
+  ['20261003000100', 'the periods are scoped to the shop', 'where p.shop_id = p_shop_id'],
+  // ledger.view ALONE refused a role holding only ledger.close -- which is the
+  // permission the screen calling this is gated on. Pinned as the OR predicate,
+  // not merely as a mention of the permission.
+  ['20261004000000', 'a role holding only ledger.close can read the list it may close',
+    "has_any_shop_permission(p_shop_id, array['ledger.view', 'ledger.close'])"],
+];
+
+// reopen_accounting_period had NO entry list at all, despite two full
+// definitions and an inline reversal whose every part is a decision.
+const REOPEN_ACCOUNTING_PERIOD_EDITS: Edit[] = [
+  ['20261002000100', 'gated on ledger.close', "has_shop_permission(p_shop_id, 'ledger.close')"],
+  ['20261002000100', 'a reason is required, and whitespace is not one',
+    'length(trim(p_reason)) = 0'],
+  ['20261002000100', 'the period is scoped to the shop', 'id = p_period_id and shop_id = p_shop_id'],
+  ['20261002000100', 'a locked period is final and refuses the re-open too', "v_period.status = 'locked'"],
+  // THE ONE THAT MATTERS MOST, and the one a copy-forward would lose by
+  // "simplifying" the inline build into a call to reverse_journal_entry():
+  // that function files its reversal as 'manual', so a re-opened month's
+  // reversal would land in the income statement as trading -- INVERTED, since
+  // its lines are the negatives of a closing entry's. 20261002000100:68-82
+  // writes that failure out at length and nothing guarded it.
+  ['20261002000100', 'the reversal carries source = close, so it stays out of the statements',
+    "'close', 'posted', v_close.location_id, v_close.id"],
+  ['20261002000100', 'and its lines are NEGATED, which is what makes it a reversal',
+    'account_id, -amount_cents, location_id, memo'],
+  ['20261002000100', 'the original is marked reversed rather than deleted', "status = 'reversed'"],
+  // The STANDING entry, so a month closed, re-opened and closed again reverses
+  // the close that is actually in force.
+  ['20261002000100', 'it reverses the closing entry still standing', 'reverses_entry_id is null'],
+  ['20261003000100', 'the recorded exceptions are cleared, there being no close to describe',
+    "exceptions = '{}'"],
+  ['20261003000100', 'the audit row says which event it records', "'event', 'reopen'"],
+];
+
+// ── The three statements, and the rule this branch already lost once ───────
+//
+// "All three statement functions exclude source = 'close'" is phase 3b's
+// central rule and it had no text-level guard -- while the branch itself
+// demonstrated the failure: task 2 concluded cash_flow() needed no change and
+// task 6 found that wrong. All three are now at their second definition, so the
+// next copy-forward has the same opportunity and, until these entries, the same
+// silence.
+//
+// A closing entry is a bookkeeping act, not trading. Without the exclusion an
+// income statement for any window containing a close reads near zero: the close
+// debits every revenue account and credits every expense account by exactly
+// their balances.
+const STATEMENT_LINES_EDITS: Edit[] = [
+  ['20261001000000', 'gated on ledger.view, which is the whole protection',
+    "has_shop_permission(p_shop_id, 'ledger.view')"],
+  ['20261001000000', 'posted AND reversed, never drafts', "e.status in ('posted', 'reversed')"],
+  ['20261001000000', 'the lines are scoped to the shop', 'e.shop_id = p_shop_id'],
+  ['20261002000000', 'a closing entry is not trading', "e.source <> 'close'"],
+];
+
+const BALANCE_SHEET_EDITS: Edit[] = [
+  ['20261001000100', 'gated on ledger.view', "has_shop_permission(p_shop_id, 'ledger.view')"],
+  // TWICE, and both are load-bearing: once in the v_closed sum that takes the
+  // rolled profit back out, and once in the `posted` CTE that every balance on
+  // the sheet is built from. This is `security definer`, so those filters ARE
+  // the tenant boundary. Pinned on presence alone the entry was satisfied by
+  // either one, so a copy dropping the filter from ONE CTE stayed green -- and
+  // dropping it from `posted` puts every other shop's assets and liabilities on
+  // this shop's balance sheet. The statement_lines and cash_flow twins of this
+  // entry occur once each and need no count.
+  ['20261001000100', 'the lines are scoped to the shop, in BOTH queries', 'e.shop_id = p_shop_id', 2],
+  // balance_sheet does NOT exclude source = 'close' the way the other two do,
+  // and that is deliberate: a closing entry moves real balances (3900 gains
+  // what the P&L accounts gave up). What it must not do is COUNT THE PROFIT
+  // TWICE -- once in "Profit this period" and again inside 3900 -- so it
+  // subtracts the P&L side of the closes instead.
+  ['20261002000000', 'the profit already rolled into 3900 is taken out of profit this period',
+    'v_profit := v_profit - v_closed;'],
+  ['20261002000000', 'and it is the CLOSING entries that are subtracted', "e.source = 'close'"],
+  // Read off the closing entries' P&L SIDE, never off 3900's balance: a shop
+  // carrying pre-kaiibi retained earnings in on an 'opening' entry would have
+  // that subtracted from this period's profit. See 20261002000000:304-308.
+  ['20261002000000', "off the closes' P&L side, not off 3900's balance",
+    "a.type in ('revenue', 'cost_of_sales', 'expense')"],
+];
+
+const CASH_FLOW_EDITS: Edit[] = [
+  ['20261001000200', 'gated on ledger.view', "has_shop_permission(p_shop_id, 'ledger.view')"],
+  ['20261001000200', 'the lines are scoped to the shop', 'e.shop_id = p_shop_id'],
+  // Task 2 concluded this one needed no change; task 6 found that wrong. A
+  // forged or future close touching a cash account would otherwise move the
+  // balance sheet's cash and not the cash flow's, and reconciliation 5 would
+  // report a discrepancy whose cause is not in the arithmetic at all.
+  ['20261004000100', 'the cash flow ignores a close too', "e.source <> 'close'"],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
   ['complete_storefront_order', COMPLETE_STOREFRONT_ORDER_EDITS],
+  ['reopen_accounting_period', REOPEN_ACCOUNTING_PERIOD_EDITS],
+  ['statement_lines', STATEMENT_LINES_EDITS],
+  ['balance_sheet', BALANCE_SHEET_EDITS],
+  ['cash_flow', CASH_FLOW_EDITS],
+  ['list_accounting_periods', LIST_ACCOUNTING_PERIODS_EDITS],
+  ['post_journal_entry', POST_JOURNAL_ENTRY_EDITS],
+  ['open_period_for', OPEN_PERIOD_FOR_EDITS],
+  ['close_accounting_period', CLOSE_ACCOUNTING_PERIOD_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
   ['delete_sale', DELETE_SALE_EDITS],
   ['refund_sale_items', REFUND_SALE_ITEMS_EDITS],
@@ -1152,13 +1439,37 @@ describe.each([
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);
 
-  it.each(edits)(`%s: %s`, (introducedIn, what, token) => {
+  // Padded to a fixed four columns rather than passed as written. `times` is
+  // optional, so the rows are a mix of length 3 and 4 -- and when a row is
+  // shorter than the test function's arity, jest appends its `done` callback to
+  // fill the gap. Every three-column entry would then arrive with `times` set to
+  // a function, and all 229 of them fail at once with a count error. The pad
+  // makes every row four columns wide, undefined included.
+  const rows = edits.map((edit) => [edit[0], edit[1], edit[2], edit[3]] as const);
+
+  it.each(rows)(`%s: %s`, (introducedIn, what, token, times) => {
     if (!body.includes(token)) {
       throw new Error(
         `${fn} in ${file} has lost "${what}", introduced in ${introducedIn}.\n` +
           `Expected to find: ${token}\n` +
           `You copied the function forward from an ancestor older than ${introducedIn}. ` +
           `Read that migration, put the edit back, and do not delete this entry.`
+      );
+    }
+    if (times === undefined) return;
+    let found = 0;
+    for (let at = body.indexOf(token); at !== -1; at = body.indexOf(token, at + token.length)) found++;
+    if (found !== times) {
+      throw new Error(
+        `${fn} in ${file} has "${what}" ${found} time(s), and it must appear exactly ${times}.\n` +
+          `Expected ${times} of: ${token}\n` +
+          (found < times
+            ? `Each occurrence is its own rule -- a separate CTE, branch or query that needs it. ` +
+              `You kept one and dropped another, which the presence test alone would not have caught. ` +
+              `Read ${introducedIn}, put the missing one back, and do not delete this entry.`
+            : `There is a new occurrence. If it is a new CTE, branch or query that genuinely needs ` +
+              `this rule, raise the count deliberately; if the token now matches something unrelated, ` +
+              `make the token specific again rather than raising the count.`)
       );
     }
   });
@@ -1169,5 +1480,52 @@ describe.each([
     // reason -- matching tokens from whatever followed it in the file.
     expect(body).toContain(`create or replace function public.${fn}(`);
     expect(body.split(`create or replace function public.`)).toHaveLength(2);
+  });
+});
+
+// The GRANTS on post_journal_entry, which the entry lists above cannot reach.
+//
+// Those slice from `create or replace function` to the next `$$;`, so a grant or
+// a revoke -- which necessarily comes after it -- is outside the window and an
+// entry pinning one would fail for the wrong reason. It is checked here instead,
+// against the whole of the newest file that defines the function.
+//
+// Why it needs checking at all: for this function's entire life `anon` could
+// call it, because PostgreSQL grants EXECUTE on every new function to PUBLIC by
+// default and `anon` is a member of PUBLIC. Nothing had ever revoked it, and
+// 20261005000100's header stated the opposite as fact and rested its whole
+// tenant gate on that statement. The result was that not sending an
+// Authorization header defeated the gate. The revoke in 20261005000400 is the
+// second barrier; a copy-forward that re-issues the grants and forgets it hands
+// the door straight back, and nothing else in `npm test` would notice.
+describe('post_journal_entry is not executable by PUBLIC', () => {
+  const signature = 'public.post_journal_entry(uuid, date, text, jsonb, uuid, text, boolean)';
+  const files = readdirSync(MIGRATIONS)
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+    .filter((name) =>
+      readFileSync(join(MIGRATIONS, name), 'utf8').includes(
+        'create or replace function public.post_journal_entry('
+      )
+    );
+  const file = files[files.length - 1];
+  const text = readFileSync(join(MIGRATIONS, file), 'utf8');
+
+  it('revokes the PUBLIC default grant', () => {
+    expect(text).toContain(`revoke execute on function ${signature} from public;`);
+  });
+
+  it('still grants it to the two roles that call it', () => {
+    // authenticated is src/lib/ledger.ts and every RPC the app calls; without
+    // it the till stops. service_role is the backend key. A revoke that took
+    // either with it would be worse than the hole it closes.
+    expect(text).toContain(`grant execute on function ${signature} to authenticated;`);
+    expect(text).toContain(`grant execute on function ${signature} to service_role;`);
+  });
+
+  it('revokes before it grants, so the grants are the whole list', () => {
+    expect(text.indexOf(`revoke execute on function ${signature} from public;`)).toBeLessThan(
+      text.indexOf(`grant execute on function ${signature} to authenticated;`)
+    );
   });
 });

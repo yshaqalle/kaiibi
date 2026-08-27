@@ -1,0 +1,72 @@
+-- Nothing closes without a human being asked first. The default is 'ask'.
+--
+-- ## WHAT 'automatic' TURNS ON, and why it must not turn itself on
+--
+-- 20261003000100 shipped `auto_close_periods` defaulting to 'automatic' for
+-- every shop that already exists, and defended it on reversibility: every close
+-- can be undone by reopen_accounting_period(). That is a defence of the CLOSE.
+-- It does not consider what the close SWITCHES ON.
+--
+-- Nothing before phase 3b ever wrote `accounting_periods.status = 'closed'`.
+-- There is no RPC, no trigger and no screen that did -- `grep` finds exactly one
+-- other mention of that value in supabase/migrations, and it is the CHECK
+-- constraint in 20260904000200. So every `if v_period_status is not null and
+-- v_period_status <> 'open' then v_posted_date := today` branch in phase 2b --
+-- SIXTY-SIX references across nine functions -- has never once fired for a real
+-- shop. They are, today, dead code in production.
+--
+-- Defaulting to 'automatic' brings all sixty-six to life at once, for every
+-- shop, on the first visit to Close a Period (close_due_periods() is reached
+-- only from list_accounting_periods(), whose only caller in the app is that
+-- screen). The consequence that matters is not hypothetical:
+-- src/lib/sales-import.ts backdates every imported historical sale through
+-- complete_sale's p_created_at. Once the months those sales fall in are closed,
+-- complete_sale keeps the SALE dated historically and redates only its JOURNAL
+-- ENTRY to today. The Sales report reads by sale date and the income statement
+-- by entry date, so the two disagree permanently and the current month's P&L
+-- absorbs the whole of the imported history -- with every entry balancing and
+-- the trial balance still at zero. Nothing looks wrong.
+--
+-- A shop's books closing themselves on the first read after a deploy, and
+-- silently changing where subsequent postings land, is not a default anybody
+-- consented to.
+--
+-- ## THE DEFAULT IS 'ask' FOR EVERY SHOP, NEW ONES INCLUDED
+--
+-- The brief for this change asked for 'ask' on EXISTING shops and left new ones
+-- open to judgement. New shops are 'ask' too, and here is the argument:
+--
+--   * The import risk is if anything GREATER at onboarding. A brand-new shop is
+--     precisely the shop that imports a year of history from a CSV, and it does
+--     so over its first weeks -- by which time its first months are closeable.
+--     "New shops are safe because they have no history" has it backwards.
+--   * The sixty-six branches are untested against a real shop for a NEW shop
+--     exactly as much as for an old one. Nothing about being new exercises them.
+--   * Two defaults means two behaviours to hold in mind for one column, and
+--     the difference between them would be invisible on the screen.
+--
+-- WHAT 'ask' COSTS, said plainly rather than left to be discovered: months no
+-- longer close by themselves, so the PROTECTION a close gives -- "nobody may
+-- edit this month any more" -- arrives only when a human presses the button. A
+-- shop that never opens Close a Period never closes a month. That is exactly
+-- the state every shop is in TODAY, and it is the state they have all been in
+-- for the whole life of this product, so this defers a protection rather than
+-- removing one. 'ask' is also the mode the design describes as the considered
+-- one: the screen shows what is outstanding and a person decides.
+--
+-- WHEN TO REVISIT: when the redate branches have been exercised against real
+-- shops, and when Settings can change this column (it is read-only to the app
+-- today -- getPeriodCloseSettings() reads it and nothing writes it). Flipping
+-- the default back is a one-line migration; the reverse, after a shop's history
+-- has been folded into the wrong month, is not.
+--
+-- The existing rows are moved as well as the default. Every one of them is at
+-- 20261003000100's default and cannot be anything else -- there is no writer --
+-- so `where auto_close_periods = 'automatic'` moves exactly the shops that
+-- never chose it, and would leave alone any shop that later does.
+alter table public.shops alter column auto_close_periods set default 'ask';
+
+update public.shops set auto_close_periods = 'ask' where auto_close_periods = 'automatic';
+
+comment on column public.shops.auto_close_periods is
+  'automatic = close past months by themselves, forcing past outstanding items and recording them; ask = never close by itself, and an un-forced close refuses while anything is outstanding; never = nothing automatic. DEFAULTS TO ''ask'': ''automatic'' switches on phase 2b''s sixty-six "redate a posting out of a closed month" branches, which have never fired for a real shop, and a backdated CSV import would then book historical entries into the current month with everything still balancing. Read by close_due_periods().';

@@ -1153,9 +1153,23 @@ begin
   --     movement -- which no part of the arithmetic touches -- does not move
   --     at all.
   --
-  --     This is also 3b's collision, in miniature: the period close posts to
-  --     3900, and any cash-flow window spanning a close will fail here by
-  --     exactly the amount closed until the statement gains a section for it.
+  --     This was also written as 3b's collision in miniature -- "the period
+  --     close posts to 3900, and any cash-flow window spanning a close will
+  --     fail here by exactly the amount closed until the statement gains a
+  --     section for it". That prediction was HALF right, and the half that was
+  --     wrong is worth recording rather than quietly deleting.
+  --
+  --     3900 does move, and no cash-flow section reads it. But 20261002000000
+  --     excludes source = 'close' from statement_lines(), which adds the SAME
+  --     amount back into the net profit this statement opens with: the closing
+  --     entry's P&L lines and its 3900 line are each other's negation, because
+  --     the entry balances. They cancel, the proof ties across a close with no
+  --     new section, and verify-statements-across-a-close.sql check 6.6 asserts
+  --     exactly that -- including that no sixth section has appeared.
+  --
+  --     2300 is therefore still the whole of the unaccounted set, and this
+  --     negative test still bites. It is the ONE below that would go green if
+  --     somebody added the residual line the design argues against.
   perform public.post_journal_entry(v_shop, public.shop_local_date(), 'Loyalty points accrued',
     jsonb_build_array(
       jsonb_build_object('code', '6100', 'amount_cents',  1200),

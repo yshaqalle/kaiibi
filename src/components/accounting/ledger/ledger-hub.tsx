@@ -18,7 +18,8 @@ export type LedgerView =
   | 'backfill'
   | 'income'
   | 'balance'
-  | 'cashflow';
+  | 'cashflow'
+  | 'close';
 
 // The catalogue, in one place, because four things read it: the hub's cards,
 // the shell's title row, the shell's "is this a view I know" guard, and the nav
@@ -41,6 +42,15 @@ export type LedgerView =
 //   * the three
 //     statements        statement_lines(), balance_sheet() and cash_flow() are
 //                       security definer and RAISE P0001 without ledger.view.
+//   * Close a Period    close_accounting_period() and reopen_accounting_period()
+//                       both raise without ledger.close, and EVERY action on
+//                       that screen is one of the two. It is gated on
+//                       ledger.close rather than on the ledger.view its list
+//                       RPC reads with, because a reader who cannot close
+//                       anything is being offered a screen of buttons that
+//                       refuse -- and the SEEDED MANAGER is exactly that
+//                       reader: 20260904000000 gives the Manager role
+//                       ledger.view and not ledger.close.
 //
 // That distinction is the whole rule, and it is worth stating because the six
 // older cards look like counter-examples and are not. Chart of Accounts,
@@ -191,6 +201,27 @@ export const LEDGER_VIEWS: {
     action: 'Run report',
     creates: false,
     requires: 'ledger.view',
+  },
+  {
+    key: 'close',
+    label: 'Close a Period',
+    blurb: 'Lock a month so its numbers stop moving. This runs itself — you are here to check it.',
+    // Oversight, beside the Audit Log, rather than in "Ledger and journals":
+    // closing is control of the books, not a way of writing to them, and every
+    // close and re-open lands in the log next door.
+    group: 'Oversight',
+    icon: 'lock-closed-outline',
+    // Not "the chosen range". This screen ignores the shell's date picker
+    // entirely -- it lists every period a shop has, newest first -- and a card
+    // promising a window the screen does not honour is a card that gets
+    // believed.
+    scope: 'Every month',
+    // It writes to the books: a close posts a journal entry that zeroes the
+    // P&L into 3900. That is the same reason Post History takes the filled
+    // button rather than the quiet one.
+    action: '+ Close a month',
+    creates: true,
+    requires: 'ledger.close',
   },
   {
     key: 'audit',
