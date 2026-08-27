@@ -1058,6 +1058,13 @@ const CREATE_FIXED_ASSET_EDITS: Edit[] = [
   // is what run_depreciation counts months from.
   ['20261006000100', 'the register records the true acquisition date',
     'p_shop_id, v_name, p_cost_cents, v_acquired, p_life_months'],
+  // This door takes the shop lock too, and it is the one place where the reason
+  // is not obvious: run_depreciation builds a month's LINES and its CHARGE ROWS
+  // in two statements, which in READ COMMITTED are two snapshots. An asset
+  // created between them lands in one derivation and not the other, and the
+  // run's own assertion then aborts a month-end that had nothing wrong with it.
+  ['20261008000000', 'the shop lock is taken before the register is read',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(p_shop_id));'],
 ];
 
 const DISPOSE_FIXED_ASSET_EDITS: Edit[] = [
@@ -1097,6 +1104,18 @@ const DISPOSE_FIXED_ASSET_EDITS: Edit[] = [
   // verify-shop-local-date.sql.
   ['20261006000100', 'every date it decides comes from shop_local_date()',
     'public.shop_local_date()', 3],
+  // The shop lock, and the RE-READ under it. Neither is decoration: without the
+  // lock a concurrent run_depreciation charged a month this disposal had already
+  // written back the accumulated depreciation it could see, and the balance
+  // sheet read `Total fixed assets -40000` for an asset the register said the
+  // shop no longer owned -- permanently, because nothing writes it back. Without
+  // the re-read the lock is taken and then every figure below is still decided
+  // from the snapshot taken before it, which is the same defect with a lock in
+  // front of it. See 20261008000000's header.
+  ['20261008000000', 'the shop lock is taken before anything is decided',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(v_asset.shop_id));'],
+  ['20261008000000', 'and the asset row is re-read under it',
+    'where id = p_asset_id for update;'],
 ];
 
 const RUN_DEPRECIATION_EDITS: Edit[] = [
@@ -1151,8 +1170,34 @@ const RUN_DEPRECIATION_EDITS: Edit[] = [
   // months; journal_lines refuses a zero line so the entry was safe, and the
   // insert then died on depreciation_charges' own check constraint and took the
   // whole run with it.
+  // Re-indented and re-punctuated by 20261008000000, which wrapped the insert in
+  // a data-modifying CTE so the run can read back what it wrote -- so the
+  // statement now ends in `returning` rather than in a semicolon. The RULE is
+  // unchanged and the entry keeps naming the migration that introduced it.
   ['20261006000200', 'a charge that rounds to zero is not written as a charge row',
-    '                end) > 0;'],
+    '                  end) > 0\n          returning amount_cents)'],
+  // THE LOCK, and it is the whole of the fix for a month posted twice. Two
+  // overlapping runs both evaluated the `due` CTE, both decided the month was
+  // due, and the second one blocked inside post_journal_entry on the reference
+  // counter -- which is AFTER the decision. It then posted its own entry and
+  // its charge-row insert, re-evaluated under a new snapshot, wrote nothing.
+  // 7 entries for 6 months, 1590 at -840000 against charge rows of 720000, and
+  // the cash-flow proof still tied because the duplicate moves 1590 and 6800 by
+  // equal and opposite amounts. See 20261008000000's header.
+  ['20261008000000', 'the shop lock is taken BEFORE the run decides anything',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(p_shop_id));'],
+  // The sibling of `disposed_on is null`, in BOTH derivations for the same
+  // reason the count is pinned there: an asset whose acquisition entry was
+  // voided has its cost in no account, so every further monthly charge drives
+  // Total fixed assets more negative, without bound.
+  ['20261008000000', 'a voided acquisition takes no charge, in BOTH derivations',
+    "where je.id = fa.journal_entry_id and je.status = 'posted')", 2],
+  // The entry and the charge rows are ONE fact, and they are written by two
+  // statements. This is what makes a disagreement between them loud instead of
+  // silent-and-balanced -- the failure mode no totals check, no trial balance
+  // and no cash-flow proof can see.
+  ['20261008000000', 'what was written is checked against what was posted',
+    'if v_written <> v_total then'],
   ['20261006000200', 'a closed month is recognised in the open one',
     "coalesce(v_period_status, 'not open')"],
   ['20261006000200', 'it posts under its own source', ", 'depreciation');"],
@@ -1181,6 +1226,15 @@ const DELETE_FIXED_ASSET_EDITS: Edit[] = [
   // shop_local_date() like every other date this file decides.
   ['20261006000100', 'a reversal into a closed month is recognised in the open one, at the shop’s own date',
     'v_reversal_date := public.shop_local_date();'],
+  // The lock and the re-read under it. "This asset has not been depreciated" is
+  // read one statement and the row is deleted another; a run committing in
+  // between charges the asset, the delete's cascade takes the charge rows with
+  // the register row, and the depreciation ENTRY is left crediting 1590 for an
+  // asset the books now say was never bought.
+  ['20261008000000', 'the shop lock is taken before anything is decided',
+    'perform pg_advisory_xact_lock(public.fixed_asset_lock_key(v_asset.shop_id));'],
+  ['20261008000000', 'and the asset row is re-read under it',
+    'where id = p_asset_id for update;'],
 ];
 
 // transfer_funds joins this file at its FIRST definition rather than its second.
@@ -1225,6 +1279,41 @@ const TRANSFER_FUNDS_EDITS: Edit[] = [
   ['20261006000000', 'the date comes from shop_local_date()',
     'coalesce(p_on, public.shop_local_date())'],
   ['20261006000000', "the user's note survives onto the entry", "coalesce(' — ' || v_note, '')"],
+  // Alone among phase 3c's three user-dated doors, this one had no future
+  // check -- create_fixed_asset and dispose_fixed_asset both refuse one. A
+  // transfer dated 400 days out was accepted, opened an accounting period for a
+  // month nobody had traded in, and put a figure on the transfer picker
+  // (195000) that the balance sheet, the trial balance and the cash flow all
+  // disagreed with (120000).
+  ['20261008000100', 'a transfer is not dated in the future',
+    'A transfer cannot be dated in the future'],
+];
+
+// The picker beside it, pinned from its second definition -- the one that gave
+// it the upper date bound its own header had claimed since day one.
+const LIST_TRANSFER_ACCOUNTS_EDITS: Edit[] = [
+  // The SAME permission the write takes. Not ledger.view: the Manager who banks
+  // the float does not hold it, and a reader gated differently from the writer
+  // is a picker that is empty for exactly the people the door was built for.
+  ['20261007000200', 'gated on budgets.manage, the same string the write takes',
+    "has_shop_permission(p_shop_id, 'budgets.manage')"],
+  // security definer bypasses RLS on accounts. Mutation-tested: dropping this
+  // reddens verify-transfers.
+  ['20261007000200', 'the accounts are this shop’s own', 'where a.shop_id = p_shop_id'],
+  ['20261007000200', 'exactly the four codes the write accepts',
+    "a.code in ('1000', '1010', '1020', '1021')"],
+  ['20261007000200', 'a retired account is not offered', 'a.archived_at is null'],
+  ['20261007000200', 'closes are not cash events, the way the proof row reads it',
+    "e.source <> 'close'"],
+  ['20261007000200', 'posted and reversed, the way the proof row reads it',
+    "e.status in ('posted', 'reversed')"],
+  // THE UPPER BOUND. cash_flow()'s proof row carries `e.entry_date <= p_to` and
+  // this had no date predicate at all, so the picker counted a future-dated
+  // entry that no statement did -- a second definition of how much is in the
+  // till, which is the exact thing the function's header says it exists to
+  // avoid.
+  ['20261008000100', 'and it stops at today, which is what makes those two claims true',
+    'e.entry_date <= public.shop_local_date()'],
 ];
 
 describe.each([
@@ -1254,6 +1343,7 @@ describe.each([
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
   ['transfer_funds', TRANSFER_FUNDS_EDITS],
+  ['list_transfer_accounts', LIST_TRANSFER_ACCOUNTS_EDITS],
   ['create_fixed_asset', CREATE_FIXED_ASSET_EDITS],
   ['dispose_fixed_asset', DISPOSE_FIXED_ASSET_EDITS],
   ['delete_fixed_asset', DELETE_FIXED_ASSET_EDITS],
