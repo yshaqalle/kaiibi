@@ -57,7 +57,17 @@ export function ProductTile({
       )}
 
       <View style={styles.info}>
-        <Text style={[styles.name, { color: tile.text }]} numberOfLines={1}>{product.name}</Text>
+        {/* The listing, on the row rather than only behind the filter chip.
+            The chips answer "which ones"; this answers "this one" while a
+            shopkeeper reads the unfiltered list -- otherwise the only way to
+            know is to open the product. A quiet outline, not the warm warning
+            treatment below it: being on the page is a state, not a problem. */}
+        <View style={styles.nameRow}>
+          <Text style={[styles.name, { color: tile.text }]} numberOfLines={1}>{product.name}</Text>
+          {product.isListedOnline && (
+            <Text style={[styles.onlinePill, { color: tile.textSecondary, borderColor: tile.border }]}>Online</Text>
+          )}
+        </View>
         <Text style={[styles.meta, { color: tile.textSecondary }]} numberOfLines={1}>
           {product.brand ?? 'No brand'}{product.sku ? ` · ${product.sku}` : ''} · {product.category || 'Uncategorized'}
         </Text>
@@ -112,7 +122,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-start', padding: 12, borderBottomWidth: 1, gap: 10 },
   thumb: { width: 34, height: 34, borderRadius: 7 },
   info: { flex: 1 },
-  name: { fontSize: 12, fontWeight: '700' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  name: { flexShrink: 1, fontSize: 12, fontWeight: '700' },
+  onlinePill: { flexShrink: 0, fontSize: 9, fontWeight: '700', borderWidth: 1, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 10 },
   meta: { fontSize: 10, marginTop: 2 },
   description: { fontSize: 10, marginTop: 2 },
   controlsRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 8 },

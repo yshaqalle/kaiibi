@@ -536,6 +536,11 @@ describe('storefront editor', () => {
   // header names. `no_products` cannot be fixed on this screen -- the fix is a
   // product marked to sell online, added in Inventory -- so the action has to
   // take the shopkeeper there, and the assertion is the navigation itself.
+  //
+  // To the FILTERED route, not the bare one. Inventory unfiltered says nothing
+  // about online selling anywhere on it, so a link to it drops the shopkeeper
+  // on a screen with no visible trace of the thing they were sent to do;
+  // ?filter=notonline lands them on exactly the products that need marking.
   it('takes the no-products blocker to Inventory when its action is pressed', async () => {
     (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
     (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
@@ -547,7 +552,7 @@ describe('storefront editor', () => {
       action.props.onPress();
     });
 
-    expect(mockPush).toHaveBeenCalledWith('/inventory');
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/inventory', params: { filter: 'notonline' } });
     // And it did not quietly publish an unpublishable page on the way.
     expect(publishDraft).not.toHaveBeenCalled();
   });

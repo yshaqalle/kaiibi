@@ -146,6 +146,13 @@ export function ProductTableRow({
             <View style={[styles.thumb, styles.thumbPlaceholder]} />
           )}
           <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
+          {/* Same badge, same reason, as ProductTile's: the filter chips answer
+              "which ones are on my Storefront page", this answers it for the
+              row in front of you. It goes in the PRODUCT cell, which already
+              wraps, rather than becoming a seventh column -- the six column
+              widths sum to exactly 100% of `dataCols` and a new one would have
+              to take width from all of them. */}
+          {product.isListedOnline && <Text style={styles.onlinePill}>Online</Text>}
         </View>
 
         {locationLabel !== undefined &&
@@ -245,6 +252,7 @@ const styles = StyleSheet.create({
   thumb: { width: 40, height: 40, borderRadius: 11, marginRight: 12 },
   thumbPlaceholder: { backgroundColor: theme.bentoSoft },
   name: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: theme.bentoInk },
+  onlinePill: { flexShrink: 0, fontSize: 10, fontWeight: '700', color: theme.bentoMuted, borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 999, paddingVertical: 2, paddingHorizontal: 7 },
 
   tagChip: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 9, maxWidth: '100%' },
   tagChipText: { fontSize: 11, fontWeight: '600', color: theme.bentoInk2 },

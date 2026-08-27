@@ -61,13 +61,33 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
   { header: 'Shelf Number', value: (p) => p.shelfNumber ?? '' },
   { header: 'Expiry Date', value: (p) => p.expiryDate ?? '' },
   { header: 'Batch Number', value: (p) => p.batchNumber ?? '' },
+  // Named for the toggle that sets it (product-form.tsx), not for the column
+  // underneath -- a shop reconciling a spreadsheet against its Storefront page
+  // is looking for the switch it flipped. Yes/No rather than true/false: this
+  // file is read in a spreadsheet by a shopkeeper, not by a parser.
+  { header: 'Sell Online', value: (p) => (p.isListedOnline ? 'Yes' : 'No') },
 ];
 
 // Which slice of the list is showing. 'expiring' means "has an expiry date at
 // all" rather than "expires soon": the Dashboard's row already narrows to the
 // shop's warning window, and a second, different definition of "soon" living
 // here is how the two screens start disagreeing.
-type StockFilter = 'all' | 'low' | 'expiring' | 'nocost';
+//
+// 'online'/'notonline' are the storefront pair. Both directions get a chip
+// because they answer different questions: 'online' is "what is on my page",
+// which is how a shop checks its storefront, and 'notonline' is "what is not
+// yet", which is the only actionable list for a shop whose page will not
+// publish. The storefront's `no_products` blocker deep-links to the latter.
+//
+// Deliberately NOT gated on the `storefront` module: the toggle that sets
+// `is_listed_online` (product-form.tsx) is shown to every shop regardless of
+// plan, so a chip pair that appeared and disappeared with the plan would
+// describe a field the form does not. It also keeps the deep link honest --
+// entitlements load asynchronously, and a gate here would sometimes drop the
+// seeded filter on the first render and silently land the shopkeeper on the
+// unfiltered list, which is the failure this whole change exists to remove.
+const STOCK_FILTERS = ['all', 'low', 'expiring', 'nocost', 'online', 'notonline'] as const;
+type StockFilter = (typeof STOCK_FILTERS)[number];
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -173,15 +193,21 @@ export default function InventoryScreen() {
   const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
   // Set by a link that already knows what it wants -- the Dashboard's
   // "5 products low on stock" row lands here rather than on the full list,
-  // where the reader would have to find those five again.
+  // where the reader would have to find those five again, and the Storefront's
+  // "Go to Inventory →" lands on the products that are not on the page yet.
   //
   // Read once as the INITIAL value rather than tracked: the chips below are
   // the control after arrival, and re-syncing to a stale URL would fight
   // whoever is using them. Same shape as login.tsx's `next` param, the only
   // other place this app reads a search param.
+  //
+  // Checked against STOCK_FILTERS rather than an inline chain of equalities so
+  // adding a filter cannot leave its deep link silently falling through to
+  // 'all'. An unrecognised value still means the whole list: a link nobody
+  // defined must not narrow anything.
   const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
-  const [stockFilter, setStockFilter] = useState<StockFilter>(
-    filterParam === 'low' || filterParam === 'expiring' || filterParam === 'nocost' ? filterParam : 'all'
+  const [stockFilter, setStockFilter] = useState<StockFilter>(() =>
+    STOCK_FILTERS.includes(filterParam as StockFilter) ? (filterParam as StockFilter) : 'all'
   );
 
   const reload = useCallback(async () => {
@@ -388,7 +414,11 @@ export default function InventoryScreen() {
           ? products.filter((p) => p.expiryDate !== null)
           : stockFilter === 'nocost'
             ? products.filter(isUncosted)
-            : products;
+            : stockFilter === 'online'
+              ? products.filter((p) => p.isListedOnline)
+              : stockFilter === 'notonline'
+                ? products.filter((p) => !p.isListedOnline)
+                : products;
     const matches = !q
       ? scoped
       : scoped.filter((p) =>
@@ -504,6 +534,11 @@ export default function InventoryScreen() {
   const expiryWarningLeadDays = shop?.expiryTrackingEnabled ? shop.expiryWarningLeadDays : undefined;
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
   const uncostedCount = products.filter(isUncosted).length;
+  // Both halves of the storefront pair, counted over the whole catalogue rather
+  // than the visible list -- these label chips, and a chip that counted only
+  // what the current chip is showing would read 0 for every chip but its own.
+  const onlineCount = products.filter((p) => p.isListedOnline).length;
+  const notOnlineCount = products.length - onlineCount;
 
   // Which uncosted count has been acknowledged. Holding the NUMBER rather than
   // a boolean is what lets the warning come back when the number changes --
@@ -717,30 +752,37 @@ export default function InventoryScreen() {
             back out of it. A filtered list that looks like the whole list is
             worse than no link at all. */}
         <View style={styles.stockFilterRow}>
-          {(['all', 'low', 'expiring', 'nocost'] as StockFilter[])
-            .filter((key) => key !== 'expiring' || shop?.expiryTrackingEnabled)
-            .map((key) => (
-              <CategoryChip
-                key={key}
-                variant="bento"
-                active={stockFilter === key}
-                onPress={() => setStockFilter(key)}
-                // Shown with its count even at zero, like Low stock. The comment
-                // above this row argues a narrowed list that looks unnarrowed is
-                // worse than no link at all -- a chip that hid itself when the
-                // count was zero could neither be got out of on a deep link, nor
-                // report the genuinely useful news that the count IS zero.
-                label={
-                  key === 'all'
-                    ? 'All'
-                    : key === 'low'
-                      ? `Low stock ${needsAttention}`
-                      : key === 'expiring'
-                        ? 'Has expiry'
-                        : `No cost ${uncostedCount}`
-                }
-              />
-            ))}
+          {STOCK_FILTERS.filter((key) => key !== 'expiring' || shop?.expiryTrackingEnabled).map((key) => (
+            <CategoryChip
+              key={key}
+              variant="bento"
+              active={stockFilter === key}
+              onPress={() => setStockFilter(key)}
+              // Shown with its count even at zero, like Low stock. The comment
+              // above this row argues a narrowed list that looks unnarrowed is
+              // worse than no link at all -- a chip that hid itself when the
+              // count was zero could neither be got out of on a deep link, nor
+              // report the genuinely useful news that the count IS zero.
+              //
+              // "Online" / "Not online" is the word the storefront's publish
+              // blocker uses ("Add at least one product marked to sell online")
+              // and the word on the toggle that sets it. Short on purpose: this
+              // row wraps at 390px, where the storefront walkthrough happens.
+              label={
+                key === 'all'
+                  ? 'All'
+                  : key === 'low'
+                    ? `Low stock ${needsAttention}`
+                    : key === 'expiring'
+                      ? 'Has expiry'
+                      : key === 'nocost'
+                        ? `No cost ${uncostedCount}`
+                        : key === 'online'
+                          ? `Online ${onlineCount}`
+                          : `Not online ${notOnlineCount}`
+              }
+            />
+          ))}
         </View>
 
         <TillKeyboardNotice />
@@ -822,16 +864,25 @@ export default function InventoryScreen() {
                 ? 'Nothing is low on stock right now.'
                 : stockFilter === 'expiring'
                   ? 'No products have an expiry date set.'
-                  : locationFilter
-                    ? // A store carries a product once it has a stock row there, so an
-                      // empty list here is a real answer, not a missing filter. It
-                      // also has to say how to change that, since the routes in are
-                      // all somewhere else.
-                      // "Stock → Move" rather than "Move stock": the pill by
-                      // that name is gone, and a route named after a button
-                      // that no longer exists is worse than no route at all.
-                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Stock → Move to send some here, or open a product from All stores and set its count for this store.`
-                    : 'No products yet. Add your first one above.'}
+                  : // The state 11 of 11 production shops are in, and the one
+                    // the storefront's publish blocker is about -- so this is
+                    // the sentence that has to name the fix, since the fix is a
+                    // toggle inside a product and nothing else on this screen
+                    // points at it.
+                    stockFilter === 'online'
+                    ? 'No products are on your Storefront page yet. Open a product and turn on Sell online to put it there.'
+                    : stockFilter === 'notonline'
+                      ? 'Every product is on your Storefront page.'
+                      : locationFilter
+                        ? // A store carries a product once it has a stock row there, so an
+                          // empty list here is a real answer, not a missing filter. It
+                          // also has to say how to change that, since the routes in are
+                          // all somewhere else.
+                          // "Stock → Move" rather than "Move stock": the pill by
+                          // that name is gone, and a route named after a button
+                          // that no longer exists is worse than no route at all.
+                          `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Stock → Move to send some here, or open a product from All stores and set its count for this store.`
+                        : 'No products yet. Add your first one above.'}
             </Text>
           </BentoCard>
         ) : (
