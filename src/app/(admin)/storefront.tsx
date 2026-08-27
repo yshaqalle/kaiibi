@@ -461,8 +461,18 @@ export default function StorefrontEditor() {
 
   // Where the no_products blocker's fix actually lives. Pushed, not replaced,
   // so the back gesture returns to the half-finished page they were editing.
+  //
+  // To the FILTERED list, not the bare screen. Unfiltered Inventory says
+  // nothing about selling online anywhere on it, so the old `/inventory` push
+  // landed a shopkeeper who had just been told "Add at least one product marked
+  // to sell online" on a screen with no visible trace of that idea -- the fix
+  // was a toggle inside a product, below Expiry Date and Batch Number.
+  // `notonline` is the actionable half of the pair: it is precisely the set of
+  // products that still need marking, and the chip it activates names the
+  // blocker's own word on arrival. Object form, matching the Dashboard's
+  // `?filter=low` and `?filter=nocost` links into the same screen.
   function handleGoToInventory() {
-    router.push('/inventory');
+    router.push({ pathname: '/inventory', params: { filter: 'notonline' } });
   }
 
   // THE PROPERTY THIS FUNCTION EXISTS FOR: Publish is never disabled

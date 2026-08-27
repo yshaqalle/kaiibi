@@ -414,10 +414,25 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         <Field label="EXPIRY DATE" style={styles.half}><TextInput value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" placeholderTextColor="#999999" style={styles.input} /></Field>
         <Field label="BATCH NUMBER" style={styles.half}><TextInput value={batchNumber} onChangeText={setBatchNumber} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
       </Row>
+      {/* THE WORDS ARE THE POINT. This said "Expose to customers / Show this
+          product in the online Discover feed once it's live", and there is no
+          Discover feed -- that sentence was the only occurrence of the word in
+          the whole repository. `is_listed_online` is read by exactly three
+          things (get_public_storefront_products in 20260924000100, place_order's
+          guard in 20260927000000, and countOnlineProducts), and all three mean
+          one thing: is this product on the shop's own storefront page.
+
+          "Sell online" rather than a fourth phrasing, because the storefront's
+          publish blocker says "Add at least one product marked to sell online."
+          and then sends the shopkeeper here. The control that clears a blocker
+          has to be recognisable as the thing the blocker named -- Inventory's
+          "Online / Not online" chips carry the same word for the same reason. */}
       <View style={styles.toggleRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.toggleTitle}>Expose to customers</Text>
-          <Text style={styles.toggleHint}>Show this product in the online Discover feed once it&apos;s live.</Text>
+          <Text style={styles.toggleTitle}>Sell online</Text>
+          <Text style={styles.toggleHint}>
+            Puts this product on your Storefront page, where customers can browse it and order it.
+          </Text>
         </View>
         <Switch value={isListedOnline} onValueChange={setIsListedOnline} />
       </View>
