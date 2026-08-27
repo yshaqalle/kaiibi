@@ -647,6 +647,108 @@ begin
   end;
   raise notice '11 OK: the picker opens on budgets.manage, offers only the live four, in this shop''s words, at the ledger''s figures';
 
+  -- ── 12. THE FUTURE, AT BOTH DOORS ────────────────────────────────────────
+  --
+  --     transfer_funds was alone among phase 3c's three user-dated doors in
+  --     having no future check -- create_fixed_asset refuses one and so does
+  --     dispose_fixed_asset -- and the modal offers a free DateInput with no
+  --     maximum. And list_transfer_accounts read balances with NO UPPER DATE
+  --     BOUND while its own header claimed the balance was read "the way
+  --     cash_flow()'s PROOF ROW READS IT ... Identical to 20261006000300:202
+  --     on purpose". It was not: the proof row carries `e.entry_date <= p_to`
+  --     and this had no date predicate at all. Measured, one transfer dated
+  --     400 days out on a shop with 120,000 in the bank:
+  --
+  --       ACCEPTED a transfer dated 2027-10-01
+  --       picker        1010 balance      = 195000
+  --       balance_sheet 1010 as of today  =  120000
+  --       periods now: 2026-07-01, 2027-10-01
+  --
+  --     Both halves are checked because either alone leaves the same
+  --     disagreement: post_journal_entry is a shipped generic door that still
+  --     accepts a forward date, so closing the write does not close the read.
+  --
+  --     MUTATION: delete the `v_on > shop_local_date()` branch in
+  --     transfer_funds -> (a) red. Delete `e.entry_date <=
+  --     public.shop_local_date()` from list_transfer_accounts -> (b) red.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  --     (a) THE REFUSAL, in the sibling doors' words.
+  begin
+    perform public.transfer_funds(v_shop, '1000', '1010', 7500,
+                                  (public.shop_local_date() + 400)::date, 'next year');
+    raise exception 'FAIL 12: a transfer dated 400 days out was accepted';
+  exception
+    when others then
+      v_msg := sqlerrm;
+      if v_msg like 'FAIL 12:%' then raise; end if;
+      if v_msg is distinct from 'A transfer cannot be dated in the future; '
+                                || to_char((public.shop_local_date() + 400)::date, 'YYYY-MM-DD')
+                                || ' is after today.' then
+        raise exception 'FAIL 12: the future date refused with "%", expected the sentence create_fixed_asset and dispose_fixed_asset use',
+          v_msg;
+      end if;
+  end;
+
+  --     ...and TOMORROW is refused too, not merely a date a year out. An
+  --     off-by-one that let the next day through would pass a check written
+  --     only against 400 days.
+  begin
+    perform public.transfer_funds(v_shop, '1000', '1010', 7500,
+                                  (public.shop_local_date() + 1)::date, 'tomorrow');
+    raise exception 'FAIL 12: a transfer dated tomorrow was accepted';
+  exception
+    when others then
+      v_msg := sqlerrm;
+      if v_msg like 'FAIL 12:%' then raise; end if;
+      if v_msg not like 'A transfer cannot be dated in the future;%' then
+        raise exception 'FAIL 12: tomorrow refused with "%"', v_msg;
+      end if;
+  end;
+
+  --     ...and TODAY still posts, so the guard is a bound and not a wall.
+  v_before := (select t.balance_cents from public.list_transfer_accounts(v_shop) t
+                where t.code = '1010');
+  perform public.transfer_funds(v_shop, '1000', '1010', 7500,
+                                public.shop_local_date(), 'today');
+  v_after := (select t.balance_cents from public.list_transfer_accounts(v_shop) t
+               where t.code = '1010');
+  if v_after is distinct from v_before + 7500 then
+    raise exception 'FAIL 12: a transfer dated today moved the bank from % to %, expected %',
+      v_before, v_after, v_before + 7500;
+  end if;
+
+  --     (b) AND THE PICKER STOPS AT TODAY. post_journal_entry takes a date
+  --         this door now refuses, so the read has to hold the line on its
+  --         own -- and the figure it shows must be the one the balance sheet
+  --         shows for the same account on the same day.
+  perform public.post_journal_entry(
+    v_shop, (public.shop_local_date() + 400)::date, 'Dated well into next year',
+    jsonb_build_array(jsonb_build_object('code', '1010', 'amount_cents',  9900),
+                      jsonb_build_object('code', '1000', 'amount_cents', -9900)),
+    v_loc, 'manual');
+
+  v_amt := (select t.balance_cents from public.list_transfer_accounts(v_shop) t
+             where t.code = '1010');
+  if v_amt is distinct from v_after then
+    raise exception 'FAIL 12: the picker moved from % to % on an entry dated 400 days out',
+      v_after, v_amt;
+  end if;
+
+  v_before := (select b.amount_cents from public.balance_sheet(v_shop, public.shop_local_date()) b
+                where b.section = 'current_assets' and b.label = (
+                  select a.name from public.accounts a
+                   where a.shop_id = v_shop and a.code = '1010'));
+  if v_amt is distinct from v_before then
+    raise exception 'FAIL 12: the picker says the bank holds % and the balance sheet says % on the same day -- two definitions of how much is in the till',
+      v_amt, v_before;
+  end if;
+  if v_amt = 0 then
+    raise exception 'FAIL 12: the bank reads zero, so this check would pass for a reader that returns nothing';
+  end if;
+  raise notice '12 OK: neither door takes a future date, and the picker and the balance sheet agree on the same day';
+
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
