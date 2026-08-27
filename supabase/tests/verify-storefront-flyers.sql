@@ -43,6 +43,8 @@ declare
   -- The public read (checks 16 onwards).
   v_shop_f       uuid; -- has a storefront and a live flyer, NEVER published
   v_shop_g       uuid; -- published, and deliberately holds no flyers at all
+  v_shop_h       uuid; -- published, ONE flyer, whose offer is walked past its end date (check 19)
+  v_expiring_id  uuid;
   v_live_id      uuid; -- started in the past, no end: live today and every day after
   v_ended_id     uuid;
   v_paused_id    uuid;
@@ -56,7 +58,6 @@ declare
   v_flyers       jsonb;
   v_auto_advance boolean; -- Task 4 (20260930000200): storefronts.auto_advance, read through the same public call.
   v_panel        jsonb;
-  v_copy         jsonb;
   v_missing      text;
   v_present      text;
   v_case         record;
@@ -593,32 +594,69 @@ begin
     raise exception 'FAIL: a draft flyer was published to the street';
   end if;
 
-  -- ------------------------------------------------ 18. the offer is DERIVED, in the printed poster's words
-  -- src/lib/poster.ts: "a poster cannot contradict the till". Neither can the
-  -- page. `value`, `scope` and `when` are computed from the promotion row on
-  -- every read; nothing here is stored on the flyer.
+  -- ------------------------------------------------ 18. the offer travels as the promotion's RAW FACTS
+  -- 20260930000300. The page carries six columns off the promotion row and no
+  -- words at all: the wording is src/lib/poster.ts's offerCopyFor, the same
+  -- function the printed poster comes through, so the paper on the door and
+  -- the page at the shop's address cannot read two ways about one offer. What
+  -- this check owns is that the facts ARRIVE, intact and unrenamed -- a
+  -- renderer that is handed the wrong number cannot print the right one.
   v_panel := v_flyers->1->'offer';
   if v_panel is null or jsonb_typeof(v_panel) is distinct from 'object' then
     raise exception 'FAIL: a flyer with a live promotion carried no offer (%)', (v_flyers->1)::text;
   end if;
-  if (v_panel->>'value') is distinct from '20%' then
-    raise exception 'FAIL: the offer value read % rather than 20%%', coalesce(v_panel->>'value', '<null>');
+  -- No rendered field may come back. If one ever does, two implementations of
+  -- the wording are live again and this whole migration has been undone.
+  foreach v_kind in array array['value', 'when']
+  loop
+    if v_panel ? v_kind then
+      raise exception 'FAIL: the offer carried a rendered "%" -- SQL is wording offers again (%)', v_kind, v_panel::text;
+    end if;
+  end loop;
+
+  if (v_panel->>'discount_type') is distinct from 'percentage' then
+    raise exception 'FAIL: discount_type read % rather than percentage', coalesce(v_panel->>'discount_type', '<null>');
   end if;
-  if (v_panel->>'scope') is distinct from 'Everything in store' then
-    raise exception 'FAIL: the offer scope read % rather than "Everything in store"', coalesce(v_panel->>'scope', '<null>');
+  if (v_panel->>'discount_value') is distinct from '20' then
+    raise exception 'FAIL: discount_value read % rather than 20', coalesce(v_panel->>'discount_value', '<null>');
   end if;
-  if (v_panel->>'when') is distinct from 'From Friday 14 August' then
-    raise exception 'FAIL: the offer window read % rather than "From Friday 14 August"', coalesce(v_panel->>'when', '<null>');
+  -- A number, not a string: the client reads it as one, and '20' would render
+  -- as "20%" by luck rather than by type.
+  if jsonb_typeof(v_panel->'discount_value') is distinct from 'number' then
+    raise exception 'FAIL: discount_value arrived as % rather than a number',
+      coalesce(jsonb_typeof(v_panel->'discount_value'), '<null>');
+  end if;
+  if (v_panel->>'scope') is distinct from 'store' then
+    raise exception 'FAIL: scope read % rather than store', coalesce(v_panel->>'scope', '<null>');
+  end if;
+  if jsonb_typeof(v_panel->'scope_value') is distinct from 'null' then
+    raise exception 'FAIL: a store-wide offer carried a scope_value (%)', v_panel::text;
+  end if;
+  -- The instant, in the explicit UTC ISO-8601 the migration pins so the bytes
+  -- do not move with the session timezone. 2026-08-14 00:00:00+03 is
+  -- 2026-08-13 21:00 UTC -- and the client turning that back into "Friday 14
+  -- August" in Africa/Mogadishu is exactly what poster.test.ts owns.
+  if (v_panel->>'starts_at') is distinct from '2026-08-13T21:00:00Z' then
+    raise exception 'FAIL: starts_at read % rather than 2026-08-13T21:00:00Z',
+      coalesce(v_panel->>'starts_at', '<null>');
+  end if;
+  if jsonb_typeof(v_panel->'ends_at') is distinct from 'null' then
+    raise exception 'FAIL: an open-ended offer did not send ends_at as JSON null (%)', v_panel::text;
   end if;
 
-  -- The fixed-money, category-scoped one, so neither branch of value/scope is
-  -- taken on trust from the percentage case alone.
+  -- The fixed-money, category-scoped one, so neither branch is taken on trust
+  -- from the percentage/store case alone.
   v_panel := v_flyers->2->'offer';
-  if (v_panel->>'value') is distinct from '$2.50' then
-    raise exception 'FAIL: a fixed discount read % rather than $2.50', coalesce(v_panel->>'value', '<null>');
+  if (v_panel->>'discount_type') is distinct from 'fixed' then
+    raise exception 'FAIL: a fixed discount read % rather than fixed', coalesce(v_panel->>'discount_type', '<null>');
   end if;
-  if (v_panel->>'scope') is distinct from 'All Shoes' then
-    raise exception 'FAIL: a category offer read % rather than "All Shoes"', coalesce(v_panel->>'scope', '<null>');
+  if (v_panel->>'discount_value') is distinct from '250' then
+    raise exception 'FAIL: a fixed discount''s value read % rather than 250 (cents)',
+      coalesce(v_panel->>'discount_value', '<null>');
+  end if;
+  if (v_panel->>'scope') is distinct from 'category' or (v_panel->>'scope_value') is distinct from 'Shoes' then
+    raise exception 'FAIL: a category offer read % / % rather than category / Shoes',
+      coalesce(v_panel->>'scope', '<null>'), coalesce(v_panel->>'scope_value', '<null>');
   end if;
 
   -- A flyer with no promotion behind it claims nothing -- and says so as JSON
@@ -627,47 +665,52 @@ begin
     raise exception 'FAIL: a flyer with no promotion carried an offer anyway (%)', (v_flyers->0)::text;
   end if;
 
-  -- ------------------------------------------------ 19. the page's words and the paper's words are the same words
-  -- Every case in src/lib/__tests__/poster.test.ts, against the SQL that
-  -- derives the same three fields. If these two ever disagree, one offer reads
-  -- two ways -- 20% on the door and 30% on the phone.
-  for v_case in
-    select * from (values
-      ('percentage', 20, 'store',    null,      null::timestamptz, null::timestamptz,
-       'value', '20%'),
-      ('fixed',      250, 'store',    null,      null, null,
-       'value', '$2.50'),
-      ('percentage', 20, 'store',    null,      null, null,
-       'scope', 'Everything in store'),
-      ('percentage', 20, 'category', 'Shoes',   null, null,
-       'scope', 'All Shoes'),
-      ('percentage', 20, 'brand',    'Somtel',  null, null,
-       'scope', 'Anything by Somtel'),
-      ('percentage', 20, 'store',    null,      null, timestamptz '2026-08-17 00:00:00+03',
-       'when', 'Until Sunday 16 August'),
-      ('percentage', 20, 'store',    null,      timestamptz '2026-08-14 00:00:00+03', null,
-       'when', 'From Friday 14 August'),
-      ('percentage', 20, 'store',    null,      timestamptz '2026-08-14 00:00:00+03', timestamptz '2026-08-17 00:00:00+03',
-       'when', 'Friday 14 — Sunday 16 August'),
-      -- Not in poster.test.ts, but it is the other branch of `sameMonth`:
-      -- the left half keeps its month when the window crosses one.
-      ('percentage', 20, 'store',    null,      timestamptz '2026-07-30 00:00:00+03', timestamptz '2026-08-02 00:00:00+03',
-       'when', 'Thursday 30 July — Saturday 1 August')
-    ) as t(dtype, dvalue, scope, scope_value, starts_at, ends_at, field, expected)
-  loop
-    v_copy := public.promotion_offer_copy(v_case.dtype, v_case.dvalue, v_case.scope, v_case.scope_value,
-                                          v_case.starts_at, v_case.ends_at);
-    if (v_copy->>v_case.field) is distinct from v_case.expected then
-      raise exception 'FAIL: the page and the poster disagree -- % read % rather than % (%)',
-        v_case.field, coalesce(v_copy->>v_case.field, '<null>'), v_case.expected, v_copy::text;
-    end if;
-  end loop;
+  -- ------------------------------------------------ 19. AN OFFER THAT REACHES ITS END DATE TAKES THE FLYER OFF THE SERVER
+  -- The one property the wording was never allowed to be trusted with, checked
+  -- the way it actually happens: a promotion that was live has its `ends_at`
+  -- move into the past -- Saturday midnight passing with nobody watching --
+  -- and the flyer is GONE FROM THE RESPONSE. Not present-but-blank, not
+  -- present-with-a-flag-a-client-is-asked-to-honour. Zero flyers.
+  --
+  -- Its own shop, holding exactly one flyer, so "gone" can be asserted as an
+  -- empty array rather than as a count going down -- a count is also satisfied
+  -- by the offer's words being stripped while the picture, which says 20% OFF
+  -- in letters this database cannot read, stays on the page.
+  insert into public.shops (owner_id, name) values (v_owner_id, 'Flyer Shop H') returning id into v_shop_h;
+  update public.shops set slug = 'flyer-shop-h' where id = v_shop_h;
+  insert into public.storefronts (shop_id, published_at) values (v_shop_h, now());
+  insert into public.promotions (shop_id, name, discount_type, discount_value, scope, starts_at, ends_at)
+    values (v_shop_h, 'Ends tonight', 'percentage', 20, 'store', now() - interval '2 days', now() + interval '1 day')
+    returning id into v_expiring_id;
+  insert into public.storefront_flyers (shop_id, image_path, position, draft, promotion_id)
+    values (v_shop_h, 'flyers/expiring.jpg', 0, false, v_expiring_id);
 
-  -- An offer with no window prints no date line at all -- as JSON null, not
-  -- the string "null" and not a missing key.
-  v_copy := public.promotion_offer_copy('percentage', 20, 'store', null, null, null);
-  if jsonb_typeof(v_copy->'when') is distinct from 'null' then
-    raise exception 'FAIL: an offer with no window still printed a date line (%)', v_copy::text;
+  -- Alive first. Without this the assertion below passes against a shop whose
+  -- flyer was never on the page at all.
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-h') g;
+  if jsonb_array_length(v_flyers) <> 1 or jsonb_typeof(v_flyers->0->'offer') is distinct from 'object' then
+    raise exception 'FAIL: the expiry fixture was not claiming a live offer to begin with (%)', v_flyers::text;
+  end if;
+
+  update public.promotions set ends_at = now() - interval '1 minute' where id = v_expiring_id;
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-h') g;
+  if v_flyers::text is distinct from '[]' then
+    raise exception 'FAIL: an offer whose ends_at is in the past still left % on the page -- the client is being trusted to hide it (%)',
+      jsonb_array_length(v_flyers), v_flyers::text;
+  end if;
+
+  -- ...and the shop itself is still there, published, answering. Without this
+  -- the empty array above is also what a shop that vanished entirely returns.
+  if (select count(*) from public.get_public_storefront('flyer-shop-h')) <> 1 then
+    raise exception 'FAIL: expiring one offer took the whole shop off the public read';
+  end if;
+
+  -- Back inside its window, back on the page -- so the check above cannot be
+  -- passed by a function that simply stopped returning this shop's flyers.
+  update public.promotions set ends_at = now() + interval '1 day' where id = v_expiring_id;
+  select g.flyers into v_flyers from public.get_public_storefront('flyer-shop-h') g;
+  if jsonb_array_length(v_flyers) <> 1 then
+    raise exception 'FAIL: moving ends_at back into the future did not bring the flyer back (%)', v_flyers::text;
   end if;
 
   -- ------------------------------------------------ 20. AN OFFER THAT IS OVER STOPS BEING CLAIMED
@@ -792,8 +835,8 @@ begin
   end if;
 
   -- And for real, as anon, through the one path that is meant to work. The
-  -- offer derivation is reached from inside a `security definer` function, so
-  -- the helper functions need no grant of their own -- check 25 pins that.
+  -- liveness gate is reached from inside a `security definer` function, so
+  -- promotion_is_live needs no grant of its own -- check 25 pins that.
   set local role anon;
   if current_user is distinct from 'anon' then
     raise exception 'FAIL: set local role anon did not take effect (current_user = %)', current_user;
@@ -805,20 +848,46 @@ begin
     raise exception 'FAIL: anon could not read the flyers through the function (%)',
       coalesce(v_flyers::text, '<null>');
   end if;
-  if (v_flyers->1->'offer'->>'value') is distinct from '20%' then
-    raise exception 'FAIL: anon got a flyer with no derived offer on it (%)', (v_flyers->1)::text;
+  if (v_flyers->1->'offer'->>'discount_value') is distinct from '20'
+     or (v_flyers->1->'offer'->>'discount_type') is distinct from 'percentage' then
+    raise exception 'FAIL: anon got a flyer with no offer facts on it (%)', (v_flyers->1)::text;
   end if;
 
-  -- ------------------------------------------------ 25. the derivation is not a second public API
-  -- Postgres grants EXECUTE to PUBLIC on every new function. The migration
-  -- revokes it, so the offer wording is reachable only through
-  -- get_public_storefront's explicit column list -- and check 24 has already
-  -- proven anon still gets its flyers regardless, because a definer function
-  -- runs its body as the owner.
-  if has_function_privilege('anon',
-       'public.promotion_offer_copy(text,integer,text,text,timestamptz,timestamptz)', 'EXECUTE') then
-    raise exception 'FAIL: anon can call promotion_offer_copy directly -- the revoke from public did not happen';
+  -- ------------------------------------------------ 25. the wording is not in the database at all any more
+  -- 20260930000300 dropped promotion_offer_copy, _scope, _window and _day. The
+  -- point of dropping them rather than leaving them unused: a second
+  -- implementation of the poster's language sitting in the schema is one a
+  -- future reader reaches for, and the drift it was possible to have is the
+  -- whole defect the migration removes. Checked by EXISTENCE, not by privilege
+  -- -- a revoked function is still a copy.
+  foreach v_kind in array array[
+    'promotion_offer_copy', 'promotion_offer_scope', 'promotion_offer_window', 'promotion_offer_day'
+  ]
+  loop
+    if exists (
+      select 1 from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = v_kind
+    ) then
+      raise exception 'FAIL: %() still exists -- the offer wording is duplicated in SQL again', v_kind;
+    end if;
+  end loop;
+
+  -- promotion_is_live, by contrast, MUST still be here: it is the server-side
+  -- liveness gate, the reason check 19 can drop an expired flyer before it
+  -- reaches a client, and nothing about moving the wording moved it.
+  if not exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'promotion_is_live'
+  ) then
+    raise exception 'FAIL: promotion_is_live was dropped -- whether an offer is running is no longer decided in SQL';
   end if;
+
+  -- ...and it is still not a public API of its own. Postgres grants EXECUTE to
+  -- PUBLIC on every new function; 20260930000100 revoked it, and it is reached
+  -- from inside a definer function whose body runs as its owner -- which check
+  -- 24 has already proven does not stop anon getting its flyers.
   if has_function_privilege('anon', 'public.promotion_is_live(boolean,timestamptz,timestamptz,timestamptz,timestamptz)', 'EXECUTE') then
     raise exception 'FAIL: anon can call promotion_is_live directly -- the revoke from public did not happen';
   end if;

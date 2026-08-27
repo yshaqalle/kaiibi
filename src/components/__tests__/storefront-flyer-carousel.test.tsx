@@ -284,24 +284,63 @@ describe('FlyerCarousel', () => {
     expect(withTestId(tree, 'storefront-flyer-cta')).toHaveLength(0);
   });
 
-  // The offer's words are derived by get_public_storefront on every read
-  // (20260930000100) and printed here VERBATIM -- the page must not reword
-  // what the till will give, and must not reword what the paper poster says
-  // either.
-  it('prints the derived offer verbatim -- value, scope and window', async () => {
+  // The offer arrives from get_public_storefront as the promotion's RAW FACTS
+  // (20260930000300) and is worded HERE, by offerCopyFor -- the very function
+  // the printed poster comes through (src/lib/poster.ts). These assert the
+  // rendered strings rather than "offerCopyFor was called", because what must
+  // not drift is the WORDS: the page must not reword what the till will give,
+  // and must not reword what the paper poster says either.
+  //
+  // The equivalent expectations for the poster live in poster.test.ts and are
+  // deliberately not repeated as a second copy -- one function, one set of
+  // cases, which is the point of the change.
+  it('words the offer from the promotion facts -- value, scope and window', async () => {
     const tree = await render([
-      flyer({ offer: { value: '20%', scope: 'All Solar', when: 'Friday 14 — Sunday 16 August' } }),
+      flyer({
+        offer: {
+          discountType: 'percentage', discountValue: 20,
+          scope: 'category', scopeValue: 'Solar',
+          startsAt: new Date(2026, 7, 14).toISOString(),
+          endsAt: new Date(2026, 7, 17).toISOString(),
+        },
+      }),
     ]);
     const text = allText(tree);
     expect(text).toContain('20%');
     expect(text).toContain('All Solar');
+    // Stored exclusive, printed inclusive -- the 17th stored is the 16th read.
     expect(text).toContain('Friday 14 — Sunday 16 August');
   });
 
-  it('renders no window line when the offer has no window', async () => {
-    const tree = await render([flyer({ offer: { value: '$2.50', scope: 'Everything in store', when: null } })]);
+  // The money branch, through formatCents -- the same formatter the till and
+  // the receipt use, never a hand-rolled '$'.
+  it('renders no window line when the offer has no window, and prints money as money', async () => {
+    const tree = await render([flyer({
+      offer: {
+        discountType: 'fixed', discountValue: 250,
+        scope: 'store', scopeValue: null, startsAt: null, endsAt: null,
+      },
+    })]);
     expect(withTestId(tree, 'storefront-flyer-offer-when')).toHaveLength(0);
     expect(allText(tree)).toContain('$2.50');
+    expect(allText(tree)).toContain('Everything in store');
+  });
+
+  // The WhatsApp enquiry names the offer when the flyer has no headline, and
+  // it has to name it in the SAME words the panel shows -- both come through
+  // offerCopyFor, so there is nowhere for a second phrasing to appear.
+  it('names the worded offer in a WhatsApp enquiry when there is no headline', async () => {
+    const tree = await render([flyer({
+      headline: null, linkKind: 'whatsapp', linkValue: null,
+      offer: {
+        discountType: 'percentage', discountValue: 20,
+        scope: 'brand', scopeValue: 'Somtel', startsAt: null, endsAt: null,
+      },
+    })]);
+    act(() => pressable(tree, 'storefront-flyer-slide')[0].props.onPress());
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      'https://wa.me/252634456789?text=Hi%20Xamdi%20Electronics%2C%20I%20saw%20%2220%25%20off%20anything%20by%20somtel%22%20on%20your%20page.',
+    );
   });
 });
 

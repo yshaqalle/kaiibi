@@ -52,7 +52,11 @@ describe('getPublicStorefront flyers', () => {
     payment_mode: 'on_collection',
   };
 
-  it('maps each flyer, resolving image_path to a URL and the derived offer', async () => {
+  // 20260930000300: the offer arrives as the promotion's RAW FACTS, snake_case
+  // off the row, and NOT as rendered words. The words are offerCopyFor's job
+  // (src/lib/poster.ts) so the page and the printed poster come through one
+  // function -- see the flyer-carousel tests for the rendering itself.
+  it('maps each flyer, resolving image_path to a URL and the offer facts to camelCase', async () => {
     rpc.mockResolvedValue({
       data: [{
         ...row,
@@ -64,7 +68,11 @@ describe('getPublicStorefront flyers', () => {
           link_kind: 'category',
           link_value: 'Solar',
           position: 0,
-          offer: { value: '20%', scope: 'All Solar', when: 'Friday 14 — Sunday 16 August' },
+          offer: {
+            discount_type: 'percentage', discount_value: 20,
+            scope: 'category', scope_value: 'Solar',
+            starts_at: '2026-08-13T21:00:00Z', ends_at: '2026-08-16T21:00:00Z',
+          },
         }],
       }],
       error: null,
@@ -78,8 +86,69 @@ describe('getPublicStorefront flyers', () => {
       subline: 'This week only.',
       linkKind: 'category',
       linkValue: 'Solar',
-      offer: { value: '20%', scope: 'All Solar', when: 'Friday 14 — Sunday 16 August' },
+      offer: {
+        discountType: 'percentage', discountValue: 20,
+        scope: 'category', scopeValue: 'Solar',
+        startsAt: '2026-08-13T21:00:00Z', endsAt: '2026-08-16T21:00:00Z',
+      },
     }]);
+  });
+
+  // An open-ended offer sends JSON null for both instants, and nulls are what
+  // must land -- `undefined` would make `when` a missing key rather than a
+  // deliberate "no date line", and offerCopyFor branches on exactly that.
+  it('keeps an open-ended offer\'s null window as null', async () => {
+    rpc.mockResolvedValue({
+      data: [{
+        ...row,
+        flyers: [{
+          id: 'f4', image_path: 'a.jpg', link_kind: 'none', position: 0,
+          offer: {
+            discount_type: 'fixed', discount_value: 250,
+            scope: 'store', scope_value: null, starts_at: null, ends_at: null,
+          },
+        }],
+      }],
+      error: null,
+    });
+    expect((await getPublicStorefront('xamdi'))?.flyers[0].offer).toEqual({
+      discountType: 'fixed', discountValue: 250,
+      scope: 'store', scopeValue: null, startsAt: null, endsAt: null,
+    });
+  });
+
+  // Same belt-and-braces as link_kind below, for the same reason: a client
+  // shipped ahead of its database must render a flyer with no offer line
+  // rather than a claim it cannot spell.
+  it('reads an offer whose discount_type it does not recognise as no offer', async () => {
+    rpc.mockResolvedValue({
+      data: [{
+        ...row,
+        flyers: [{
+          id: 'f5', image_path: 'a.jpg', link_kind: 'none', position: 0,
+          offer: {
+            discount_type: 'buy_one_get_one', discount_value: 1,
+            scope: 'store', scope_value: null, starts_at: null, ends_at: null,
+          },
+        }],
+      }],
+      error: null,
+    });
+    expect((await getPublicStorefront('xamdi'))?.flyers[0].offer).toBeNull();
+  });
+
+  it('reads a pre-20260930000300 offer of rendered words as no offer', async () => {
+    rpc.mockResolvedValue({
+      data: [{
+        ...row,
+        flyers: [{
+          id: 'f6', image_path: 'a.jpg', link_kind: 'none', position: 0,
+          offer: { value: '20%', scope: 'All Solar', when: 'Friday 14 — Sunday 16 August' },
+        }],
+      }],
+      error: null,
+    });
+    expect((await getPublicStorefront('xamdi'))?.flyers[0].offer).toBeNull();
   });
 
   it('carries a flyer with no offer through as an announcement', async () => {

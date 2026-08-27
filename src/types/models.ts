@@ -449,6 +449,20 @@ export type Promotion = {
   createdAt: string;
 };
 
+// The six columns an offer's WORDING is derived from, and nothing else.
+//
+// Deliberately a Pick of `Promotion` rather than a hand-written twin: these
+// are the promotion's own facts, and a copy that could gain a field of its
+// own is how the page starts describing an offer the till never had. What is
+// missing from it is the point -- `active`, `archivedAt` and the comparison
+// of the window against now() are how "is this offer running right now" is
+// decided, and that question is answered by the SERVER
+// (promotion_is_live, 20260930000100) before any of these facts are handed
+// out. A client renders words; it never rules on liveness.
+export type PromotionOfferFacts = Pick<
+  Promotion, 'discountType' | 'discountValue' | 'scope' | 'scopeValue' | 'startsAt' | 'endsAt'
+>;
+
 // Lives here rather than in lib/customer-segments.ts because AudienceFilter
 // (below) needs it too, and lib/customer-segments.ts already imports
 // `Customer` from this file — defining it there and importing it back here
@@ -1227,19 +1241,19 @@ export type JournalLine = {
 // of it and no branch a renderer can only reach one of two ways.
 export type StorefrontFlyerLinkKind = 'none' | 'category' | 'whatsapp';
 
-// The three fields get_public_storefront derives from the promotion row on
-// EVERY read (20260930000100_public_storefront_flyers.sql), and that
-// migration's header is the authority on why they are never stored: a page
-// advertising a discount the till refuses does it around the clock, to
-// strangers. They are ported line for line from posterCopyFor
-// (src/lib/poster.ts), so the paper on the door and the page at the shop's
-// address cannot read two ways about one offer -- which is also why nothing
-// downstream may reword them.
-export type StorefrontFlyerOffer = {
-  value: string;      // '20%' or '$2.50'
-  scope: string;      // 'All Solar', 'Anything by Anker', 'Everything in store'
-  when: string | null; // 'Friday 14 — Sunday 16 August', or null for an open-ended offer
-};
+// The promotion's own facts, read off the row on EVERY read and never stored
+// on the flyer (20260930000300_flyer_offer_facts.sql). RAW, not rendered: the
+// words a customer reads are derived from these by offerCopyFor
+// (src/lib/poster.ts), which is the same function the printed poster comes
+// through, so the paper on the door and the page at the shop's address cannot
+// read two ways about one offer.
+//
+// An offer only ever ARRIVES here while it is live. get_public_storefront
+// drops the whole flyer server-side the moment promotion_is_live says no --
+// expired, paused, archived, not yet started, or another shop's -- so a
+// renderer is never trusted to hide a discount the till has stopped
+// honouring. It is trusted only to spell one out.
+export type StorefrontFlyerOffer = PromotionOfferFacts;
 
 // A panel on the shop's public page: the seasonal poster, "everything 20% off
 // this week", a photo of new stock. `offer` null means the flyer claims no

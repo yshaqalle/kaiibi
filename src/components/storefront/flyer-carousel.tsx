@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 
 import { openExternalUrl } from '@/lib/external-url';
+import { offerCopyFor } from '@/lib/poster';
 import { waLink } from '@/lib/storefront';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontFlyer } from '@/types/models';
@@ -315,8 +316,9 @@ function flyerAction(flyer: StorefrontFlyer, context: SlideContext): FlyerAction
 function enquiryFor(flyer: StorefrontFlyer, shopName: string): string {
   const own = flyer.linkValue?.trim();
   if (own) return own;
+  const offer = flyer.offer ? offerCopyFor(flyer.offer) : null;
   const subject = flyer.headline?.trim()
-    || (flyer.offer ? `${flyer.offer.value} off ${flyer.offer.scope.toLowerCase()}` : null);
+    || (offer ? `${offer.value} off ${offer.scope.toLowerCase()}` : null);
   return subject
     ? `Hi ${shopName}, I saw "${subject}" on your page.`
     : `Hi ${shopName}, I have a question about your page.`;
@@ -326,7 +328,14 @@ function FlyerSlide({
   flyer, colors, context, onFocus,
 }: { flyer: StorefrontFlyer; colors: PaletteColors; context: SlideContext; onFocus?: () => void }) {
   const action = flyerAction(flyer, context);
-  const hasCopy = Boolean(flyer.offer || flyer.headline || flyer.subline || action);
+  // The offer's WORDS, derived here from the promotion's raw facts by the
+  // very function the printed poster comes through -- src/lib/poster.ts's
+  // offerCopyFor. The database sends the facts and decides, on its own,
+  // whether the flyer is entitled to be on this page at all; it does not send
+  // sentences, and there is no second copy of this wording anywhere for the
+  // page to drift away from.
+  const offer = flyer.offer ? offerCopyFor(flyer.offer) : null;
+  const hasCopy = Boolean(offer || flyer.headline || flyer.subline || action);
 
   // The picture sits ABOVE the copy rather than behind it. The design note
   // (docs/design/storefront-address-and-flyers-mockup.html) draws the words
@@ -343,21 +352,20 @@ function FlyerSlide({
       ) : null}
       {hasCopy ? (
         <View style={styles.copy}>
-          {/* The derived offer, printed VERBATIM. promotion_offer_copy built
-              these three strings from the promotion row on this very read;
-              rewording them here is how the page starts disagreeing with the
-              paper poster and the till. */}
-          {flyer.offer ? (
+          {/* The derived offer, printed VERBATIM -- offerCopyFor's three
+              strings, unedited. Rewording them here is how the page starts
+              disagreeing with the paper poster and the till. */}
+          {offer ? (
             <>
               <Text testID="storefront-flyer-offer-value" style={[styles.offerValue, { color: colors.accent }]}>
-                {flyer.offer.value}
+                {offer.value}
               </Text>
               <Text testID="storefront-flyer-offer-scope" style={[styles.offerScope, { color: colors.ink }]}>
-                {flyer.offer.scope}
+                {offer.scope}
               </Text>
-              {flyer.offer.when ? (
+              {offer.when ? (
                 <Text testID="storefront-flyer-offer-when" style={[styles.offerWhen, { color: colors.muted }]}>
-                  {flyer.offer.when}
+                  {offer.when}
                 </Text>
               ) : null}
             </>

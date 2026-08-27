@@ -85,7 +85,14 @@ const flyers: StorefrontFlyer[] = [
     subline: 'This week only.',
     linkKind: 'category',
     linkValue: 'Solar',
-    offer: { value: '20%', scope: 'All Solar', when: 'Friday 14 — Sunday 16 August' },
+    // The promotion's raw facts (20260930000300); the band words them through
+    // offerCopyFor, the printed poster's own function.
+    offer: {
+      discountType: 'percentage', discountValue: 20,
+      scope: 'category', scopeValue: 'Solar',
+      startsAt: new Date(2026, 7, 14).toISOString(),
+      endsAt: new Date(2026, 7, 17).toISOString(),
+    },
   },
   {
     id: 'f2',

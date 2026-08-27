@@ -23,16 +23,40 @@ function linkKindOf(value: unknown): StorefrontFlyerLinkKind {
   return LINK_KINDS.includes(value as StorefrontFlyerLinkKind) ? (value as StorefrontFlyerLinkKind) : 'none';
 }
 
-// The offer arrives as a jsonb object built by promotion_offer_copy, or JSON
-// null when the flyer names no live promotion. Its three strings are printed
-// verbatim by the themes -- nothing here rewords them, because the whole
-// point of deriving them in SQL is that the page, the paper poster and the
-// till say one thing.
+const DISCOUNT_TYPES: StorefrontFlyerOffer['discountType'][] = ['percentage', 'fixed'];
+const OFFER_SCOPES: StorefrontFlyerOffer['scope'][] = ['store', 'brand', 'category'];
+
+// The offer arrives as the promotion's RAW FACTS -- six columns, no words
+// (20260930000300). JSON null when the flyer names no live promotion: the
+// database has already dropped every flyer whose promotion is not currently
+// running, so anything that reaches here is an offer the till would honour
+// this second.
+//
+// The words are derived downstream by offerCopyFor (src/lib/poster.ts), the
+// same function the printed poster uses. Nothing is reworded on the way past;
+// nothing is worded here either.
+//
+// A row missing the fields, or carrying a discount_type/scope outside the
+// CHECK-constrained sets, reads as no offer at all rather than as a claim
+// nobody can render -- the same rule linkKindOf follows above, and the same
+// reason: a client shipped ahead of its database (the Expo bundle updates
+// over the air, migrations do not) must show a flyer with no offer line, not
+// throw on a customer's phone.
 function offerOf(value: unknown): StorefrontFlyerOffer | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  if (typeof raw.value !== 'string' || typeof raw.scope !== 'string') return null;
-  return { value: raw.value, scope: raw.scope, when: (raw.when as string) ?? null };
+  const discountType = raw.discount_type as StorefrontFlyerOffer['discountType'];
+  const scope = raw.scope as StorefrontFlyerOffer['scope'];
+  if (!DISCOUNT_TYPES.includes(discountType) || !OFFER_SCOPES.includes(scope)) return null;
+  if (typeof raw.discount_value !== 'number') return null;
+  return {
+    discountType,
+    discountValue: raw.discount_value,
+    scope,
+    scopeValue: (raw.scope_value as string) ?? null,
+    startsAt: (raw.starts_at as string) ?? null,
+    endsAt: (raw.ends_at as string) ?? null,
+  };
 }
 
 // `flyers` is a jsonb array the RPC already coalesces to '[]', already
