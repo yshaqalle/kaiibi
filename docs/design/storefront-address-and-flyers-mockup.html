@@ -1,0 +1,560 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — The Address, and Flyers</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --warn:#b07206; --warnwash:#fbf3e2; --warnln:#e8d6ab;
+    --accwash:#e6edff; --accink:#1b47b8;
+    --bad:#b3261e; --badwash:#fdeceb; --badln:#f0cdca;
+    --ok:#008340; --okwash:#e6f4ec;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:26px 0 8px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code,li code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .decisions{display:grid;gap:10px;margin-top:18px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
+  .dx{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);border-radius:12px;
+    padding:13px 15px;background:var(--sf);}
+  .dx b{display:block;font-size:13px;margin-bottom:3px;}
+  .dx p{margin:0;font-size:13px;color:var(--ink2);}
+  .dx.no{border-left-color:#b3261e;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w980{width:980px;} .frame.w380{width:380px;}
+  .frame.bare{padding:0;overflow:hidden;background:#fff;}
+  .pair{display:grid;gap:28px;}
+  .pair.two{grid-template-columns:repeat(auto-fit,minmax(340px,1fr));}
+  .pair > div{min-width:0;}
+
+  /* ---------- editor drawer ---------- */
+  .drawer{background:var(--d-sf);border:1px solid var(--d-ln);border-radius:20px;padding:20px;}
+  .drawer h4{margin:0 0 3px;font-size:15px;font-weight:800;}
+  .drawer .sub{margin:0 0 16px;font-size:12.5px;color:var(--d-mut);}
+  .fieldLabel{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut);margin:16px 0 6px;}
+  .fieldLabel:first-of-type{margin-top:0;}
+  .input{border:1px solid var(--d-rule);border-radius:12px;padding:11px 13px;background:#fff;
+    font-size:14px;color:var(--d-ink);display:flex;align-items:center;gap:8px;}
+  .input.ro{background:var(--d-soft);color:var(--d-mut);}
+  .input .ph{color:var(--d-mut2);}
+  .input .caret{width:1.5px;height:17px;background:var(--c1);display:inline-block;}
+  .split{display:flex;gap:0;align-items:stretch;}
+  .split .base{border:1px solid var(--d-rule);border-right:0;border-radius:12px 0 0 12px;
+    background:var(--d-soft);color:var(--d-mut);padding:11px 12px;font-size:14px;white-space:nowrap;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .split .sfx{border:1.5px solid var(--c1);border-radius:0 12px 12px 0;padding:10px 12px;background:#fff;
+    font-size:14px;flex:1;display:flex;align-items:center;gap:7px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .addr{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;}
+  .hint{font-size:12px;color:var(--d-mut);margin-top:7px;}
+  .hint.bad{color:var(--bad);}
+  .hint.ok{color:var(--ok);}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
+  .chip{border:1px solid var(--d-rule);border-radius:999px;padding:6px 12px;font-size:12.5px;
+    background:#fff;color:var(--d-ink2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .chip.on{background:var(--accwash);border-color:#c3d3ff;color:var(--accink);font-weight:700;}
+  .btnRow{display:flex;gap:9px;margin-top:18px;}
+  .btn{border-radius:12px;padding:11px 16px;font-size:13.5px;font-weight:700;border:1px solid var(--d-rule);
+    background:#fff;color:var(--d-ink2);}
+  .btn.pri{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.dis{opacity:.42;}
+
+  .banner{border-radius:12px;padding:11px 13px;font-size:12.5px;display:flex;gap:9px;align-items:flex-start;
+    margin-top:14px;line-height:1.45;}
+  .banner .ic{font-weight:800;flex:none;}
+  .banner.warn{background:var(--warnwash);border:1px solid var(--warnln);color:#6d4a06;}
+  .banner.bad{background:var(--badwash);border:1px solid var(--badln);color:#8c1d18;}
+  .banner.ok{background:var(--okwash);border:1px solid #bfe0cd;color:#075e34;}
+
+  /* ---------- flyer editor ---------- */
+  .slides{display:flex;flex-direction:column;gap:9px;margin-top:4px;}
+  .slide{border:1px solid var(--d-ln);border-radius:14px;padding:10px;display:flex;gap:11px;align-items:center;
+    background:#fff;}
+  .slide .grip{color:var(--d-mut2);font-size:15px;cursor:grab;flex:none;}
+  .thumb{width:74px;height:46px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:800;letter-spacing:.04em;color:#fff;text-align:center;padding:3px;line-height:1.15;}
+  .slide .meta{flex:1;min-width:0;}
+  .slide .meta b{display:block;font-size:13px;font-weight:700;}
+  .slide .meta span{font-size:11.5px;color:var(--d-mut);}
+  .pill{border-radius:999px;padding:3px 9px;font-size:10.5px;font-weight:800;letter-spacing:.03em;flex:none;}
+  .pill.live{background:var(--okwash);color:#075e34;}
+  .pill.draft{background:var(--warnwash);color:#6d4a06;}
+  .addSlide{border:1.5px dashed var(--d-rule);border-radius:14px;padding:15px;text-align:center;
+    font-size:13px;color:var(--d-mut);margin-top:9px;}
+
+  /* ---------- public themes ---------- */
+  .ph{background:#fff;}
+  .phHead{padding:15px 17px;border-bottom:1px solid var(--d-ln);display:flex;justify-content:space-between;
+    align-items:center;gap:10px;}
+  .phHead b{font-size:15px;font-weight:800;}
+  .phHead span{font-size:11.5px;color:var(--d-mut);display:block;font-weight:400;}
+  .miniBtn{border:1px solid var(--d-rule);border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:700;}
+
+  .car{position:relative;}
+  .carSlide{height:172px;display:flex;flex-direction:column;justify-content:flex-end;padding:16px;
+    color:#fff;position:relative;}
+  .carSlide h5{margin:0 0 3px;font-size:19px;font-weight:800;letter-spacing:-.02em;
+    text-shadow:0 1px 12px rgba(0,0,0,.4);}
+  .carSlide p{margin:0;font-size:12.5px;opacity:.94;text-shadow:0 1px 10px rgba(0,0,0,.4);}
+  .carCta{align-self:flex-start;margin-top:10px;background:#fff;color:#111;border-radius:999px;
+    padding:7px 14px;font-size:12px;font-weight:800;}
+  .dots{position:absolute;bottom:11px;right:14px;display:flex;gap:5px;}
+  .dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.5);}
+  .dot.on{background:#fff;width:17px;border-radius:999px;}
+  .arrow{position:absolute;top:50%;transform:translateY(-50%);width:29px;height:29px;border-radius:50%;
+    background:rgba(255,255,255,.9);color:#111;display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:800;}
+  .arrow.l{left:10px;} .arrow.r{right:10px;}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:14px;}
+  .card{border:1px solid var(--d-ln);border-radius:13px;padding:11px;}
+  .card b{display:block;font-size:12.5px;font-weight:700;}
+  .card .pr{font-size:14px;font-weight:800;margin-top:3px;}
+  .card .st{font-size:10.5px;color:var(--d-mut);}
+
+  .listRow{display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:10px 15px;border-bottom:1px solid var(--d-ln);font-size:13px;}
+  .listRow b{font-weight:600;}
+  .listRow .pr{font-weight:800;font-variant-numeric:tabular-nums;}
+
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);font-weight:800;}
+  td b{font-weight:700;}
+  tbody tr:last-child td{border-bottom:0;}
+
+  ul.tight{margin:8px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);}
+  ul.tight li{margin-bottom:5px;}
+
+  .cap{font-size:12px;color:var(--mut);margin-top:9px;}
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Kaiibi · storefront · design note</p>
+  <h1>The address should look like the shop, and the page should be able to carry a flyer</h1>
+  <p class="lede">
+    Two gaps left open after the storefront series shipped. Neither is a new subsystem — both sit on
+    the editor and the three themes that already exist. This is what they should look like before
+    anything is planned.
+  </p>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>Part one — the address follows the shop's name</h2>
+    <p class="h2sub">Today the editor <i>suggests</i> a slug and then leaves the shop with a blank box when it is taken.</p>
+
+    <p class="note">
+      Two shops called <b>Xamdi Electronics</b> end up at unrelated addresses, and the one that loses the
+      race has to invent a name rather than adjust the one it already has. A customer who knows the shop
+      cannot guess the link — which is the entire job of a custom address.
+    </p>
+
+    <div class="decisions">
+      <div class="dx"><b>Derived, not suggested</b><p>The address starts as the shop's name and stays in step with it — until the moment it is claimed.</p></div>
+      <div class="dx"><b>A suffix, not a blank slate</b><p>On collision the base is kept and frozen. The shop appends; it does not start again.</p></div>
+      <div class="dx"><b>The suffix is a place, not a number</b><p>Prefilled from the primary location's neighbourhood. <code>-2</code> reads like a mistake; <code>-koodbuur</code> reads like an address.</p></div>
+      <div class="dx no"><b>A claimed address never follows a rename</b><p>Renaming the shop must not move its web address. Links are printed on cards.</p></div>
+    </div>
+
+    <div class="pair two" style="margin-top:22px">
+      <div>
+        <div class="frameHead"><b>1 · Unclaimed</b><i>derived from the shop name</i></div>
+        <div class="frame">
+          <div class="drawer">
+            <h4>Your web address</h4>
+            <p class="sub">This is the link you give customers.</p>
+
+            <div class="fieldLabel">Address</div>
+            <div class="split">
+              <span class="base">kaiibi.com/</span>
+              <span class="sfx">xamdi-electronics<span class="caret"></span></span>
+            </div>
+            <p class="hint ok">✓ Available — taken from your shop's name.</p>
+
+            <div class="chips">
+              <span class="chip on">xamdi-electronics</span>
+              <span class="chip">xamdi</span>
+            </div>
+            <p class="hint">Tap to use, or type your own.</p>
+
+            <div class="btnRow"><span class="btn pri">Claim this address</span></div>
+          </div>
+        </div>
+        <p class="cap">The address the shop already has a name for is the default, not a hint it has to accept.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>2 · Taken</b><i>the base is kept; a suffix appears</i></div>
+        <div class="frame">
+          <div class="drawer">
+            <h4>Your web address</h4>
+            <p class="sub">This is the link you give customers.</p>
+
+            <div class="fieldLabel">Address</div>
+            <div class="split">
+              <span class="base">kaiibi.com/xamdi-electronics-</span>
+              <span class="sfx">koodbuur<span class="caret"></span></span>
+            </div>
+            <p class="hint ok">✓ <span class="addr">xamdi-electronics-koodbuur</span> is available.</p>
+
+            <div class="banner warn">
+              <span class="ic">!</span>
+              <span><b>xamdi-electronics</b> is already another shop's address. Add the part of town you
+              trade in and customers will still recognise you.</span>
+            </div>
+
+            <div class="chips">
+              <span class="chip on">koodbuur</span>
+              <span class="chip">hargeisa</span>
+              <span class="chip">road-no-1</span>
+            </div>
+            <p class="hint">From your shop's location. Type anything you like instead.</p>
+
+            <div class="btnRow"><span class="btn pri">Claim this address</span></div>
+          </div>
+        </div>
+        <p class="cap">The shop keeps its name and adds where it is. Nobody is asked to invent a brand.</p>
+      </div>
+    </div>
+
+    <div class="pair two" style="margin-top:26px">
+      <div>
+        <div class="frameHead"><b>3 · Claimed</b><i>frozen, and a rename does not move it</i></div>
+        <div class="frame">
+          <div class="drawer">
+            <h4>Your web address</h4>
+            <p class="sub">This is the link you give customers.</p>
+
+            <div class="fieldLabel">Address</div>
+            <div class="input ro"><span class="addr">kaiibi.com/xamdi-electronics-koodbuur</span></div>
+
+            <div class="banner ok">
+              <span class="ic">✓</span>
+              <span>Live since 24 August. Shared links and printed cards point here.</span>
+            </div>
+
+            <div class="btnRow">
+              <span class="btn">Copy link</span>
+              <span class="btn">Change address…</span>
+            </div>
+          </div>
+        </div>
+        <p class="cap">Changing it stays the deliberate act it is today, with the warning the editor already shows.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>4 · After a rename</b><i>the address is deliberately left behind</i></div>
+        <div class="frame">
+          <div class="drawer">
+            <h4>Your web address</h4>
+            <p class="sub">This is the link you give customers.</p>
+
+            <div class="fieldLabel">Shop name</div>
+            <div class="input ro">Xamdi Electronics &amp; Solar</div>
+
+            <div class="fieldLabel">Address</div>
+            <div class="input ro"><span class="addr">kaiibi.com/xamdi-electronics-koodbuur</span></div>
+
+            <div class="banner warn">
+              <span class="ic">!</span>
+              <span>You renamed your shop. Your web address has <b>not</b> changed — every link already
+              shared still works. You can change it, but the old one will stop working.</span>
+            </div>
+
+            <div class="btnRow"><span class="btn">Change address…</span></div>
+          </div>
+        </div>
+        <p class="cap">The trap this avoids: a silent rename that breaks every card already printed.</p>
+      </div>
+    </div>
+
+    <h3>What each state actually checks</h3>
+    <table>
+      <thead><tr><th style="width:22%">State</th><th style="width:34%">What the shop sees</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td><b>Unclaimed</b></td><td>Address prefilled from the shop's name</td>
+            <td>Re-derives while the name changes and nothing is claimed.</td></tr>
+        <tr><td><b>Derived slug taken</b></td><td>Base frozen, suffix field focused, neighbourhood prefilled</td>
+            <td>Assembled value goes through the existing <code>normalizeSlug</code> then <code>validateSlug</code>, so a suffix cannot make an illegal address.</td></tr>
+        <tr><td><b>Suffix also taken</b></td><td>Same field, inline "that one's taken too"</td>
+            <td>Never silently appends a number. The shop chooses.</td></tr>
+        <tr><td><b>Lost the race on submit</b></td><td>Returns to the suffix field with the message</td>
+            <td><code>claim_shop_slug</code> already raises <code>slug_taken</code>; availability shown while typing is a courtesy, the claim is the truth.</td></tr>
+        <tr><td><b>Claimed</b></td><td>Read-only, with a copy button</td>
+            <td>Never re-derived. A rename does not touch it.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>Part two — flyers</h2>
+    <p class="h2sub">A shop wants to put the seasonal poster and "everything 20% off this week" on its page.</p>
+
+    <p class="note">
+      Today the page has one optional hero image that only the Window theme reads, and nothing that can
+      carry a promotion. The editor already has the content drawer and the <code>draft</code> column, so
+      flyers are draftable for free — a shop can prepare next week's poster without publishing it.
+    </p>
+
+    <div class="decisions">
+      <div class="dx"><b>One upload path</b><p>The same <code>uploadImage()</code> logos, product photos and the hero already use. Not a fourth.</p></div>
+      <div class="dx"><b>None renders nothing</b><p>No empty frame, no placeholder. The photo-optional rule every theme already follows.</p></div>
+      <div class="dx"><b>One is a hero</b><p>A single flyer renders static, with no dots and no arrows. A carousel of one is a lie.</p></div>
+      <div class="dx no"><b>Counter gets none</b><p>It is a dense price list built to make a 200-line catalogue readable. A carousel fights that.</p></div>
+    </div>
+
+    <div class="pair two" style="margin-top:22px">
+      <div>
+        <div class="frameHead"><b>5 · Market</b><i>flyers above the grid</i></div>
+        <div class="frame bare w380">
+          <div class="ph">
+            <div class="phHead">
+              <div><b>Xamdi Electronics</b><span>Hargeisa</span></div>
+              <span class="miniBtn">Basket · 2</span>
+            </div>
+            <div class="car">
+              <div class="carSlide" style="background:linear-gradient(135deg,#1f3a8a,#3b6fd4)">
+                <h5>20% off all solar</h5>
+                <p>This week only — lanterns, panels and batteries.</p>
+                <span class="carCta">See solar →</span>
+                <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+              </div>
+              <span class="arrow l">‹</span><span class="arrow r">›</span>
+            </div>
+            <div class="grid2">
+              <div class="card"><b>Solar lantern</b><div class="pr">$14.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>Power bank</b><div class="pr">$18.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>LED bulb ×4</b><div class="pr">$6.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>HDMI cable</b><div class="pr">$5.00</div><div class="st">In stock</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="cap">Above the grid, below the shop's name — a customer sees who they are before what's on sale.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>6 · Counter</b><i>deliberately no carousel</i></div>
+        <div class="frame bare w380">
+          <div class="ph">
+            <div class="phHead">
+              <div><b>Xamdi Electronics</b><span>Hargeisa · price list</span></div>
+              <span class="miniBtn">Basket</span>
+            </div>
+            <div class="listRow"><b>Solar lantern, rechargeable</b><span class="pr">$14.00</span></div>
+            <div class="listRow"><b>Power bank 10,000mAh</b><span class="pr">$18.00</span></div>
+            <div class="listRow"><b>LED bulb 9W (pack of 4)</b><span class="pr">$6.00</span></div>
+            <div class="listRow"><b>HDMI cable 2m</b><span class="pr">$5.00</span></div>
+            <div class="listRow"><b>Extension cord 3m</b><span class="pr">$9.00</span></div>
+            <div class="listRow"><b>Anker 20W charger</b><span class="pr">$12.00</span></div>
+            <div class="listRow"><b>Screen protector, A15</b><span class="pr">$3.00</span></div>
+          </div>
+        </div>
+        <p class="cap">A shop that picks Counter picked density. Flyers still upload — they just don't render here, and the editor says so.</p>
+      </div>
+    </div>
+
+    <div class="pair two" style="margin-top:26px">
+      <div>
+        <div class="frameHead"><b>7 · One flyer</b><i>static — no dots, no arrows</i></div>
+        <div class="frame bare w380">
+          <div class="ph">
+            <div class="phHead">
+              <div><b>Xamdi Electronics</b><span>Hargeisa</span></div>
+              <span class="miniBtn">Basket</span>
+            </div>
+            <div class="car">
+              <div class="carSlide" style="background:linear-gradient(135deg,#7a3410,#c26a2a)">
+                <h5>Eid stock has landed</h5>
+                <p>New lanterns, kettles and cables in store now.</p>
+              </div>
+            </div>
+            <div class="grid2">
+              <div class="card"><b>Solar lantern</b><div class="pr">$14.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>Electric kettle</b><div class="pr">$22.00</div><div class="st">In stock</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="cap">Controls a customer cannot use are worse than no controls.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>8 · No flyers</b><i>nothing renders at all</i></div>
+        <div class="frame bare w380">
+          <div class="ph">
+            <div class="phHead">
+              <div><b>Xamdi Electronics</b><span>Hargeisa</span></div>
+              <span class="miniBtn">Basket</span>
+            </div>
+            <div class="grid2">
+              <div class="card"><b>Solar lantern</b><div class="pr">$14.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>Power bank</b><div class="pr">$18.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>LED bulb ×4</b><div class="pr">$6.00</div><div class="st">In stock</div></div>
+              <div class="card"><b>HDMI cable</b><div class="pr">$5.00</div><div class="st">In stock</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="cap">No empty frame, no "add a flyer" placeholder facing customers. The page just starts at the goods.</p>
+      </div>
+    </div>
+
+    <h3>The editor side</h3>
+    <div class="scroller" style="margin-top:10px">
+      <div class="frame w980">
+        <div class="pair two" style="gap:22px">
+          <div class="drawer">
+            <h4>Flyers</h4>
+            <p class="sub">Posters and offers that show at the top of your page.</p>
+
+            <div class="slides">
+              <div class="slide">
+                <span class="grip">⠿</span>
+                <span class="thumb" style="background:linear-gradient(135deg,#1f3a8a,#3b6fd4)">20% OFF<br>SOLAR</span>
+                <span class="meta"><b>20% off all solar</b><span>Links to · Solar</span></span>
+                <span class="pill live">Live</span>
+              </div>
+              <div class="slide">
+                <span class="grip">⠿</span>
+                <span class="thumb" style="background:linear-gradient(135deg,#7a3410,#c26a2a)">EID<br>STOCK</span>
+                <span class="meta"><b>Eid stock has landed</b><span>Links to · nothing</span></span>
+                <span class="pill live">Live</span>
+              </div>
+              <div class="slide">
+                <span class="grip">⠿</span>
+                <span class="thumb" style="background:linear-gradient(135deg,#134e3a,#2c8f68)">RAMADAN<br>SOON</span>
+                <span class="meta"><b>Ramadan hours</b><span>Links to · Ask on WhatsApp</span></span>
+                <span class="pill draft">Draft</span>
+              </div>
+            </div>
+
+            <div class="addSlide">+ Add a flyer &nbsp;·&nbsp; 3 of 5</div>
+
+            <div class="banner warn">
+              <span class="ic">!</span>
+              <span>Your page uses the <b>Counter</b> design, which shows a price list and no flyers.
+              Switch to Market or Window to show these.</span>
+            </div>
+          </div>
+
+          <div class="drawer">
+            <h4>Flyer</h4>
+            <p class="sub">Drag to reorder. Customers see them in this order.</p>
+
+            <div class="fieldLabel">Image</div>
+            <div class="thumb" style="width:100%;height:112px;border-radius:12px;background:linear-gradient(135deg,#1f3a8a,#3b6fd4);font-size:13px">20% OFF SOLAR</div>
+            <p class="hint">Wide images look best — about twice as wide as tall.</p>
+
+            <div class="fieldLabel">Headline</div>
+            <div class="input">20% off all solar</div>
+
+            <div class="fieldLabel">Line underneath <span style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></div>
+            <div class="input">This week only — lanterns, panels and batteries.</div>
+
+            <div class="fieldLabel">When it's tapped</div>
+            <div class="chips" style="margin-top:0">
+              <span class="chip">Nothing</span>
+              <span class="chip on">Show a category</span>
+              <span class="chip">Ask on WhatsApp</span>
+            </div>
+            <div class="input" style="margin-top:9px">Solar</div>
+            <p class="hint">Takes the customer to your solar items.</p>
+
+            <div class="btnRow">
+              <span class="btn pri">Save</span>
+              <span class="btn">Save as draft</span>
+              <span class="btn">Remove</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">Draft flyers use the <code>draft</code> column the editor already has — next week's poster can be ready without being live.</p>
+
+    <h3>Motion</h3>
+    <p class="note">
+      A carousel that moves while somebody is reading is worse than a static image, and this page is read
+      on a phone over a slow connection in a shop doorway.
+    </p>
+    <ul class="tight">
+      <li><b>Auto-advance is off unless the shop turns it on.</b> The default page does not move by itself.</li>
+      <li><b>It never moves under <code>prefers-reduced-motion</code></b>, regardless of that setting — the customer's preference wins over the shop's.</li>
+      <li><b>It stops on hover, on touch and on keyboard focus</b>, and does not resume for that visit.</li>
+      <li><b>Dots and arrows always work</b>, whether or not it auto-advances. Swipe too.</li>
+      <li>Each slide is a real link or button, so a screen reader and a keyboard reach it in order.</li>
+    </ul>
+
+    <h3>What this costs in schema</h3>
+    <table>
+      <thead><tr><th style="width:26%">Object</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><b><code>storefront_flyers</code></b></td>
+            <td>One row per slide: <code>storefront_id</code>, <code>image_path</code>, <code>headline</code>, <code>subline</code>, <code>link_kind</code>, <code>link_value</code>, <code>position</code>, <code>draft</code>. Read publicly through the existing <code>security definer</code> pattern, never by direct table grant.</td></tr>
+        <tr><td><b>A public read</b></td>
+            <td>Extends the storefront read RPC rather than adding a fourth: an unpublished shop and an unknown slug must stay byte-identical, which is only true if flyers travel with the same call.</td></tr>
+        <tr><td><b><code>auto_advance</code></b></td>
+            <td>One boolean on <code>storefronts</code>. Off by default.</td></tr>
+        <tr><td colspan="2" style="color:var(--mut)"><b>No new bucket.</b> <code>product-images</code> is already public, which is what a customer-readable flyer needs.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>Deliberately not here</h2>
+    <table>
+      <thead><tr><th style="width:32%">Left out</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Scheduling a flyer to appear on a date</td>
+            <td>Worth wanting and much bigger. Draft plus a tap is enough to run a week's promotion today.</td></tr>
+        <tr><td>Tying a flyer to the promotions module</td>
+            <td>A flyer is marketing; a promotion is pricing. Conflating them makes the discount engine's behaviour unclear, and the discount engine posts to the ledger.</td></tr>
+        <tr><td>Reserving an address before it is claimed</td>
+            <td>Stays first-come. <code>claim_shop_slug</code> already raises <code>slug_taken</code> on a lost race.</td></tr>
+        <tr><td>Redirecting an old address to a new one</td>
+            <td>Needs a history table and a resolver that fails open — the opposite of how <code>slugFromHostname</code> is built. Separate change.</td></tr>
+        <tr><td>Video flyers</td>
+            <td>Autoplaying video on a metered connection in Hargeisa is a cost the shop's customer pays.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
