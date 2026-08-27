@@ -78,6 +78,8 @@ declare
   v_widget   uuid;
   v_bin      uuid;
   v_toaster  uuid;
+  -- Check 20: the asset whose purchase is voided out from under it.
+  v_ghost    uuid;
 
   v_entry    uuid;
   v_kettle_entry uuid;
@@ -1215,6 +1217,260 @@ begin
         where section = 'proof' and label like 'Movement in cash%');
   end if;
   raise notice '19 OK: a zero charge, a zero gain, zero proceeds, a sale before the books were done, and the clamp';
+
+  -- =====================================================================
+  -- 20. AN ASSET WHOSE PURCHASE WAS VOIDED TAKES NO FURTHER CHARGE.
+  --
+  --     reverse_journal_entry is a shipped generic door and it can void an
+  --     asset's acquisition entry while the register row survives.
+  --     20261006000100 carried that as a known register-vs-ledger
+  --     disagreement, reported through acquisition_status / voided_count. The
+  --     consequence is worse than a disagreement: the asset's COST is now in
+  --     no account, and depreciation went on crediting 1590 for it every
+  --     month. Measured before the fix, on a twelve-month asset five months
+  --     old:
+  --
+  --       run_depreciation still wrote 5 monthly entries
+  --       BALANCE SHEET fixed_assets: Accumulated Depreciation = -50000
+  --       BALANCE SHEET fixed_assets: Total fixed assets       = -50000
+  --
+  --     -- going 10000 further negative every month for the rest of the
+  --     asset's life, without bound, and nothing ever writes it back. It is
+  --     the same shape `disposed_on is null` was added for, so the rule sits
+  --     in the same `where` clause, in both derivations.
+  --
+  --     MUTATION: drop `and je.status = 'posted'` from the due CTE, or from
+  --     the charge-row insert, and this check goes red -- the first on the
+  --     entry count, the second on the register-versus-ledger tie at 21.
+  -- =====================================================================
+  --     BESIDE A HEALTHY ONE bought in the same month, and that is not
+  --     scenery either: with only the voided asset outstanding the run finds
+  --     nothing due, posts no entry, and the charge-row insert is never
+  --     reached -- so the same predicate deleted from the INSERT alone would
+  --     leave this check green. Measured: it did. The fan makes the entry
+  --     real, and then the two derivations have to agree about the oven.
+  v_ghost := public.create_fixed_asset(v_shop_c, 'Ghost Oven', 12000, '2026-03-04', 12, '1000');
+  v_fan   := public.create_fixed_asset(v_shop_c, 'Ceiling Fan', 1200, '2026-03-05', 12, '1000');
+  select fa.journal_entry_id into v_entry from public.fixed_assets fa where fa.id = v_ghost;
+  perform public.reverse_journal_entry(v_entry, 'entered against the wrong shop');
+
+  v_before := (select amount_cents from public.balance_sheet(v_shop_c, v_today)
+                where section = 'fixed_assets' and label = 'Total fixed assets');
+  v_n := public.run_depreciation(v_shop_c, null);
+  --     March through the last complete month, on the fan alone.
+  if v_n < 1 then
+    raise exception 'FAIL 20: the run wrote % entries -- the healthy asset bought beside the voided one was not charged either', v_n;
+  end if;
+  perform set_config('role', 'postgres', true);
+  if exists (select 1 from public.depreciation_charges dc where dc.asset_id = v_ghost) then
+    raise exception 'FAIL 20: an asset whose acquisition entry was voided took % charge rows -- its cost is in no account and every one of them drives Total fixed assets further negative',
+      (select count(*) from public.depreciation_charges dc where dc.asset_id = v_ghost);
+  end if;
+  v_amount := (select coalesce(sum(dc.amount_cents), 0) from public.depreciation_charges dc
+                where dc.asset_id = v_fan);
+  if v_amount = 0 then
+    raise exception 'FAIL 20: the healthy asset took no charge either, so this check is not about the voided one';
+  end if;
+  perform set_config('role', 'authenticated', true);
+  v_after := (select amount_cents from public.balance_sheet(v_shop_c, v_today)
+               where section = 'fixed_assets' and label = 'Total fixed assets');
+  --     Total fixed assets fell by the FAN'S wear and by nothing else. Stated
+  --     as an equality rather than as "it did not move", because the fan has
+  --     to move it or the run posted nothing at all.
+  if v_after is distinct from v_before - v_amount then
+    raise exception 'FAIL 20: Total fixed assets went % -> % on a run that should have charged only the % of wear on the healthy asset',
+      v_before, v_after, v_amount;
+  end if;
+  if v_after < 0 then
+    raise exception 'FAIL 20: Total fixed assets is %, and a shop cannot own minus equipment', v_after;
+  end if;
+  raise notice '20 OK: a voided purchase stops the depreciation as well as the register';
+
+  -- =====================================================================
+  -- 21. THE INVARIANT, ACROSS EVERY SHOP THIS FILE BUILT: every depreciation
+  --     entry is accounted for by charge rows, and 1590's credits equal the
+  --     charge rows behind them.
+  --
+  --     NOT "one entry per charged month", which is wrong and this file
+  --     already proves it: check 12 adds an asset AFTER a month has been
+  --     charged and asserts the next run posts a SECOND entry for that month
+  --     carrying only the new asset. Shop A legitimately has nine entries for
+  --     seven months. The rule that separates that from the duplicate is
+  --     whether the entry has charge rows pointing AT it -- the second entry
+  --     in check 12 does, and the duplicate C1 posts does not, because the
+  --     charge rows it thought it was writing were already there.
+  --
+  --     This is the net under C1 rather than a repeat of the checks above.
+  --     Two overlapping run_depreciation calls used to post SEVEN entries for
+  --     SIX months while writing charge rows for six -- and nothing could see
+  --     it, because a duplicate charge moves 1590 by -X and 6800 by +X, so
+  --     the entry balances, the trial balance passes and cash_flow()'s proof
+  --     row (investing = -(1500-1599) - 6800) nets the duplicate to zero and
+  --     still TIES. Measured: 7 entries, 6 charge months, 1590 at -840000
+  --     against charge rows of 720000, proof TIES.
+  --
+  --     The race itself is exercised in verify-depreciation-concurrency.sh,
+  --     which needs two sessions and cannot live in this file. This is the
+  --     assertion that reddens if the two ever part company by any route --
+  --     a second door, a snapshot skew, a copy-forward that drops the lock's
+  --     partner check -- including routes nobody has thought of.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  for v_window in
+    select s.id as shop_id, s.name as shop_name from public.shops s
+     where s.id in (v_shop, v_shop_b, v_shop_c)
+  loop
+    if exists (
+      select 1 from public.journal_entries e
+       where e.shop_id = v_window.shop_id and e.source = 'depreciation'
+         and e.status = 'posted' and e.reverses_entry_id is null
+         and not exists (select 1 from public.depreciation_charges dc
+                          where dc.journal_entry_id = e.id)) then
+      raise exception 'FAIL 21: % has a depreciation entry (%) that no charge row records -- a month has been posted twice and the register cannot see it',
+        v_window.shop_name,
+        (select string_agg(e.reference || ' ' || e.description, ', ')
+           from public.journal_entries e
+          where e.shop_id = v_window.shop_id and e.source = 'depreciation'
+            and e.status = 'posted' and e.reverses_entry_id is null
+            and not exists (select 1 from public.depreciation_charges dc
+                             where dc.journal_entry_id = e.id));
+    end if;
+
+    --   1590 nets the monthly credits against every disposal's write-back, so
+    --   the figure to compare the charge rows with is the depreciation
+    --   entries' own 1590 lines and not the account's balance. Both are read
+    --   here: the first says the ledger and the register agree about what was
+    --   charged, the second that nothing has been written back that was never
+    --   charged.
+    v_before := coalesce((select sum(dc.amount_cents) from public.depreciation_charges dc
+                           where dc.shop_id = v_window.shop_id), 0);
+    v_after := coalesce((select sum(l.amount_cents)
+                           from public.journal_lines l
+                           join public.journal_entries e on e.id = l.entry_id
+                           join public.accounts a on a.id = l.account_id
+                          where e.shop_id = v_window.shop_id and e.source = 'depreciation'
+                            and a.code = '1590'), 0);
+    if v_before <> -v_after then
+      raise exception 'FAIL 21: % charged % in depreciation and credited 1590 by % -- the register and the ledger disagree',
+        v_window.shop_name, v_before, -v_after;
+    end if;
+    if (select coalesce(sum(l.amount_cents), 0)
+          from public.journal_lines l
+          join public.journal_entries e on e.id = l.entry_id
+          join public.accounts a on a.id = l.account_id
+         where e.shop_id = v_window.shop_id and a.code = '1590') > 0 then
+      raise exception 'FAIL 21: % has a DEBIT balance in 1590 -- more depreciation has been written back than was ever charged',
+        v_window.shop_name;
+    end if;
+  end loop;
+  perform set_config('role', 'authenticated', true);
+  raise notice '21 OK: every depreciation entry has charge rows behind it, and 1590 equals them, in all three shops';
+
+  -- =====================================================================
+  -- 22. THE RUN CHECKS ITS OWN WORK, and aborts rather than commit a
+  --     disagreement.
+  --
+  --     20261008000000's lock stops the two races that were measured, and a
+  --     lock only holds over the doors that take it. reverse_journal_entry is
+  --     a shipped generic RPC that does not, and cannot be taught to without
+  --     inverting the lock order against post_journal_entry's reference
+  --     counter and deadlocking. So the run compares the charge rows it
+  --     actually WROTE -- read back out of the insert through a
+  --     data-modifying CTE -- against what the entry it just posted CREDITED
+  --     to 1590, and raises 40001 if they differ.
+  --
+  --     That window is microseconds wide and cannot be hit on demand from two
+  --     sessions, so it is FORCED here instead: a trigger that swallows the
+  --     charge rows makes the two derivations disagree by construction, which
+  --     is the only property the guard cares about. What caused the
+  --     disagreement is not the guard's business -- a future door that
+  --     forgets the lock produces the same shape.
+  --
+  --     MUTATION: change `if v_written <> v_total` to `if false` and this
+  --     check goes red, on a run that commits a ledger and a register that
+  --     disagree -- which is the failure mode nothing else can see, because
+  --     the entry balances and the cash-flow proof still ties.
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  create function public.verify_fixed_assets_swallow_charge() returns trigger
+    language plpgsql as $swallow$
+    begin
+      -- Only the one asset check 22 is about. Every other shop's charge rows
+      -- go in untouched, so this cannot make an unrelated month red.
+      if new.asset_id = current_setting('verify_fixed_assets.swallow')::uuid then
+        return null;
+      end if;
+      return new;
+    end;
+    $swallow$;
+  create trigger verify_fixed_assets_swallow_charge
+    before insert on public.depreciation_charges
+    for each row execute function public.verify_fixed_assets_swallow_charge();
+  perform set_config('role', 'authenticated', true);
+
+  --   A shop with nothing outstanding, so the only thing due is the asset the
+  --   trigger swallows: shop B, whose register check 15 left settled.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_other)::text, true);
+  v_bin := public.create_fixed_asset(v_shop_b, 'Chest Freezer', 24000, '2026-06-02', 24, '1000');
+  perform set_config('role', 'postgres', true);
+  perform set_config('verify_fixed_assets.swallow', v_bin::text, false);
+  perform set_config('role', 'authenticated', true);
+
+  v_before := (select coalesce(sum(l.amount_cents), 0)
+                 from public.journal_lines l
+                 join public.journal_entries e on e.id = l.entry_id
+                 join public.accounts a on a.id = l.account_id
+                where e.shop_id = v_shop_b and a.code = '1590');
+  v_raised := false;
+  begin
+    perform public.run_depreciation(v_shop_b, null);
+  exception
+    when others then
+      v_raised := true;
+      v_message := sqlerrm;
+  end;
+  if not v_raised then
+    raise exception 'FAIL 22: the run posted a month whose charge rows were never written and said nothing about it';
+  end if;
+  if v_message not like 'Depreciation for % changed while it was being posted%' then
+    raise exception 'FAIL 22: the run aborted with "%", expected the sentence naming the month', v_message;
+  end if;
+
+  perform set_config('role', 'postgres', true);
+  drop trigger verify_fixed_assets_swallow_charge on public.depreciation_charges;
+  drop function public.verify_fixed_assets_swallow_charge();
+  perform set_config('role', 'authenticated', true);
+
+  --   ...and NOTHING was left behind by the abort. The exception rolls the
+  --   whole run back, so 1590 has not moved and no depreciation entry stands
+  --   for a month that was never charged.
+  v_after := (select coalesce(sum(l.amount_cents), 0)
+                from public.journal_lines l
+                join public.journal_entries e on e.id = l.entry_id
+                join public.accounts a on a.id = l.account_id
+               where e.shop_id = v_shop_b and a.code = '1590');
+  if v_after is distinct from v_before then
+    raise exception 'FAIL 22: 1590 moved from % to % on a run that raised', v_before, v_after;
+  end if;
+
+  --   ...and the same run, with nothing swallowing anything, now ties.
+  v_n := public.run_depreciation(v_shop_b, null);
+  if v_n < 1 then
+    raise exception 'FAIL 22: the retry wrote % entries -- the abort left the month looking done', v_n;
+  end if;
+  perform set_config('role', 'postgres', true);
+  if (select coalesce(sum(dc.amount_cents), 0) from public.depreciation_charges dc
+       where dc.shop_id = v_shop_b)
+     is distinct from
+     -(select coalesce(sum(l.amount_cents), 0)
+         from public.journal_lines l
+         join public.journal_entries e on e.id = l.entry_id
+         join public.accounts a on a.id = l.account_id
+        where e.shop_id = v_shop_b and e.source = 'depreciation' and a.code = '1590') then
+    raise exception 'FAIL 22: after the retry shop B''s charge rows and its 1590 credits still disagree';
+  end if;
+  perform set_config('role', 'authenticated', true);
+  raise notice '22 OK: a run whose charge rows and entry disagree aborts, leaves nothing behind, and retries clean';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

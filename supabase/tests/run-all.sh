@@ -91,6 +91,30 @@ for script in "$HERE"/verify-*.sql "$HERE"/bench-*.sql; do
   fi
 done
 
+# A THIRD kind, added for phase 3c: a check that needs TWO DATABASE SESSIONS and
+# therefore cannot be a .sql file, because psql gives one. There is exactly one
+# today -- verify-depreciation-concurrency.sh, for a duplicate depreciation entry
+# that no serial test can reach and that every totals check, the trial balance
+# and the cash-flow proof were all blind to. It builds and deletes its own
+# COMMITTED fixture, which is why it is not a .sql script that rolls back.
+#
+# Same contract as the rest: print ALL CHECKS PASSED or be a failure. Run last,
+# because it is the slowest and because a failure here is easier to read after
+# the cheap checks have already said whether the schema is sound.
+for script in "$HERE"/verify-*.sh; do
+  name="$(basename "$script" .sh)"
+  printf '  %-32s ' "$name"
+  output="$(bash "$script" 2>&1)"
+  if grep -qiE 'ALL CHECKS PASSED|all assertions passed' <<<"$output"; then
+    echo 'pass'
+    passed=$((passed + 1))
+  else
+    echo 'FAIL'
+    failed+=("$name")
+    grep -m3 -E 'ERROR|FAIL' <<<"$output" | sed 's/^/      /'
+  fi
+done
+
 echo
 if [ ${#skipped[@]} -gt 0 ]; then
   echo "${#skipped[@]} not exercised: ${skipped[*]}"
