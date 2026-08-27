@@ -1,5 +1,7 @@
 import {
+  averageCents,
   categoryLabel,
+  employeeLabel,
   groupBy,
   grossProfitCents,
   lowStockReading,
@@ -7,9 +9,12 @@ import {
   movementTotals,
   reorderShortfall,
   reorderUrgency,
+  rollUpLines,
+  rollUpSales,
   sequenceMovements,
   shareOfTotal,
   stockValueCents,
+  UNATTRIBUTED,
   UNCATEGORISED,
   type MovementRow,
 } from '@/lib/report-math';
@@ -64,6 +69,25 @@ describe('margin', () => {
     // Revenue 0 with a cost recorded is a real shape -- a write-off day -- and
     // dividing by it gives -Infinity, which renders as "-∞%".
     expect(marginPercent(0, 2500)).toBeNull();
+  });
+});
+
+describe('an average', () => {
+  it('has no average over nothing, rather than reporting zero', () => {
+    // "Average basket $0.00" is a claim about a trading day. A day with no
+    // sales did not have an average basket of nothing -- it did not have one.
+    expect(averageCents(0, 0)).toBeNull();
+  });
+
+  it('rounds to whole cents rather than leaving a float', () => {
+    // 1000 over 3 is 333.33..., which formats as "$3.3333333333333335".
+    expect(averageCents(1000, 3)).toBe(333);
+  });
+
+  it('divides the total by the count, not the other way round', () => {
+    // 9000 over 3 is 3000; inverted it would be 0. Neither figure can be
+    // reached from the other by accident.
+    expect(averageCents(9000, 3)).toBe(3000);
   });
 });
 
@@ -311,5 +335,133 @@ describe('stock movement', () => {
       transfer: { units: 0, count: 0 },
       count: { units: 0, count: 0 },
     });
+  });
+});
+
+describe('rolling sale lines up into a report', () => {
+  // Every figure below is distinct and no two sum to a third, so a line
+  // credited to the wrong bucket cannot land on the right answer by accident.
+  const line = (over: Partial<Parameters<typeof rollUpLines>[0][number]>) => ({
+    key: 'k',
+    label: 'L',
+    lineTotalCents: 100,
+    unitCostCents: 40,
+    quantity: 1,
+    ...over,
+  });
+
+  it('totals revenue, cost, units and lines per bucket', () => {
+    // Rice: two lines, 1300 + 2900 = 4200 revenue, (500 x 2) + (700 x 3) = 3100
+    // cost, 5 units. Soap: one line, 800 revenue, 300 cost, 1 unit.
+    const rows = rollUpLines([
+      line({ key: 'rice', label: 'Rice', lineTotalCents: 1300, unitCostCents: 500, quantity: 2 }),
+      line({ key: 'soap', label: 'Soap', lineTotalCents: 800, unitCostCents: 300, quantity: 1 }),
+      line({ key: 'rice', label: 'Rice', lineTotalCents: 2900, unitCostCents: 700, quantity: 3 }),
+    ]);
+    expect(rows).toEqual([
+      { key: 'rice', label: 'Rice', revenueCents: 4200, costCents: 3100, marginPercent: expect.closeTo(26.19, 1), units: 5, lines: 2, uncostedLines: 0 },
+      { key: 'soap', label: 'Soap', revenueCents: 800, costCents: 300, marginPercent: expect.closeTo(62.5, 1), units: 1, lines: 1, uncostedLines: 0 },
+    ]);
+  });
+
+  it('ranks by revenue rather than by units, so a cheap best-seller cannot outrank an earner', () => {
+    // Water sells 90 units for 900; whisky sells 2 for 9000. A report sorted on
+    // units would invert these, and each figure is unique so nothing else can.
+    const rows = rollUpLines([
+      line({ key: 'water', label: 'Water', lineTotalCents: 900, quantity: 90 }),
+      line({ key: 'whisky', label: 'Whisky', lineTotalCents: 9000, quantity: 2 }),
+    ]);
+    expect(rows.map((r) => r.key)).toEqual(['whisky', 'water']);
+  });
+
+  it('breaks a revenue tie on the label, so the table does not reshuffle between refreshes', () => {
+    // Three buckets on exactly 0, which is the tie that actually happens: a
+    // category whose only sale was refunded. Input order is deliberately the
+    // reverse of the answer, so a stable-sort-only implementation fails.
+    const rows = rollUpLines([
+      line({ key: 'c', label: 'Cereal', lineTotalCents: 0 }),
+      line({ key: 'b', label: 'Bread', lineTotalCents: 0 }),
+      line({ key: 'a', label: 'Apples', lineTotalCents: 0 }),
+    ]);
+    expect(rows.map((r) => r.label)).toEqual(['Apples', 'Bread', 'Cereal']);
+  });
+
+  it('counts uncosted lines per bucket rather than across the report', () => {
+    // The caveat names a figure per row. Rice has one uncosted of two; soap has
+    // none. A report-wide count would put 1 on both.
+    const rows = rollUpLines([
+      line({ key: 'rice', label: 'Rice', lineTotalCents: 1300, unitCostCents: null }),
+      line({ key: 'rice', label: 'Rice', lineTotalCents: 2900, unitCostCents: 700 }),
+      line({ key: 'soap', label: 'Soap', lineTotalCents: 800, unitCostCents: 300 }),
+    ]);
+    expect(rows.map((r) => [r.key, r.uncostedLines])).toEqual([
+      ['rice', 1],
+      ['soap', 0],
+    ]);
+  });
+
+  it('survives a bucket key of __proto__ rather than dropping it', () => {
+    // A category named `__proto__` came in through CSV import once. On a plain
+    // object it sets the prototype and the whole bucket vanishes from the
+    // report, silently and only for that shop.
+    const rows = rollUpLines([line({ key: '__proto__', label: 'Odd', lineTotalCents: 4100 })]);
+    expect(rows.map((r) => [r.key, r.revenueCents])).toEqual([['__proto__', 4100]]);
+  });
+});
+
+describe('rolling whole sales up into a report', () => {
+  const sale = (over: Partial<Parameters<typeof rollUpSales>[0][number]>) => ({
+    key: 'k',
+    label: 'L',
+    revenueCents: 100,
+    units: 1,
+    ...over,
+  });
+
+  it('counts baskets rather than units, and averages over baskets', () => {
+    // Amina: 3 sales taking 1500 + 2500 + 3500 = 7500, mean 2500, 12 units.
+    // Yusuf: 1 sale of 9000 with 1 unit -- more money, fewer baskets. A report
+    // counting units would rank Amina top and average her over 12.
+    const rows = rollUpSales([
+      sale({ key: 'amina', label: 'Amina', revenueCents: 1500, units: 4 }),
+      sale({ key: 'yusuf', label: 'Yusuf', revenueCents: 9000, units: 1 }),
+      sale({ key: 'amina', label: 'Amina', revenueCents: 2500, units: 5 }),
+      sale({ key: 'amina', label: 'Amina', revenueCents: 3500, units: 3 }),
+    ]);
+    expect(rows).toEqual([
+      { key: 'yusuf', label: 'Yusuf', revenueCents: 9000, sales: 1, units: 1, averageSaleCents: 9000 },
+      { key: 'amina', label: 'Amina', revenueCents: 7500, sales: 3, units: 12, averageSaleCents: 2500 },
+    ]);
+  });
+
+  it('rounds the average to whole cents rather than leaving a fraction', () => {
+    // 1000 over 3 baskets is 333.33..., and a fraction of a cent rendered as
+    // money prints "$3.3333333333333335".
+    const rows = rollUpSales([
+      sale({ key: 'a', revenueCents: 400 }),
+      sale({ key: 'a', revenueCents: 300 }),
+      sale({ key: 'a', revenueCents: 300 }),
+    ]);
+    expect(rows[0].averageSaleCents).toBe(333);
+  });
+});
+
+describe('the cashier a sale is reported against', () => {
+  it('gives an unrecorded cashier a row rather than dropping the sale', () => {
+    // Dropping these makes the per-cashier revenues add to less than the shop
+    // took, with nothing on screen to explain the gap.
+    expect(employeeLabel(null)).toBe(UNATTRIBUTED);
+    expect(employeeLabel(undefined)).toBe(UNATTRIBUTED);
+    expect(employeeLabel('')).toBe(UNATTRIBUTED);
+  });
+
+  it('treats a whitespace-only name as unrecorded rather than as a second cashier', () => {
+    // `' '` arrives through import and would otherwise be an invisible row
+    // sitting beside the real one.
+    expect(employeeLabel('  ')).toBe(UNATTRIBUTED);
+  });
+
+  it('keeps a real name, trimmed', () => {
+    expect(employeeLabel('  Amina ')).toBe('Amina');
   });
 });

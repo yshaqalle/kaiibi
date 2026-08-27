@@ -16,7 +16,10 @@ import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-v
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { EmployeeSalesView } from '@/components/accounting/reports/employee-sales-view';
+import { ItemPerformanceView } from '@/components/accounting/reports/item-performance-view';
 import { ReportsHub, isReportView, reportViewMeta, type ReportView } from '@/components/accounting/reports/reports-hub';
+import { SalesReportView } from '@/components/accounting/reports/sales-report-view';
 import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Colors } from '@/constants/theme';
@@ -314,6 +317,13 @@ export default function AccountingScreen() {
             {tab === 'reports' && reportView === 'hub' && (
               <ReportsHub onOpen={setView} onOpenLedgerView={openLedgerView} rangeLabel={rangeLabel} can={can} />
             )}
+            {/* The seven reports. Each takes the shell's range and store
+                filter, exactly as the day-to-day tabs do, so a reader who
+                picked 30 days and one branch on the hub keeps both on
+                arrival. */}
+            {tab === 'reports' && reportView === 'sales' && <SalesReportView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
+            {tab === 'reports' && reportView === 'item' && <ItemPerformanceView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
+            {tab === 'reports' && reportView === 'employee' && <EmployeeSalesView dateRange={dateRange} locationFilter={locationFilter} setRefresh={setTabRefresh} />}
             {/* The Reports tab as it was, kept on a route of its own rather
                 than deleted: it holds a working profit and loss, a sales-tax
                 summary and a labour ratio, and the four dimmed cards on the hub

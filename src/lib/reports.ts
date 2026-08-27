@@ -1,0 +1,172 @@
+import { listLocations } from '@/lib/locations';
+import { categoryLabel, employeeLabel, type LabelledLine, type LabelledSale } from '@/lib/report-math';
+import { getSalesAndRefundsInRange } from '@/lib/sales';
+import type { PeriodRefund } from '@/lib/sales-reporting';
+import type { Sale, ShopLocation } from '@/types/models';
+
+// The reads the seven reports need, and the row -> model shaping that goes with
+// them. The arithmetic is next door in report-math.ts and imports nothing from
+// here: this module reaches the Supabase client (directly or through sales.ts),
+// which cannot load under Jest.
+//
+// WHY THE SALES REPORTS DO NOT ISSUE THEIR OWN QUERIES. Four of the seven read
+// sales and sale items, and sales.ts already has that read -- paginated past
+// PostgREST's 1000-row cap, with a mapping that unpacks items, payments, edits
+// and refunds and has been corrected several times for things this file would
+// have to get right again from scratch (goods_cents falling back to
+// total_cents, tax_rate_percent arriving as a string, an edit's snapshot).
+// A second implementation of it here would be a second opinion on what a sale
+// is, and the two would disagree the first time one of them was fixed. So the
+// four sales reports take `getSalesAndRefundsInRange` and shape its result;
+// only the three inventory reports, which have no existing read in the shape
+// they need, query for themselves.
+
+// ---------------------------------------------------------------------------
+// The sales reports (Tasks 3-6)
+// ---------------------------------------------------------------------------
+
+export type SalesReportData = {
+  sales: Sale[];
+  refunds: PeriodRefund[];
+  /** Every branch, so a store row can be named rather than shown as a uuid. */
+  locations: ShopLocation[];
+};
+
+/**
+ * One read for all four sales reports.
+ *
+ * `getSalesAndRefundsInRange` is the heaviest query in the app, so it is issued
+ * ONCE per screen and every figure derived from the result -- the note on that
+ * function says exactly this. A view that wanted revenue and margin and a
+ * per-day series would otherwise refetch the same rows three times.
+ *
+ * `locationId` null is the combined business view, matching the shell's store
+ * filter and `scopeToLocation`.
+ */
+export async function loadSalesReport(
+  shopId: string,
+  since: Date,
+  until: Date | undefined,
+  locationId: string | null
+): Promise<SalesReportData> {
+  const [{ sales, refunds }, locations] = await Promise.all([
+    getSalesAndRefundsInRange(shopId, since, until, locationId),
+    listLocations(shopId),
+  ]);
+  return { sales, refunds, locations };
+}
+
+/**
+ * What a single basket earned the shop: everything the customer handed over,
+ * less the sales tax the shop is only holding on the government's behalf.
+ *
+ * Tax is excluded for the reason `netRevenueCents` excludes it -- it is a
+ * liability owed onward, not income -- so a per-cashier or per-store column
+ * headed "revenue" has to exclude it too, or the same word means two different
+ * figures on two screens.
+ *
+ * Refunds are NOT netted off here, and the screens that use this say so out
+ * loud. A refund is processed by whoever is on the till when the customer comes
+ * back, which is rarely whoever made the sale, so subtracting it from either
+ * one of them is a guess: charge it to the original cashier and you have
+ * punished them for a decision someone else made; charge it to the refunder and
+ * a cashier who is generous with refunds looks like a poor seller. The shop's
+ * refunds belong in the shop's totals, which is where `netRevenueCents` puts
+ * them.
+ */
+export function saleRevenueCents(sale: Sale): number {
+  return sale.totalCents - sale.taxCents;
+}
+
+// `Sale.items` is optional on the model because some reads do not select the
+// line rows at all -- `?? []` is for those, not for a sale that genuinely has
+// no lines. Every read in this file goes through `getSalesAndRefundsInRange`,
+// which always selects them.
+function saleItems(sale: Sale) {
+  return sale.items ?? [];
+}
+
+function saleUnits(sale: Sale): number {
+  return saleItems(sale).reduce((sum, item) => sum + item.quantity, 0);
+}
+
+/** Every sale tagged with the cashier it is reported against. */
+export function salesByEmployee(sales: Sale[]): LabelledSale[] {
+  return sales.map((sale) => {
+    const label = employeeLabel(sale.cashierName);
+    return {
+      // Keyed on the LABEL, not on `created_by`. Two sales rung up under the
+      // same name by the same person before and after they were given a login
+      // are one cashier to the shop, and `cashier_name` is the frozen snapshot
+      // the till actually recorded -- `created_by` is null on every sale made
+      // from a shared device.
+      key: label,
+      label,
+      revenueCents: saleRevenueCents(sale),
+      units: saleUnits(sale),
+    };
+  });
+}
+
+/** Every sale tagged with the branch that rang it up. */
+export function salesByStore(sales: Sale[], locations: ShopLocation[]): LabelledSale[] {
+  const names = new Map(locations.map((location) => [location.id, location.name]));
+  return sales.map((sale) => ({
+    key: sale.locationId,
+    // A branch deleted from the list but still on old sales must not become a
+    // blank row. `location_id` is not null on any sale (migration
+    // 20260809000000 backfilled every pre-existing one), so this is about a
+    // location the CURRENT read did not return, not about missing data.
+    label: names.get(sale.locationId) ?? 'Unknown store',
+    revenueCents: saleRevenueCents(sale),
+    units: saleUnits(sale),
+  }));
+}
+
+/**
+ * Every sale LINE tagged with the product it sold.
+ *
+ * Keyed on the product id where there is one and on the frozen name where there
+ * is not: `sale_items.product_id` is set null when a product is deleted, and
+ * keying every one of those on the same null would merge a shop's entire
+ * deleted back-catalogue into a single row called whatever the first one
+ * happened to be.
+ */
+export function linesByProduct(sales: Sale[]): LabelledLine[] {
+  return sales.flatMap((sale) =>
+    saleItems(sale).map((item) => ({
+      key: item.productId ?? `deleted:${item.productName}`,
+      label: item.productName,
+      lineTotalCents: item.lineTotalCents,
+      unitCostCents: item.unitCostCents,
+      quantity: item.quantity,
+    }))
+  );
+}
+
+/**
+ * Every sale line tagged with its product's category.
+ *
+ * The category is read from the products table LIVE, not frozen on the line, so
+ * recategorising a product restates its past sales. That is the right way round
+ * for this report: "how are my drinks doing" is a question about the shelf as it
+ * is organised today, and the alternative would report a product under a
+ * category the shop has since abandoned.
+ *
+ * A line whose product was deleted has no category to read and falls into
+ * Uncategorised with the rest, which is honest -- nobody can say what it was.
+ */
+export function linesByCategory(sales: Sale[], categories: Map<string, string | null>): LabelledLine[] {
+  return sales.flatMap((sale) =>
+    saleItems(sale).map((item) => {
+      const label = categoryLabel(item.productId === null ? null : categories.get(item.productId));
+      return {
+        key: label,
+        label,
+        lineTotalCents: item.lineTotalCents,
+        unitCostCents: item.unitCostCents,
+        quantity: item.quantity,
+      };
+    })
+  );
+}

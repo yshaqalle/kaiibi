@@ -1,0 +1,229 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+
+import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { type DateRange } from '@/components/range-selector';
+import { StatTile } from '@/components/stat-tile';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
+import { Caveat } from '@/components/ui/caveat';
+import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
+import { useAuth } from '@/hooks/use-auth';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { formatCents, formatCompactCents } from '@/lib/currency';
+import { methodLabel } from '@/lib/payment-methods';
+import { averageCents, rollUpSales, shareOfTotal, type SaleGroupRow } from '@/lib/report-math';
+import { loadSalesReport, salesByStore } from '@/lib/reports';
+import {
+  bucketDailyTotals,
+  grossSalesCents,
+  netRevenueCents,
+  netTaxCollectedCents,
+  paymentMethodMix,
+  type DailyBucket,
+  type PaymentMixEntry,
+} from '@/lib/sales-reporting';
+
+// Revenue by day, payment method and store.
+//
+// Every figure here comes out of sales-reporting.ts or report-math.ts. This file
+// picks which ones to show and formats them, and does no arithmetic of its own
+// -- see the note at the top of report-math.ts for why that line is drawn hard.
+//
+// One read for the whole screen (`loadSalesReport`), because the underlying
+// query is the heaviest in the app and three panels asking separately would
+// fetch the same rows three times.
+
+const DAY_COLUMNS: Column<DailyBucket>[] = [
+  {
+    key: 'day',
+    header: 'Day',
+    // `bucket.day` is already a LOCAL day string (Date.toDateString via
+    // dayKeyFor). Not re-parsed and not reformatted through toISOString: a
+    // date-only string round-tripped through UTC renders as the day before
+    // west of Greenwich, which is a bug this project has already shipped once.
+    render: (row) => <NameCell title={row.day} />,
+  },
+  { key: 'orders', header: 'Orders', numeric: true, render: (row) => <ValueCell value={String(row.orderCount)} /> },
+  {
+    key: 'gross',
+    header: 'Takings',
+    numeric: true,
+    render: (row) => <ValueCell value={formatCents(row.grossCents)} tone={row.grossCents === 0 ? 'muted' : 'default'} />,
+  },
+  {
+    key: 'refunds',
+    header: 'Refunds',
+    numeric: true,
+    // An em dash on a day with none. A column of "$0.00" down every row is ink
+    // spent hiding the two days that actually had a refund.
+    render: (row) =>
+      row.refundCents === 0 ? (
+        <ValueCell value="—" tone="muted" />
+      ) : (
+        <ValueCell value={`−${formatCents(row.refundCents)}`} tone="danger" />
+      ),
+  },
+  {
+    key: 'tax',
+    header: 'Sales tax',
+    numeric: true,
+    render: (row) => <ValueCell value={row.taxCents === 0 ? '—' : formatCents(row.taxCents)} tone={row.taxCents === 0 ? 'muted' : 'default'} />,
+  },
+  {
+    key: 'net',
+    header: 'Revenue',
+    numeric: true,
+    render: (row) => <ValueCell value={formatCents(row.netRevenueCents)} strong />,
+  },
+];
+
+const PAYMENT_COLUMNS: Column<PaymentMixEntry>[] = [
+  { key: 'method', header: 'Method', render: (row) => <NameCell title={methodLabel(row.method)} /> },
+  { key: 'amount', header: 'Taken', numeric: true, render: (row) => <ValueCell value={formatCents(row.amountCents)} /> },
+  {
+    key: 'share',
+    header: 'Share',
+    numeric: true,
+    render: (row) => <ValueCell value={`${row.pct.toFixed(1)}%`} tone="muted" />,
+  },
+];
+
+export function SalesReportView({
+  dateRange,
+  locationFilter,
+  setRefresh,
+}: {
+  dateRange: DateRange;
+  locationFilter: string | null;
+  setRefresh: RefreshSetter;
+}) {
+  const { shop } = useAuth();
+  const [data, setData] = useState<{ days: DailyBucket[]; payments: PaymentMixEntry[]; stores: SaleGroupRow[]; grossCents: number; netCents: number; taxCents: number; orders: number } | null>(
+    null
+  );
+
+  const { since, until } = dateRange;
+  const reload = useCallback(async () => {
+    if (!shop) return;
+    const { sales, refunds, locations } = await loadSalesReport(shop.id, since, until, locationFilter);
+    setData({
+      days: bucketDailyTotals(sales, refunds, since, until),
+      payments: paymentMethodMix(sales),
+      stores: rollUpSales(salesByStore(sales, locations)),
+      grossCents: grossSalesCents(sales),
+      netCents: netRevenueCents(sales, refunds),
+      taxCents: netTaxCollectedCents(sales, refunds),
+      orders: sales.length,
+    });
+  }, [shop, since, until, locationFilter]);
+
+  // See the note in chart-of-accounts-view.tsx: use-refresh-on-focus does not
+  // fetch on the mounting focus, and depends on this effect having done it.
+  useEffect(() => { reload(); }, [reload]);
+  useRefreshOnFocus(reload);
+  useTabRefresh(setRefresh, reload);
+
+  const basketCents = useMemo(() => (data ? averageCents(data.netCents, data.orders) : null), [data]);
+
+  const storeColumns = useMemo<Column<SaleGroupRow>[]>(
+    () => [
+      { key: 'store', header: 'Store', render: (row) => <NameCell title={row.label} meta={`${row.sales} sales`} /> },
+      { key: 'revenue', header: 'Revenue', numeric: true, render: (row) => <ValueCell value={formatCents(row.revenueCents)} /> },
+      {
+        key: 'share',
+        header: 'Share',
+        numeric: true,
+        render: (row) => {
+          // Null, not 0%, when the whole shop took nothing -- a share of
+          // nothing is not zero percent, and shareOfTotal says so.
+          const share = shareOfTotal(row.revenueCents, data?.netCents ?? 0);
+          return <ValueCell value={share === null ? '—' : `${share.toFixed(1)}%`} tone="muted" />;
+        },
+      },
+    ],
+    [data]
+  );
+
+  return (
+    <View style={styles.wrap}>
+      <BentoCard title="The period" scope="The chosen range">
+        <View style={styles.tiles}>
+          <StatTile
+            value={formatCompactCents(data?.netCents ?? 0)}
+            label="Revenue"
+            hint="net of tax & refunds"
+            variant="bento"
+          />
+          <StatTile value={String(data?.orders ?? 0)} label="Sales" variant="bento" />
+          <StatTile
+            // An em dash on a range with no sales in it. "Average basket
+            // $0.00" is a claim about trading that did not happen.
+            value={basketCents === null ? '—' : formatCompactCents(basketCents)}
+            label="Average basket"
+            hint="revenue ÷ sales"
+            variant="bento"
+          />
+          <StatTile
+            value={formatCompactCents(data?.taxCents ?? 0)}
+            label="Sales tax"
+            hint="owed onward, not income"
+            variant="bento"
+          />
+        </View>
+      </BentoCard>
+
+      {/* Two breakdowns side by side, each half the band. A BentoCell rather
+          than a flex-wrap row: a wrapping row gives every child flexGrow, so
+          the payments card would stretch across the whole band on a shop with
+          one store. */}
+      <BentoGrid>
+        <BentoCell span={6}>
+          <BentoCard title="How it was paid" bodyStyle={styles.tableBody}>
+            <DataTable
+              columns={PAYMENT_COLUMNS}
+              rows={data?.payments ?? []}
+              keyExtractor={(row) => row.method}
+              emptyLabel={data ? 'Nothing was taken in this period.' : 'Loading…'}
+              minWidth={280}
+            />
+          </BentoCard>
+        </BentoCell>
+        <BentoCell span={6}>
+          <BentoCard title="Which store" bodyStyle={styles.tableBody}>
+            <DataTable
+              columns={storeColumns}
+              rows={data?.stores ?? []}
+              keyExtractor={(row) => row.key}
+              emptyLabel={data ? 'No sales in this period.' : 'Loading…'}
+              minWidth={280}
+            />
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
+
+      {/* Full width and OUTSIDE the grid: a day-by-day table is read down a
+          column, and a column read downwards wants the whole band. */}
+      <BentoCard title="Day by day" bodyStyle={styles.tableBody}>
+        <DataTable
+          columns={DAY_COLUMNS}
+          rows={data?.days ?? []}
+          keyExtractor={(row) => row.day}
+          emptyLabel={data ? 'No days in this range.' : 'Loading…'}
+        />
+      </BentoCard>
+
+      <Caveat tone="context">
+        Revenue excludes sales tax, which the shop collects on the government&apos;s behalf and owes onward, and is
+        net of refunds — counted on the day the money went back, not the day of the original sale, so a closed
+        month never changes after the fact. Takings is the whole amount that crossed the counter.
+      </Caveat>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: { gap: 14 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  tableBody: { paddingHorizontal: 10 },
+});

@@ -78,6 +78,22 @@ export function marginPercent(revenueCents: number, costCents: number): number |
 }
 
 /**
+ * A mean in whole cents, or null when there is nothing to take a mean of.
+ *
+ * Null rather than 0 for the reason `marginPercent` returns null: "the average
+ * basket was $0.00" is a claim about a trading day, and a day with no sales in
+ * it did not have an average basket of nothing -- it did not have one. The
+ * screens render the difference as an em dash.
+ *
+ * Rounded, because a fraction of a cent formatted as money prints its full
+ * float ("$3.3333333333333335").
+ */
+export function averageCents(totalCents: number, count: number): number | null {
+  if (count === 0) return null;
+  return Math.round(totalCents / count);
+}
+
+/**
  * One figure's share of a total, as a percentage, or null when the total is
  * zero. Same reason `marginPercent` returns null: a share of nothing is not 0%.
  */
@@ -110,11 +126,139 @@ export function groupBy<T, K extends string>(rows: T[], key: (row: T) => K): Rec
 }
 
 // ---------------------------------------------------------------------------
+// Roll-ups
+// ---------------------------------------------------------------------------
+
+/** A sale line tagged with the bucket it belongs to. */
+export type LabelledLine = ProfitLine & {
+  /** What groups the line: a product id, a category name, a store id. */
+  key: string;
+  /** What the row is called on screen. */
+  label: string;
+};
+
+export type RollUpRow = {
+  key: string;
+  label: string;
+  revenueCents: number;
+  costCents: number;
+  /** Null when the bucket took nothing -- see `marginPercent`. */
+  marginPercent: number | null;
+  units: number;
+  /** Sale LINES, not sales. Two of the same product in one basket is one line. */
+  lines: number;
+  uncostedLines: number;
+};
+
+/**
+ * Sale lines bucketed and totalled, biggest earner first.
+ *
+ * The sort is TOTAL, not merely "by revenue": ties break on the label and then
+ * on the key. Two categories that took exactly the same money -- which happens
+ * constantly at zero -- would otherwise sit in whichever order the rows
+ * happened to arrive in, and the table would reshuffle itself between
+ * refreshes. `sequenceMovements` breaks its ties for the same reason.
+ *
+ * Revenue and cost come from `grossProfitCents`, so the uncosted rule is stated
+ * once: an uncosted line still sold something and still counts towards revenue.
+ */
+export function rollUpLines(rows: LabelledLine[]): RollUpRow[] {
+  const grouped = groupBy(rows, (row) => row.key);
+  return Object.entries(grouped)
+    .map(([key, lines]) => {
+      const { revenueCents, costCents, uncostedLines } = grossProfitCents(lines);
+      return {
+        key,
+        label: lines[0].label,
+        revenueCents,
+        costCents,
+        marginPercent: marginPercent(revenueCents, costCents),
+        units: lines.reduce((sum, line) => sum + line.quantity, 0),
+        lines: lines.length,
+        uncostedLines,
+      };
+    })
+    .sort((a, b) => b.revenueCents - a.revenueCents || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+}
+
+/** A whole sale tagged with the bucket it belongs to -- a cashier, a store. */
+export type LabelledSale = {
+  key: string;
+  label: string;
+  /** What the sale earned. Whichever figure the caller means by revenue. */
+  revenueCents: number;
+  units: number;
+};
+
+export type SaleGroupRow = {
+  key: string;
+  label: string;
+  revenueCents: number;
+  /**
+   * SALES, not lines. A basket is a transaction, and a cashier who rang up one
+   * enormous order did not serve forty people.
+   */
+  sales: number;
+  units: number;
+  /** Mean take per sale. A group only exists because it has a sale in it. */
+  averageSaleCents: number;
+};
+
+/**
+ * Whole sales bucketed and totalled, biggest earner first.
+ *
+ * Separate from `rollUpLines` because the unit of counting differs and the
+ * difference is the whole point: a per-cashier report counts BASKETS, and
+ * counting lines instead would rank the cashier who serves the fussiest
+ * customers top. Ties break the same total way, for the same reason.
+ */
+export function rollUpSales(rows: LabelledSale[]): SaleGroupRow[] {
+  const grouped = groupBy(rows, (row) => row.key);
+  return Object.entries(grouped)
+    .map(([key, sales]) => {
+      const revenueCents = sales.reduce((sum, sale) => sum + sale.revenueCents, 0);
+      return {
+        key,
+        label: sales[0].label,
+        revenueCents,
+        sales: sales.length,
+        units: sales.reduce((sum, sale) => sum + sale.units, 0),
+        // No divide-by-zero guard, deliberately: `sales.length` is at least 1
+        // because the group was created by a row landing in it. A guard here
+        // would be dead code pretending to be a safety net.
+        averageSaleCents: Math.round(revenueCents / sales.length),
+      };
+    })
+    .sort((a, b) => b.revenueCents - a.revenueCents || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+}
+
+// ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------
 
 /** The bucket a product with no category falls into. */
 export const UNCATEGORISED = 'Uncategorised';
+
+/** The bucket a sale with no cashier recorded against it falls into. */
+export const UNATTRIBUTED = 'Not recorded';
+
+/**
+ * The cashier a sale is reported against.
+ *
+ * `sales.cashier_name` is nullable -- a sale rung up before cashier profiles
+ * existed, or by an owner who never set one, carries no name -- and those sales
+ * are a ROW, not a filter, on exactly the argument `categoryLabel` makes: drop
+ * them and the per-cashier revenues add to less than the shop took, and the
+ * reader checking the total against the day's takings finds it short with
+ * nothing on screen to explain it.
+ *
+ * Whitespace counts as blank, so a name of `' '` does not become a second,
+ * invisible cashier beside the real one.
+ */
+export function employeeLabel(cashierName: string | null | undefined): string {
+  const trimmed = (cashierName ?? '').trim();
+  return trimmed.length > 0 ? trimmed : UNATTRIBUTED;
+}
 
 /**
  * A product's category as the report labels it.
