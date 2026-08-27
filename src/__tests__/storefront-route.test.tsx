@@ -86,6 +86,9 @@ const shop = {
   heroImageUrl: null,
   offersDelivery: true,
   paymentMode: 'on_collection' as const,
+  // No flyers: these fixtures predate them, and a shop with none must
+  // render exactly as it did before they existed.
+  flyers: [],
 };
 
 const products = [

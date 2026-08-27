@@ -1,12 +1,67 @@
+import { publicImageUrl } from '@/lib/storage';
 import { DEFAULT_PALETTE, DEFAULT_THEME } from '@/lib/storefront-catalog';
 import { supabase } from '@/lib/supabase';
 import { whatsappLink } from '@/lib/whatsapp';
-import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
+import type {
+  PublicDeliveryArea, PublicStorefront, StorefrontFlyer, StorefrontFlyerLinkKind,
+  StorefrontFlyerOffer, StorefrontProduct,
+} from '@/types/models';
 
 // Reads the public page. Every one of these calls the RPCs in
 // 20260924000100 rather than querying tables: the column list lives in the
 // function, so no client -- including a future one written in a hurry -- can
 // widen it into products.cost_cents.
+
+const LINK_KINDS: StorefrontFlyerLinkKind[] = ['none', 'category', 'whatsapp'];
+
+// `link_kind` is CHECK-constrained to exactly these three
+// (20260930000000_storefront_flyers.sql), so an unknown value should be
+// impossible. Falling back anyway is the same one line `theme` and `palette`
+// already get above, for the same reason: a slide that quietly goes nowhere
+// beats a slide wired to a branch no renderer has.
+function linkKindOf(value: unknown): StorefrontFlyerLinkKind {
+  return LINK_KINDS.includes(value as StorefrontFlyerLinkKind) ? (value as StorefrontFlyerLinkKind) : 'none';
+}
+
+// The offer arrives as a jsonb object built by promotion_offer_copy, or JSON
+// null when the flyer names no live promotion. Its three strings are printed
+// verbatim by the themes -- nothing here rewords them, because the whole
+// point of deriving them in SQL is that the page, the paper poster and the
+// till say one thing.
+function offerOf(value: unknown): StorefrontFlyerOffer | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.value !== 'string' || typeof raw.scope !== 'string') return null;
+  return { value: raw.value, scope: raw.scope, when: (raw.when as string) ?? null };
+}
+
+// `flyers` is a jsonb array the RPC already coalesces to '[]', already
+// filtered to live flyers, and already ordered (position, created_at, id) --
+// see 20260930000100. None of that is re-done here; this is the snake_case
+// -> camelCase map every other read in this file performs, plus the one
+// thing the database deliberately left to the reader: turning image_path
+// into a URL.
+//
+// The Array.isArray guard is not defensive noise. A client shipped ahead of
+// its database -- the Expo bundle updates over the air, migrations do not --
+// calls a get_public_storefront with no `flyers` column at all, and must
+// render the shop's page with no flyers rather than throw on a customer's
+// phone.
+function flyersOf(value: unknown): StorefrontFlyer[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const row = (entry ?? {}) as Record<string, unknown>;
+    return {
+      id: row.id as string,
+      imageUrl: publicImageUrl(row.image_path as string | null),
+      headline: (row.headline as string) ?? null,
+      subline: (row.subline as string) ?? null,
+      linkKind: linkKindOf(row.link_kind),
+      linkValue: (row.link_value as string) ?? null,
+      offer: offerOf(row.offer),
+    };
+  });
+}
 
 export async function getPublicStorefront(slug: string): Promise<PublicStorefront | null> {
   const { data, error } = await supabase.rpc('get_public_storefront', { p_slug: slug });
@@ -30,6 +85,7 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     heroImageUrl: row.hero_image_url ?? null,
     offersDelivery: Boolean(row.offers_delivery),
     paymentMode: row.payment_mode,
+    flyers: flyersOf(row.flyers),
   };
 }
 

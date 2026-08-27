@@ -13,6 +13,15 @@ import type { StorefrontProduct } from '@/types/models';
 // already filled in for most shops. This is the theme that makes a 200-line
 // pharmacy catalogue readable, and the one that would have been impossible if
 // every theme led with photography.
+//
+// COUNTER RENDERS NO FLYERS, AND THAT IS THE DESIGN, not an omission waiting
+// to be tidied up. `storefront.flyers` is deliberately never read here.
+// Market and Window show the band; a shop that picks Counter picked density,
+// and a carousel fights the one thing this layout exists to do. The flyers
+// still exist, still upload and still show the moment the shop switches
+// layout -- Task 5's editor says so rather than letting a shop build
+// something invisible. Pinned in storefront-flyer-placement.test.tsx so it
+// stays deliberate.
 function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProduct[]][] {
   const groups = new Map<string, StorefrontProduct[]>();
   for (const p of products) {

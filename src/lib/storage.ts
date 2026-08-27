@@ -58,6 +58,25 @@ export async function uploadImage(path: string, localUri: string): Promise<strin
 
 const BUCKET = 'product-images';
 
+// The read companion to uploadImage. `storefront_flyers.image_path` stores a
+// PATH into the bucket rather than a URL, and 20260930000000 says why: "the
+// bucket and its signing rules belong to the reader, and a stored absolute
+// URL goes stale the day either changes". So the reader is the one that has
+// to resolve it, and this is where that happens -- once, next to the bucket
+// name, rather than in every component that shows a flyer.
+//
+// Anything already absolute is returned untouched. `shops.logo_url`,
+// `products.image_url` and `storefronts.hero_image_url` all store the full
+// URL uploadImage returns, and a caller handed one of those must get it back
+// rather than a bucket path with a project prefix glued on the front -- which
+// is exactly the shape a broken image comes in.
+export function publicImageUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return data?.publicUrl ?? null;
+}
+
 // Companion to uploadImage for the REPLACE case -- every upload above writes
 // to a new timestamped path and never touches whatever used to be there, so
 // callers that persist a new image over an old one need this to reclaim the

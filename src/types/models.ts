@@ -1221,6 +1221,46 @@ export type JournalLine = {
   memo: string | null;
 };
 
+// Where tapping a flyer goes. The same three values the `link_kind` CHECK
+// constrains (20260930000000_storefront_flyers.sql) -- 'none' is in the set
+// precisely to BE the "goes nowhere" value, so there is no nullable spelling
+// of it and no branch a renderer can only reach one of two ways.
+export type StorefrontFlyerLinkKind = 'none' | 'category' | 'whatsapp';
+
+// The three fields get_public_storefront derives from the promotion row on
+// EVERY read (20260930000100_public_storefront_flyers.sql), and that
+// migration's header is the authority on why they are never stored: a page
+// advertising a discount the till refuses does it around the clock, to
+// strangers. They are ported line for line from posterCopyFor
+// (src/lib/poster.ts), so the paper on the door and the page at the shop's
+// address cannot read two ways about one offer -- which is also why nothing
+// downstream may reword them.
+export type StorefrontFlyerOffer = {
+  value: string;      // '20%' or '$2.50'
+  scope: string;      // 'All Solar', 'Anything by Anker', 'Everything in store'
+  when: string | null; // 'Friday 14 — Sunday 16 August', or null for an open-ended offer
+};
+
+// A panel on the shop's public page: the seasonal poster, "everything 20% off
+// this week", a photo of new stock. `offer` null means the flyer claims no
+// discount -- new stock, new hours, a photograph, or an offer whose promotion
+// was deleted, which `on delete set null` has already reduced to the same
+// thing.
+//
+// `imageUrl` and not `imagePath`: the column stores a bucket path, because
+// "the bucket and its signing rules belong to the reader" -- so the reader
+// (getPublicStorefront) is where the path becomes a URL, and no component
+// downstream needs to know which bucket a flyer lives in.
+export type StorefrontFlyer = {
+  id: string;
+  imageUrl: string | null;
+  headline: string | null;
+  subline: string | null;
+  linkKind: StorefrontFlyerLinkKind;
+  linkValue: string | null;
+  offer: StorefrontFlyerOffer | null;
+};
+
 export type PublicStorefront = {
   shopName: string;
   city: string | null;
@@ -1233,6 +1273,11 @@ export type PublicStorefront = {
   heroImageUrl: string | null;
   offersDelivery: boolean;
   paymentMode: 'on_collection';
+  // Required, never optional: the RPC coalesces to '[]' and never returns
+  // null, so a shop with no flyers, a shop whose flyers are all drafts and a
+  // shop whose only offer just expired all read alike. An optional field
+  // would put back the second empty state that coalesce exists to remove.
+  flyers: StorefrontFlyer[];
 };
 
 export type StorefrontProduct = {

@@ -498,6 +498,10 @@ export default function StorefrontEditor() {
     heroImageUrl: working.heroImageUrl,
     offersDelivery: working.offersDelivery,
     paymentMode: 'on_collection',
+    // Empty until Task 5 gives this screen a flyer editor to draw from. The
+    // preview renders the same "no flyers" page a customer would see today,
+    // which is honest: a shop with none has none.
+    flyers: [],
   };
 
   const contentDrawer = (
