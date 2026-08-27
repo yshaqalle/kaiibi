@@ -1,5 +1,5 @@
 import { formatCents } from '@/lib/currency';
-import { instantToEndDateInput, instantToStartDateInput } from '@/lib/promotion-dates';
+import { instantToShopEndDate, instantToShopStartDate } from '@/lib/promotion-dates';
 import type { Promotion, PromotionOfferFacts } from '@/types/models';
 
 // Every word a poster prints, derived from records that already exist.
@@ -42,29 +42,60 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+// The weekday of a 'YYYY-MM-DD', as a pure calendar question.
+//
+// Date.UTC, not the local-time constructor: a calendar date's weekday is a
+// property of the date, not of anybody's zone, and `new Date(y, m, d)` asks
+// for LOCAL MIDNIGHT -- an instant that does not exist in a zone whose
+// daylight saving starts at midnight (America/Santiago, Asia/Beirut), where
+// the runtime is free to roll it forward into the next day and hand back the
+// wrong weekday. UTC midnight always exists. This changes nothing for a
+// reader in Mogadishu or in America/New_York; it removes a way for the two to
+// disagree.
+function weekdayOf(year: number, month: number, day: number): string {
+  return DAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+}
+
 // 'YYYY-MM-DD' -> "Saturday 16 August". Built from the parts rather than
 // toLocaleDateString: the poster's wording has to be identical on every device
 // regardless of the phone's locale, because the shop is printing one sheet.
 function longDate(dateInput: string): string {
   const [year, month, day] = dateInput.split('-').map(Number);
-  const at = new Date(year, month - 1, day);
-  return `${DAYS[at.getDay()]} ${day} ${MONTHS[month - 1]}`;
+  return `${weekdayOf(year, month, day)} ${day} ${MONTHS[month - 1]}`;
 }
 
 // Same, minus the month -- for the left half of a range that ends in the same
 // month, so "Friday 14 — Sunday 16 August" rather than saying August twice.
 function shortDate(dateInput: string): string {
   const [year, month, day] = dateInput.split('-').map(Number);
-  const at = new Date(year, month - 1, day);
-  return `${DAYS[at.getDay()]} ${day}`;
+  return `${weekdayOf(year, month, day)} ${day}`;
 }
 
+// THE DATES RESOLVE IN THE SHOP'S ZONE, NOT THE READER'S.
+//
+// This function feeds two surfaces, and the second is why: the printed poster
+// (posterCopyFor), read by a shopkeeper who is in UTC+3 anyway, and the shop's
+// PUBLIC page (flyer-carousel.tsx), read by anyone. Built with the local-time
+// accessors, the same offer showed a different last day to a customer reading
+// from London than to one standing in the doorway -- and Somaliland shops have
+// a real diaspora audience, so that is not a hypothetical reader.
+//
+// 20260930000300_flyer_offer_facts.sql's header argued the opposite when the
+// wording moved out of SQL: that resolving in the reader's zone was "the
+// better answer, not merely an acceptable one", because it is the identical
+// calculation the shop's own device makes. The first half of that holds --
+// the poster and the page must not contradict each other -- but it is what
+// makes the reader's zone the WRONG one to resolve in, not the right one.
+// There is one window, the shop's, and every reader has to be shown it. The
+// derivation is still shared, so the two surfaces still cannot drift; both now
+// print the shop's day. instantToShopStartDate/instantToShopEndDate
+// (src/lib/promotion-dates.ts) carry the platform constant.
 function windowLine(promotion: PromotionOfferFacts): string | null {
-  const from = promotion.startsAt ? instantToStartDateInput(promotion.startsAt) : null;
+  const from = promotion.startsAt ? instantToShopStartDate(promotion.startsAt) : null;
   // Stored exclusive, printed inclusive: an offer stored as ending at midnight
   // on the 17th ran through the whole of the 16th, and the 16th is what a
   // customer standing in front of the sheet needs to read.
-  const to = promotion.endsAt ? instantToEndDateInput(promotion.endsAt) : null;
+  const to = promotion.endsAt ? instantToShopEndDate(promotion.endsAt) : null;
 
   if (!from && !to) return null;
   if (from && !to) return `From ${longDate(from)}`;
