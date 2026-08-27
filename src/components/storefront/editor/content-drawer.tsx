@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -76,6 +76,28 @@ function collisionText(base: string): string {
   return `${base} is already another shop's address. Add the part of town you trade in and customers will still recognise you.`;
 }
 
+// The sentence a shop gets when its address has stopped matching its name --
+// which is exactly what renaming the shop does to it.
+//
+// Saying NOTHING here is the failure mode. A shopkeeper who renamed the shop
+// and expected the address to follow reads an unchanged address as a rename
+// that half-failed, and goes looking for what else broke. This is the only
+// place the app can tell them it was deliberate.
+//
+// Phrased to be true of every shop that sees it, not just a renamed one: a
+// shop that claimed `xamdi` while its name derives `xamdi-electronics` never
+// renamed anything, and "you renamed your shop" would be a lie to it. What IS
+// true of both is that the address did not follow the name, has not changed,
+// and still works everywhere it has already been given out.
+//
+// 'context', not 'wrong': nothing is broken and there is nothing to remove. A
+// 'wrong' caveat promises an action that clears it (see Caveat's own header),
+// and the only action on offer here -- changing the address -- is the exact
+// thing this note exists to stop a shop doing by reflex.
+const RENAME_KEPT_ADDRESS_COPY =
+  'Your web address has not changed with your shop’s name — every link you have already shared or printed still works. ' +
+  'You can change it below, but the old one stops working straight away.';
+
 export function ContentDrawer({
   value,
   onChange,
@@ -122,6 +144,14 @@ export function ContentDrawer({
 }) {
   const [phoneDraft, setPhoneDraft] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  // Has the shop deliberately asked to change an address it already claimed?
+  // Local, and deliberately NOT persisted: a reload puts a claimed address
+  // back behind its button, which is where an address printed on a card
+  // belongs. Nothing else sets this -- there is exactly one way in, the
+  // "Change address…" button, which is what makes the change deliberate.
+  const [changingAddress, setChangingAddress] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [heroUploading, setHeroUploading] = useState(false);
   const [heroError, setHeroError] = useState<string | null>(null);
   const slugInputRef = useRef<TextInput>(null);
@@ -165,6 +195,21 @@ export function ContentDrawer({
   const derived = deriveSlugFromName(shopName);
   const offeredSuffix = suffixSuggestions[0] ?? '';
 
+  const claimed = claimedSlug?.trim() ?? '';
+  // THE FREEZE. A claimed address is not an editable field that happens to
+  // hold the right value -- it is a fact, rendered read-only, with a button
+  // next to it. That distinction is the whole guarantee: an editable field
+  // can be overwritten by a stray tap, an autofill, or the next effect
+  // somebody adds to this file, and the shop would never see it happen.
+  const frozen = claimed.length > 0 && !changingAddress;
+
+  // Does the claimed address still follow the shop's name? A SUFFIXED address
+  // still does -- `xamdi-electronics-koodbuur` under "Xamdi Electronics" is
+  // the ordinary outcome of a collision, not a shop whose address drifted --
+  // which is why this is a prefix test and not an equality one. An empty
+  // derived name (a shop with no name yet) has nothing to disagree with.
+  const addressFollowsName = derived.length === 0 || claimed === derived || claimed.startsWith(`${derived}-`);
+
   // While nothing is claimed, the address IS the shop's name, and follows it.
   // Four things stop it, in this order: a claimed address (never re-derived
   // -- a rename must not move a printed link), an address the shop typed
@@ -177,7 +222,7 @@ export function ContentDrawer({
   // base, and the address on screen and the address Claim submits would
   // silently diverge.
   useEffect(() => {
-    if (claimedSlug) return;
+    if (claimed) return;
     if (slugTouchedRef.current) return;
     if (collisionBase !== null) return;
     if (!derived) return;
@@ -188,7 +233,7 @@ export function ContentDrawer({
     // starting/ending), and re-running it on every keystroke of the address
     // is precisely what it must not do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [derived, claimedSlug, collisionBase]);
+  }, [derived, claimed, collisionBase]);
 
   // The collision itself: freeze what the shop has so a field can be opened
   // to append to it. Adjusted DURING RENDER rather than from an effect --
@@ -213,6 +258,48 @@ export function ContentDrawer({
   function exitSuffixMode() {
     setCollisionBase(null);
     setTypedSuffix(null);
+  }
+
+  // The one way out of the freeze, and it is a deliberate press. Nothing
+  // automatic reaches this -- not a rename, not a remount, not an effect.
+  function startChangingAddress() {
+    setChangingAddress(true);
+    setCopied(false);
+    setCopyError(null);
+  }
+
+  // Backing out. Puts the draft back to the claimed address BYTE FOR BYTE,
+  // because the read-only row renders `value.slug` -- leaving a half-typed
+  // edit behind would have the shop reading an address it never claimed, off
+  // the very row it is meant to be able to trust. Clears `slugTouchedRef`
+  // too: an abandoned edit is not the shop choosing its own address, and
+  // leaving that flag set would mean the freeze afterwards was being held by
+  // the wrong guard.
+  function keepClaimedAddress() {
+    setChangingAddress(false);
+    setCollisionBase(null);
+    setTypedSuffix(null);
+    slugTouchedRef.current = false;
+    if (value.slug !== claimed) onChange({ slug: claimed });
+  }
+
+  // A shop's address is worth nothing in an app it cannot get out of. Two
+  // real paths and no new dependency: a browser has a clipboard, and a phone
+  // has the share sheet -- whose first action is Copy, and which is how this
+  // link actually reaches a WhatsApp status in the first place. expo-clipboard
+  // would mean a new native build for one button.
+  async function handleCopyAddress() {
+    setCopyError(null);
+    const clipboard = (globalThis as { navigator?: { clipboard?: { writeText?: (text: string) => Promise<void> } } })
+      .navigator?.clipboard;
+    try {
+      if (clipboard?.writeText) await clipboard.writeText(fullAddress);
+      else await Share.share({ message: fullAddress });
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setCopyError('Could not copy your address — write it down instead.');
+    }
   }
 
   // The ending on screen: the shop's own if it has typed one, otherwise the
@@ -241,7 +328,11 @@ export function ContentDrawer({
   // The way back to the derived name after the shop has typed its own -- the
   // only thing left of the old "Suggested:" row. Hidden in suffix mode, where
   // tapping it would hand back the base that is already taken.
-  const showSuggestion = !inSuffixMode && derived.length > 0 && derived !== value.slug.trim();
+  // Hidden while frozen as well as in suffix mode: there is no field to
+  // accept it into, and offering the new name next to a read-only address is
+  // the exact nudge this task exists to remove. It comes back the moment the
+  // shop asks to change the address, which is when it is a real offer again.
+  const showSuggestion = !inSuffixMode && !frozen && derived.length > 0 && derived !== value.slug.trim();
   // 'taken' is the one state that reads differently inside suffix mode, and
   // only once a suffix is actually on the end: with an empty suffix the
   // address on trial IS the base, which the collision note already explains.
@@ -327,8 +418,10 @@ export function ContentDrawer({
           <TextInput
             ref={slugInputRef}
             testID="content-drawer-slug-input"
-            style={styles.slugInput}
+            style={[styles.slugInput, frozen && styles.slugInputFrozen]}
             value={value.slug}
+            // The freeze, at the one place a keystroke could reach it.
+            editable={!frozen}
             onChangeText={(text) => {
               slugTouchedRef.current = true;
               onChange({ slug: text });
@@ -340,6 +433,43 @@ export function ContentDrawer({
         )}
         <Text style={styles.slugSuffix}>{`.${APP_DOMAIN}`}</Text>
       </View>
+
+      {/* A claimed address, in one piece and ready to be copied. Same shape the
+          suffix mode uses below for the same reason: a shop should never have
+          to join a field and a domain in its head before printing the result
+          on a card. Built from APP_DOMAIN, so it round-trips through the real
+          router function the test puts it through. */}
+      {frozen ? (
+        <>
+          <Text testID="content-drawer-claimed-address" style={styles.fullAddress}>
+            {claimed}
+            {`.${APP_DOMAIN}`}
+          </Text>
+          <View style={styles.claimedActions}>
+            <Pressable testID="content-drawer-copy-address" onPress={handleCopyAddress} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>{copied ? 'Copied' : 'Copy link'}</Text>
+            </Pressable>
+            {/* The only way into an editable address. One door, pressed on
+                purpose, is what makes changing it deliberate rather than
+                something a shop discovers it has done. */}
+            <Pressable testID="content-drawer-change-address" onPress={startChangingAddress} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>Change address…</Text>
+            </Pressable>
+          </View>
+          {copyError ? <Caveat tone="context">{copyError}</Caveat> : null}
+        </>
+      ) : null}
+
+      {/* Property 4, and the one that gets skipped. A shopkeeper who renamed
+          the shop and expected the address to follow reads an unchanged
+          address as a rename that half-failed. Only shown once the address has
+          actually stopped following the name -- telling a shop its address
+          "did not change with your name" when it still matches would be noise,
+          and telling a suffixed shop it renamed something it never renamed
+          would be a lie. */}
+      {claimed.length > 0 && !addressFollowsName ? (
+        <Caveat tone="context">{RENAME_KEPT_ADDRESS_COPY}</Caveat>
+      ) : null}
 
       {inSuffixMode ? (
         <>
@@ -398,7 +528,11 @@ export function ContentDrawer({
         </Pressable>
       ) : null}
 
-      {value.slug ? (
+      {/* The warning arrives WITH the editable field, not before it. While the
+          address is frozen there is nothing to warn about -- and a standing
+          warning on a screen where nothing can go wrong is how a shop learns
+          to read past the ones that matter. */}
+      {value.slug && !frozen ? (
         <Caveat tone="context">
           Changing your address here means the old one stops working immediately — anything already shared or printed
           breaks.
@@ -424,14 +558,31 @@ export function ContentDrawer({
         </Caveat>
       ) : null}
 
-      <Pressable
-        testID="content-drawer-claim-button"
-        disabled={claimDisabled}
-        onPress={() => onClaimSlug(value.slug)}
-        style={[styles.claimButton, claimDisabled && styles.claimButtonDisabled]}
-      >
-        <Text style={styles.claimButtonText}>{value.slug ? 'Update address' : 'Claim this address'}</Text>
-      </Pressable>
+      {/* No claim button while the address is frozen. The button IS the edit
+          affordance -- leaving it under a read-only field invites the tap this
+          whole task exists to prevent. */}
+      {frozen ? null : (
+        <Pressable
+          testID="content-drawer-claim-button"
+          disabled={claimDisabled}
+          onPress={() => onClaimSlug(value.slug)}
+          style={[styles.claimButton, claimDisabled && styles.claimButtonDisabled]}
+        >
+          <Text style={styles.claimButtonText}>{value.slug ? 'Update address' : 'Claim this address'}</Text>
+        </Pressable>
+      )}
+
+      {/* Backing out has to restore the CLAIMED value, not merely stop
+          editing: a half-typed edit left in the draft is what the read-only
+          row would then go on showing, and the shop would read an address it
+          never claimed. Clearing the touched flag matters just as much -- a
+          stale one would leave the address protected only by accident, and the
+          next rename would find nothing standing in its way. */}
+      {changingAddress ? (
+        <Pressable testID="content-drawer-change-cancel" onPress={keepClaimedAddress} style={styles.suffixExitRow}>
+          <Text style={styles.suffixExitText}>Keep my current address</Text>
+        </Pressable>
+      ) : null}
 
       <Text style={[styles.eyebrow, styles.spaced]}>Headline</Text>
       <TextInput
@@ -530,6 +681,10 @@ const styles = StyleSheet.create({
   // Muted, like the domain on the other end of the row: both are parts of the
   // address the shop is not editing right now.
   slugBase: { fontSize: 13.5, fontWeight: '700', color: theme.bentoMuted2, paddingVertical: 11 },
+  // A claimed address should not LOOK like a box waiting for a keystroke. The
+  // freeze is enforced by `editable`, but a field that still reads as editable
+  // invites the tap and then swallows it, which is its own kind of broken.
+  slugInputFrozen: { color: theme.bentoMuted2 },
 
   fullAddress: { marginTop: 8, fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
 
@@ -552,6 +707,17 @@ const styles = StyleSheet.create({
 
   // Deliberately NOT accent-coloured, unlike suggestionText above -- this is
   // the quiet way out, not the path most shops should take.
+  claimedActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  secondaryButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    backgroundColor: theme.bentoSurface,
+  },
+  secondaryButtonText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
+
   suffixExitRow: { alignSelf: 'flex-start', marginTop: 8 },
   suffixExitText: { fontSize: 12, fontWeight: '600', color: theme.bentoMuted },
 

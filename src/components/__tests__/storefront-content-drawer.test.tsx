@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 import { APP_DOMAIN, slugFromHostname } from '@/lib/storefront-host';
 
+import { Caveat } from '@/components/ui/caveat';
 import { ContentDrawer, type ContentDrawerValue, type SlugState } from '@/components/storefront/editor/content-drawer';
 
 function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
@@ -9,6 +10,27 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
   if (typeof node === 'string') return [node];
   if (Array.isArray(node)) return node.flatMap(textsIn);
   return textsIn(node.children as ReactTestRendererJSON[] | null);
+}
+
+// Lends the process a clipboard for the duration of `run`, and takes it back
+// afterwards. Patches `navigator.clipboard` in place where a navigator already
+// exists rather than replacing the whole object, because React Native's own
+// modules read other things off it mid-render.
+async function withClipboard(writeText: jest.Mock, run: () => Promise<void>): Promise<void> {
+  const globals = globalThis as { navigator?: { clipboard?: unknown } };
+  const hadNavigator = globals.navigator !== undefined;
+  const previousClipboard = hadNavigator ? Object.getOwnPropertyDescriptor(globals.navigator, 'clipboard') : undefined;
+
+  if (hadNavigator) Object.defineProperty(globals.navigator, 'clipboard', { value: { writeText }, configurable: true });
+  else Object.defineProperty(globals, 'navigator', { value: { clipboard: { writeText } }, configurable: true });
+
+  try {
+    await run();
+  } finally {
+    if (!hadNavigator) delete globals.navigator;
+    else if (previousClipboard) Object.defineProperty(globals.navigator, 'clipboard', previousClipboard);
+    else delete globals.navigator!.clipboard;
+  }
 }
 
 const DEFAULT_VALUE: ContentDrawerValue = {
@@ -152,6 +174,7 @@ type HarnessProps = {
 
 function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
   const onChange = jest.fn();
+  const onClaimSlug = jest.fn();
   let props: HarnessProps = {
     shopName: initial.shopName ?? '',
     slugState: initial.slugState ?? 'idle',
@@ -168,7 +191,7 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
           onChange(patch);
           setValue((v) => ({ ...v, ...patch }));
         }}
-        onClaimSlug={() => {}}
+        onClaimSlug={onClaimSlug}
         slugState={p.slugState}
         shopName={p.shopName}
         claimedSlug={p.claimedSlug}
@@ -184,6 +207,7 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
 
   const api = {
     onChange,
+    onClaimSlug,
     texts: () => textsIn(tree.toJSON() as ReactTestRendererJSON).join(' '),
     find: (testID: string) => tree.root.findAll((n) => n.props?.testID === testID)[0],
     has: (testID: string) => tree.root.findAll((n) => n.props?.testID === testID).length > 0,
@@ -202,6 +226,25 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
       props = { ...props, ...next };
       act(() => {
         tree.update(<Harness {...props} />);
+      });
+    },
+    /** Every Caveat currently on screen, as props -- tone and action included. */
+    caveats: () =>
+      tree.root.findAllByType(Caveat).map((n) => n.props as { tone?: string; action?: unknown; children: string }),
+    /**
+     * A fresh mount with the CURRENT props -- what a shopkeeper gets by
+     * leaving the Storefront screen and coming back after renaming the shop
+     * somewhere else. Reseeds `value.slug` from `initial.slug` exactly as the
+     * editor screen reseeds `slugDraft` from `row.slug` on load
+     * (src/app/(admin)/storefront.tsx), so this is a real reload, not a
+     * re-render.
+     */
+    remount: () => {
+      act(() => {
+        tree.unmount();
+      });
+      act(() => {
+        tree = create(<Harness {...props} />);
       });
     },
   };
@@ -352,5 +395,168 @@ describe('a taken address costs a suffix, not a rethink', () => {
     expect(d.onChange).not.toHaveBeenCalledWith(
       expect.objectContaining({ slug: 'something-else-entirely' })
     );
+  });
+});
+
+// The one guarantee in this feature with a cost attached. Everything above is
+// convenience -- an address that starts as the shop's name, a suffix instead
+// of a blank box. This is the part that breaks something real if it is wrong:
+// a shop puts `xamdi-electronics-koodbuur.kaiibi.com` in a WhatsApp status and
+// prints it on a card, then renames itself. If the address follows the rename,
+// every one of those links is dead and nobody told the shop.
+describe('a claimed address does not follow a rename', () => {
+  const CLAIMED = 'xamdi-electronics-koodbuur';
+  const CLAIMED_ADDRESS = `${CLAIMED}.${APP_DOMAIN}`;
+
+  // The state the editor opens in for a shop that has already claimed: the
+  // row's slug IS the draft, because the screen seeds slugDraft from row.slug
+  // on load. `shopName` is the name it claimed under.
+  function claimed(shopName = 'Xamdi Electronics') {
+    return mountDrawer({ shopName, slug: CLAIMED, claimedSlug: CLAIMED });
+  }
+
+  function shownAddress(d: ReturnType<typeof mountDrawer>): string {
+    return textsIn(d.find('content-drawer-claimed-address').props.children).join('');
+  }
+
+  it('renders a claimed address read-only, in full, and as a subdomain', () => {
+    const d = claimed();
+
+    expect(shownAddress(d)).toBe(CLAIMED_ADDRESS);
+    // Read-only: the field is not something a stray tap can edit.
+    expect(d.find('content-drawer-slug-input').props.editable).toBe(false);
+    // Still a subdomain, still built from APP_DOMAIN, and still the address
+    // the real router resolves -- the thing that gets printed on a card.
+    expect(d.texts()).not.toContain(`${APP_DOMAIN}/`);
+    expect(slugFromHostname(shownAddress(d))).toBe(CLAIMED);
+  });
+
+  // THE test. Both halves matter: Task 2's review found a bug where exactly
+  // these two diverged -- the row showed the frozen address while the value
+  // Claim submitted had been silently rebuilt from the new name.
+  it('keeps the address byte-identical after a rename, on screen AND in what Claim submits', () => {
+    const d = claimed();
+    d.update({ shopName: 'Burco Traders and Solar' });
+
+    const shown = shownAddress(d);
+    expect(shown).toBe(CLAIMED_ADDRESS);
+
+    // What the Claim/Save path would actually send.
+    d.press('content-drawer-change-address');
+    expect(d.valueOf('content-drawer-slug-input')).toBe(CLAIMED);
+    d.press('content-drawer-claim-button');
+    expect(d.onClaimSlug).toHaveBeenCalledWith(CLAIMED);
+
+    // Byte-identical to each other, not merely each correct in isolation.
+    expect(`${d.onClaimSlug.mock.calls[0][0]}.${APP_DOMAIN}`).toBe(shown);
+    // And the new name never reached the draft on the way through.
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'burco-traders-and-solar' }));
+  });
+
+  it('does not re-derive on a remount after a rename', () => {
+    const d = claimed();
+    d.update({ shopName: 'Burco Traders' });
+    d.remount();
+
+    expect(shownAddress(d)).toBe(CLAIMED_ADDRESS);
+    // Not "did not write the new name" -- wrote NOTHING. A claimed address is
+    // not a value this component gets to have an opinion about.
+    expect(d.onChange).not.toHaveBeenCalled();
+  });
+
+  // Property 4, and the one people skip. Silence here reads as a bug: a
+  // shopkeeper who expected the address to follow will assume the rename half
+  // failed and go looking for what else broke.
+  it('says the address did not move and that old links still work', () => {
+    const d = claimed();
+    d.update({ shopName: 'Burco Traders' });
+
+    const texts = d.texts();
+    expect(texts).toMatch(/has not changed/i);
+    expect(texts).toMatch(/still work/i);
+  });
+
+  // 'wrong' promises an action that removes it. Nothing here is broken and
+  // there is nothing to remove -- the address staying put IS the feature.
+  it('says it as context, never as an error with a fix attached', () => {
+    const d = claimed();
+    d.update({ shopName: 'Burco Traders' });
+
+    const note = d.caveats().find((c) => /has not changed/i.test(c.children));
+    expect(note).toBeDefined();
+    expect(note!.tone).toBe('context');
+    expect(note!.action).toBeUndefined();
+  });
+
+  // The other half of that copy: do not tell a shop it renamed something when
+  // it did not. Claiming `xamdi-electronics-koodbuur` under "Xamdi
+  // Electronics" is the ORDINARY suffix outcome, not a rename.
+  it('stays quiet while the claimed address still follows the shop’s name', () => {
+    expect(claimed().texts()).not.toMatch(/has not changed/i);
+    expect(mountDrawer({ shopName: 'Xamdi', slug: 'xamdi', claimedSlug: 'xamdi' }).texts()).not.toMatch(
+      /has not changed/i
+    );
+  });
+
+  it('gives the shop a way to copy the exact address on screen', async () => {
+    const d = claimed();
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    await withClipboard(writeText, async () => {
+      await act(async () => {
+        d.find('content-drawer-copy-address').props.onPress();
+      });
+    });
+    expect(writeText).toHaveBeenCalledWith(CLAIMED_ADDRESS);
+  });
+
+  // Frozen against ACCIDENT, not locked. The warning the editor already shows
+  // arrives with the editable field, which is the moment it means something.
+  it('still lets the shop change it, deliberately, with the warning intact', () => {
+    const d = claimed();
+    expect(d.texts()).not.toMatch(/stops working immediately/i);
+
+    d.press('content-drawer-change-address');
+
+    expect(d.find('content-drawer-slug-input').props.editable).not.toBe(false);
+    expect(d.texts()).toMatch(/stops working immediately/i);
+    expect(d.has('content-drawer-claim-button')).toBe(true);
+  });
+
+  // A rename landing MID-CHANGE must not move the address either -- the shop
+  // is looking at an editable field, which is precisely when a silent
+  // overwrite would be invisible.
+  it('does not let a rename reach the field while the shop is changing it', () => {
+    const d = claimed();
+    d.press('content-drawer-change-address');
+    d.update({ shopName: 'Burco Traders' });
+
+    expect(d.valueOf('content-drawer-slug-input')).toBe(CLAIMED);
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'burco-traders' }));
+  });
+
+  // Backing out of a change must put the address back exactly as claimed --
+  // otherwise a half-typed edit would be what the read-only row goes on
+  // showing, and the shop would read an address it never claimed.
+  it('restores the claimed address exactly when a change is abandoned', () => {
+    const d = claimed();
+    d.press('content-drawer-change-address');
+    d.type('content-drawer-slug-input', 'burco');
+    d.press('content-drawer-change-cancel');
+
+    expect(shownAddress(d)).toBe(CLAIMED_ADDRESS);
+    expect(d.find('content-drawer-slug-input').props.editable).toBe(false);
+  });
+
+  // ...and a rename after that abandoned edit still cannot move it: backing
+  // out must clear the "the shop typed this" flag, not leave a stale one that
+  // happens to protect the right value by accident.
+  it('keeps the address frozen after an abandoned change and a later rename', () => {
+    const d = claimed();
+    d.press('content-drawer-change-address');
+    d.type('content-drawer-slug-input', 'burco');
+    d.press('content-drawer-change-cancel');
+    d.update({ shopName: 'Burco Traders' });
+
+    expect(shownAddress(d)).toBe(CLAIMED_ADDRESS);
   });
 });
