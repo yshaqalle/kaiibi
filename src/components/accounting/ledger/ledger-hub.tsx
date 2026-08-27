@@ -335,7 +335,14 @@ export function LedgerHub({
               whole band -- Audit Log rendered 1344px wide beside four 327px
               siblings. A cell takes its span and no more, however few there
               are in the row. */}
-          <BentoGrid>
+          {/* `stretch` + `fill`, never `height: '100%'` on the card. The
+              latter is a no-op on web but resolves against the ScrollView's
+              frame under Yoga, so on iPhone every card became a viewport tall
+              and the rest of the hub sat below the fold -- the failure
+              bento.tsx's own `cellInnerFill` comment describes. Found on the
+              Reports hub, which had copied this file verbatim; fixed in both
+              so the next copy does not inherit it again. */}
+          <BentoGrid rowAlign="stretch">
             {views.map((view) => {
               // The live footer where there is one, so the card says what is
               // behind it rather than only what it is. Both fall back to the
@@ -353,7 +360,7 @@ export function LedgerHub({
               return (
               <BentoCell key={view.key} span={3}>
               <Pressable style={styles.cell} onPress={() => onOpen(view.key)} role="button">
-                <Card variant="bento" style={styles.card}>
+                <Card variant="bento" fill>
                   <View style={styles.iconTile}>
                     <Ionicons name={view.icon} size={15} color={theme.bentoInk2} />
                   </View>
@@ -389,10 +396,10 @@ const styles = StyleSheet.create({
   // to a third, a half and then the full row as the screen narrows, which is
   // BentoCell's own rule. The Pressable just fills whatever it is given.
   cell: { width: '100%' },
-  // The Pressable owns the width, the Card owns the surface. Full height so
-  // cards in a row line up when one blurb wraps to three lines and another
-  // takes two.
-  card: { height: '100%' },
+  // Cards in a row line up when one blurb wraps to three lines and another
+  // takes two -- via `rowAlign="stretch"` on the grid and `fill` on the Card,
+  // which is the opt-in BentoGrid documents. NOT `height: '100%'`: see the
+  // note at the grid.
   iconTile: {
     width: 30,
     height: 30,

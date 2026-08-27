@@ -457,14 +457,23 @@ export function ReportsHub({
           {/* BentoGrid, not a flex-wrap row: a wrapping row gives every card
               flexGrow, so a group holding one card stretches it across the
               whole band. A cell takes its span and no more. */}
-          <BentoGrid>
+          {/* `stretch` + `fill` on the Card, NOT `height: '100%'` on the
+              card's style. That was the original, copied from ledger-hub, and
+              on iPhone it made every card a viewport tall with the rest of the
+              hub pushed below the fold -- the exact failure bento.tsx's own
+              comment on `cellInnerFill` documents: Yoga resolves a percentage
+              height against the owner height, and inside a ScrollView that
+              chain ends at the ScrollView's frame. It is invisible on web,
+              where CSS resolves the same percentage to `auto`, which is why
+              the browser pass did not catch it. */}
+          <BentoGrid rowAlign="stretch">
             {views.map((view) => {
               const scope = view.followsRange ? (rangeLabel ?? view.scope) : view.scope;
               // Pulled out of the JSX so tsc narrows it: `view.door` is a
               // property access and narrowing would be lost inside the arrow.
               const door = view.door;
               const card = (
-                <Card variant="bento" style={[styles.card, !view.available && styles.cardDimmed]}>
+                <Card variant="bento" fill style={!view.available && styles.cardDimmed}>
                   <View style={styles.iconTile}>
                     <Ionicons name={view.icon} size={15} color={theme.bentoInk2} />
                   </View>
@@ -524,7 +533,6 @@ const styles = StyleSheet.create({
   group: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, marginBottom: 10 },
   groupNote: { fontSize: 11.5, fontWeight: '500', color: theme.bentoMuted },
   cell: { width: '100%' },
-  card: { height: '100%' },
   // The design's `.hubcard.soon { opacity:.5 }`. Half-strength rather than a
   // different fill, so it reads as "not yet" rather than as a fifth card style.
   cardDimmed: { opacity: 0.5 },
