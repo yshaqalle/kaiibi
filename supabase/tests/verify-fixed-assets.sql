@@ -55,11 +55,14 @@ do $$
 declare
   v_owner    uuid := gen_random_uuid();
   v_other    uuid := gen_random_uuid();
+  v_third    uuid := gen_random_uuid();
   v_viewer   uuid := gen_random_uuid();   -- ledger.view, NOT ledger.post
   v_shop     uuid;
   v_loc      uuid;
   v_shop_b   uuid;
   v_loc_b    uuid;
+  v_shop_c   uuid;
+  v_loc_c    uuid;
   v_view_role uuid;
 
   v_van      uuid;
@@ -69,11 +72,18 @@ declare
   v_kettle   uuid;
   v_oven     uuid;
   v_table    uuid;
+  v_relic    uuid;
+  v_freezer  uuid;
+  v_scale    uuid;
+  v_widget   uuid;
+  v_bin      uuid;
+  v_toaster  uuid;
 
   v_entry    uuid;
   v_kettle_entry uuid;
   v_reversal uuid;
   v_mar_b    uuid;
+  v_jun_c    uuid;
 
   v_today    date := public.shop_local_date();
   v_n        integer;
@@ -98,6 +108,18 @@ begin
     returning id into v_shop_b;
   insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_b, 'Main', true)
     returning id into v_loc_b;
+
+  -- Shop B RENAMES ITS OWN TILL, and nothing in shop A's books may ever say
+  -- this name. create_fixed_asset reads the asset and payment account NAMES to
+  -- build its description, and that read is filtered to one shop; without the
+  -- filter `max(a.name)` collects every shop's, and this name sorts after
+  -- 'Cash on Hand' precisely so that it wins. Check 1 asserts what shop A's
+  -- description says. The names are all this door can leak -- post_journal_entry
+  -- resolves the code to an account id inside the shop itself -- but a purchase
+  -- in one shop described in another shop's words is still a shop reading a
+  -- string it was never shown.
+  update public.accounts set name = 'Shop B''s own till, and only shop B''s'
+   where shop_id = v_shop_b and code = '1000';
 
   -- A member of shop A who can READ the books and not write them. This is the
   -- default shape of every non-owner role in this database, so "the gate is
@@ -138,6 +160,15 @@ begin
   end if;
   if v_date is distinct from '2026-01-05'::date then
     raise exception 'FAIL 1: the acquisition is dated %, expected 2026-01-05 (an open month is not redirected)', v_date;
+  end if;
+
+  --    ...and it is described in SHOP A'S OWN WORDS. Shop B renamed its till
+  --    above to a name that sorts after this one, so an unfiltered `max(a.name)`
+  --    over the chart picks shop B's and this reads "paid from Shop B's own
+  --    till". The tenant filter on that lookup is the only thing between the two.
+  select e.description into v_desc from public.journal_entries e where e.id = v_entry;
+  if v_desc not like '%Cash on Hand%' then
+    raise exception 'FAIL 1: the acquisition is described as "%" -- the account name came from another shop''s chart', v_desc;
   end if;
 
   select coalesce(sum(l.amount_cents), 0) into v_amount
@@ -852,7 +883,48 @@ begin
   raise notice '16 OK: a closed month is charged once, recognised in the open period, and never charged again';
 
   -- =====================================================================
-  -- 17. SHOP B'S OWN FIGURES, pinned to the cent, and shop A's unchanged by
+  -- 17. SHOP A RUNS DEPRECIATION AGAIN, NOW THAT SHOP B HAS ASSETS.
+  --
+  --     Check 15 asserts that shop A's runs never charged shop B's oven, and
+  --     until this block that assertion could not fail: every one of shop A's
+  --     four runs happened EARLIER IN THIS SCRIPT than the oven existed, so it
+  --     held whatever the tenant filter said. Dropping `where fa.shop_id =
+  --     p_shop_id` from both the due CTE and the charge-row insert left the
+  --     whole file green -- which is phase 3a's defect exactly, arrived at
+  --     through fixture ORDER rather than through a missing second shop.
+  --
+  --     So: one more run, asked of shop A, through a month shop A is already
+  --     charged to. It must write NOTHING. Shop B's oven is six months from
+  --     March and shop B has only run to April, so May, June and July are due
+  --     on it -- a leak has three charges waiting to be picked up, and they
+  --     are the ones check 15 and check 17 below are pinned against.
+  -- =====================================================================
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner)::text, true);
+  v_n := public.run_depreciation(v_shop, '2026-07-31');
+  if v_n is distinct from 0 then
+    raise exception 'FAIL 17: shop A''s run wrote % entries with nothing of its own due, expected 0 -- it reached into another shop''s register', v_n;
+  end if;
+  perform set_config('role', 'postgres', true);
+  if (select count(*) from public.depreciation_charges dc where dc.asset_id = v_oven)
+     is distinct from 2 then
+    raise exception 'FAIL 17: shop B''s oven carries % charge rows after shop A ran depreciation, expected 2 (March and April, both shop B''s own)',
+      (select count(*) from public.depreciation_charges dc where dc.asset_id = v_oven);
+  end if;
+  if exists (select 1 from public.depreciation_charges dc
+              join public.fixed_assets fa on fa.id = dc.asset_id
+             where dc.shop_id <> fa.shop_id) then
+    raise exception 'FAIL 17: a charge row belongs to a different shop from its asset';
+  end if;
+  perform set_config('role', 'authenticated', true);
+  --     Handed back to shop B's owner, which is who check 18 opens as. RLS is
+  --     real in this script, so reading shop B's ledger as shop A returns 0
+  --     rather than raising -- a `0` that would satisfy nothing here but would
+  --     be a very quiet way to make a figure agree somewhere else.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_other)::text, true);
+  raise notice '17 OK: a run asked of one shop leaves the other shop''s register alone';
+
+  -- =====================================================================
+  -- 18. SHOP B'S OWN FIGURES, pinned to the cent, and shop A's unchanged by
   --     everything shop B did.
   -- =====================================================================
   if (select coalesce(sum(l.amount_cents), 0)
@@ -860,7 +932,7 @@ begin
         join public.journal_entries e on e.id = l.entry_id
         join public.accounts a on a.id = l.account_id
        where e.shop_id = v_shop_b and a.code = '1590') is distinct from -4600 then
-    raise exception 'FAIL 17: shop B''s 1590 reads %, expected -4600 (2000 + 2000 on the oven, 300 + 300 on the prep table)',
+    raise exception 'FAIL 18: shop B''s 1590 reads %, expected -4600 (2000 + 2000 on the oven, 300 + 300 on the prep table)',
       (select coalesce(sum(l.amount_cents), 0) from public.journal_lines l
          join public.journal_entries e on e.id = l.entry_id
          join public.accounts a on a.id = l.account_id
@@ -872,7 +944,7 @@ begin
         join public.journal_entries e on e.id = l.entry_id
         join public.accounts a on a.id = l.account_id
        where e.shop_id = v_shop and a.code = '1590') is distinct from -1600 then
-    raise exception 'FAIL 17: shop A''s 1590 reads %, expected -1600 after both disposals wrote their depreciation back',
+    raise exception 'FAIL 18: shop A''s 1590 reads %, expected -1600 after both disposals wrote their depreciation back',
       (select coalesce(sum(l.amount_cents), 0) from public.journal_lines l
          join public.journal_entries e on e.id = l.entry_id
          join public.accounts a on a.id = l.account_id
@@ -883,12 +955,12 @@ begin
   if (select amount_cents from public.balance_sheet(v_shop_b, '2026-12-31') where section = 'total_assets')
      is distinct from (select amount_cents from public.balance_sheet(v_shop_b, '2026-12-31')
                         where section = 'total_liabilities_equity') then
-    raise exception 'FAIL 17: shop B''s balance sheet does not balance';
+    raise exception 'FAIL 18: shop B''s balance sheet does not balance';
   end if;
   if (select amount_cents from public.cash_flow(v_shop_b, '2026-01-01', '2026-12-31') where section = 'net_change')
      is distinct from (select amount_cents from public.cash_flow(v_shop_b, '2026-01-01', '2026-12-31')
                         where section = 'proof' and label = 'Movement in cash accounts') then
-    raise exception 'FAIL 17: shop B''s cash flow does not prove out across its close -- net change % against observed movement %',
+    raise exception 'FAIL 18: shop B''s cash flow does not prove out across its close -- net change % against observed movement %',
       (select amount_cents from public.cash_flow(v_shop_b, '2026-01-01', '2026-12-31') where section = 'net_change'),
       (select amount_cents from public.cash_flow(v_shop_b, '2026-01-01', '2026-12-31')
         where section = 'proof' and label = 'Movement in cash accounts');
@@ -896,9 +968,253 @@ begin
   --     ...and no residual section has been added to make any of that true.
   if exists (select 1 from public.cash_flow(v_shop_b, '2026-01-01', '2026-12-31')
               where section not in ('operating', 'investing', 'financing', 'net_change', 'proof')) then
-    raise exception 'FAIL 17: the cash flow has grown a section -- a residual line makes the proof tautological';
+    raise exception 'FAIL 18: the cash flow has grown a section -- a residual line makes the proof tautological';
   end if;
-  raise notice '17 OK: both shops'' figures stand alone and both statements tie';
+  raise notice '18 OK: both shops'' figures stand alone and both statements tie';
+
+  -- =====================================================================
+  -- 19. SHOP C: THE EDGES WHERE A FIGURE IS ZERO.
+  --
+  --     Shops A and B between them never dispose of an asset with nothing
+  --     accumulated against it, never dispose of one for nothing, never
+  --     dispose of one at exactly its book value, and never ask for
+  --     depreciation past the last complete month. Every one of those omits a
+  --     line or takes a branch on a comparison with zero, and `-0 = 0` is how
+  --     the sibling defect in this suite survived a whole phase. Shop C is
+  --     the shop where each of those figures is zero.
+  --
+  --     It is a third shop rather than more assets in shop A because every
+  --     figure above is pinned to the cent, and an edge case is worth nothing
+  --     if adding it means re-deriving thirty numbers that were right.
+  --
+  --       2026-01-02  Cr 3000  100000  capital, in cash
+  --       2026-05-01  Relic     400   life  1  -> the whole 400 in May
+  --       2026-05-02  Freezer 12000   life 120 ->  100 a month, never sold
+  --       2026-06-01  Scale    1200   life  12 ->  100 a month
+  --       2026-06-01  Widget     20   life  24 ->  floor(20/24) = 0 a month
+  -- =====================================================================
+  perform set_config('role', 'postgres', true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_third, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-fixed-assets-' || v_third || '@example.test', '', now(), now(), now());
+  insert into public.shops (owner_id, name) values (v_third, 'The Third Asset Shop')
+    returning id into v_shop_c;
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_c, 'Main', true)
+    returning id into v_loc_c;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_third)::text, true);
+  perform set_config('role', 'authenticated', true);
+  perform public.post_journal_entry(v_shop_c, '2026-01-02', 'Capital, in cash',
+    jsonb_build_array(jsonb_build_object('code', '1000', 'amount_cents',  100000),
+                      jsonb_build_object('code', '3000', 'amount_cents', -100000)),
+    v_loc_c, 'opening');
+
+  v_relic   := public.create_fixed_asset(v_shop_c, 'Relic', 400, '2026-05-01', 1, '1000');
+  v_freezer := public.create_fixed_asset(v_shop_c, 'Freezer', 12000, '2026-05-02', 120, '1000');
+
+  --     (a) AN ASSET WHOSE MONTHLY CHARGE ROUNDS TO ZERO, beside one whose
+  --         charge does not. floor(20 / 24) is 0, the lines are filtered on
+  --         `amount_cents > 0` and the charge-row insert was not, so the run
+  --         wrote a zero charge row and died on depreciation_charges' own
+  --         check constraint -- taking the whole month with it, for every
+  --         asset, for a shop that had simply recorded something cheap.
+  v_scale  := public.create_fixed_asset(v_shop_c, 'Scale', 1200, '2026-06-01', 12, '1000');
+  v_widget := public.create_fixed_asset(v_shop_c, 'Widget', 20, '2026-06-01', 24, '1000');
+
+  v_n := public.run_depreciation(v_shop_c, '2026-06-30');
+  if v_n is distinct from 2 then
+    raise exception 'FAIL 19: shop C''s run to June wrote % entries, expected 2 (May and June)', v_n;
+  end if;
+  perform set_config('role', 'postgres', true);
+  if exists (select 1 from public.depreciation_charges dc where dc.asset_id = v_widget) then
+    raise exception 'FAIL 19: the widget took a charge row, and floor(20 / 24) is 0 -- depreciation_charges refuses a zero amount';
+  end if;
+  perform set_config('role', 'authenticated', true);
+
+  --     (b) A DISPOSAL WITH NOTHING ACCUMULATED AND NOTHING RECEIVED. The
+  --         scale was bought on 1 June and June has been charged, so it has
+  --         100 against it -- the RELIC is the one with a zero, and it is
+  --         disposed of at exactly its book value below. Here the zero is the
+  --         PROCEEDS: sold for nothing, so no cash line is built at all, and
+  --         `if v_proceeds > 0` is the only thing keeping journal_lines from
+  --         being handed a zero it refuses.
+  v_entry := public.dispose_fixed_asset(v_scale, '2026-07-05', 0);
+  if (select count(*) from public.journal_lines where entry_id = v_entry) is distinct from 3 then
+    raise exception 'FAIL 19: the scale''s disposal wrote % lines, expected 3 (Cr 1500 1200, Dr 1590 100, Dr 6900 1100) -- a fourth is a zero cash line',
+      (select count(*) from public.journal_lines where entry_id = v_entry);
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '6900';
+  if v_amount is distinct from 1100 then
+    raise exception 'FAIL 19: the loss on a scale sold for nothing reads %, expected 1100 (1200 cost less the 100 charged)', v_amount;
+  end if;
+
+  --     (c) A DISPOSAL AT EXACTLY BOOK VALUE. The relic's one-month life ran
+  --         out in May, so it carries 400 against a cost of 400 and sells for
+  --         nothing: cost less accumulated less proceeds is ZERO and the 6900
+  --         line is omitted entirely. `if v_gain_loss <> 0` is a three-way
+  --         branch tested at two of its three points everywhere else.
+  v_entry := public.dispose_fixed_asset(v_relic, '2026-07-06', 0);
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '6900') then
+    raise exception 'FAIL 19: an asset sold for exactly its book value posted a gain or a loss to 6900';
+  end if;
+  if (select count(*) from public.journal_lines where entry_id = v_entry) is distinct from 2 then
+    raise exception 'FAIL 19: the relic''s disposal wrote % lines, expected 2 (Cr 1500 400, Dr 1590 400)',
+      (select count(*) from public.journal_lines where entry_id = v_entry);
+  end if;
+
+  --     (d) AND NOW THE ONE THAT WAS A DEFECT. The scale was sold on 5 July
+  --         and July has NOT been depreciated yet -- which is the ordinary
+  --         order, because a shop sells things during the month and does its
+  --         books at the end of it. Ask for July.
+  --
+  --         The rule as first written was "no charge in the month it leaves,
+  --         or after", so a month BEFORE the disposal was still chargeable and
+  --         a run reaching back over one would charge a sold asset. Here that
+  --         is not reachable for the scale (June is already charged), so the
+  --         reachable half is asserted directly below in (e). What this run
+  --         asserts is the July half: the scale's month index in July is 2
+  --         against a life of 12, so NOTHING BUT THE DISPOSAL can stop it --
+  --         unlike the van in check 7, which was also out of life and let the
+  --         disposal rule be removed entirely with the file still green.
+  v_n := public.run_depreciation(v_shop_c, '2026-07-31');
+  perform set_config('role', 'postgres', true);
+  if (select coalesce(sum(dc.amount_cents), 0) from public.depreciation_charges dc
+       where dc.asset_id = v_scale) is distinct from 100 then
+    raise exception 'FAIL 19: the scale took % after it was sold, expected 100 (June alone) -- it is still depreciating in a month it was not owned in',
+      (select coalesce(sum(dc.amount_cents), 0) from public.depreciation_charges dc where dc.asset_id = v_scale);
+  end if;
+  perform set_config('role', 'authenticated', true);
+
+  --     (e) SELL FIRST, DEPRECIATE AFTER, and the balance sheet must not go
+  --         NEGATIVE. Measured before the fix: a bin bought on 1 June for 1200
+  --         and sold on 5 July for nothing, with June never run, wrote back the
+  --         nothing it could see and the next run then charged June anyway.
+  --         1500 came back to zero and 1590 kept -100 for an asset the books
+  --         say the shop does not own, so `Total fixed assets` read -100 and
+  --         nothing would ever have taken it off again.
+  --         So the bin is recorded HERE, after the run above, against a June
+  --         that is already closed off for every other asset but has no charge
+  --         row for THIS one. It is sold in July, and then July is asked for.
+  --         Under the old rule June was still chargeable -- June is before the
+  --         disposal month -- and that is the charge that stranded.
+  v_bin := public.create_fixed_asset(v_shop_c, 'Waste bin', 1200, '2026-06-01', 12, '1000');
+  perform public.dispose_fixed_asset(v_bin, '2026-07-20', 0);
+  perform public.run_depreciation(v_shop_c, '2026-07-31');
+  perform set_config('role', 'postgres', true);
+  if exists (select 1 from public.depreciation_charges dc where dc.asset_id = v_bin) then
+    raise exception 'FAIL 19: an asset sold before its months were depreciated was charged afterwards, stranding accumulated depreciation for something that is off the books';
+  end if;
+  perform set_config('role', 'authenticated', true);
+  select amount_cents into v_amount from public.balance_sheet(v_shop_c, v_today)
+   where section = 'fixed_assets' and is_total;
+  if v_amount < 0 then
+    raise exception 'FAIL 19: shop C''s fixed assets read %, and a negative fixed-asset total is 1590 carrying depreciation for an asset that has been sold', v_amount;
+  end if;
+
+  --     (ee) A DISPOSAL DATED INTO A CLOSED MONTH is recognised in the open
+  --         one, carrying the true date and the status -- the redirect check 16
+  --         makes for a depreciation run and check 3 makes for an acquisition,
+  --         and which dispose_fixed_asset had its own copy of and no test.
+  --         Shop C closes June now that every June charge is posted.
+  select id into v_jun_c from public.accounting_periods
+   where shop_id = v_shop_c and starts_on = '2026-06-01';
+  if v_jun_c is null then
+    raise exception 'FIXTURE: shop C did not open a June period to close';
+  end if;
+  perform public.close_accounting_period(v_shop_c, v_jun_c);
+  v_toaster := public.create_fixed_asset(v_shop_c, 'Toaster', 900, '2026-05-03', 120, '1000');
+  v_entry := public.dispose_fixed_asset(v_toaster, '2026-06-15', 0);
+  select e.entry_date, e.description into v_date, v_desc
+    from public.journal_entries e where e.id = v_entry;
+  if v_date is distinct from v_today then
+    raise exception 'FAIL 19: a disposal dated into a CLOSED June is dated % rather than today % -- open_period_for raises on a closed month, so this would have failed outright', v_date, v_today;
+  end if;
+  if v_desc not like '%2026-06-15%' or v_desc not like '%closed%' then
+    raise exception 'FAIL 19: the redirected disposal does not carry the true date and the period''s status: "%"', v_desc;
+  end if;
+  --         ...and the REGISTER keeps the true date, which is the separation
+  --         the whole of depreciation_charges.charge_month exists for.
+  if (select disposed_on from public.fixed_assets where id = v_toaster)
+     is distinct from '2026-06-15'::date then
+    raise exception 'FAIL 19: the register did not keep the true disposal date through the redirect';
+  end if;
+
+  --     (f) THE CLAMP. "Depreciate through" a date years out is a request
+  --         about how far to go, not an assertion that it has happened, and a
+  --         month that has not ENDED cannot be charged -- 20261005000000's rule
+  --         for closing a month, for the same reason: the entry is dated the
+  --         month's end and an entry dated in the future opens a period nobody
+  --         has traded in. The freezer's life is 120 months, so it is due in
+  --         every month there is and only the clamp stops it. Asserted as a
+  --         BOUND rather than a count, so it stays true as the calendar moves.
+  perform public.run_depreciation(v_shop_c, v_today + 400);
+  perform set_config('role', 'postgres', true);
+  select max(dc.charge_month) into v_date from public.depreciation_charges dc
+   where dc.shop_id = v_shop_c;
+  if v_date > (date_trunc('month', v_today) - interval '1 month')::date then
+    raise exception 'FAIL 19: depreciation was charged for %, and the last month that has ENDED is % -- p_through is not clamped',
+      to_char(v_date, 'FMMonth YYYY'),
+      to_char((date_trunc('month', v_today) - interval '1 month')::date, 'FMMonth YYYY');
+  end if;
+  perform set_config('role', 'authenticated', true);
+
+  --     (g) THE REGISTER AND THE LEDGER STILL SAY ONE NUMBER. Check 5 makes
+  --         this comparison for shop A before anything has been disposed of;
+  --         here it is made after four disposals, two of them at zero, and it
+  --         is the assertion that catches a charge posted to 6800 and 1590 with
+  --         no charge row behind it -- which is what dropping the disposal rule
+  --         from the LINES alone does, leaving the register looking correct and
+  --         1590 carrying depreciation nothing in the register accounts for.
+  perform set_config('role', 'postgres', true);
+  select coalesce(sum(dc.amount_cents), 0) into v_before
+    from public.depreciation_charges dc where dc.shop_id = v_shop_c;
+  perform set_config('role', 'authenticated', true);
+  select coalesce(sum(l.amount_cents), 0) into v_after
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where e.shop_id = v_shop_c and a.code = '1590' and e.source = 'depreciation';
+  if v_after is distinct from -v_before then
+    raise exception 'FAIL 19: shop C''s charge rows total % but the depreciation entries credited 1590 by % -- the register and the ledger disagree',
+      v_before, v_after;
+  end if;
+
+  --     ...and none of shop C's runs reached into another shop's register. The
+  --     insert that writes the charge rows carries its own copy of the tenant
+  --     filter, and it only ever runs on a month shop C itself had something
+  --     due in -- which is this block and not check 17, where shop A had
+  --     nothing due and the insert was never reached at all.
+  perform set_config('role', 'postgres', true);
+  if exists (select 1 from public.depreciation_charges dc
+              join public.fixed_assets fa on fa.id = dc.asset_id
+             where dc.shop_id <> fa.shop_id) then
+    raise exception 'FAIL 19: a charge row belongs to a different shop from its asset';
+  end if;
+  if (select count(*) from public.depreciation_charges dc where dc.asset_id = v_oven)
+     is distinct from 2 then
+    raise exception 'FAIL 19: shop B''s oven carries % charge rows after shop C ran depreciation, expected 2 -- May, June and July are due on it and shop C picked them up',
+      (select count(*) from public.depreciation_charges dc where dc.asset_id = v_oven);
+  end if;
+  perform set_config('role', 'authenticated', true);
+
+  --     (h) AND SHOP C TIES TOO, with four disposals in it and two of them
+  --         at figures that are zero.
+  if (select amount_cents from public.balance_sheet(v_shop_c, v_today) where section = 'total_assets')
+     is distinct from (select amount_cents from public.balance_sheet(v_shop_c, v_today)
+                        where section = 'total_liabilities_equity') then
+    raise exception 'FAIL 19: shop C''s balance sheet does not balance';
+  end if;
+  if (select amount_cents from public.cash_flow(v_shop_c, '2026-01-01', v_today) where section = 'net_change')
+     is distinct from (select amount_cents from public.cash_flow(v_shop_c, '2026-01-01', v_today)
+                        where section = 'proof' and label like 'Movement in cash%') then
+    raise exception 'FAIL 19: shop C''s cash flow does not prove out -- net change % against observed movement %',
+      (select amount_cents from public.cash_flow(v_shop_c, '2026-01-01', v_today) where section = 'net_change'),
+      (select amount_cents from public.cash_flow(v_shop_c, '2026-01-01', v_today)
+        where section = 'proof' and label like 'Movement in cash%');
+  end if;
+  raise notice '19 OK: a zero charge, a zero gain, zero proceeds, a sale before the books were done, and the clamp';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

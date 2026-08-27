@@ -24,6 +24,22 @@
 -- asserts the sum, not one month's figure -- a check on one month passes for
 -- every rounding rule there is.
 --
+-- ONE EDGE THE DIVISION HAS AND THE SUBTRACTION DOES NOT: floor(cost / life) is
+-- ZERO whenever the cost in cents is smaller than the life in months. Those
+-- months are not charged -- there is nothing to charge -- and the final month's
+-- `cost - 0 x (life - 1)` still carries the whole cost, so the total over the
+-- life is unaffected. Both derivations below must filter those rows out, and
+-- the second one did not: journal_lines refuses a zero line so the entry was
+-- never at risk, but the charge-row insert has `check (amount_cents > 0)` of its
+-- own and a shop that recorded one cheap asset alongside a normal one could
+-- never run depreciation again --
+--
+--   new row for relation "depreciation_charges" violates check constraint
+--   "depreciation_charges_amount_cents_check"
+--
+-- -- with the whole run rolled back by it. Two derivations of one rule have to
+-- agree about WHICH ROWS as well as about the amount.
+--
 -- ## THE MONTH INDEX IS COMPUTED FROM THE DATES, NOT COUNTED FROM THE ROWS
 --
 -- "How many months has this asset been charged" and "which month of its life is
@@ -81,11 +97,41 @@
 -- now fails on the constraint and rolls back. There is no interleaving that
 -- charges a month twice.
 --
--- ## A DISPOSED ASSET STOPS
+-- ## A DISPOSED ASSET STOPS -- COMPLETELY, AND NOT MERELY FROM ITS OWN MONTH
 --
--- ...on the month of its disposal, not on the day. See the convention above.
--- dispose_fixed_asset removes the accumulated depreciation this function
--- charged, reading the same charge rows.
+-- The obvious rule is "no charge in the month it leaves, or after", written as
+-- `disposed_on is null or date_trunc('month', disposed_on) > v_month`. That is
+-- what this function shipped with and it is WRONG, measured against the live
+-- stack:
+--
+--   A shop buys a scale on 1 June for 1200 over 12 months and sells it on
+--   5 July, before anyone has run June's depreciation -- which is the ordinary
+--   order of events, because a shop sells things during the month and does its
+--   books at the end of it. dispose_fixed_asset writes back the accumulated
+--   depreciation IT CAN SEE, which is nothing. The next run then charges June,
+--   because June is before the disposal month and the asset was genuinely owned
+--   in it. 1500 is back to zero and 1590 carries -100 for an asset the books
+--   say the shop does not own:
+--
+--       Total fixed assets   -100
+--
+--   ...permanently, because nothing will ever write it back. This is the exact
+--   condition dispose_fixed_asset exists to prevent -- "leaving a sold asset's
+--   accumulated depreciation on the balance sheet forever" -- arrived at from
+--   the other side.
+--
+-- So the rule is `disposed_on is null`: once an asset has gone it takes no
+-- further charge for ANY month. That is not a rounding-off of the convention,
+-- it is the accounting. dispose_fixed_asset charges the whole remaining book
+-- value to 6900 as the gain or loss, so the un-depreciated part of the asset
+-- has ALREADY hit the P&L; depreciating it again afterwards expenses the same
+-- money twice. The cost of the rule is that a charge for a month before the
+-- disposal lands in the disposal month as part of the loss rather than in its
+-- own month, which for a ledger this size is the right trade and is the only
+-- version that cannot produce a negative asset.
+--
+-- The symmetry in the section above still holds for a shop that depreciates
+-- before it sells, which is every shop that runs the month end first.
 --
 -- ## THE GATE: ledger.post, the same as the register's own doors
 --
@@ -164,9 +210,10 @@ begin
          -- Acquired in this month or earlier: a full month in the month it
          -- arrives.
          and date_trunc('month', fa.acquired_on)::date <= v_month
-         -- ...and nothing in the month it leaves, or after.
-         and (fa.disposed_on is null
-              or date_trunc('month', fa.disposed_on)::date > v_month)
+         -- ...and NOTHING ONCE IT HAS GONE, for any month, including months the
+         -- shop still owned it in. See "A DISPOSED ASSET STOPS" in the header:
+         -- reading the disposal MONTH here instead was a measured defect.
+         and fa.disposed_on is null
          and not exists (
            select 1 from public.depreciation_charges dc
             where dc.asset_id = fa.id and dc.charge_month = v_month)
@@ -246,14 +293,24 @@ begin
           from public.fixed_assets fa
          where fa.shop_id = p_shop_id
            and date_trunc('month', fa.acquired_on)::date <= v_month
-           and (fa.disposed_on is null
-                or date_trunc('month', fa.disposed_on)::date > v_month)
+           and fa.disposed_on is null
            and not exists (
              select 1 from public.depreciation_charges dc
               where dc.asset_id = fa.id and dc.charge_month = v_month)
            and ((extract(year from v_month)::int - extract(year from fa.acquired_on)::int) * 12
                 + (extract(month from v_month)::int - extract(month from fa.acquired_on)::int)
-                + 1) between 1 and fa.life_months;
+                + 1) between 1 and fa.life_months
+           -- THE SAME `> 0` THE LINES ARE FILTERED BY, or this insert writes a
+           -- zero-amount charge row for an asset whose cost is smaller than its
+           -- life in months and dies on depreciation_charges' own check
+           -- constraint, taking the whole run with it. The two derivations must
+           -- agree on WHICH ROWS as well as on the amount.
+           and (case when ((extract(year from v_month)::int - extract(year from fa.acquired_on)::int) * 12
+                           + (extract(month from v_month)::int - extract(month from fa.acquired_on)::int)
+                           + 1) < fa.life_months
+                     then fa.cost_cents / fa.life_months
+                     else fa.cost_cents - (fa.cost_cents / fa.life_months) * (fa.life_months - 1)
+                end) > 0;
 
       v_entries := v_entries + 1;
     end if;
@@ -274,4 +331,4 @@ grant execute on function public.run_depreciation(uuid, date) to authenticated;
 grant execute on function public.run_depreciation(uuid, date) to service_role;
 
 comment on function public.run_depreciation(uuid, date) is
-  'Posts straight-line monthly depreciation over the fixed-asset register -- Dr 6800 / Cr 1590, source ''depreciation'', one entry per month dated the month''s end -- and returns how many entries it wrote. The charge is floor(cost / life_months) for every month but the last of the asset''s life, which carries the remainder, so the total over the life is the cost EXACTLY; a month past the life is not charged at all, so 1590 can never exceed 1500 for an asset. A full month in the month of acquisition and none in the month of disposal. p_through is CLAMPED to the last day of the last COMPLETE month, on 20261005000000''s rule that a month must end before the books do anything with it. RUNNING IT TWICE FOR THE SAME MONTH WRITES NOTHING AND RETURNS 0, guaranteed by unique (asset_id, charge_month) on depreciation_charges rather than by a check inside this function -- which concurrency beats, and which could not survive the closed-period redirect anyway, since a redirected entry''s date no longer says which month it belongs to. Gated on ledger.post.';
+  'Posts straight-line monthly depreciation over the fixed-asset register -- Dr 6800 / Cr 1590, source ''depreciation'', one entry per month dated the month''s end -- and returns how many entries it wrote. The charge is floor(cost / life_months) for every month but the last of the asset''s life, which carries the remainder, so the total over the life is the cost EXACTLY; a month past the life is not charged at all, so 1590 can never exceed 1500 for an asset. A month whose charge rounds to ZERO -- an asset costing less than its life in months -- is not charged either, in the lines and in the charge rows alike, because a zero charge row dies on depreciation_charges'' own check constraint and takes the whole run with it. A full month in the month of acquisition, and NOTHING ONCE THE ASSET HAS GONE: a disposed asset takes no charge for any month, including months the shop still owned it in, because dispose_fixed_asset has already put its whole remaining book value through 6900 and a later charge would both expense it twice and strand accumulated depreciation for an asset that is off the books. p_through is CLAMPED to the last day of the last COMPLETE month, on 20261005000000''s rule that a month must end before the books do anything with it. RUNNING IT TWICE FOR THE SAME MONTH WRITES NOTHING AND RETURNS 0, guaranteed by unique (asset_id, charge_month) on depreciation_charges rather than by a check inside this function -- which concurrency beats, and which could not survive the closed-period redirect anyway, since a redirected entry''s date no longer says which month it belongs to. Gated on ledger.post.';
