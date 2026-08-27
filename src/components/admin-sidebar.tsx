@@ -1,18 +1,21 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Link, usePathname, useRouter } from 'expo-router';
-import { ReactNode, useState } from 'react';
+import { ComponentProps, ReactNode, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Badge } from '@/components/badge';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { SupportBanner } from '@/components/support/support-banner';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { SupportSheet } from '@/components/support/support-sheet';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useOrdersNeedingActionBadge } from '@/hooks/use-orders-needing-action-badge';
 import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
-import { moduleForPath } from '@/lib/entitlements';
+import { moduleForPath, type Module } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
 import { AppModal } from '@/components/ui/app-modal';
 
@@ -27,28 +30,61 @@ import { AppModal } from '@/components/ui/app-modal';
 // bounce back.
 // People is also the entry point to self-service Team for every active staff
 // member, even when their role has no management permissions.
-type NavVisibility = { can: (p: Permission) => boolean; canAny: (p: Permission[]) => boolean; hasActiveMembership: boolean };
+//
+// `hasModule` is here for the same reason `can` is: Storefront and Orders are
+// sold, not merely permitted, and a row for a module the shop has not bought
+// is an offer, not navigation. It is a HIDE rather than the 🔒 the five paid
+// tabs get, because those five are the app -- a shop that loses Inventory has
+// to be shown the way back to it. A shop that never had a storefront is not
+// missing anything it can see.
+type NavVisibility = {
+  can: (p: Permission) => boolean;
+  canAny: (p: Permission[]) => boolean;
+  hasActiveMembership: boolean;
+  hasModule: (m: Module) => boolean;
+};
+
+// A row's icon is EITHER a drawn PNG from assets/images/tabIcons or an
+// Ionicon, because the drawn set covers the original five and nothing else.
+// Storefront and Orders have no asset, and borrowing one that exists (a cart
+// beside POS's cart, say) would be worse than an outline glyph -- so they use
+// the same two Ionicons the settings sidebar already labels them with, which
+// is what a shopkeeper who has seen them before will recognise.
+type NavIcon = { png: ComponentProps<typeof Image>['source'] } | { ionicon: keyof typeof Ionicons.glyphMap };
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: require('@/assets/images/tabIcons/home.png'), isVisible: (ctx: NavVisibility) => ctx.can('dashboard.view') },
-  { href: '/pos', label: 'POS', icon: require('@/assets/images/tabIcons/cart.png'), isVisible: (ctx: NavVisibility) => ctx.can('pos.access') },
-  { href: '/inventory', label: 'Inventory', icon: require('@/assets/images/tabIcons/grid.png'), isVisible: (ctx: NavVisibility) => ctx.can('inventory.view') },
+  { href: '/dashboard', label: 'Dashboard', icon: { png: require('@/assets/images/tabIcons/home.png') }, isVisible: (ctx: NavVisibility) => ctx.can('dashboard.view') },
+  { href: '/pos', label: 'POS', icon: { png: require('@/assets/images/tabIcons/cart.png') }, isVisible: (ctx: NavVisibility) => ctx.can('pos.access') },
+  { href: '/inventory', label: 'Inventory', icon: { png: require('@/assets/images/tabIcons/grid.png') }, isVisible: (ctx: NavVisibility) => ctx.can('inventory.view') },
   {
     href: '/people',
     label: 'People',
-    icon: require('@/assets/images/tabIcons/customers.png'),
+    icon: { png: require('@/assets/images/tabIcons/customers.png') },
     isVisible: (ctx: NavVisibility) => ctx.hasActiveMembership || ctx.canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']),
   },
-  { href: '/accounting', label: 'Accounting', icon: require('@/assets/images/tabIcons/accounting.png'), isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
-] as const satisfies readonly { href: string; label: string; icon: unknown; isVisible: (ctx: NavVisibility) => boolean }[];
+  { href: '/accounting', label: 'Accounting', icon: { png: require('@/assets/images/tabIcons/accounting.png') }, isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
+  // The storefront is a sales channel, and it used to be filed as a
+  // preference: Settings -> Business -> Storefront, four taps deep on a phone,
+  // between Vendors and Receipt. One shop in eleven had ever published a page.
+  // Both rows are gated on `settings.access` because that is exactly what
+  // (admin)/_layout.tsx checks for these two routes (permissions.ts) -- the
+  // nav must never offer a door that bounces straight back -- and on the
+  // `storefront` module, the way the settings sidebar already gates them.
+  { href: '/storefront', label: 'Storefront', icon: { ionicon: 'globe-outline' }, isVisible: (ctx: NavVisibility) => ctx.can('settings.access') && ctx.hasModule('storefront') },
+  // Beside Storefront on purpose: this is what the page it edits produces.
+  // Carries the count of orders waiting on the shop -- the badge is the whole
+  // reason this row belongs on a nav somebody actually looks at.
+  { href: '/orders', label: 'Orders', icon: { ionicon: 'bag-check-outline' }, badge: 'orders', isVisible: (ctx: NavVisibility) => ctx.can('settings.access') && ctx.hasModule('storefront') },
+] as const satisfies readonly { href: string; label: string; icon: NavIcon; badge?: 'orders'; isVisible: (ctx: NavVisibility) => boolean }[];
 
 type NavItem = (typeof navItems)[number];
 
 // Extracted so each row can own its own hover state (react-native-web fires
 // onHoverIn/onHoverOut on Pressable; native no-ops these harmlessly) without
 // the parent re-rendering the whole nav on every mouse move.
-function SidebarNavItem({ item, focused, locked }: { item: NavItem; focused: boolean; locked?: boolean }) {
+function SidebarNavItem({ item, focused, locked, badgeCount = 0 }: { item: NavItem; focused: boolean; locked?: boolean; badgeCount?: number }) {
   const [hovered, setHovered] = useState(false);
+  const tint = focused ? '#111111' : '#777777';
   return (
     <Link href={item.href} asChild>
       <Pressable
@@ -56,13 +92,25 @@ function SidebarNavItem({ item, focused, locked }: { item: NavItem; focused: boo
         onHoverOut={() => setHovered(false)}
         style={StyleSheet.flatten([styles.navButton, hovered && !focused && styles.navButtonHovered, focused && styles.navButtonFocused])}
       >
-        <Image source={item.icon} style={[styles.navIcon, focused && styles.navIconFocused]} tintColor={focused ? '#111111' : '#777777'} />
+        {/* The drawn assets are tinted images; the two Ionicon rows take the
+            same two colours at the same 19px, so a mixed rail still reads as
+            one set. */}
+        {'png' in item.icon ? (
+          <Image source={item.icon.png} style={[styles.navIcon, focused && styles.navIconFocused]} tintColor={tint} />
+        ) : (
+          <Ionicons name={item.icon.ionicon} size={19} color={tint} style={styles.navIcon} />
+        )}
         <Text style={[styles.navText, focused && styles.navTextFocused, locked && styles.navTextLocked]}>{item.label}</Text>
         {/* Still navigable: tapping lands on the upgrade wall in
             (admin)/_layout.tsx, which is where the offer belongs. Hiding the
             row instead would mean nobody ever discovers what they'd be paying
             for. */}
         {locked && <Text style={styles.navLock}>🔒</Text>}
+        {badgeCount > 0 && (
+          <View style={styles.navBadge}>
+            <Badge label={badgeCount > 9 ? '9+' : String(badgeCount)} tone="danger" />
+          </View>
+        )}
       </Pressable>
     </Link>
   );
@@ -114,7 +162,15 @@ export function AdminSidebar({
   const subtitle = shop?.categories?.[0];
   const [menuOpen, setMenuOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
-  const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active) }));
+  const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active), hasModule }));
+  // The same hook the settings sidebar's Orders row uses -- one server-side
+  // count, not a second list of orders pulled down to be counted here.
+  const ordersBadge = useOrdersNeedingActionBadge();
+  // Mirrors the route guard for /storefront and /orders (permissions.ts:177,181)
+  // AND the module, the same pair the settings sidebar already gates them on.
+  // Matching the guard is the rule this file's header states: filtering here
+  // keeps the nav from offering a destination that would just bounce back.
+  const storefrontEnabled = hasModule('storefront') && can('settings.access');
 
   // Lets the shop logo be changed straight from the sidebar avatar, not just
   // from Settings — a quick "click your logo to change it" affordance. The
@@ -146,6 +202,7 @@ export function AdminSidebar({
                   item={item}
                   focused={pathname === item.href}
                   locked={Boolean(required) && !hasModule(required!)}
+                  badgeCount={'badge' in item && item.badge === 'orders' ? ordersBadge : 0}
                 />
               );
             })}
@@ -199,6 +256,52 @@ export function AdminSidebar({
           {/* Under the bar in both worlds: the compact header is a fixed 52
               tall and takes no inset, where the top bar grows with it. */}
           <View style={[styles.menuSheet, { top: compact ? 56 : insets.top + 50 }]}>
+            {/* Storefront and Orders live here on a phone, not in the bottom
+                bar. The bar is five items across a 390pt screen at flex: 1;
+                a seventh would leave each about 55pt with a label truncated
+                to "Storefr…", and POS and Inventory are what a shopkeeper
+                reaches for all day.
+                Here they are ONE tap from ☰ instead of four (☰ → Settings →
+                the pane picker → Storefront), which is where they were: filed
+                under Settings › Business between Vendors and Receipt. A sales
+                channel that takes customer orders is not configuration, and a
+                walkthrough at this width is what found it -- of 11 shops on
+                the system, 1 had published a page.
+                The rail (navItems above) shows them as first-class entries at
+                tablet width and up, where there is room. */}
+            {storefrontEnabled && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/storefront');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.menuItemIcon}>🌐</Text>
+                  <Text style={styles.menuItemText}>Storefront</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/orders');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.menuItemIcon}>🛍</Text>
+                  <Text style={styles.menuItemText}>Orders</Text>
+                  {/* The one signal that a customer is waiting. It was only
+                      ever rendered inside the settings sidebar, four taps
+                      down -- a count nobody was going to see. */}
+                  {ordersBadge > 0 ? (
+                    <View style={styles.menuBadgeSlot}>
+                      <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
+                    </View>
+                  ) : null}
+                </Pressable>
+                <View style={styles.menuDivider} />
+              </>
+            )}
             {canEditShop && (
               <>
                 <Pressable
@@ -279,6 +382,9 @@ const styles = StyleSheet.create({
   navText: { color: '#555555', fontSize: 14.5, fontWeight: '700' },
   navTextLocked: { color: '#999999' },
   navLock: { fontSize: 11, marginLeft: 'auto' },
+  // Pushed to the far edge of the row, the way the lock is -- and `auto` on
+  // both is harmless because no row is ever locked AND badged.
+  navBadge: { marginLeft: 'auto' },
   navTextFocused: { color: '#111111', fontWeight: '800' },
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
@@ -306,5 +412,6 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
   menuItemIcon: { fontSize: 15, color: '#111111' },
   menuItemText: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  menuBadgeSlot: { marginLeft: 'auto' },
   menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#ECECEC' },
 });
