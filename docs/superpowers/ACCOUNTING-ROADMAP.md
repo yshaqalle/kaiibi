@@ -6,7 +6,7 @@ Every remaining step, in order, with a prompt you can paste into a fresh session
 
 ## Where it stands
 
-_Last verified 2026-08-25 against `main` and the linked project._
+_Last verified 2026-08-27 against `main`. **Phase 3 is complete** — the three statements, period close, and fixed assets. Phase 4 is the remaining work._
 
 | Phase | State |
 |---|---|
@@ -16,7 +16,7 @@ _Last verified 2026-08-25 against `main` and the linked project._
 | **2b** Auto-posting | ✅ merged & deployed — #74, plus #76 and #78 |
 | **3a** The statements | ✅ merged & deployed — #80, income statement / balance sheet / cash flow |
 | **3b** Period close | ✅ merged — #83, close/re-open, exceptions, auto-close, the screen. **Read "what 3b changed for everyone" below.** |
-| **3c** New transactions | 📋 **plan ready**, not built — independent of 3b, but now owes it a Settings control |
+| **3c** New transactions | ✅ merged — #88, transfers, fixed assets, depreciation. **Phase 3 is complete.** |
 | **Reports hub** | 📋 plan ready, not built — independent of everything else |
 | **4** The remaining reports | ✏️ needs a plan — sixteen; the several that needed 3b are now unblocked |
 | **5** The small gaps | ✏️ needs a plan — `refunds.reason`, `tax_filings` |
@@ -24,7 +24,7 @@ _Last verified 2026-08-25 against `main` and the linked project._
 
 **`create_bill` is delivered and struck from scope.** The design specified it because, when written, entering a bill posted nothing. It now does: `invoices` → `sync_invoice_expense` → `post_expense_to_ledger` posts `Dr <category account> / Cr 2000`, and #78 made a goods bill name the delivery it pays for. A separate RPC would be a second door onto the same ledger effect.
 
-**Phase 3 was split into 3a / 3b / 3c** because they are independent subsystems and, as one plan, no statement would have shipped until fixed assets did.
+**Phase 3 was split into 3a / 3b / 3c** because they are independent subsystems and, as one plan, no statement would have shipped until fixed assets did. The split paid for itself: 3a shipped statements months before 3c existed, and each phase found defects in the one before it that a single review pass would not have.
 
 ### What 3b changed for everyone — read before writing 3c or 4
 
@@ -38,9 +38,32 @@ It hid because **nothing posts to `6800` until 3c ships `run_depreciation`**, so
 
 **3. Still no residual *other movements* line, and never add one.** It makes the proof tie by construction and destroys the only check capable of catching a sign error. There is now a test asserting `cash_flow()` has not grown a section, and `verify-statements.sql` still carries the negative test that the proof **does** fail when an unaccounted account moves. `2300 Loyalty Points Liability` remains unaccounted, as does `3900` moved by anything that is not a close — an `'opening'` entry carrying pre-kaiibi retained earnings would fail the proof by exactly itself, and should.
 
-### Two things 3b left for 3c
+### The account no cash-flow section reads — this has now happened three times
 
-- **Auto-close is built and unreachable.** `auto_close_periods` defaults to `'ask'` and **nothing writes the column**, so no shop can turn it on. The default is deliberate: nothing before #83 ever wrote `status='closed'`, so phase 2b's 66 "redate to today" branches have never fired for a real shop, and defaulting to `'automatic'` would have activated all of them at deploy — backdated CSV import would book historical entries into the current month. **3c owes it a Settings control** (`automatic` / `ask` / `never`, grace 5/10/15).
+Each time, an account moved that no `cash_flow()` section reads. That is a hole in the proof identity: every entry sums to zero, so the negated non-cash lines add up to the cash lines, and an unread account falls straight through.
+
+| | |
+|---|---|
+| **3a** | predicted `3900` would break the proof across a close |
+| **3b** | the real defect was `6800` — the add-back reads an expense account a close credits, so the same amount was subtracted twice |
+| **3c** | a **disposal** debits `1590`, which the investing section excludes |
+
+**Twice the justifying comment was true of one movement and silently false of another.** `cash_flow()`'s own words were *"accumulated depreciation is not a cash movement and is already inside the add-back above"* — true of the depreciation **charge**, false of a **disposal**.
+
+**#88 stopped waiting for the fourth.** It enumerated every account these paths can move, mapped each to a section, and **pinned the unaccounted set at exactly `{2300, 3900}`** — so a new account that falls through now reddens instead of hiding for a phase. If you add a posting path, that pin is what you will have to update, and updating it means naming the section that reads your account.
+
+**Never add a residual "other movements" line.** It makes the proof tie by construction and destroys the only check capable of catching a sign error. There is a test asserting `cash_flow()` has not grown a section.
+
+### Two things 3b left for 3c — both now done
+
+- **Auto-close was built and unreachable.** `auto_close_periods` defaults to `'ask'` and nothing wrote the column, so no shop could turn it on. The default is deliberate: nothing before #83 ever wrote `status='closed'`, so phase 2b's 66 "redate to today" branches had never fired for a real shop, and defaulting to `'automatic'` would have activated all of them at deploy. **#88 added the Settings control** (Settings → closing the books, gated on `ledger.close` in a trigger, not only in the client).
+- **The hand-posted depreciation in `verify-statements-across-a-close.sql` is now real** — `create_fixed_asset` plus one `run_depreciation` spanning both months, one of them closed.
+
+### What 3c left behind — read before phase 4
+
+- **`run_depreciation` × `reverse_journal_entry` is narrowed, not closed.** Voiding an asset's acquisition entry while the register row survives now aborts loudly with `40001` rather than committing a balanced lie — but **there is no client retry on that error**, so a user can meet a raw failure. Closing it properly means either deadlock-prone locking in a shipped generic RPC or a one-snapshot rebuild.
+- **The accounting shell's routing test reads *source text***, so it cannot catch a genuine mis-wiring. All twelve views were confirmed to route by hand; the test is a weak guard and should be replaced with one that renders.
+- **A second shop in a fixture is necessary but not sufficient.** Dropping both tenant filters from `run_depreciation` left the whole suite green because shop A's runs all preceded shop B's assets **in script order**. Fixtures must **interleave**.
 - **`open_period_for` has an `EXECUTE` revoke but no membership predicate** — one would refuse the backfill. Named, not fixed.
 
 ### The `PUBLIC` grant audit — real work, not yet done
@@ -153,7 +176,9 @@ do not add a residual line.
 
 ## Step 4c — New transactions (3c)
 
-**Plan written:** [`plans/2026-08-25-transfers-assets-depreciation.md`](plans/2026-08-25-transfers-assets-depreciation.md). Read it and execute; the prompt below is kept only for a fresh re-plan.
+**✅ Built and merged — #88.** Plan: [`plans/2026-08-25-transfers-assets-depreciation.md`](plans/2026-08-25-transfers-assets-depreciation.md). The prompt below is kept only for a fresh re-plan, and **that plan shipped four defects of its own**: its migration numbers collided with files already on `main`, its `post_journal_entry` constraint was stale (membership is now required for **every** source), it asserted the cash-flow proof was the only thing that could catch a sign error on a transfer (false — both legs are cash, so the proof is identical; the two balances catch it), and it named a wrong "after" head. Distrust a plan's stated constraints and re-check them against the live schema.
+
+**The defect worth remembering:** a month could be **depreciated twice**. Two overlapping `run_depreciation` calls each posted a monthly entry but only one wrote the charge rows, so the unique constraint on `(asset_id, charge_month)` never fired — it makes a double *charge row* impossible, not a double *run*. Seven entries for six months, `1590` out by 60000, **and the cash-flow proof still tied**. Wrong and balanced is invisible to every totals check in this system. Closed with `pg_advisory_xact_lock` before any read plus a write-back check, and proved with a real two-session test (`verify-depreciation-concurrency.sh`) — the serial idempotence test passed throughout and always would have.
 
 ```
 Write the implementation plan for phase 3c of the kaiibi accounting work --
