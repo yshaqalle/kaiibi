@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Text } from 'react-native';
+import { Pressable, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 // Below the mocks in intent, above them in source: babel-plugin-jest-hoist
@@ -169,6 +169,48 @@ describe('AdminSidebar storefront rows', () => {
     expect(shown).not.toContain('Storefront');
     expect(shown).not.toContain('Orders');
     expect(shown).toContain('Inventory');
+  });
+
+  // THE PHONE. The rail is not what a shopkeeper at 390px sees -- they get a
+  // five-item bottom bar and this menu, and the walkthrough that found all of
+  // this was run at that width. A fix that only reaches the rail reaches
+  // desktop, which is not where these shops are.
+  async function openPhoneMenu() {
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    // Found by walking up from the glyph to whatever actually handles a press.
+    // Matching on Pressable's TYPE does not work here -- react-native's export
+    // is a forwardRef wrapper and the instance in the tree is not the same
+    // reference the test imports.
+    const glyph = tree!.root.findAllByType(Text).find((t) => t.props.children === '\u2630');
+    let node = glyph as unknown as { props: Record<string, unknown>; parent: unknown } | null;
+    while (node && typeof node.props?.onPress !== 'function') {
+      node = node.parent as typeof node;
+    }
+    await act(async () => { (node!.props.onPress as () => void)(); });
+    return tree!;
+  }
+
+  it('puts Storefront and Orders one tap from the phone menu', async () => {
+    const shown = labels(await openPhoneMenu());
+    expect(shown).toContain('Storefront');
+    expect(shown).toContain('Orders');
+    // Beside Settings, which is where it used to hide four taps below.
+    expect(shown).toContain('Settings');
+  });
+
+  it('keeps them out of the phone menu without the module', async () => {
+    signIn({ hasModule: (m) => m !== 'storefront' });
+    const shown = labels(await openPhoneMenu());
+    expect(shown).not.toContain('Storefront');
+    expect(shown).not.toContain('Orders');
+    expect(shown).toContain('Settings');
+  });
+
+  it('carries the waiting-order count into the phone menu too', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(2);
+    const shown = labels(await openPhoneMenu());
+    expect(shown).toContain('2');
   });
 
   // The signal that an order is waiting has to travel with the row, or it

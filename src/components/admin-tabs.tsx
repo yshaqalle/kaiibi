@@ -7,12 +7,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AdminSidebar } from '@/components/admin-sidebar';
+import { Badge } from '@/components/badge';
 import { Colors } from '@/constants/theme';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { SupportBanner } from '@/components/support/support-banner';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { SupportSheet } from '@/components/support/support-sheet';
 import { useAuth } from '@/hooks/use-auth';
+import { useOrdersNeedingActionBadge } from '@/hooks/use-orders-needing-action-badge';
 import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
@@ -48,6 +50,11 @@ export default function AdminTabs() {
   const [supportOpen, setSupportOpen] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const canEditShop = can('settings.access');
+  // Identical to admin-sidebar.tsx's: the route guard's permission
+  // (permissions.ts:177,181) AND the module the settings sidebar already gates
+  // these two on. A nav must not offer a door that bounces straight back.
+  const storefrontEnabled = hasModule('storefront') && can('settings.access');
+  const ordersBadge = useOrdersNeedingActionBadge();
 
   // Lets the shop logo be changed straight from the header avatar, not just
   // from Settings — mirrors the same affordance on the sidebar (tablet/web)
@@ -124,6 +131,48 @@ export default function AdminTabs() {
       <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
+            {/* Here rather than as a sixth and seventh NativeTabs.Trigger, for
+                the same two reasons the web menu gives: the bottom bar is what
+                a shopkeeper reaches for all day and five is already what fits
+                a phone, and these two are not `(tabs)` routes -- promoting
+                them would mean moving route files, not adding a row.
+                One tap from ☰ replaces four (☰ -> Settings -> the pane picker
+                -> Storefront, filed under Business between Vendors and
+                Receipt). Kept byte-for-byte in step with admin-sidebar.tsx's
+                menu so the two platforms do not drift. */}
+            {storefrontEnabled && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/storefront');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={[styles.settingsIcon, { color: colors.text }]}>🌐</Text>
+                  <Text style={[styles.menuItemText, { color: colors.text }]}>Storefront</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/orders');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={[styles.settingsIcon, { color: colors.text }]}>🛍</Text>
+                  <Text style={[styles.menuItemText, { color: colors.text }]}>Orders</Text>
+                  {/* The count of customers waiting. Server-side, through the
+                      one shared hook -- it used to render only inside the
+                      settings sidebar, four taps down. */}
+                  {ordersBadge > 0 ? (
+                    <View style={styles.menuBadgeSlot}>
+                      <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
+                    </View>
+                  ) : null}
+                </Pressable>
+                <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
+              </>
+            )}
             {canEditShop && (
               <>
                 <Pressable
@@ -256,5 +305,6 @@ const styles = StyleSheet.create({
   menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, paddingVertical: 6, overflow: 'hidden' },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
   menuItemText: { fontSize: 14, fontWeight: '700' },
+  menuBadgeSlot: { marginLeft: 'auto' },
   menuDivider: { height: StyleSheet.hairlineWidth },
 });
