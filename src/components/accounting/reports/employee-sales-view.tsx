@@ -9,7 +9,7 @@ import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/dat
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { formatCents } from '@/lib/currency';
-import { rollUpSales, shareOfTotal, UNATTRIBUTED, type SaleGroupRow } from '@/lib/report-math';
+import { rollUpSales, sharesOfOwnTotal, UNATTRIBUTED, type SaleGroupRow } from '@/lib/report-math';
 import { loadSalesReport, salesByEmployee } from '@/lib/reports';
 
 // Revenue and baskets per cashier.
@@ -43,7 +43,14 @@ export function EmployeeSalesView({
   useRefreshOnFocus(reload);
   useTabRefresh(setRefresh, reload);
 
-  const totalCents = useMemo(() => (rows ?? []).reduce((sum, row) => sum + row.revenueCents, 0), [rows]);
+  // Shares of the rows shown, via the shared helper rather than a local total:
+  // the store panel on the Sales report computed its own denominator and got a
+  // different one, which rendered a single store at 124.7%.
+  const shares = useMemo(() => {
+    const list = rows ?? [];
+    const pcts = sharesOfOwnTotal(list, (row) => row.revenueCents);
+    return new Map(list.map((row, i) => [row.key, pcts[i]]));
+  }, [rows]);
   // Whether any takings landed in the "Not recorded" row, which is the fact
   // that makes the rest of the column readable or not.
   const unattributedCents = useMemo(
@@ -80,12 +87,12 @@ export function EmployeeSalesView({
         header: 'Share',
         numeric: true,
         render: (row) => {
-          const share = shareOfTotal(row.revenueCents, totalCents);
+          const share = shares.get(row.key) ?? null;
           return <ValueCell value={share === null ? '—' : `${share.toFixed(1)}%`} tone="muted" />;
         },
       },
     ],
-    [totalCents]
+    [shares]
   );
 
   return (

@@ -12,7 +12,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { formatCents, formatCompactCents } from '@/lib/currency';
 import { methodLabel } from '@/lib/payment-methods';
-import { averageCents, rollUpSales, shareOfTotal, type SaleGroupRow } from '@/lib/report-math';
+import { averageCents, rollUpSales, sharesOfOwnTotal, type SaleGroupRow } from '@/lib/report-math';
 import { loadSalesReport, salesByStore } from '@/lib/reports';
 import {
   bucketDailyTotals,
@@ -126,6 +126,26 @@ export function SalesReportView({
 
   const basketCents = useMemo(() => (data ? averageCents(data.netCents, data.orders) : null), [data]);
 
+  // The denominator for the store shares, and it is deliberately the SUM OF THE
+  // STORE ROWS rather than the `Revenue` tile above.
+  //
+  // This shipped wrong and a real shop caught it: the tile is
+  // `netRevenueCents`, which subtracts refunds, while a store row is takings
+  // less tax and does NOT -- a refund carries the sale it reverses but not that
+  // sale's location, so it cannot be attributed to a branch without another
+  // join. Dividing the un-netted numerator by the netted denominator put a
+  // single-store shop at 124.7%, which is the kind of figure that costs a
+  // reader their trust in the whole screen. Fixtures could not catch it because
+  // fixtures had no refunds.
+  //
+  // The employee screen already divides by its own row total for exactly this
+  // reason; this now matches it, and the card says which revenue it means.
+  const storeShares = useMemo(() => {
+    const rows = data?.stores ?? [];
+    const shares = sharesOfOwnTotal(rows, (row) => row.revenueCents);
+    return new Map(rows.map((row, i) => [row.key, shares[i]]));
+  }, [data]);
+
   const storeColumns = useMemo<Column<SaleGroupRow>[]>(
     () => [
       { key: 'store', header: 'Store', render: (row) => <NameCell title={row.label} meta={`${row.sales} sales`} /> },
@@ -135,14 +155,14 @@ export function SalesReportView({
         header: 'Share',
         numeric: true,
         render: (row) => {
-          // Null, not 0%, when the whole shop took nothing -- a share of
-          // nothing is not zero percent, and shareOfTotal says so.
-          const share = shareOfTotal(row.revenueCents, data?.netCents ?? 0);
+          // Null, not 0%, when these rows total nothing -- a share of nothing
+          // is not zero percent, and sharesOfOwnTotal says so.
+          const share = storeShares.get(row.key) ?? null;
           return <ValueCell value={share === null ? '—' : `${share.toFixed(1)}%`} tone="muted" />;
         },
       },
     ],
-    [data]
+    [storeShares]
   );
 
   return (
@@ -190,7 +210,11 @@ export function SalesReportView({
           </BentoCard>
         </BentoCell>
         <BentoCell span={6}>
-          <BentoCard title="Which store" bodyStyle={styles.tableBody}>
+          {/* "Before refunds" is not decoration: this card's Revenue column is
+              a different figure from the Revenue tile above it, and a card
+              showing two numbers under one word is how a reader stops
+              believing either. */}
+          <BentoCard title="Which store" scope="Before refunds" bodyStyle={styles.tableBody}>
             <DataTable
               columns={storeColumns}
               rows={data?.stores ?? []}
@@ -216,7 +240,9 @@ export function SalesReportView({
       <Caveat tone="context">
         Revenue excludes sales tax, which the shop collects on the government&apos;s behalf and owes onward, and is
         net of refunds — counted on the day the money went back, not the day of the original sale, so a closed
-        month never changes after the fact. Takings is the whole amount that crossed the counter.
+        month never changes after the fact. Takings is the whole amount that crossed the counter. The per-store
+        figures are before refunds and will not match the Revenue tile when anything was handed back: a refund
+        records the sale it reverses but not the branch that made it, so it cannot honestly be charged to one.
       </Caveat>
     </View>
   );

@@ -423,9 +423,13 @@ export async function loadStockMovement(
       id: row.id,
       kind: 'received',
       at: row.created_at,
-      // Free text, and often left blank by whoever opened the box. "Delivery"
-      // rather than an empty headline, which reads as a broken row.
-      what: row.supplier_name?.trim() || 'Delivery',
+      // `what` is the row's OWN words -- a supplier here, a note on the other
+      // two -- and never the kind, which the Kind column already names. The
+      // first cut defaulted this to the kind noun and a real shop rendered
+      // eight stock-takes reading "Stock-take" in both columns. Empty is
+      // rendered as an em dash by the view, which says "nobody wrote anything"
+      // rather than repeating what is already on the row.
+      what: row.supplier_name?.trim() || '',
       detail: row.reference,
       where: named(row.location_id),
       by: null,
@@ -435,8 +439,8 @@ export async function loadStockMovement(
       id: row.id,
       kind: 'transfer',
       at: row.created_at,
-      what: 'Stock transfer',
-      detail: row.note,
+      what: row.note?.trim() || '',
+      detail: null,
       where: `${named(row.from_location_id)} → ${named(row.to_location_id)}`,
       by: null,
       // Positive: a transfer MOVES stock rather than changing how much there
@@ -448,8 +452,8 @@ export async function loadStockMovement(
       id: row.id,
       kind: 'count',
       at: row.created_at,
-      what: 'Stock-take',
-      detail: row.note,
+      what: row.note?.trim() || '',
+      detail: null,
       where: named(row.location_id),
       by: null,
       // SIGNED, and never absolute. `variance` is counted minus previous, so a

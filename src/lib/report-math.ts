@@ -232,6 +232,28 @@ export function rollUpSales(rows: LabelledSale[]): SaleGroupRow[] {
     .sort((a, b) => b.revenueCents - a.revenueCents || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
 }
 
+/**
+ * Each row's share of the total OF THE ROWS THEMSELVES, never of some other
+ * figure on the same screen.
+ *
+ * This exists because the alternative shipped and a real shop caught it. The
+ * Sales report divided a store's revenue -- takings less tax -- by the screen's
+ * headline Revenue, which is `netRevenueCents` and subtracts refunds. On a shop
+ * with $49.80 of refunds the single store came out at 124.7%, and no test saw
+ * it because the fixtures had no refunds in them.
+ *
+ * The rule is that a percentage is only meaningful against the denominator its
+ * numerators add up to. Taking the total here, from the same rows that are
+ * about to be rendered, makes the two impossible to get out of step: the column
+ * sums to 100% by construction, whatever the screen shows elsewhere. When the
+ * row figure and a headline figure genuinely differ, that is a labelling
+ * problem for the card, not a licence to divide one by the other.
+ */
+export function sharesOfOwnTotal<T>(rows: T[], value: (row: T) => number): (number | null)[] {
+  const total = rows.reduce((sum, row) => sum + value(row), 0);
+  return rows.map((row) => shareOfTotal(value(row), total));
+}
+
 // ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------

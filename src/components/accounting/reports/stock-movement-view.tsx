@@ -38,7 +38,10 @@ const COLUMNS: Column<MovementRow>[] = [
   {
     key: 'what',
     header: 'What',
-    render: (row) => <NameCell title={row.what} meta={row.detail ?? undefined} />,
+    // An em dash when the row carries no words of its own. The Kind column
+    // already names the type, so repeating it here would fill the widest
+    // column on the table with nothing.
+    render: (row) => <NameCell title={row.what || '—'} meta={row.detail ?? undefined} />,
   },
   {
     key: 'kind',

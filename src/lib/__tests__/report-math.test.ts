@@ -15,6 +15,7 @@ import {
   rollUpSales,
   sequenceMovements,
   shareOfTotal,
+  sharesOfOwnTotal,
   stockValueCents,
   UNATTRIBUTED,
   UNCATEGORISED,
@@ -102,6 +103,32 @@ describe('share of a total', () => {
     // 250 of 1000 is 25%, and 1000 of 250 would be 400% -- so an inverted
     // implementation cannot pass this by coincidence.
     expect(shareOfTotal(250, 1000)).toBeCloseTo(25);
+  });
+});
+
+describe('shares of the rows shown', () => {
+  it('adds up to 100% whatever else is on the screen', () => {
+    // The regression this pins. The store panel divided a store's revenue
+    // (takings less tax) by the screen's headline Revenue (net of refunds), and
+    // a real shop with $49.80 of refunds rendered its ONE store at 124.7%.
+    // Fixtures never caught it because fixtures had no refunds.
+    const rows = [{ cents: 18751 }, { cents: 4400 }, { cents: 1344 }];
+    const shares = sharesOfOwnTotal(rows, (r) => r.cents);
+    const sum = shares.reduce((a, b) => (a ?? 0) + (b ?? 0), 0);
+    expect(sum).toBeCloseTo(100, 6);
+    // ...and no single row can exceed the whole.
+    for (const share of shares) expect(share).toBeLessThanOrEqual(100);
+  });
+
+  it('is null for every row when the rows total nothing, rather than 0%', () => {
+    // A share of nothing is not zero percent -- same rule shareOfTotal follows.
+    expect(sharesOfOwnTotal([{ c: 0 }, { c: 0 }], (r) => r.c)).toEqual([null, null]);
+  });
+
+  it('takes the total from the rows given, not from a figure passed alongside', () => {
+    // 250 of (250 + 750) is 25%. If an implementation were handed a different
+    // denominator it could not reach 25 from these rows by accident.
+    expect(sharesOfOwnTotal([{ c: 250 }, { c: 750 }], (r) => r.c)).toEqual([25, 75]);
   });
 });
 
