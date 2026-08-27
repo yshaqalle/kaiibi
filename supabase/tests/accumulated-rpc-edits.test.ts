@@ -1086,6 +1086,17 @@ const DISPOSE_FIXED_ASSET_EDITS: Edit[] = [
     "'code', p_received_into_code, 'amount_cents', v_proceeds"],
   ['20261006000100', 'a disposal in a closed month is recognised in the open one',
     "coalesce(v_period_status, 'not open')"],
+  // Every date this function decides comes from shop_local_date(): the disposal
+  // date when the caller gave none, the future-date refusal it is measured
+  // against, and the date a redirected entry is recognised on. now()::date
+  // resolves in UTC and every market kaiibi serves is UTC+3, so at a month
+  // boundary the entry lands in the wrong period -- permanently, once that
+  // period closes. No fixture can redden this: the two agree for 21 hours of
+  // every day and the divergence cannot be forced from a session, which is why
+  // it is pinned here and the function itself is tested in
+  // verify-shop-local-date.sql.
+  ['20261006000100', 'every date it decides comes from shop_local_date()',
+    'public.shop_local_date()', 3],
 ];
 
 const RUN_DEPRECIATION_EDITS: Edit[] = [
@@ -1094,7 +1105,14 @@ const RUN_DEPRECIATION_EDITS: Edit[] = [
   // A month must END before it is depreciated -- 20261005000000's rule for a
   // close, for the same reason: the entry is dated the month's end, and an
   // entry dated in the future opens a period nobody has traded in.
-  ['20261006000200', 'a month must end before it is depreciated', 'v_last_complete'],
+  //
+  // Pinned on the CLAMP rather than on the name. `v_last_complete` alone occurs
+  // three times -- the declaration and both arms of the least() -- so dropping
+  // the clamp leaves two of them standing and a presence-only pin green. That
+  // is the shape of pin this file found 55 of; the fix it prescribes is a
+  // specific token, not a count, because the declaration is not a rule.
+  ['20261006000200', 'a month must end before it is depreciated',
+    'least(date_trunc(\'month\', coalesce(p_through, v_last_complete))::date,\n                    v_last_complete)'],
   // THE ROUNDING. Without the last month carrying the remainder an asset
   // depreciates to a few cents short of its cost, on the balance sheet, forever.
   // TWICE: once building the lines and once writing the charge rows, and the two
@@ -1107,10 +1125,34 @@ const RUN_DEPRECIATION_EDITS: Edit[] = [
   // exceed 1500 for an asset however far the run is asked to go.
   ['20261006000200', 'a month past the asset’s life is not charged',
     'between 1 and d.life_months'],
-  ['20261006000200', 'a disposed asset stops on the month it leaves',
-    "or date_trunc('month', fa.disposed_on)::date > v_month"],
-  ['20261006000200', 'the assets are this shop’s own', 'where fa.shop_id = p_shop_id'],
-  ['20261006000200', 'a month already charged is skipped', 'where dc.asset_id = fa.id and dc.charge_month = v_month'],
+  // A disposed asset takes NO charge, for any month -- not merely none from the
+  // month it left. Written as the month comparison it shipped with, a run
+  // reaching back over a month the shop still owned the asset in charged it
+  // after the disposal had already written back the nothing it could see, and
+  // the balance sheet's fixed assets went negative and stayed there. Both
+  // derivations need it or the ledger and the register part company, so the
+  // count is pinned: keeping one and losing the other is the failure this
+  // entry exists to catch.
+  ['20261006000200', 'a disposed asset takes no charge at all, in BOTH derivations',
+    'and fa.disposed_on is null', 2],
+  // THE TENANT BOUNDARY, in all three queries that read the register: the
+  // earliest-acquisition probe, the due CTE and the charge-row insert. Phase
+  // 3a's review removed exactly this predicate from three functions and the
+  // whole suite passed; here dropping it from either of the last two left the
+  // suite green as well, until check 17 started running one shop's depreciation
+  // after the other shop had assets. A count, because each occurrence is a
+  // separate query that can lose it on its own.
+  ['20261006000200', 'the assets are this shop’s own, in every query that reads them',
+    'where fa.shop_id = p_shop_id', 3],
+  ['20261006000200', 'a month already charged is skipped, in BOTH derivations',
+    'where dc.asset_id = fa.id and dc.charge_month = v_month', 2],
+  // The zero-charge filter the LINES always had and the charge rows did not.
+  // floor(cost / life) is 0 whenever the cost in cents is under the life in
+  // months; journal_lines refuses a zero line so the entry was safe, and the
+  // insert then died on depreciation_charges' own check constraint and took the
+  // whole run with it.
+  ['20261006000200', 'a charge that rounds to zero is not written as a charge row',
+    '                end) > 0;'],
   ['20261006000200', 'a closed month is recognised in the open one',
     "coalesce(v_period_status, 'not open')"],
   ['20261006000200', 'it posts under its own source', ", 'depreciation');"],
@@ -1135,6 +1177,10 @@ const DELETE_FIXED_ASSET_EDITS: Edit[] = [
     'account_id, -amount_cents, location_id, memo'],
   ['20261006000100', 'and the original is marked reversed rather than left standing',
     "set status = 'reversed', reverses_entry_id = v_reversal_id"],
+  // A reversal into a closed month is recognised in the open one, dated from
+  // shop_local_date() like every other date this file decides.
+  ['20261006000100', 'a reversal into a closed month is recognised in the open one, at the shop’s own date',
+    'v_reversal_date := public.shop_local_date();'],
 ];
 
 // transfer_funds joins this file at its FIRST definition rather than its second.

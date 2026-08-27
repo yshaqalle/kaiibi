@@ -271,10 +271,18 @@ begin
   -- payables movement rather than by cash that never left.
   v_credit_code := coalesce(p_paid_from_code, '2000');
 
-  -- THE SHOP'S OWN. security definer bypasses RLS on accounts, so this filter is
-  -- the whole of the tenant boundary at this door -- without it a caller holding
-  -- the permission in their own shop reads another shop's chart. Both names in
-  -- one read so the two cannot disagree about which shop was asked about.
+  -- THE SHOP'S OWN. security definer bypasses RLS on accounts, so without this
+  -- filter `max(a.name)` collects every shop's chart and the winner is whichever
+  -- name sorts highest. What that leaks is the NAMES, which go into the entry's
+  -- description -- not the posting: post_journal_entry resolves the code to an
+  -- account id inside the shop itself, so a purchase cannot land in another
+  -- shop's ledger by this route. It is a smaller hole than "the whole of the
+  -- tenant boundary at this door", which is what this comment used to claim, and
+  -- claiming a barrier is load-bearing when it is not is how 20261005000100 came
+  -- to rest a tenant gate on a revoke that had never been issued. Both names in
+  -- one read so the two cannot disagree about which shop was asked about;
+  -- verify-fixed-assets check 1 renames shop B's till and asserts shop A's
+  -- description says shop A's word for it.
   select max(a.name) filter (where a.code = p_account_code),
          max(a.name) filter (where a.code = v_credit_code)
     into v_asset_name, v_credit_name
