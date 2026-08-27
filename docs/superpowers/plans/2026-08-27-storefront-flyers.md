@@ -52,9 +52,22 @@ ledger — is untouched.
 - **`security definer` functions must `revoke execute … from public` BEFORE granting.**
   Postgres grants EXECUTE to PUBLIC by default, so `grant` alone is a no-op. Convention:
   `20260924000100_storefront_public_read.sql:103-109`.
-- **Migrations are `YYYYMMDDHHMMSS_name.sql`. This plan uses the `20261006*` series.**
-  Before committing run `ls supabase/migrations | sed 's/_.*//' | sort | uniq -d` and
-  confirm it is empty — a previous plan lost a task to a timestamp another branch took.
+- **Migrations are `YYYYMMDDHHMMSS_name.sql`. This plan uses the `202609*` series** —
+  specifically `20260930*`, which is free everywhere and sorts after the storefront
+  migrations already merged.
+
+  **This plan originally said `20261006*`, and that was wrong twice over.**
+  `docs/superpowers/ACCOUNTING-ROADMAP.md:166` reserves `202610*` for accounting and gives
+  `202609*` to storefront and fulfilment, and `20261006000000` was already taken by
+  `20261006000000_transfer_funds.sql` on a merged accounting branch.
+
+  **`ls supabase/migrations | sed 's/_.*//' | sort | uniq -d` cannot catch this.** It only
+  sees the current worktree, and a collision with another BRANCH is invisible to it — the
+  exact failure it looks like it is guarding. The real guard is
+  `supabase/tests/migration-version-guard.test.ts`, which runs under `npm test` and checks
+  across branches. Its header records this happening three times already: `db push` keys a
+  migration by its timestamp alone, so two branches that both pick "tomorrow" apply
+  whichever is seen first and silently never run the other — in production, with no error.
 - **DB tests:** `npm run test:db` (`-- --no-reset` while iterating). The local stack is
   SHARED with other sessions and is reset often; reset from THIS worktree before trusting
   a result. If `supabase db reset` fails on accumulated Docker state, `docker rm -f` plus
