@@ -66,6 +66,12 @@ jest.mock('@/lib/supabase', () => {
             state.orderCalls.push([column, opts]);
             return chain;
           },
+          // primaryLocation's terminal pair -- the only query here that ends
+          // in .limit(1).maybeSingle() rather than being awaited as a list.
+          // Both read the same selectResult, so a test sets `data` to a single
+          // row object (or null) rather than an array.
+          limit: () => chain,
+          maybeSingle: () => Promise.resolve(state.selectResult),
           then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
             Promise.resolve(state.selectResult).then(resolve, reject),
         };
@@ -86,6 +92,7 @@ import {
   discardDraft,
   getOrderItems,
   getStorefrontPreviewProducts,
+  listAddressSuffixSuggestions,
   listOrders,
   markOrderReady,
   orderErrorMessage,
@@ -175,6 +182,51 @@ describe('discardDraft', () => {
   it('throws on failure rather than swallowing it', async () => {
     fake.updateResult = { error: { message: 'boom' } };
     await expect(discardDraft('shop-1')).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+// What a shop is offered to APPEND when the address derived from its name is
+// already another shop's. The rule that matters is the one it cannot break:
+// every suggestion comes from a place the shop actually trades in, so no code
+// path here can produce a counter.
+describe('listAddressSuffixSuggestions', () => {
+  it('offers the neighbourhood first, then the city', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Koodbuur', city: 'Hargeisa' }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual(['koodbuur', 'hargeisa']);
+  });
+
+  it('resolves the same primary location the rest of the data layer does', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Road No 1', city: 'Berbera' }, error: null };
+    await listAddressSuffixSuggestions('shop-1');
+    // Primary first, then oldest -- the ordering complete_sale defaults to.
+    expect(fake.orderCalls).toEqual([
+      ['is_primary', { ascending: false }],
+      ['created_at', { ascending: true }],
+    ]);
+    expect(fake.selectCalls).toEqual([
+      { table: 'shop_locations', columns: 'id, neighborhood, city', options: undefined },
+    ]);
+  });
+
+  it('normalizes a suggestion into something that can be a web address', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Road No 1', city: null }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual(['road-no-1']);
+  });
+
+  it('offers a place once when the neighbourhood and the city are the same word', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: 'Berbera', city: 'Berbera' }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual(['berbera']);
+  });
+
+  // THE property, said as plainly as it can be said: a shop with no
+  // neighbourhood and no city is offered NOTHING, not '2'. A number reads
+  // like a mistake; the editor asks for the part of town instead.
+  it('offers nothing -- never a number -- when the shop has no place recorded', async () => {
+    fake.selectResult = { data: { id: 'loc-1', neighborhood: null, city: null }, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual([]);
+
+    fake.selectResult = { data: null, error: null };
+    await expect(listAddressSuffixSuggestions('shop-1')).resolves.toEqual([]);
   });
 });
 
