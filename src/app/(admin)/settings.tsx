@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScreenHeader } from '@/components/screen-header';
 import { BillingPanel } from '@/components/settings/panels/billing-panel';
 import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels/catalog-panel';
+import { PeriodClosePanel } from '@/components/settings/panels/period-close-panel';
 // NotificationsPanel is unused for now — nav item hidden in settings-sidebar.tsx,
 // no send infrastructure exists yet (see docs/backlog/2026-08-01-notification-delivery.md).
 // import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
@@ -356,6 +357,8 @@ export default function SettingsScreen() {
       //   return <NotificationsPanel shop={shop} onSaved={refreshShop} />;
       case 'inventory':
         return <InventoryAlertsPanel shop={shop} onSaved={refreshShop} />;
+      case 'periodclose':
+        return <PeriodClosePanel shop={shop} onSaved={refreshShop} />;
       case 'payments':
         return <PaymentsPanel shop={shop} onSaved={refreshShop} />;
       case 'roles':

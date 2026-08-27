@@ -29,7 +29,8 @@ export type SettingsNavId =
   | 'tax'
   | 'loyalty'
   | 'cashiers'
-  | 'registers';
+  | 'registers'
+  | 'periodclose';
 
 // Listed rather than derived from SETTINGS_NAV: this guard validates a value
 // arriving from a URL, and it should keep working if the sidebar is ever
@@ -38,6 +39,7 @@ const SETTINGS_NAV_IDS: SettingsNavId[] = [
   'profile', 'security', 'billing', 'notifications', 'business', 'locations',
   'roles', 'vendors', 'receipt', 'catalog', 'inventory', 'promotions',
   'payments', 'tax', 'loyalty', 'cashiers', 'registers', 'storefront', 'orders',
+  'periodclose',
 ];
 
 export function isSettingsNavId(value: unknown): value is SettingsNavId {
@@ -109,6 +111,17 @@ export const SETTINGS_NAV: NavGroup[] = [
       // is WHERE from. Both belong to a store, which is why they sit together
       // under Sales rather than under Business.
       { id: 'registers', label: 'Registers', icon: 'browsers-outline' },
+    ],
+  },
+  {
+    // A group of its own rather than a row under Business: this is the one
+    // setting in the app that changes what the LEDGER does, and the person who
+    // should decide it is the person who closes months. Gated on ledger.close
+    // for that reason -- close_due_periods() itself does nothing without it, so
+    // a reader who cannot close cannot make this setting mean anything either.
+    group: 'Books',
+    items: [
+      { id: 'periodclose', label: 'Closing the books', icon: 'calendar-outline', permission: 'ledger.close' },
     ],
   },
 ];
