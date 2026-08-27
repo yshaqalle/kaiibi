@@ -1,3 +1,4 @@
+import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { ThemeCounter } from '@/components/storefront/theme-counter';
@@ -8,6 +9,16 @@ import type { PublicStorefront, StorefrontFlyer, StorefrontProduct } from '@/typ
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 jest.mock('@/lib/external-url', () => ({ openExternalUrl: jest.fn() }));
+
+// ThemeMarket/ThemeWindow render FlyerCarousel, whose mount effect now calls
+// AccessibilityInfo.isReduceMotionEnabled() (Task 4). None of the tests here
+// are about motion -- they are about where the band sits and what pressing a
+// flyer does -- so this only needs a settled default, not per-test control.
+// See storefront-flyer-carousel.test.tsx for the motion-specific spies.
+beforeEach(() => {
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
+});
 
 const colors = paletteColors('ink');
 
@@ -58,6 +69,7 @@ const shop: PublicStorefront = {
   offersDelivery: true,
   paymentMode: 'on_collection',
   flyers: [],
+  autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

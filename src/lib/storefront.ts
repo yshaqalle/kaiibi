@@ -86,6 +86,12 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     offersDelivery: Boolean(row.offers_delivery),
     paymentMode: row.payment_mode,
     flyers: flyersOf(row.flyers),
+    // Boolean(...), same guard `offersDelivery` uses two lines up: a client
+    // shipped ahead of its database calls a get_public_storefront with no
+    // `auto_advance` column at all (20260930000200), and undefined must read
+    // as "do not move on your own" -- the same off-by-default rule the
+    // column itself carries -- rather than as a thrown error.
+    autoAdvance: Boolean(row.auto_advance),
   };
 }
 

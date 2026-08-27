@@ -121,6 +121,47 @@ describe('getPublicStorefront flyers', () => {
   });
 });
 
+// Task 4: get_public_storefront gained an `auto_advance` column in
+// 20260930000200 and nothing read it. Boolean(...), the same guard
+// `offersDelivery` two lines above already uses: a client shipped ahead of
+// its database calls an RPC with no `auto_advance` column at all, and
+// `undefined` must map to `false` -- the column's own default -- rather than
+// to a thrown error or to `true`, which would turn every unmoving page into
+// one that starts moving the day the client update lands.
+describe('getPublicStorefront autoAdvance', () => {
+  beforeEach(() => rpc.mockReset());
+
+  const row = {
+    shop_name: 'Xamdi Electronics',
+    city: 'Hargeisa',
+    slug: 'xamdi',
+    whatsapp_e164: '+252634456789',
+    theme: 'market',
+    palette: 'ink',
+    headline: null,
+    about: null,
+    hero_image_url: null,
+    offers_delivery: true,
+    payment_mode: 'on_collection',
+    flyers: [],
+  };
+
+  it('maps auto_advance true to autoAdvance true', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, auto_advance: true }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.autoAdvance).toBe(true);
+  });
+
+  it('maps auto_advance false to autoAdvance false', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, auto_advance: false }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.autoAdvance).toBe(false);
+  });
+
+  it('reads a missing auto_advance column as off, not as a thrown error', async () => {
+    rpc.mockResolvedValue({ data: [row], error: null });
+    expect((await getPublicStorefront('xamdi'))?.autoAdvance).toBe(false);
+  });
+});
+
 // Task 6, property 5: this is the FIRST caller of get_public_delivery_areas
 // (20260924000100_storefront_public_read.sql) -- it has had none since plan
 // 1. Mirrors getPublicStorefront/getPublicStorefrontProducts exactly: an RPC

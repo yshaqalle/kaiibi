@@ -1,5 +1,5 @@
 import ExpoHead from 'expo-router/head';
-import { Platform } from 'react-native';
+import { AccessibilityInfo, type EmitterSubscription, Platform } from 'react-native';
 import { act, create, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
 
 // Lives here rather than beside the screen ON PURPOSE -- see
@@ -89,6 +89,7 @@ const shop = {
   // No flyers: these fixtures predate them, and a shop with none must
   // render exactly as it did before they existed.
   flyers: [],
+  autoAdvance: false,
 };
 
 const products = [
@@ -139,6 +140,17 @@ const fakeLocalStorage = {
 };
 Object.defineProperty(window, 'localStorage', { configurable: true, value: fakeLocalStorage });
 Object.defineProperty(Platform, 'OS', { value: 'web', configurable: true });
+
+// StorefrontScreen renders down through StorefrontView into ThemeMarket/
+// ThemeWindow, which mount FlyerCarousel even when the shop has no flyers
+// (its hooks run unconditionally, per the Rules of Hooks -- only its OUTPUT
+// is null). Task 4's mount effect calls
+// AccessibilityInfo.isReduceMotionEnabled(); nothing in this file is about
+// motion, so it only needs a settled default. `jest.clearAllMocks()` below
+// clears call history, not this implementation, so setting it once here
+// (rather than in that beforeEach) is enough for every test in the file.
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 describe('storefront route', () => {
   beforeEach(() => {

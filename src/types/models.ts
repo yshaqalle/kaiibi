@@ -1278,6 +1278,12 @@ export type PublicStorefront = {
   // shop whose only offer just expired all read alike. An optional field
   // would put back the second empty state that coalesce exists to remove.
   flyers: StorefrontFlyer[];
+  // The shop asking the flyer band to move on its own. Off by default
+  // (storefronts.auto_advance, 20260930000200) -- FlyerCarousel still refuses
+  // to honour it when the customer's device asks for reduced motion, when
+  // there is only one flyer, or once the visit has stopped it by hovering,
+  // touching or focusing the band.
+  autoAdvance: boolean;
 };
 
 export type StorefrontProduct = {

@@ -1,5 +1,5 @@
 import { act, create, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
-import { Dimensions, TextInput } from 'react-native';
+import { AccessibilityInfo, type EmitterSubscription, Dimensions, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Forces the wide (two-column) layout, where ContentDrawer renders inline
@@ -26,6 +26,13 @@ jest.mock('@/lib/storefront-admin');
 jest.mock('@/hooks/use-auth', () => ({
   useAuth: jest.fn(() => ({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] })),
 }));
+
+// The wide layout's preview renders StorefrontView -> ThemeMarket, which
+// mounts FlyerCarousel even with no flyers (its hooks run unconditionally);
+// Task 4's mount effect calls AccessibilityInfo.isReduceMotionEnabled().
+// Nothing here is about motion.
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 import { useAuth } from '@/hooks/use-auth';
 import {

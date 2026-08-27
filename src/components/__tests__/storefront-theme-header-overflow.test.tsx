@@ -1,3 +1,4 @@
+import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ThemeCounter } from '@/components/storefront/theme-counter';
@@ -7,6 +8,12 @@ import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+
+// ThemeMarket/ThemeWindow mount FlyerCarousel even with no flyers (its hooks
+// run unconditionally); Task 4's mount effect calls
+// AccessibilityInfo.isReduceMotionEnabled(). Nothing here is about motion.
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 // Task 10: at a 390px viewport the header row (shop name + "Message on
 // WhatsApp" + "Basket · N") did not fit, and the row overflowed the screen
@@ -36,6 +43,7 @@ const shop: PublicStorefront = {
   // No flyers: these fixtures predate them, and a shop with none must
   // render exactly as it did before they existed.
   flyers: [],
+  autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

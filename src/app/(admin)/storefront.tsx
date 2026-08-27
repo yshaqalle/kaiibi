@@ -502,6 +502,10 @@ export default function StorefrontEditor() {
     // preview renders the same "no flyers" page a customer would see today,
     // which is honest: a shop with none has none.
     flyers: [],
+    // No auto-advance toggle in this editor yet either -- Task 5. False
+    // matches the column's own default, so the preview does not claim a
+    // setting the owner has not been given anywhere to turn on.
+    autoAdvance: false,
   };
 
   const contentDrawer = (

@@ -93,6 +93,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
         shopName={storefront.shopName}
         whatsappE164={storefront.whatsappE164}
         onSelectCategory={setCategory}
+        autoAdvance={storefront.autoAdvance}
       />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
 

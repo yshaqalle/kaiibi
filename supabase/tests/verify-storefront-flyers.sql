@@ -54,6 +54,7 @@ declare
   v_offer_flyer  uuid;
   v_doomed_flyer uuid;
   v_flyers       jsonb;
+  v_auto_advance boolean; -- Task 4 (20260930000200): storefronts.auto_advance, read through the same public call.
   v_panel        jsonb;
   v_copy         jsonb;
   v_missing      text;
@@ -820,6 +821,59 @@ begin
   end if;
   if has_function_privilege('anon', 'public.promotion_is_live(boolean,timestamptz,timestamptz,timestamptz,timestamptz)', 'EXECUTE') then
     raise exception 'FAIL: anon can call promotion_is_live directly -- the revoke from public did not happen';
+  end if;
+
+  -- ================================================================
+  -- Task 4 (20260930000200): storefronts.auto_advance, read through the
+  -- SAME public call as everything above -- no fifth RPC, same
+  -- anti-enumeration reason checks 16-23 already established for flyers.
+  -- ================================================================
+
+  -- ------------------------------------------------ 26. off unless the shop asks (property 1)
+  -- Flyer Shop A never touched the column, so the table's own
+  -- `not null default false` is what a stranger reads.
+  select g.auto_advance into v_auto_advance from public.get_public_storefront('flyer-shop-a') g;
+  if v_auto_advance is distinct from false then
+    raise exception 'FAIL: a shop that never touched auto_advance read % rather than false through the public call',
+      coalesce(v_auto_advance::text, '<null>');
+  end if;
+
+  -- ------------------------------------------------ 27. the shop's own "on" travels
+  update public.storefronts set auto_advance = true where shop_id = v_shop_a;
+  select g.auto_advance into v_auto_advance from public.get_public_storefront('flyer-shop-a') g;
+  if v_auto_advance is distinct from true then
+    raise exception 'FAIL: turning auto_advance on did not travel to the public read (got %)',
+      coalesce(v_auto_advance::text, '<null>');
+  end if;
+  -- ...and back off travels too -- without this, a function that hard-coded
+  -- `true` once it saw ANY shop ask would still pass check 27 alone.
+  update public.storefronts set auto_advance = false where shop_id = v_shop_a;
+  select g.auto_advance into v_auto_advance from public.get_public_storefront('flyer-shop-a') g;
+  if v_auto_advance is distinct from false then
+    raise exception 'FAIL: turning auto_advance back off did not travel to the public read (got %)',
+      coalesce(v_auto_advance::text, '<null>');
+  end if;
+
+  -- ------------------------------------------------ 28. PUBLIC keeps no default execute on the reproduced function
+  -- Postgres grants EXECUTE to PUBLIC on every new function -- the same
+  -- point check 25 makes for the derivation helpers, made here for
+  -- get_public_storefront ITSELF, because 20260930000200 drops and
+  -- recreates it (a `returns table` column addition forces a drop) and a
+  -- `grant ... to anon, authenticated` with no matching `revoke ... from
+  -- public` first is a no-op that reads like a decision. Checked directly
+  -- against the function's ACL, not against one extra role's privilege,
+  -- so this holds regardless of which auxiliary roles this Supabase
+  -- project happens to define.
+  if exists (
+    select 1
+    from pg_proc
+    where oid = 'public.get_public_storefront(text)'::regprocedure
+      and exists (
+        select 1 from unnest(coalesce(proacl, '{}'::aclitem[])) as acl
+        where acl::text like '=X/%'
+      )
+  ) then
+    raise exception 'FAIL: PUBLIC still holds EXECUTE on get_public_storefront -- revoke ... from public did not run before the grant';
   end if;
 
   raise notice 'ALL CHECKS PASSED';

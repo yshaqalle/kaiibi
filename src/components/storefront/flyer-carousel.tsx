@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Image, Pressable, ScrollView, StyleSheet, Text, View,
+  AccessibilityInfo, Image, Pressable, ScrollView, StyleSheet, Text, View,
   useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 
@@ -25,12 +25,34 @@ import type { StorefrontFlyer } from '@/types/models';
 //   TWO OR MORE renders the carousel: swipe (a paging ScrollView), arrows and
 //   dots, each of them a real button.
 //
-// NO TIMER. Auto-advance and the reduced-motion rules that make it safe are
-// Task 4 of this plan. Everything here moves because a customer moved it.
-//
 // COLOURS COME FROM THE SHOP'S OWN PALETTE, never bento tokens and never a
 // hex literal -- `colors` is paletteColors(...) from storefront-catalog.ts,
 // the same four-plus-two every theme renders through.
+//
+// MOTION (Task 4). `autoAdvance` (storefronts.auto_advance, 20260930000200)
+// is the shop asking the band to move on its own -- off by default, and
+// never sufficient on its own:
+//
+//   - `prefers-reduced-motion` WINS, in both directions. A shop with
+//     auto_advance on gets no motion for a customer whose device asks for
+//     less of it; a shop with it off gets none regardless of the device.
+//     Read live via AccessibilityInfo.isReduceMotionEnabled() at mount and
+//     kept live via its 'reduceMotionChanged' event, because a toggle
+//     flipped mid-visit must stop the band immediately, not merely at the
+//     next page load. UNKNOWN (the query has not resolved, or the platform
+//     cannot answer it) fails SAFE -- treated as "reduce", never as "fine" --
+//     so a device this call cannot reach is never moved against a
+//     preference nobody could confirm.
+//   - HOVER, TOUCH OR KEYBOARD FOCUS anywhere on the band stops it FOR THE
+//     VISIT and it does not resume, even if the customer moves away again.
+//     A carousel that starts moving again the moment somebody has settled in
+//     to read is worse than one that never moved at all.
+//   - A SINGLE FLYER NEVER ADVANCES, whatever the setting says -- there is
+//     nowhere to go, and a timer firing against one slide is a bug waiting
+//     to be filed as "the page flickers".
+//   - MANUAL CONTROLS ARE UNCONDITIONAL. Dots, arrows and swipe work exactly
+//     the same whether or not the band is auto-advancing, before a stop and
+//     after one.
 
 type Props = {
   flyers: StorefrontFlyer[];
@@ -43,6 +65,10 @@ type Props = {
   // places. A theme that passes nothing makes category slides
   // non-interactive, which is the correct degradation -- see flyerAction.
   onSelectCategory?: (category: string) => void;
+  // The shop's own request to move the band on its own (storefronts.auto_advance,
+  // 20260930000200). Off by default, and never the only word on whether the
+  // band actually moves -- see the motion effect below.
+  autoAdvance?: boolean;
 };
 
 // The card's inset from the page edge. The paging ScrollView itself must span
@@ -52,7 +78,18 @@ type Props = {
 // full-width slide instead.
 const CARD_INSET = 14;
 
-export function FlyerCarousel({ flyers, colors, shopName, whatsappE164, onSelectCategory }: Props) {
+// How long a slide sits before the band moves on, when it is allowed to
+// move at all. Long enough to read a headline, a subline and an offer's
+// three derived lines on a phone before it changes -- this page is read "on
+// a phone, in a shop doorway, often over a slow connection" (Task 4's
+// brief), where a fast carousel is just as hostile as a moving one nobody
+// asked for. Exported so the tests that drive fake timers assert against
+// this value rather than a second copy of it that could drift.
+export const AUTO_ADVANCE_INTERVAL_MS = 6000;
+
+export function FlyerCarousel({
+  flyers, colors, shopName, whatsappE164, onSelectCategory, autoAdvance = false,
+}: Props) {
   const { width: windowWidth } = useWindowDimensions();
   // Seeded from the window so the first paint is already close, then
   // corrected by onLayout to the band's real width. Starting at 0 would give
@@ -63,6 +100,55 @@ export function FlyerCarousel({ flyers, colors, shopName, whatsappE164, onSelect
   const scroller = useRef<ScrollView>(null);
 
   const count = flyers.length;
+
+  // null = "not answered yet". Treated the same as `true` by `motionActive`
+  // below -- see the header comment's "fails safe" note -- so the band
+  // cannot move for the brief window before the device has actually said
+  // motion is fine.
+  const [reducedMotion, setReducedMotion] = useState<boolean | null>(null);
+  // Set once, per mount, and never cleared: property 3's "does not resume
+  // for the visit" IS this being one-way. A fresh mount (a new page load)
+  // is a new visit and starts unstopped again.
+  const [stoppedForVisit, setStoppedForVisit] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => { if (mounted) setReducedMotion(value); })
+      .catch(() => { if (mounted) setReducedMotion(true); });
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (value) => {
+      setReducedMotion(value);
+    });
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+    // Mount only. A prop changing later (autoAdvance flipping) must not
+    // re-ask the device something about ITSELF that has not changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function stopForVisit() {
+    setStoppedForVisit(true);
+  }
+
+  // Every one of properties 1-5 in one expression, deliberately: the shop's
+  // request, the device's veto (only once it has actually answered),
+  // whether this visit has already stopped it, and whether there is
+  // anywhere to go at all.
+  const motionActive = autoAdvance && reducedMotion === false && !stoppedForVisit && count >= 2;
+
+  useEffect(() => {
+    if (!motionActive) return;
+    const id = setInterval(() => {
+      setIndex((current) => {
+        const next = (current + 1) % count;
+        scroller.current?.scrollTo({ x: next * width, animated: true });
+        return next;
+      });
+    }, AUTO_ADVANCE_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [motionActive, count, width]);
 
   function goTo(next: number) {
     if (count < 2) return;
@@ -102,7 +188,27 @@ export function FlyerCarousel({ flyers, colors, shopName, whatsappE164, onSelect
   }
 
   return (
-    <View style={styles.band} testID="storefront-flyer-band" onLayout={handleLayout}>
+    <View
+      style={styles.band}
+      testID="storefront-flyer-band"
+      onLayout={handleLayout}
+      // Hover, touch and keyboard focus, ANYWHERE on the band, stop
+      // auto-advance for the visit (property 3). `onMouseEnter`/`onTouchStart`/
+      // `onFocus` are forwarded straight through to the DOM on
+      // react-native-web for any host component, not only Pressable -- no
+      // wrapping Pressable needed, which matters here because one would
+      // compete with the ScrollView below for the same touch gesture.
+      // `onFocus` also bubbles (the browser's `focusin`), so tabbing to an
+      // arrow, a dot or a slide inside the band reaches this handler too,
+      // not only a focus on the band itself. `onMouseEnter` is spread rather
+      // than typed directly: RN's own `ViewProps` (which this file compiles
+      // against on every platform) has never had a mouse event, since native
+      // RN has no mouse -- the same reason trend-chart.tsx spreads its own
+      // hover handlers onto a plain View rather than typing them.
+      {...{ onMouseEnter: stopForVisit }}
+      onTouchStart={stopForVisit}
+      onFocus={stopForVisit}
+    >
       <ScrollView
         ref={scroller}
         testID="storefront-flyer-track"
