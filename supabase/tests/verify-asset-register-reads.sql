@@ -131,6 +131,16 @@ begin
 
   perform set_config('request.jwt.claims', json_build_object('sub', v_other)::text, true);
   perform public.create_fixed_asset(v_shop_b, 'Shop B display case', 7777, '2026-03-01', 5, null, '1510');
+  --    ...AND SHOP B DEPRECIATES IT FURTHER INTO THE YEAR THAN SHOP A EVER
+  --    GOES. Shop A stops at April; this puts shop B's newest charge in July.
+  --    fixed_asset_summary reads depreciation_charges directly for
+  --    last_charge_month -- the one query in that function that does not go
+  --    through list_fixed_assets and so does not inherit its shop filter -- and
+  --    without charges on the far side of the boundary, dropping `where
+  --    c.shop_id = p_shop_id` changed no figure this file asserts. Measured:
+  --    that mutation survived the whole suite. Now shop A's "last charge
+  --    posted" would read July of another shop's money.
+  perform public.run_depreciation(v_shop_b, '2026-08-31');
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner)::text, true);
 
   -- =====================================================================
@@ -440,6 +450,55 @@ begin
     raise exception 'FAIL 6: deleting a depreciated asset refused with "%"', v_message;
   end if;
   raise notice '6 OK: a voided purchase shows in the register, is counted, and moves the two totals apart by exactly its cost';
+
+  -- =====================================================================
+  -- 7. THE WARNING COVERS LIVE ASSETS AND SAYS SO, so voiding a SOLD asset's
+  --    purchase does not inflate the count the screen's caveat is sized from.
+  --
+  --    Both `voided_count` and `voided_cost_cents` filter on `disposed_on is
+  --    null`, and until this check nothing exercised that filter: every voided
+  --    asset in the fixture was live, so dropping the clause from either
+  --    changed no figure. Measured -- both mutations survived the whole suite.
+  --
+  --    It is not a cosmetic filter. The caveat on the screen says the register
+  --    is exactly `voided_cost_cents` ABOVE the balance sheet, and a disposed
+  --    asset is in neither of those totals to begin with: its cost was credited
+  --    out of 1500 by the disposal and its row is excluded from the register's
+  --    own sum. Counting it would put a figure in the sentence that the two
+  --    statements do not differ by, and offer "remove the row" for a row that
+  --    is already history.
+  --
+  --    What voiding a SOLD asset's acquisition actually does is take the cost
+  --    out of 1500 a SECOND time, and 20261007000000's header names that as the
+  --    older, different mess no total here claims to cover. This check pins
+  --    that it stays uncovered rather than being half-counted.
+  -- =====================================================================
+  perform public.reverse_journal_entry(
+    (select fa.journal_entry_id from public.fixed_assets fa where fa.id = v_printer),
+    'The printer was never bought on this account either');
+
+  select * into v_row from public.list_fixed_assets(v_shop) r where r.id = v_printer;
+  if v_row.acquisition_status is distinct from 'reversed' then
+    raise exception 'FAIL 7: a sold asset''s voided purchase reads "%", expected reversed -- the row still reports the truth about its entry',
+      v_row.acquisition_status;
+  end if;
+  if v_row.net_book_cents is not null then
+    raise exception 'FAIL 7: voiding a sold asset''s purchase gave it a book value of % -- it is still disposed of',
+      v_row.net_book_cents;
+  end if;
+
+  select * into v_sum from public.fixed_asset_summary(v_shop);
+  if v_sum.voided_count is distinct from 1 or v_sum.voided_cost_cents is distinct from 1000 then
+    raise exception 'FAIL 7: the summary reports % voided assets at % after a SOLD asset''s purchase was voided -- expected still 1 at 1000, the live shelving alone',
+      v_sum.voided_count, v_sum.voided_cost_cents;
+  end if;
+  --    ...and the totals the caveat is measured against have not moved either,
+  --    because a disposed asset was never in them.
+  if v_sum.cost_cents is distinct from 25000 or v_sum.net_book_cents is distinct from 16000 then
+    raise exception 'FAIL 7: the register totals moved to % at cost and % book value when a SOLD asset''s purchase was voided',
+      v_sum.cost_cents, v_sum.net_book_cents;
+  end if;
+  raise notice '7 OK: the voided-purchase warning counts live assets only, and a sold asset''s voided purchase leaves it alone';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

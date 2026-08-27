@@ -529,6 +529,27 @@ begin
   update public.accounts set name = 'Shop B''s bank, and only shop B''s'
    where shop_id = v_shop_b and code = '1010';
 
+  --     A DRAFT ENTRY AGAINST SHOP A'S TILL, worth more than the till holds.
+  --     list_transfer_accounts sums lines `where e.status in ('posted',
+  --     'reversed')`, and until this fixture had a draft in it that clause was
+  --     unexercised: every entry in the file is posted, so widening the filter
+  --     to admit anything changed no figure. Measured -- that mutation survived
+  --     the whole suite.
+  --
+  --     It is the one number on this screen a person acts on before the
+  --     refusal: they read the balance, decide the till can spare 5,000, and
+  --     the picker showed them money in an entry nobody has posted. Inserted
+  --     raw because there is no door that writes a draft -- post_journal_entry
+  --     posts -- and the point is that the column can hold one.
+  insert into public.journal_entries (shop_id, period_id, location_id, entry_date, description, source, status, created_by)
+    values (v_shop, public.open_period_for(v_shop, v_today, false), v_loc, v_today,
+            'A draft nobody posted', 'manual', 'draft', v_owner)
+    returning id into v_entry;
+  insert into public.journal_lines (entry_id, account_id, amount_cents)
+    select v_entry, a.id, 900000 from public.accounts a where a.shop_id = v_shop and a.code = '1000';
+  insert into public.journal_lines (entry_id, account_id, amount_cents)
+    select v_entry, a.id, -900000 from public.accounts a where a.shop_id = v_shop and a.code = '3000';
+
   --     (a) THE TREASURER CAN READ IT. budgets.manage and no ledger permission
   --         at all -- which is the default Manager's shape and the reason this
   --         function exists.
@@ -578,6 +599,19 @@ begin
   end if;
   if v_before = 0 then
     raise exception 'FAIL 11: the till reads zero, so this check would pass for a function that returns nothing';
+  end if;
+  --         ...and the draft is STILL THERE and still bigger than the till, so
+  --         this check cannot quietly stop being about drafts. Stated as its
+  --         own assertion because the reference sum above shares the filter
+  --         under test: without a draft in the fixture the two agree for a
+  --         function that has no status filter at all.
+  if not exists (
+    select 1 from public.journal_lines l
+      join public.journal_entries e on e.id = l.entry_id
+      join public.accounts a on a.id = l.account_id
+     where a.shop_id = v_shop and a.code = '1000' and e.status = 'draft' and l.amount_cents > v_before
+  ) then
+    raise exception 'FAIL 11: no unposted draft larger than the till''s % remains against 1000 -- the balance filter is no longer being tested', v_before;
   end if;
 
   --     (d) THE BOOKKEEPER IS REFUSED. ledger.view and ledger.post, no
