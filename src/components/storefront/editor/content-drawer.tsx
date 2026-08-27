@@ -246,6 +246,18 @@ export function ContentDrawer({
     setCollisionBase(value.slug.trim());
   }
 
+  // ...and the collision is OVER the moment the shop wins one. Without this,
+  // claiming through the suffix field leaves the drawer in both states at
+  // once: the frozen base and its assembled address above, the claimed
+  // read-only row below, and between them a banner still saying the name
+  // belongs to another shop -- about the address the shop has just been
+  // granted. Browser verification caught this; no unit test did, because each
+  // state was only ever asserted on its own.
+  if (claimed && collisionBase !== null && claimed === value.slug.trim()) {
+    setCollisionBase(null);
+    setTypedSuffix(null);
+  }
+
   // The way OUT of suffix mode: a shop that decides to use a different name
   // entirely, not just a different ending, has otherwise no way back to a
   // plain, editable address field short of reloading the app. Clears both

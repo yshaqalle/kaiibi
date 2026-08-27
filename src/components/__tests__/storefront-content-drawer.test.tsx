@@ -297,6 +297,40 @@ describe('a taken address costs a suffix, not a rethink', () => {
     return d;
   }
 
+  // Found in the browser, not here: claiming through the suffix field left the
+  // drawer in BOTH states at once -- the frozen base and its assembled address
+  // above, the claimed read-only row below, and between them a banner still
+  // saying the name belonged to another shop, about the address the shop had
+  // just been granted. Every unit test asserted one state on its own, so none
+  // of them saw it.
+  it('leaves suffix mode once the suffixed address is actually claimed', () => {
+    const d = collide(['koodbuur']);
+    d.type('content-drawer-suffix-input', 'koodbuur');
+    const claimedAddress = 'xamdi-electronics-koodbuur';
+    d.update({ slugState: 'available' });
+    d.press('content-drawer-claim-button');
+    expect(d.onClaimSlug).toHaveBeenCalledWith(claimedAddress);
+
+    // The editor screen echoes the granted slug back down as `claimedSlug`.
+    d.update({ claimedSlug: claimedAddress, slugState: 'idle' });
+
+    // One address on screen, not two, and no leftover collision furniture.
+    // Asserted on the elements rather than on the text: the claimed address
+    // legitimately CONTAINS "xamdi-electronics-", so a substring check here
+    // would fail against correct output.
+    expect(d.has('content-drawer-suffix-input')).toBe(false);
+    expect(d.has('content-drawer-slug-base')).toBe(false);
+    expect(d.has('content-drawer-suffix-exit')).toBe(false);
+    expect(d.texts()).not.toMatch(/already another shop’s address|already another shop's address/);
+    // The claimed row is what survives, and it is the whole address. Read off
+    // the element and joined without a separator, because the slug and the
+    // domain are adjacent text nodes -- `texts()` would put a space between
+    // them and no address has one.
+    expect(textsIn(d.find('content-drawer-claimed-address').props.children).join('')).toBe(
+      `${claimedAddress}.${APP_DOMAIN}`
+    );
+  });
+
   it('keeps the base and opens a suffix field rather than clearing the field', () => {
     const d = collide(['koodbuur', 'hargeisa']);
     expect(d.texts()).toContain('xamdi-electronics-');
