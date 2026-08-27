@@ -125,16 +125,16 @@ Task 3 exists solely to pin this, and it is the task to be most careful with.
 7. If the suffixed address is also taken, the message says so **in the same field** — it
    does not clear the base or move the shop backwards.
 
-- [ ] **Step 1: Write the failing tests** — prefill from the name; the shop's own typing
+- [x] **Step 1: Write the failing tests** — prefill from the name; the shop's own typing
       is never overwritten by a later name change; the suffix appears only on collision;
       the neighbourhood is prefilled; no numeric suffix is ever offered; the full address
       renders as `<slug>.kaiibi.com` and not as a path.
-- [ ] **Step 2: Run and watch them fail**
-- [ ] **Step 3: Implement**, reusing the drawer's existing slug-state machine rather than
+- [x] **Step 2: Run and watch them fail**
+- [x] **Step 3: Implement**, reusing the drawer's existing slug-state machine rather than
       adding a parallel one
-- [ ] **Step 4: Run the tests — green**
-- [ ] **Step 5: `npm test` and `npx tsc --noEmit`**
-- [ ] **Step 6: Commit**
+- [x] **Step 4: Run the tests — green**
+- [x] **Step 5: `npm test` and `npx tsc --noEmit`**
+- [x] **Step 6: Commit**
 
 ## Task 3: A claimed address does not follow a rename
 

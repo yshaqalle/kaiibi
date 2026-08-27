@@ -25,6 +25,7 @@ import {
   ensureStorefront,
   getMyStorefront,
   getStorefrontPreviewProducts,
+  listAddressSuffixSuggestions,
   listDeliveryAreas,
   publishBlockers,
   publishDraft,
@@ -113,6 +114,13 @@ export default function StorefrontEditor() {
   const [slugDraft, setSlugDraft] = useState('');
   const [slugState, setSlugState] = useState<SlugState>('idle');
 
+  // The endings offered when a shop's derived address is already taken --
+  // its own neighbourhood, then its city. Read here rather than from
+  // useAuth().locations so it resolves the SAME primary location the rest of
+  // the data layer does (primary first, then oldest), and so "the shop's
+  // location" has one meaning across this app, not two.
+  const [addressSuffixes, setAddressSuffixes] = useState<string[]>([]);
+
   const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
   const [onlineProductCount, setOnlineProductCount] = useState(0);
   const [previewProducts, setPreviewProducts] = useState<StorefrontProduct[]>([]);
@@ -151,12 +159,17 @@ export default function StorefrontEditor() {
       setWorking({ ...row, ...(row.draft ?? {}) });
       setSlugDraft(row.slug ?? '');
 
-      const [areasResult, countResult] = await Promise.allSettled([
+      const [areasResult, countResult, suffixResult] = await Promise.allSettled([
         listDeliveryAreas(shopId),
         countOnlineProducts(shopId),
+        listAddressSuffixSuggestions(shopId),
       ]);
       setDeliveryAreas(areasResult.status === 'fulfilled' ? areasResult.value ?? [] : []);
       setOnlineProductCount(countResult.status === 'fulfilled' ? countResult.value ?? 0 : 0);
+      // Settled beside the others, and empty when it fails: a shop whose
+      // location could not be read is offered no ending rather than a
+      // number, which is the one thing this must never invent.
+      setAddressSuffixes(suffixResult.status === 'fulfilled' ? suffixResult.value ?? [] : []);
     } catch (err) {
       const plan = describePlanError(err);
       if (plan) setPlanError(plan);
@@ -507,6 +520,8 @@ export default function StorefrontEditor() {
       onClaimSlug={handleClaimSlug}
       slugState={slugState}
       shopName={shop?.name ?? ''}
+      claimedSlug={working.slug}
+      suffixSuggestions={addressSuffixes}
       onUploadHeroImage={handleUploadHeroImage}
       focusRequest={focusRequest}
     />

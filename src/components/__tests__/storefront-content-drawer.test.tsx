@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 import { APP_DOMAIN, slugFromHostname } from '@/lib/storefront-host';
 
@@ -90,13 +91,16 @@ describe('ContentDrawer', () => {
     expect(renderDrawer({ whatsappE164: '+252634456789' })).toContain('+252 63 4456789');
   });
 
-  it('suggests a slug from the shop name but never rewrites what was typed', () => {
+  // Was "suggests a slug but never writes it": an unclaimed address is now
+  // DERIVED from the name rather than offered as a row to tap, so the
+  // assertion that nothing is written on the shop's behalf is exactly the
+  // behaviour this replaces. What must still never be overwritten is a value
+  // the shop typed itself -- pinned in "the address follows the shop's name"
+  // below, where it belongs.
+  it('derives an unclaimed address from the shop name instead of leaving it blank', () => {
     const onChange = jest.fn();
-    const texts = renderDrawer({ shopName: "Xamdi's Electronics", slug: '', onChange });
-    // The suggestion is offered as text the shop can accept...
-    expect(texts.join(' ')).toContain('xamdis-electronics');
-    // ...and nothing was written into the slug field on their behalf.
-    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdis-electronics' }));
+    renderDrawer({ shopName: "Xamdi's Electronics", slug: '', onChange });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdis-electronics' }));
   });
 
   it('rejects a phone number it cannot normalise instead of storing it raw', () => {
@@ -129,5 +133,179 @@ describe('the address it shows is the address that works', () => {
     // The real proof: reassemble what the shop sees and feed it to the actual
     // function that resolves a hostname. If the two ever drift, this fails.
     expect(slugFromHostname(`xamdi.${APP_DOMAIN}`)).toBe('xamdi');
+  });
+});
+
+// A CONTROLLED harness, unlike renderDrawer above: `value` is real state that
+// the drawer's own onChange writes back into, which is the only way to test
+// "the shop typed something and a later rename must not clobber it" -- with a
+// frozen `value` prop the clobber is invisible. `shopName`, `slugState`,
+// `claimedSlug` and `suffixSuggestions` stay props of the harness so a test
+// can change them the way the editor screen does, without remounting (which
+// would reset exactly the state under test).
+type HarnessProps = {
+  shopName: string;
+  slugState: SlugState;
+  claimedSlug: string | null;
+  suffixSuggestions: string[];
+};
+
+function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
+  const onChange = jest.fn();
+  let props: HarnessProps = {
+    shopName: initial.shopName ?? '',
+    slugState: initial.slugState ?? 'idle',
+    claimedSlug: initial.claimedSlug ?? null,
+    suffixSuggestions: initial.suffixSuggestions ?? [],
+  };
+
+  function Harness(p: HarnessProps) {
+    const [value, setValue] = useState<ContentDrawerValue>({ ...DEFAULT_VALUE, slug: initial.slug ?? '' });
+    return (
+      <ContentDrawer
+        value={value}
+        onChange={(patch) => {
+          onChange(patch);
+          setValue((v) => ({ ...v, ...patch }));
+        }}
+        onClaimSlug={() => {}}
+        slugState={p.slugState}
+        shopName={p.shopName}
+        claimedSlug={p.claimedSlug}
+        suffixSuggestions={p.suffixSuggestions}
+      />
+    );
+  }
+
+  let tree!: ReturnType<typeof create>;
+  act(() => {
+    tree = create(<Harness {...props} />);
+  });
+
+  const api = {
+    onChange,
+    texts: () => textsIn(tree.toJSON() as ReactTestRendererJSON).join(' '),
+    find: (testID: string) => tree.root.findAll((n) => n.props?.testID === testID)[0],
+    has: (testID: string) => tree.root.findAll((n) => n.props?.testID === testID).length > 0,
+    valueOf: (testID: string) => api.find(testID)?.props.value as string | undefined,
+    type: (testID: string, text: string) => {
+      act(() => {
+        api.find(testID).props.onChangeText(text);
+      });
+    },
+    press: (testID: string) => {
+      act(() => {
+        api.find(testID).props.onPress();
+      });
+    },
+    update: (next: Partial<HarnessProps>) => {
+      props = { ...props, ...next };
+      act(() => {
+        tree.update(<Harness {...props} />);
+      });
+    },
+  };
+  return api;
+}
+
+describe('the address follows the shop’s name', () => {
+  it('prefills an unclaimed address from the shop’s name', () => {
+    const d = mountDrawer({ shopName: 'Xamdi Electronics' });
+    expect(d.valueOf('content-drawer-slug-input')).toBe('xamdi-electronics');
+  });
+
+  it('re-derives while the name changes and nothing has been claimed', () => {
+    const d = mountDrawer({ shopName: 'Xamdi Electronics' });
+    d.update({ shopName: 'Xamdi Electronics and Solar' });
+    expect(d.valueOf('content-drawer-slug-input')).toBe('xamdi-electronics-and-solar');
+  });
+
+  // THE trap this file exists to catch: "has the shop touched this?" must be
+  // tracked, not inferred from "does it differ from the derived value" -- a
+  // shop that deliberately types the derived value would otherwise lose its
+  // edit on the very next keystroke of the name.
+  it('never overwrites a value the shop typed, even one identical to the derived name', () => {
+    const d = mountDrawer({ shopName: 'Xamdi Electronics' });
+    d.type('content-drawer-slug-input', 'xamdi-electronics');
+    d.update({ shopName: 'Xamdi Electronics and Solar' });
+    expect(d.valueOf('content-drawer-slug-input')).toBe('xamdi-electronics');
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-and-solar' }));
+  });
+
+  it('never derives over an address that is already claimed', () => {
+    const d = mountDrawer({ shopName: 'Xamdi Electronics', slug: 'xamdi', claimedSlug: 'xamdi' });
+    d.update({ shopName: 'Burco Traders' });
+    expect(d.valueOf('content-drawer-slug-input')).toBe('xamdi');
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'burco-traders' }));
+  });
+});
+
+describe('a taken address costs a suffix, not a rethink', () => {
+  // Drives the drawer the way the editor screen does: derive, hear back
+  // "taken", and then -- because the assembled value is a NEW value -- hear
+  // "checking" again while the server looks at it.
+  function collide(suffixSuggestions: string[]) {
+    const d = mountDrawer({ shopName: 'Xamdi Electronics', suffixSuggestions });
+    d.update({ slugState: 'taken' });
+    // Whatever suffix the drawer just applied makes a NEW address, so the
+    // editor screen's debounced check goes back to 'checking' -- leaving the
+    // prop on 'taken' here would fake a verdict the server never gave.
+    d.update({ slugState: 'checking' });
+    return d;
+  }
+
+  it('keeps the base and opens a suffix field rather than clearing the field', () => {
+    const d = collide(['koodbuur', 'hargeisa']);
+    expect(d.texts()).toContain('xamdi-electronics-');
+    expect(d.has('content-drawer-suffix-input')).toBe(true);
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: '' }));
+  });
+
+  it('prefills the suffix from the shop’s primary location', () => {
+    const d = collide(['koodbuur', 'hargeisa']);
+    expect(d.valueOf('content-drawer-suffix-input')).toBe('koodbuur');
+    expect(d.onChange).toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-koodbuur' }));
+  });
+
+  it('offers no number when the shop has no neighbourhood and no city', () => {
+    const d = collide([]);
+    expect(d.valueOf('content-drawer-suffix-input')).toBe('');
+    expect(d.find('content-drawer-suffix-input').props.placeholder).toMatch(/part of town/i);
+    // Not "-2", not "-1", not a counter of any shape, anywhere on screen.
+    expect(d.texts()).not.toMatch(/xamdi-electronics-\d/);
+    expect(d.onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ slug: expect.stringMatching(/-\d+$/) })
+    );
+  });
+
+  it('treats a chip as a suggestion that free text overrides', () => {
+    const d = collide(['koodbuur', 'hargeisa']);
+    d.press('content-drawer-suffix-chip-hargeisa');
+    expect(d.onChange).toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-hargeisa' }));
+    d.type('content-drawer-suffix-input', 'Road No 1');
+    expect(d.onChange).toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-road-no-1' }));
+  });
+
+  it('shows the assembled address in full, as a subdomain and never as a path', () => {
+    const d = collide(['koodbuur']);
+    const full = textsIn(d.find('content-drawer-full-address').props.children).join('');
+    expect(full).toBe(`xamdi-electronics-koodbuur.${APP_DOMAIN}`);
+    expect(d.texts()).not.toContain(`${APP_DOMAIN}/`);
+    // The address the shop reads here is the address the router resolves.
+    expect(slugFromHostname(full)).toBe('xamdi-electronics-koodbuur');
+  });
+
+  it('says a suffixed address is taken in the same field, without moving the shop backwards', () => {
+    const d = collide(['koodbuur']);
+    // The parent re-checks the assembled value and it, too, is gone.
+    d.update({ slugState: 'taken' });
+
+    expect(d.texts()).toMatch(/taken too/i);
+    // The base is still frozen and the suffix is still theirs to edit --
+    // nothing was cleared and no blank box appeared.
+    expect(d.texts()).toContain('xamdi-electronics-');
+    expect(d.valueOf('content-drawer-suffix-input')).toBe('koodbuur');
+    expect(d.texts()).not.toMatch(/clear and try again/i);
+    expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: '' }));
   });
 });

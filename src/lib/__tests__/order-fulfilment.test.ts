@@ -181,7 +181,12 @@ describe('checkOrderFulfilment', () => {
 
     const locationQuery = fake.queries.find((q) => q.table === 'shop_locations');
     expect(locationQuery?.calls).toEqual([
-      ['select', 'id'],
+      // The columns are primaryLocation's, not this caller's: the same
+      // resolution now also answers "which neighbourhood does this shop trade
+      // in" for the storefront address, and one query for one rule is the
+      // point. What this test pins is the ORDERING -- primary first, then
+      // oldest -- which is the part complete_sale must agree with.
+      ['select', 'id, neighborhood, city'],
       ['eq', 'shop_id', 'shop-1'],
       ['order', 'is_primary', { ascending: false }],
       ['order', 'created_at', { ascending: true }],
