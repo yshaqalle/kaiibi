@@ -74,7 +74,7 @@ Nothing is deleted. Paying is the way back, and the shop can *see* the way back.
 
 ## Task 2: One month of grace, and it actually holds
 
-**Files:** `supabase/migrations/20260931000000_storefront_grace_month.sql` (adjust the
+**Files:** `supabase/migrations/20260930000400_storefront_grace_month.sql` (adjust the
 number if taken — check the guard, not `uniq -d`); `supabase/tests/verify-lapse.sql`
 
 **Properties:**
