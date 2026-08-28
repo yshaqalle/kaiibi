@@ -1,0 +1,315 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — As Built, and What Is Still Weak</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --warn:#b07206; --warnwash:#fbf3e2; --warnln:#e8d6ab;
+    --accwash:#e6edff; --accink:#1b47b8;
+    --bad:#b3261e; --badwash:#fdeceb; --badln:#f0cdca;
+    --ok:#008340; --okwash:#e6f4ec; --okln:#bfe0cd;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:28px 0 8px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note code,td code,li code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  /* scoreboard */
+  .score{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-top:18px;}
+  .sc{border:1px solid var(--ln);border-radius:14px;padding:14px 16px;background:var(--sf);}
+  .sc b{display:block;font-size:26px;font-weight:800;letter-spacing:-.02em;}
+  .sc span{font-size:12px;color:var(--mut);}
+  .sc.zero b{color:#b3261e;}
+
+  /* flow */
+  .flow{display:flex;flex-wrap:wrap;margin-top:14px;}
+  .step{flex:1;min-width:148px;border:1px solid var(--ln);background:var(--sf);padding:12px 13px;}
+  .step:first-child{border-radius:13px 0 0 13px;} .step:last-child{border-radius:0 13px 13px 0;}
+  .step + .step{border-left:0;}
+  .step .n{font-size:9.5px;font-weight:800;letter-spacing:.1em;color:var(--mut);text-transform:uppercase;}
+  .step b{display:block;font-size:13px;margin:3px 0 3px;}
+  .step p{margin:0;font-size:11.5px;color:var(--mut);line-height:1.45;}
+  .step.new{background:var(--okwash);border-color:var(--okln);}
+  .step.new .n{color:#075e34;}
+  @media (max-width:760px){
+    .step,.step:first-child,.step:last-child{border-radius:13px;border-left:1px solid var(--ln);}
+    .step + .step{margin-top:8px;}
+  }
+
+  /* phone frames */
+  .pair{display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));margin-top:16px;}
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 9px;}
+  .frameHead b{font-size:13.5px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:0;overflow:hidden;color:var(--d-ink);}
+  .ph{background:#fff;font-size:13px;}
+  .bar{background:#111;color:#fff;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:13px;}
+  .bar .burg{background:#2a2a2a;border-radius:8px;padding:3px 8px;position:relative;}
+  .dot{position:absolute;top:-4px;right:-5px;background:#b3261e;color:#fff;border-radius:999px;
+    font-size:9.5px;font-weight:800;padding:1px 5px;}
+  .menu{background:#fff;border:1px solid var(--d-ln);border-radius:12px;margin:8px 10px;overflow:hidden;}
+  .mi{padding:11px 14px;border-bottom:1px solid var(--d-ln);display:flex;align-items:center;gap:9px;font-weight:700;}
+  .mi:last-child{border-bottom:0;}
+  .mi .badge{margin-left:auto;background:#b3261e;color:#fff;border-radius:999px;font-size:10.5px;font-weight:800;padding:1px 7px;}
+  .mi.hi{background:var(--okwash);}
+  .body{padding:12px 14px;}
+  .lbl{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--d-mut);}
+  .addr{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:700;margin:3px 0 9px;}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn{border:1px solid var(--d-rule);border-radius:10px;padding:7px 12px;font-size:12px;font-weight:700;background:#fff;}
+  .btn.wa{background:var(--accwash);border-color:#c3d3ff;color:var(--accink);}
+  .tabs{display:flex;border-top:1px solid var(--d-ln);}
+  .tab{flex:1;text-align:center;padding:9px 2px;font-size:9.5px;color:var(--d-mut2);}
+  .tab.on{color:#111;font-weight:800;}
+  .card{border:1px solid var(--d-ln);border-radius:11px;padding:9px;margin-bottom:8px;}
+  .card b{display:block;font-size:12.5px;}
+  .card .p{font-weight:800;font-size:13px;margin-top:2px;}
+
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);font-weight:800;}
+  tbody tr:last-child td{border-bottom:0;}
+
+  .imp{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);margin-top:11px;}
+  .imp.p1{border-left-color:#b3261e;} .imp.p2{border-left-color:var(--warn);} .imp.p3{border-left-color:var(--mut);}
+  .imp b{display:block;font-size:14px;margin-bottom:4px;}
+  .imp p{margin:0 0 6px;font-size:13px;color:var(--ink2);}
+  .imp .cost{font-size:12px;color:var(--mut);}
+  .cap{font-size:12px;color:var(--mut);margin-top:8px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Kaiibi · storefront · as built</p>
+  <h1>What the storefront does today, and the four things still worth fixing</h1>
+  <p class="lede">
+    Every screen below is what shipped and is live in production, verified in a browser at phone
+    width rather than from the code. The scoreboard is the part that matters most.
+  </p>
+
+  <div class="score">
+    <div class="sc"><b>11</b><span>shops on the system</span></div>
+    <div class="sc"><b>10</b><span>whose plan includes it</span></div>
+    <div class="sc zero"><b>1</b><span>published a page</span></div>
+    <div class="sc zero"><b>4</b><span>products listed online</span></div>
+    <div class="sc zero"><b>0</b><span>orders, ever</span></div>
+  </div>
+  <p class="cap">The feature is finished. It has not been used. Those are different problems.</p>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>What a shop does now</h2>
+    <p class="h2sub">Green steps did not exist yesterday. Each one was a dead end found by walking the app.</p>
+
+    <div class="flow">
+      <div class="step new"><span class="n">1 · fixed</span><b>Finds it</b><p>☰ → Storefront. One tap. Was four, buried in Settings › Business between Vendors and Receipt.</p></div>
+      <div class="step new"><span class="n">2 · fixed</span><b>Lists a product</b><p>"Go to Inventory →" now works and lands on a filtered list. The toggle says "Sell online", not "Discover feed".</p></div>
+      <div class="step"><span class="n">3</span><b>Claims an address</b><p>Derived from the shop's name. A collision offers a suffix, not a blank box.</p></div>
+      <div class="step"><span class="n">4</span><b>Publishes</b><p>Blockers name what is missing and each one now actually fixes it.</p></div>
+      <div class="step new"><span class="n">5 · fixed</span><b>Shares the link</b><p>Share on WhatsApp, or copy. Before this, "Live" came with no way to tell anyone.</p></div>
+    </div>
+
+    <div class="pair">
+      <div>
+        <div class="frameHead"><b>One tap from anywhere</b><i>was 4</i></div>
+        <div class="frame">
+          <div class="ph">
+            <div class="bar"><span>Xamdi Electronics</span><span class="burg">☰</span></div>
+            <div class="menu">
+              <div class="mi hi">🌐 Storefront</div>
+              <div class="mi hi">🛍 Orders <span class="badge">1</span></div>
+              <div class="mi">⚙ Settings</div>
+              <div class="mi">✉ Help &amp; support</div>
+              <div class="mi">Sign out</div>
+            </div>
+            <div class="tabs">
+              <span class="tab on">Dashboard</span><span class="tab">POS</span><span class="tab">Inventory</span>
+              <span class="tab">People</span><span class="tab">Accounting</span>
+            </div>
+          </div>
+        </div>
+        <p class="cap">Not a sixth bottom tab: five is what fits 390pt, and POS and Inventory are used all day.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>A live page can be handed over</b><i>new</i></div>
+        <div class="frame">
+          <div class="ph">
+            <div class="bar" style="background:#fff;color:#111;border-bottom:1px solid var(--d-ln)">
+              <span>Storefront</span><span style="background:var(--okwash);color:#075e34;border-radius:999px;padding:3px 10px;font-size:11px">Live</span>
+            </div>
+            <div class="body">
+              <div class="btnrow" style="margin-bottom:12px">
+                <span class="btn">Preview</span><span class="btn">Edit</span><span class="btn">Unpublish</span>
+              </div>
+              <div style="background:var(--d-soft);border-radius:12px;padding:12px">
+                <div class="lbl">Your page is at</div>
+                <div class="addr">xamdi-electronics.kaiibi.com</div>
+                <div class="btnrow">
+                  <span class="btn wa">Share on WhatsApp</span><span class="btn">Copy link</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="cap">A subdomain, never <code>kaiibi.com/&lt;slug&gt;</code> — that form shipped once and 404s.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>What a customer does, and where the money lands</h2>
+
+    <div class="flow">
+      <div class="step"><span class="n">1</span><b>Opens the link</b><p>From WhatsApp or a printed card.</p></div>
+      <div class="step"><span class="n">2</span><b>Basket, or asks</b><p>Add to buy; Ask opens WhatsApp about that one item.</p></div>
+      <div class="step"><span class="n">3</span><b>Checks out</b><p>Name, phone, collect or deliver. No card — paid in person.</p></div>
+      <div class="step"><span class="n">4</span><b>Shop is told</b><p>Dashboard task count, and a badge on Orders.</p></div>
+      <div class="step"><span class="n">5</span><b>Accept → Ready → Complete</b><p>Asks how they paid.</p></div>
+      <div class="step new"><span class="n">6 · correct</span><b>It becomes a sale</b><p>At the price quoted, tax extracted, journal balanced, stock down.</p></div>
+    </div>
+
+    <div class="pair">
+      <div>
+        <div class="frameHead"><b>The public page</b><i>xamdi-electronics.kaiibi.com</i></div>
+        <div class="frame">
+          <div class="ph">
+            <div style="padding:13px 14px;border-bottom:1px solid var(--d-ln)">
+              <b style="font-size:15px">Xamdi Electronics</b>
+              <div style="font-size:11.5px;color:var(--d-mut)">Hargeisa</div>
+            </div>
+            <div style="padding:11px 14px;border-bottom:1px solid var(--d-ln);font-size:12px;color:var(--d-ink2)">
+              Everything for the house and the phone.<br>
+              <span style="color:var(--d-mut);font-size:11px">Open 8am–9pm, Road No.1.</span>
+            </div>
+            <div style="height:96px;background:linear-gradient(135deg,#1f5f7a,#3b8fb0);color:#fff;display:flex;flex-direction:column;justify-content:flex-end;padding:12px">
+              <b style="font-size:16px">20% off all solar</b>
+              <span style="font-size:11px;opacity:.9">This week only</span>
+            </div>
+            <div style="background:var(--d-soft);padding:10px 14px;font-size:12px">
+              <b style="font-size:19px">20%</b> · Everything in store<br>
+              <span style="color:var(--d-mut);font-size:11px">Until Saturday 29 August</span>
+            </div>
+            <div style="padding:12px 14px">
+              <div class="card"><b>Solar lantern</b><div class="p">$14.00</div></div>
+              <div class="card"><b>Power bank</b><div class="p">$18.00</div></div>
+            </div>
+            <div style="background:#111;color:#fff;text-align:center;padding:11px;font-weight:800;font-size:13px">Checkout · $14.00</div>
+          </div>
+        </div>
+        <p class="cap">The offer's words are derived from the promotion. Expire it and the flyer leaves the page on its own.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>What actually posted</b><i>verified, not asserted</i></div>
+        <div class="frame">
+          <div class="ph" style="padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7">
+            <div style="color:var(--d-mut)">ORDER #1 completed · quoted 1400</div>
+            <div style="color:var(--d-mut);margin-bottom:8px">SALE total 1400 · paid 1400</div>
+            <div>1000 Cash on Hand <b style="float:right">+1400</b></div>
+            <div>4000 Sales Revenue <b style="float:right">−1400</b></div>
+            <div>1200 Inventory <b style="float:right">−900</b></div>
+            <div>5000 Cost of Goods <b style="float:right">+900</b></div>
+            <div style="border-top:1px solid var(--d-ln);margin-top:8px;padding-top:8px;color:#008340;font-weight:700">
+              balance 0 · stock 6 → 5
+            </div>
+          </div>
+        </div>
+        <p class="cap">A tax shop quoting $11.00 charges $11.00 and still records the 52¢ it owes. The till, unchanged, still adds tax on top.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>What still needs improving</h2>
+    <p class="h2sub">Ranked by what would actually change the scoreboard.</p>
+
+    <div class="imp p1">
+      <b>1 · A shop working the till never learns an order arrived</b>
+      <p>The waiting-order count sits on the <i>Orders row inside</i> the ☰ menu, and on the Dashboard's
+      task count. The ☰ button itself carries no badge. A shopkeeper spends the day on POS — so nothing
+      on screen tells them a customer is waiting until they wander back to the Dashboard or open a menu
+      for another reason.</p>
+      <p class="cost">Fix: put the count on the ☰ button, which is visible on every screen. Small, and it is
+      the difference between an order inbox and an order notification.</p>
+    </div>
+
+    <div class="imp p2">
+      <b>2 · Standard has no storefront, and seven trials lapse in ten weeks</b>
+      <p>Trial and Pro include it; Free and Standard do not. Seven of eleven shops are on Trial — one
+      already expired, the rest ending 2 Nov – 8 Dec. When one lapses or converts to Standard it
+      <i>loses</i> the page it published, and the address it printed stops being reachable from the app.</p>
+      <p class="cost">Fix: one line of <code>plans.modules</code> — but it is a pricing decision, not an
+      engineering one. It is the only open item with a deadline.</p>
+    </div>
+
+    <div class="imp p2">
+      <b>3 · Listing forty products means forty forms</b>
+      <p>"Sell online" is a per-product toggle. There is no bulk action, deliberately: a shop publishing
+      its whole catalogue by accident is a decision, not a convenience. But four products listed across
+      eleven shops suggests the current cost is too high.</p>
+      <p class="cost">Fix: multi-select on the filtered "Not online" list, with an explicit confirm naming
+      the count. Half a day.</p>
+    </div>
+
+    <div class="imp p3">
+      <b>4 · Native is unverified</b>
+      <p>The nav and share changes are Jest-verified on native and browser-verified on web. Nobody has
+      seen them on a real phone, because testing native needs port 8081 and another session held it.</p>
+      <p class="cost">Ten minutes on a free machine. Not a risk to correctness, but it is not "tested".</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <h2>Deliberately not built</h2>
+    <table>
+      <thead><tr><th style="width:30%">Left out</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><b>Paying before collection</b></td>
+            <td>Needs no provider — shops already store their ZAAD/e-Dahab merchant numbers and receipts print them. The cost is that it moves risk to a customer with no recourse. A decision, not a build.</td></tr>
+        <tr><td><b>Scheduling a flyer</b></td><td>Draft plus a tap runs a week's promotion today.</td></tr>
+        <tr><td><b>Flyers on the Counter layout</b></td><td>That layout exists to make a 200-line price list readable. A poster fights it.</td></tr>
+        <tr><td><b>Refunding a delivery fee</b></td><td>"Does returning one item out of five refund the trip?" is a product question.</td></tr>
+        <tr><td><b>Redirecting an old address</b></td><td>Needs a resolver that fails <i>open</i> — the opposite of what makes the current one safe.</td></tr>
+      </tbody>
+    </table>
+
+    <p class="note" style="margin-top:22px">
+      The honest summary: the storefront is finished and unused, and the four fixes above are worth
+      roughly a day between them. None of them is likely to be why nobody has published. That answer
+      is with the shopkeepers, not in the code.
+    </p>
+  </section>
+
+</div>
