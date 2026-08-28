@@ -232,8 +232,20 @@ export function AdminSidebar({
               Renders nothing for a one-location shop, which is most of them. */}
           <View style={styles.barRight}>
             <LocationSwitcher />
+            {/* The count rides the BUTTON, not just the row inside the menu.
+                A shopkeeper spends the day on POS; the row is only visible to
+                someone who has already opened the menu, and the dashboard's
+                task count only to someone standing on the dashboard. Neither
+                reaches the person at the till, which is the one who has to go
+                and pick the order. This is the difference between an order
+                inbox and an order notification. */}
             <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
               <Text style={styles.menuIcon}>☰</Text>
+              {ordersBadge > 0 ? (
+                <View style={styles.menuButtonDot}>
+                  <Text style={styles.menuButtonDotText}>{ordersBadge > 9 ? '9+' : String(ordersBadge)}</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
         </View>
@@ -410,6 +422,14 @@ const styles = StyleSheet.create({
   // above it. Padding only, and the bar's own margins supply the rest, so this
   // is zero-height on the ordinary day when there is nothing unread.
   bannerSlot: { paddingHorizontal: 16, backgroundColor: Colors.light.bentoSurface },
+  // Sits on the corner of the ☰ so it reads at a glance from across a
+  // counter. Absolutely positioned so adding it cannot move the button.
+  menuButtonDot: {
+    position: 'absolute', top: -5, right: -6, minWidth: 18,
+    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999,
+    backgroundColor: '#B3261E', alignItems: 'center', justifyContent: 'center',
+  },
+  menuButtonDotText: { fontSize: 10.5, fontWeight: '800', color: '#FFFFFF' },
   menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#F5F5F2' },
   menuIcon: { fontSize: 16, color: '#111111' },
   menuBackdrop: { flex: 1 },

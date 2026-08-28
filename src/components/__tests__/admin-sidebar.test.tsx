@@ -191,19 +191,37 @@ describe('AdminSidebar storefront rows', () => {
     return tree!;
   }
 
+  // The point of the whole row: a shopkeeper on POS all day never opens this
+  // menu and never stands on the dashboard, so a count that only lives in
+  // those two places never reaches the person who has to pick the order.
+  it('shows the waiting-order count on the closed menu button', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(3);
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    // Read WITHOUT opening the menu -- that is the whole assertion.
+    expect(labels(tree!)).toContain('3');
+  });
+
+  it('shows no count on the button when nothing is waiting', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(0);
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    expect(labels(tree!)).not.toContain('0');
+  });
+
   // The rail is the primary nav at wide width and already carries both rows.
   // Repeating them in the menu put the same two destinations on screen twice.
+  // Counted rather than asserted absent on purpose: they SHOULD be on that
+  // screen, just once -- an absence check would pass against a build that lost
+  // them altogether, which is the worse bug.
   it('does not repeat the rows in the menu at wide width, where the rail has them', async () => {
     let tree: ReactTestRenderer | undefined;
     await act(async () => { tree = create(shell(false)); });
-    // The rail has them...
     expect(labels(tree!)).toContain('Storefront');
-    const burger = tree!.root
-      .findAllByType(Text).find((t) => t.props.children === '\u2630');
-    let node = burger as unknown as { props: Record<string, unknown>; parent: unknown } | null;
+    const glyph = tree!.root.findAllByType(Text).find((t) => t.props.children === '\u2630');
+    let node = glyph as unknown as { props: Record<string, unknown>; parent: unknown } | null;
     while (node && typeof node.props?.onPress !== 'function') node = node.parent as typeof node;
     await act(async () => { (node!.props.onPress as () => void)(); });
-    // ...and opening the menu must not add a second copy of either.
     const shown = labels(tree!);
     expect(shown.filter((l) => l === 'Storefront')).toHaveLength(1);
     expect(shown.filter((l) => l === 'Orders')).toHaveLength(1);
