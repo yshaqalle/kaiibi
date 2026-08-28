@@ -379,18 +379,35 @@ export type ReorderRow = { stock: number; reorderLevel: number | null };
 /**
  * The reorder level actually in force for a product at one store.
  *
- * `product_location_stock.reorder_level` is a per-branch OVERRIDE and null
- * there means "use the product's own value" -- a flagship carries deeper stock
- * than a kiosk, and a shop that does not care sets nothing. Null on BOTH means
- * nobody has set a level at all, which is a third state and the one the
- * low-stock report's empty message turns on.
+ * THREE LEVELS, AND THERE IS ALWAYS AN ANSWER. A branch override beats the
+ * product's own level, which beats the shop's `default_low_stock_level`.
  *
- * `??`, never `||`. An override of 0 is a real instruction -- "this branch does
- * not stock this, never reorder it" -- and falsiness would throw it away and
- * silently reinstate the product's shop-wide level.
+ * That last term is the correction. This function used to return null when
+ * neither the branch nor the product carried a level, and the low-stock report
+ * treated that as "nobody has said what the level is" and refused to judge the
+ * row. That premise was wrong: migration 0030 added
+ * `shops.default_low_stock_level` -- `integer not null default 5`, editable at
+ * Settings -> Inventory alerts -- and its own header says it "replaces the
+ * previous hardcoded fallback of 5". A blank `reorder_level` does not mean
+ * unanswered; it means "use the shop's number", which is exactly how the
+ * Dashboard, the Inventory tile, the stock filter and every product row have
+ * always read it.
+ *
+ * Getting this wrong put two screens in the same app on different definitions
+ * of "low", and the report was the one that was out of step -- it told a shop
+ * no reorder levels were set while Inventory, one tab away, listed three
+ * products below them.
+ *
+ * `??`, never `||`, at both hops. A level of 0 is a real instruction -- "never
+ * reorder this here" -- and falsiness would discard it and silently promote the
+ * next term up.
  */
-export function effectiveReorderLevel(locationLevel: number | null, productLevel: number | null): number | null {
-  return locationLevel ?? productLevel;
+export function effectiveReorderLevel(
+  locationLevel: number | null,
+  productLevel: number | null,
+  shopDefault: number
+): number {
+  return locationLevel ?? productLevel ?? shopDefault;
 }
 
 /**
@@ -429,23 +446,28 @@ export function reorderUrgency(row: ReorderRow): StockUrgency | null {
 export type LowStockRow<T extends ReorderRow> = T & { shortfall: number; urgency: StockUrgency };
 
 /**
- * Why a low-stock report is empty, when it is.
+ * The low-stock report: what is short, worst first.
  *
- * 'none-configured' and 'nothing-low' are DIFFERENT FACTS and an empty state
- * that means the first while reading like the second is a lie -- it tells a
- * shop that has never set a reorder level in its life that its shelves are
- * fine. Null means the report is not empty.
- */
-export type LowStockEmptyReason = 'none-configured' | 'nothing-low' | null;
-
-/**
- * The low-stock report: what is short, worst first, and — when nothing is —
- * which of the two reasons that is.
+ * THERE IS NO LONGER A "NOBODY SET A LEVEL" CASE, and removing it is the point
+ * of this change rather than a tidy-up. It used to distinguish
+ * 'none-configured' from 'nothing-low' on the belief that a blank
+ * `reorder_level` meant the question had gone unanswered. It never did:
+ * `shops.default_low_stock_level` answers it for every row (see
+ * `effectiveReorderLevel`), so once the level is resolved there is always one
+ * in force and the first branch could not fire for any real shop.
+ *
+ * The project's own rule about this is in the plan: an exception that can never
+ * fire is worse than one that is absent, because it teaches the reader the list
+ * is complete. This one did worse than never fire -- it fired on the *unresolved*
+ * level and told shops that nothing could be judged low while the Inventory tab
+ * was listing three products that were.
+ *
+ * An empty report now means one thing, and it is the true thing: nothing is at
+ * or below the level in force.
  */
 export function lowStockReading<T extends ReorderRow>(
   rows: T[]
-): { rows: LowStockRow<T>[]; configured: number; emptyReason: LowStockEmptyReason } {
-  const configured = rows.filter((row) => row.reorderLevel !== null).length;
+): { rows: LowStockRow<T>[] } {
   const short: LowStockRow<T>[] = [];
   for (const row of rows) {
     const shortfall = reorderShortfall(row);
@@ -458,8 +480,6 @@ export function lowStockReading<T extends ReorderRow>(
   short.sort((a, b) => b.shortfall - a.shortfall);
   return {
     rows: short,
-    configured,
-    emptyReason: short.length > 0 ? null : configured === 0 ? 'none-configured' : 'nothing-low',
   };
 }
 

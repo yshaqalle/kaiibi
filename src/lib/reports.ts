@@ -216,8 +216,12 @@ export type StockOnHandRow = {
    * costed the product -- null and not zero, because zero is a real answer.
    */
   costCents: number | null;
-  /** The level in force here: the branch override, else the product's own. */
-  reorderLevel: number | null;
+  /**
+   * The level in force here: the branch override, else the product's own, else
+   * the shop's `default_low_stock_level`. Never null -- there is always an
+   * answer, which is the whole correction this type carries.
+   */
+  reorderLevel: number;
 };
 
 type StockOnHandDbRow = {
@@ -231,16 +235,20 @@ type StockOnHandDbRow = {
 /**
  * Stock on hand per product per store, for Inventory Balance and Low Stock.
  *
- * Deliberately NOT `getLowStockProducts`, which defaults a missing reorder
- * level to 5. That is the right call for a dashboard nudge and the wrong one
- * for a report: it turns "nobody has set a level" into "the level is 5", which
- * is precisely the conflation the low-stock screen exists to avoid. Null
- * travels all the way through to `lowStockReading`, which reports the two
- * cases differently.
+ * `shopDefaultLowStockLevel` is `shops.default_low_stock_level`, and passing it
+ * is what makes this agree with the rest of the app. The first version of this
+ * file said the opposite -- that using the shop default "turns 'nobody has set
+ * a level' into 'the level is 5'" -- and that was simply wrong about the data
+ * model. Migration 0030 added the column precisely to replace a hardcoded 5,
+ * it is `not null default 5` and editable at Settings -> Inventory alerts, and
+ * a blank `reorder_level` has always meant "use it" everywhere else in the
+ * app. Reading a blank as unanswered made this report disagree with the
+ * Inventory tab about which products were low.
  *
  * Read from `product_location_stock`, not from `products.stock`: the shop-wide
  * rollup hides a branch that is out of an item while another overflows, and
- * that branch is the one that needs reordering.
+ * that branch is the one that needs reordering. That part was right, and is
+ * still the reason this does not simply call `getLowStockProducts`.
  *
  * A row with no `products` join is dropped. It cannot happen through the
  * foreign key (`on delete cascade`), and inventing a name for it would put a
@@ -249,7 +257,8 @@ type StockOnHandDbRow = {
 export async function loadStockOnHand(
   shopId: string,
   locationId: string | null,
-  locations: ShopLocation[]
+  locations: ShopLocation[],
+  shopDefaultLowStockLevel: number
 ): Promise<StockOnHandRow[]> {
   const rows = await fetchAllRows<StockOnHandDbRow>((from, to) => {
     let query = supabase
@@ -271,14 +280,18 @@ export async function loadStockOnHand(
       locationName: names.get(row.location_id) ?? 'Unknown store',
       stock: row.stock,
       costCents: row.products.cost_cents,
-      reorderLevel: effectiveReorderLevel(row.reorder_level, row.products.reorder_level),
+      reorderLevel: effectiveReorderLevel(row.reorder_level, row.products.reorder_level, shopDefaultLowStockLevel),
     }));
 }
 
 /** Stock on hand plus the branch list, which the store column needs to name. */
-export async function loadInventoryReport(shopId: string, locationId: string | null): Promise<StockOnHandRow[]> {
+export async function loadInventoryReport(
+  shopId: string,
+  locationId: string | null,
+  shopDefaultLowStockLevel: number
+): Promise<StockOnHandRow[]> {
   const locations = await listLocations(shopId);
-  return loadStockOnHand(shopId, locationId, locations);
+  return loadStockOnHand(shopId, locationId, locations, shopDefaultLowStockLevel);
 }
 
 // ---------------------------------------------------------------------------
