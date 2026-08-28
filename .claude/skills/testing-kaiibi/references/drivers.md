@@ -148,10 +148,35 @@ hardware-keyboard world cannot be entered on iOS by automation alone — either
 the user presses one real key with the sim focused, or (for a layout /
 interaction pass only) temporarily force the detection hook's return in JS on
 the live dev server and revert immediately, saying so in the report.
+### Android traps found while testing the Reports hub (2026-08-27)
+
+- **A long-running dev app is as stale as a stale APK.** "JS from Metro is
+  always current" is true only of a bundle it has actually *fetched*. An app
+  process left running since before your branch existed still holds the bundle
+  it pulled at launch, and `adb reverse` being mapped proves nothing about
+  when. This rendered the pre-branch version of a whole screen — which reads
+  exactly like the feature not existing, not like staleness. `adb shell
+  am force-stop com.kaiibisteam.kaiibi` then relaunch before concluding
+  anything is missing. Check `adb logcat` is quiet on bundle errors too; a
+  failed fetch falls back to the embedded bundle silently.
+- **`am start -d` needs `&` escaped for the DEVICE shell.** `-d
+  'kaiibi://accounting?tab=reports&view=hub'` unquoted reaches `sh` on the
+  emulator, which backgrounds at the `&`: the intent is truncated to the first
+  param and the package argument is lost (`com.kaiibisteam.kaiibi:
+  inaccessible or not found`). It half-works — you land on the right screen
+  with the wrong params — so it looks like a routing bug. Escape it, or
+  navigate by tap.
+- **A deep link to an already-running app does not re-read its params.**
+  `Warning: Activity not started, intent has been delivered to currently
+  running top-most instance` means exactly that: a screen whose state
+  initialises from the URL on mount will not see the new values. Force-stop
+  first when the param is what you are testing.
+
 ### Android traps found while testing the scanner till (2026-08-09)
 
 - **A stale APK hides native modules silently.** JS from Metro is always
-  current, but a local Expo module only exists once the APK is rebuilt — and
+  current *once fetched* — see the 2026-08-27 note above — but a local Expo
+  module only exists once the APK is rebuilt, and
   kaiibi's null-fallbacks make the gap look like correct behaviour rather than
   an error. Compare `dumpsys package com.kaiibisteam.kaiibi | grep
   lastUpdateTime` against the module's commit date before trusting a "feature

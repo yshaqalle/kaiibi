@@ -8,7 +8,66 @@
 
 **Tech Stack:** Expo SDK 57, React Native, TypeScript, Jest. No new dependencies.
 
-**Mockup:** [`docs/design/reports-hub-mockup.html`](../../design/reports-hub-mockup.html) — read it first. Every string quoted in this plan comes from there and ships verbatim.
+**Mockup:** [`docs/design/reports-hub-mockup.html`](../../design/reports-hub-mockup.html) — read it first. Every string quoted in this plan comes from there and ships verbatim, **except where this plan now says otherwise**: the mockup predates phases 2b, 3a and 3c, and its copy for four cards asserted that shipped screens did not exist. See Task 1.
+
+---
+
+## ⚠️ Status — partly built. Read before starting.
+
+**Branch `reports-hub`, at `e417849`** (**unpushed since `3666d5b`; no PR**). Cut from `main` at `708cd6e`.
+
+| | |
+|---|---|
+| **Task 1** hub and routing | ✅ `fa8db0c` |
+| **Task 2** `report-math.ts` | ✅ `142bf9b` |
+| Hub copy fix (not in the original plan) | ✅ `3666d5b` |
+| **Tasks 3–5** sales, item, employee | ✅ `cad4e7e` |
+| **Tasks 6–8** category, inventory, low stock | ✅ `aeaa2e0` |
+| **Task 9** stock movement + exhaustive routing | ✅ `e417849` |
+| **Task 10** prove it in the browser | ✅ `00d1dea` — **found a wrong number** |
+
+**All ten tasks are done and the work is verified on web against the real test shop.** Not verified on iPhone, iPad or Android — the reports are new screens using existing primitives, so a native pass is worth doing before release but nothing in the diff is platform-specific.
+
+**Task 10 earned its place.** It found a store share rendering at **124.7%**, through 3381 passing tests: the numerator was revenue before refunds, the denominator `netRevenueCents` after them, and the test fixtures had no refunds so the two were equal. Fixed in `00d1dea` by moving the rule to `sharesOfOwnTotal()` in `report-math.ts`. **This is the third time this phase that a fixture-proved figure was wrong against real rows — treat "the tests pass" as the weakest evidence available.**
+
+Two design rules earned their keep on real data rather than in a fixture, and both are the difference between a usable report and a badly wrong one:
+
+- **Uncategorised is 94% of this shop's revenue.** Filtering it out — the naive version — would have taken every share of $14.70 instead of $244.95.
+- **Sales with no cashier are 18% of it.** Dropping them would leave the column $44 short of the shop's takings with nothing explaining the gap.
+
+And `getLowStockProducts` would have invented a reorder list: **not one of the 12 stock rows has a reorder level**, so the screen correctly rendered its `none-configured` branch.
+
+**This plan's stated baselines are fiction.** It pins "expected lint after" at 83–89 per task; phase 3 shipped since and the real figure was **122** before this work. **Measure your own and hold those** — a plan that pins a moving baseline teaches its reader to ignore a real regression.
+
+| | `3666d5b` (before) | `e417849` (now) |
+|---|---|---|
+| `tsc` | clean | clean |
+| `npm test` | 186 suites / 3360 tests | 186 suites / **3384** tests |
+| `npm run lint` | 122 (56 err, 66 warn) | **129** (63 err, 66 warn) |
+| `npm run test:db` | 42 | 42 |
+| DB head | `20261008000200` | unchanged |
+
+**The +7 lint is exactly one per new data-loading view**, all of it the mount-effect rule `use-refresh-on-focus.ts:28-31` depends on. Anything above 129 is a real regression. The +24 tests are all `report-math.ts`.
+
+**Batching worked and is worth repeating.** Tasks 3–9 went in three commits, not seven: they share the roll-ups in `report-math.ts` and one read each in `reports.ts`, so a commit per task would have put code in the first that only the last used.
+
+**What Tasks 3–9 decided, that Task 10 and anything after inherit:**
+
+- **`reports.ts` does not re-implement the sales read.** `sales.ts`'s pages past PostgREST's 1000-row cap and its mapping has been corrected repeatedly; a second copy would be a second opinion on what a sale is. The four sales reports shape its result and issue it once per screen.
+- **Revenue on a per-cashier or per-store row means takings less tax, never net of refunds.** A refund is handled by whoever is on the till when the customer returns, so charging it to either cashier is a guess. The screens say so.
+- **Task 8 does not use `getLowStockProducts`.** That function defaults a null reorder level to 5, which turns "nobody has set a level" into "the level is 5" — the exact conflation the screen exists to avoid.
+- **Stock Movement has no "Who" column.** `profiles` carries only the "own profile" policy, and the one readable name mapping, `list_shop_staff`, **raises** without one of four people-permissions — which would both throw the screen for a stock clerk and force the card to be gated.
+- **Routing is a `Record`, not a chain of `&&`.** `REPORT_SCREENS` in `report-screens.tsx` is exhaustive over `ReportView`, so a deleted screen or an uncatalogued report **fails `tsc`**. This replaces the defect the ledger's nav test still guards by grepping `accounting.tsx` for `view === 'assets'`. If you touch report routing, do not reintroduce the grep.
+
+**What Task 1 decided, that the rest inherit:**
+
+- **Nothing is gated.** All seven reports read tables under RLS with no RPC, so they give honest empty states; gating would hide a working report from someone entitled to see it. The rule this project follows is *gate a card whose RPC **raises*** — which is why the three statement cards **are** gated on `ledger.view`.
+- **`REPORT_VIEWS` holds exactly the seven built here, all `available`**, pinned by a test. A card that is not a hub report lives outside that list — `STATEMENTS_CARD` and the three Accounting hand-off cards are the precedent.
+- **Routing is tested by rendering and pressing every card**, never by grepping source text. The Accounting shell's routing test greps, and deleting a view branch there left the suite green with a live card leading to an empty screen. Do not copy that.
+
+**A fuller ledger — every decision, correction and mutation — is at `.superpowers/sdd/progress.md`, which is gitignored and therefore local-only.** If it is gone, this section is the record.
+
+---
 
 ## Global Constraints
 
@@ -28,7 +87,14 @@ Buildable now, because the tables exist:
 | Low Stock & Reorder | `product_location_stock.reorder_level` |
 | Stock Movement | `stock_receipts`, `stock_transfers`, `stock_counts` |
 
-**Everything else on the hub renders as a dimmed card saying what it waits for.** P&L, Balance Sheet, Cash Flow and the receivables reports need phase 2b's posting; Inventory Valuation needs 2a's cost layers. A card that opens nothing is worse than a card that explains itself — and those cards are the only place in the app that says why a statement is missing.
+~~**Everything else on the hub renders as a dimmed card saying what it waits for.** P&L, Balance Sheet, Cash Flow and the receivables reports need phase 2b's posting; Inventory Valuation needs 2a's cost layers.~~
+
+**Superseded — this paragraph was written before 2a, 2b and 3a shipped, and Task 1 shipped its copy verbatim, so the hub told readers that working screens did not exist.** Corrected in the commit that followed Task 2:
+
+- **P&L, Balance Sheet and Cash Flow are not waiting on anything.** Posting shipped in [#74](https://github.com/yshaqalle/kaiibi/pull/74) (2b) and all three statements in [#80](https://github.com/yshaqalle/kaiibi/pull/80) (3a). They are now `LEDGER_STATEMENT_CARDS` in `reports-hub.tsx` — live cards that open the Accounting tab's screens, gated on `ledger.view` because those RPCs raise.
+- **Inventory Valuation is not waiting on cost layers.** FIFO layers are parked and superseded by the moving weighted average in [#73](https://github.com/yshaqalle/kaiibi/pull/73) (2a), so the thing it claimed to wait for is never landing. It is the one card still dimmed, and it names the valuation basis and points at Inventory Balance (Task 7) instead.
+
+A card that opens nothing is still worse than a card that explains itself — but a card saying "not yet" about a screen one tab away is worse than either. **Before writing any copy in Tasks 3–9, check what has shipped since this plan was written.**
 
 Explicitly not in this plan: any migration, any RPC, `refunds.reason`, `tax_filings`, purchase orders, and the existing Reports tab's P&L / sales-tax / category cards, which **stay exactly where they are** until 2b gives them ledger data.
 
@@ -299,7 +365,13 @@ Check each of the seven renders with real data, and that the four dimmed cards d
 > **`browser_click` gives false negatives on this app.** Playwright's click does not deliver the pointer sequence React Native Web's `Pressable` needs — it silently does nothing, including on pre-existing tabs. Dispatch the full `pointerdown` / `mousedown` / `pointerup` / `mouseup` / `click` sequence instead. This cost an hour in #64 and looked exactly like an app bug.
 
 - [ ] **Step 4: Full suite.** `npx tsc --noEmit && npm test && npm run lint && npm run test:db`
-Expected: clean; 141 suites / ~2132 tests; **89** lint; **17** database checks — unchanged, because this phase touches no database.
+
+~~Expected: clean; 141 suites / ~2132 tests; **89** lint; **17** database checks.~~ **Superseded — those are the fictional baselines.** Measured on `e417849`, which is where Task 10 starts: `tsc` clean · **186 suites / 3381 tests** · lint **129 (63 errors, 66 warnings)** · `test:db` **42**. Task 10 changes no arithmetic, so any movement in the first three numbers is a regression it introduced.
+
+**Two things to actually look for, because tests and types cannot see them:**
+
+- **The four dimmed/handed-off cards.** Inventory Valuation must not navigate at all; P&L, Balance Sheet and Cash Flow must land on the *Accounting* tab with the range picked on Reports still applied.
+- **The caveats that turn on data.** Item Performance's uncosted caveat is `wrong` with a door to `/inventory?filter=nocost`; Low Stock renders three different states (`none-configured` as `wrong`, partial as `partial`, populated as `context`). A shop with every reorder level set will show none of them, which is not the same as them being broken.
 
 ---
 

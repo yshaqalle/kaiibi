@@ -16,6 +16,8 @@ import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-v
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { REPORT_SCREENS, hasReportScreen } from '@/components/accounting/reports/report-screens';
+import { ReportsHub, isReportView, reportViewMeta, type ReportView } from '@/components/accounting/reports/reports-hub';
 import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Colors } from '@/constants/theme';
@@ -26,7 +28,7 @@ import { OverviewTab } from '@/components/accounting/overview-tab';
 import { PayrollTab } from '@/components/accounting/payroll-tab';
 import { ReceivablesTab } from '@/components/accounting/receivables-tab';
 import { ReportsTab } from '@/components/accounting/reports-tab';
-import { TransactionsTab } from '@/components/accounting/transactions-tab';
+import { formatRangeLabel, TransactionsTab } from '@/components/accounting/transactions-tab';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { useAuth } from '@/hooks/use-auth';
 import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
@@ -87,9 +89,10 @@ export default function AccountingScreen() {
   // to find it. Read once as the INITIAL value; state is authoritative while
   // mounted, so a tap never waits for the URL to catch up.
   const { tab: tabParam, view: viewParam, session: sessionParam } = useLocalSearchParams<{ tab?: string; view?: string; session?: string }>();
-  const [tab, setTabState] = useState<AccountingTab>(
-    TAB_OPTIONS.some((option) => option.key === tabParam) ? (tabParam as AccountingTab) : 'overview'
-  );
+  const initialTab: AccountingTab = TAB_OPTIONS.some((option) => option.key === tabParam)
+    ? (tabParam as AccountingTab)
+    : 'overview';
+  const [tab, setTabState] = useState<AccountingTab>(initialTab);
   // Mirrored back into the URL on every change, because the URL is what
   // survives a remount. The web nav shell renders two different trees either
   // side of TABLET_BREAKPOINT (admin-tabs.web.tsx), so crossing it -- resizing
@@ -105,24 +108,54 @@ export default function AccountingScreen() {
     },
     [router]
   );
-  // Which ledger screen is open inside the Accounting tab. A URL param for
-  // exactly the reason `tab` is one -- state does not survive the shell's
-  // remount at TABLET_BREAKPOINT, the URL does.
+  // Which screen is open inside the Accounting tab or the Reports tab. A URL
+  // param for exactly the reason `tab` is one -- state does not survive the
+  // shell's remount at TABLET_BREAKPOINT, the URL does.
   //
   // Owned by the shell rather than by the tab, too. A tab component remounts on
   // every switch, so a `view` held inside one would drop the reader back on the
   // hub every time they came back from Reports. Unknown values resolve to the
   // hub rather than rendering nothing.
-  const [view, setViewState] = useState<LedgerView>(
-    LEDGER_VIEWS.some((v) => v.key === viewParam) ? (viewParam as LedgerView) : 'hub'
+  //
+  // ONE param for two hubs, not two params: `tab` already says which hub you
+  // are in, so `?tab=reports&view=sales` is unambiguous. Which catalogue it is
+  // read against therefore depends on the tab, and a view belonging to the
+  // OTHER hub reads as 'hub' here rather than being written away -- so leaving
+  // the Trial Balance for Reports and coming back returns you to it.
+  const [view, setViewState] = useState<LedgerView | ReportView>(
+    initialTab === 'reports'
+      ? isReportView(viewParam)
+        ? viewParam
+        : 'hub'
+      : LEDGER_VIEWS.some((v) => v.key === viewParam)
+        ? (viewParam as LedgerView)
+        : 'hub'
   );
   const setView = useCallback(
-    (next: LedgerView) => {
+    (next: LedgerView | ReportView) => {
       setViewState(next);
       router.setParams({ view: next });
     },
     [router]
   );
+  // Hands the reader from the Reports hub to a screen on the ACCOUNTING tab.
+  // The three financial statements render there and nowhere else, and a card on
+  // Reports that only said so would be a signpost to a screen one press away.
+  //
+  // Both params in ONE setParams call, not two: `tab` decides which catalogue
+  // `view` is read against on the next mount, so a render that saw the new tab
+  // and the old view would resolve the view to 'hub' and land the reader on the
+  // Accounting hub instead of the statement they pressed.
+  const openLedgerView = useCallback(
+    (next: LedgerView) => {
+      setTabState('accounting');
+      setViewState(next);
+      router.setParams({ tab: 'accounting', view: next });
+    },
+    [router]
+  );
+  const ledgerView: LedgerView = LEDGER_VIEWS.some((v) => v.key === view) ? (view as LedgerView) : 'hub';
+  const reportView: ReportView = isReportView(view) ? view : 'hub';
 
   // How many accounts the shop has, for the Chart of Accounts card's footer.
   // Fetched by the SHELL rather than the hub: the hub is a list of links and
@@ -190,14 +223,19 @@ export default function AccountingScreen() {
   // null is the combined business view.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
 
-  // Inside a ledger screen the title row names the SCREEN, not the tab --
-  // otherwise all six of them are titled "Accounting" and the reader has no way
-  // to tell which one they opened.
-  const ledgerView = LEDGER_VIEWS.find((v) => v.key === view);
-  const inLedger = tab === 'accounting' && view !== 'hub';
+  // Inside a ledger or report screen the title row names the SCREEN, not the
+  // tab -- otherwise every one of them is titled "Accounting" or "Reports" and
+  // the reader has no way to tell which one they opened. Both hubs read their
+  // label out of their own catalogue rather than the title row forking.
+  const ledgerViewMeta = LEDGER_VIEWS.find((v) => v.key === ledgerView);
+  const inLedger = tab === 'accounting' && ledgerView !== 'hub';
+  const inReport = tab === 'reports' && reportView !== 'hub';
   const tabOption = TAB_OPTIONS.find((t) => t.key === tab);
-  const title = inLedger ? ledgerView?.label : tabOption?.label;
-  const blurb = inLedger ? ledgerView?.blurb : tabOption?.blurb;
+  const title = inLedger ? ledgerViewMeta?.label : inReport ? reportViewMeta(reportView).label : tabOption?.label;
+  const blurb = inLedger ? ledgerViewMeta?.blurb : inReport ? reportViewMeta(reportView).blurb : tabOption?.blurb;
+  // What the picker is actually set to, for the hub cards that follow it. A
+  // card promising "7 days" to a reader who has chosen 30 gets believed.
+  const rangeLabel = dateRange ? formatRangeLabel(dateRange) : null;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
@@ -205,7 +243,7 @@ export default function AccountingScreen() {
         <View style={styles.headerRow}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>ACCOUNTING</Text>
-            {inLedger && <LedgerCrumb onBack={() => setView('hub')} />}
+            {(inLedger || inReport) && <LedgerCrumb label={inReport ? 'Reports' : 'Accounting'} onBack={() => setView('hub')} />}
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.blurb}>{blurb}</Text>
           </View>
@@ -251,7 +289,7 @@ export default function AccountingScreen() {
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
-            {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} unpostedRows={unpostedRows} can={can} />}
+            {tab === 'accounting' && ledgerView === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} unpostedRows={unpostedRows} can={can} />}
             {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} />}
@@ -274,7 +312,27 @@ export default function AccountingScreen() {
                 shell's window. Its hub card says "Every month" for that
                 reason. */}
             {tab === 'accounting' && view === 'close' && <ClosePeriodView setRefresh={setTabRefresh} onOpenView={setView} />}
-            {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'reports' && reportView === 'hub' && (
+              <ReportsHub onOpen={setView} onOpenLedgerView={openLedgerView} rangeLabel={rangeLabel} can={can} />
+            )}
+            {/* The seven reports, dispatched through REPORT_SCREENS rather
+                than as seven `&&` lines. The map is a Record over every
+                routable ReportView, so a screen deleted from it -- or a report
+                added to the catalogue without one -- fails to compile. The
+                ledger's routing above is the seven-line version, and it is
+                guarded by a test that reads THIS FILE as text and searches it
+                for `view === 'assets'`; a grep passes on a branch rendering
+                the wrong component and on one commented out. Each screen takes
+                the shell's range and store filter, so a reader who picked 30
+                days and one branch on the hub keeps both on arrival. */}
+            {tab === 'reports' && hasReportScreen(reportView)
+              ? REPORT_SCREENS[reportView]({ dateRange, locationFilter, setRefresh: setTabRefresh })
+              : null}
+            {/* The Reports tab as it was, kept on a route of its own rather
+                than deleted: it holds a working profit and loss, a sales-tax
+                summary and a labour ratio, and the four dimmed cards on the hub
+                cannot show any of them yet. */}
+            {tab === 'reports' && reportView === 'statements' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}
       </ScrollView>
