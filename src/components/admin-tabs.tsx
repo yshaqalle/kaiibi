@@ -125,6 +125,15 @@ export default function AdminTabs() {
             style={({ pressed }) => [styles.menuButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
           >
             <Text style={[styles.menuIcon, { color: colors.text }]}>☰</Text>
+            {/* Same reason as admin-sidebar.tsx: the row inside the menu is
+                only visible to somebody who has already opened it, and the
+                dashboard's task count only to somebody standing on the
+                dashboard. Neither reaches the person at the till. */}
+            {ordersBadge > 0 ? (
+              <View style={styles.menuButtonDot}>
+                <Text style={styles.menuButtonDotText}>{ordersBadge > 9 ? '9+' : String(ordersBadge)}</Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
       </View>
@@ -293,6 +302,12 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '800' },
   shopName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  menuButtonDot: {
+    position: 'absolute', top: -5, right: -6, minWidth: 18,
+    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999,
+    backgroundColor: '#B3261E', alignItems: 'center', justifyContent: 'center',
+  },
+  menuButtonDotText: { fontSize: 10.5, fontWeight: '800', color: '#FFFFFF' },
   menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
   menuIcon: { fontSize: 16 },
   settingsIcon: { fontSize: 15 },
