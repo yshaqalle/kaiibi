@@ -269,7 +269,12 @@ export function AdminSidebar({
                 the system, 1 had published a page.
                 The rail (navItems above) shows them as first-class entries at
                 tablet width and up, where there is room. */}
-            {storefrontEnabled && (
+            {/* COMPACT ONLY. The rail already carries both rows at wide width
+                (navItems above), and it is the primary nav there -- repeating
+                them in this menu made the same two destinations appear twice on
+                one screen. On a phone there is no rail, the bottom bar is full
+                at five, and this menu is the only place they can live. */}
+            {compact && storefrontEnabled && (
               <>
                 <Pressable
                   onPress={() => {

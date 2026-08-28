@@ -191,6 +191,25 @@ describe('AdminSidebar storefront rows', () => {
     return tree!;
   }
 
+  // The rail is the primary nav at wide width and already carries both rows.
+  // Repeating them in the menu put the same two destinations on screen twice.
+  it('does not repeat the rows in the menu at wide width, where the rail has them', async () => {
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(false)); });
+    // The rail has them...
+    expect(labels(tree!)).toContain('Storefront');
+    const burger = tree!.root
+      .findAllByType(Text).find((t) => t.props.children === '\u2630');
+    let node = burger as unknown as { props: Record<string, unknown>; parent: unknown } | null;
+    while (node && typeof node.props?.onPress !== 'function') node = node.parent as typeof node;
+    await act(async () => { (node!.props.onPress as () => void)(); });
+    // ...and opening the menu must not add a second copy of either.
+    const shown = labels(tree!);
+    expect(shown.filter((l) => l === 'Storefront')).toHaveLength(1);
+    expect(shown.filter((l) => l === 'Orders')).toHaveLength(1);
+    expect(shown).toContain('Settings');
+  });
+
   it('puts Storefront and Orders one tap from the phone menu', async () => {
     const shown = labels(await openPhoneMenu());
     expect(shown).toContain('Storefront');
