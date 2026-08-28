@@ -16,7 +16,9 @@
 --
 -- What was actually wrong was the NUMBER: platform_settings.default_grace_days
 -- was 7. Sections A, B and D are the new behaviour, and all three were red
--- before the migration.
+-- before the migration. Section E is about what the migration SAYS at push
+-- time: the count the owner reads is storefronts that come back, which is a
+-- subset of the subscriptions that leave `expired` and can differ from it.
 --
 -- Section D re-runs THE MIGRATION FILE ITSELF (\ir) against hand-built
 -- pre-migration rows. That is deliberate: a copy of the backfill's UPDATE
@@ -217,11 +219,13 @@ declare
   v_user_id uuid;
   v_shop_id uuid;
   v_name    text;
+  v_row     record;
 begin
   -- One shop per case the backfill has to get right. Each is created normally
   -- (so the trigger writes a well-formed row) and then rewritten to the
   -- pre-migration shape.
-  foreach v_name in array array['trialing', 'paid', 'already-expired', 'hand-extended', 'no-dates', 'inverted-dates'] loop
+  foreach v_name in array array['trialing', 'paid', 'already-expired', 'hand-extended', 'no-dates', 'inverted-dates',
+                               'extend-after-payment', 'revived-lit-page', 'revived-no-module'] loop
     v_user_id := gen_random_uuid();
     insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
       values (v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -267,12 +271,64 @@ begin
   -- current_period_end under a trial that runs on for another year. Reading
   -- the base with `coalesce` would take the stale one unconditionally and
   -- stamp a window that ended 70 days ago, dropping a trialing shop straight
-  -- to expired with NO grace at all. Nothing writes this shape today; it is
-  -- pinned here because a migration cannot be amended after it has run.
+  -- to expired with NO grace at all. This exact grace_until (null) is the
+  -- worst case rather than a written one; the fixture below is the shape as an
+  -- operator actually produces it.
   update public.shop_subscriptions
      set trial_ends_at = now() + interval '400 days', current_period_end = now() - interval '100 days',
          grace_until   = null
    where notes = 'lapse-backfill:inverted-dates';
+
+  -- The same inverted shape, exactly as extend_trial leaves it -- because
+  -- extend_trial writes trial_ends_at and grace_until and never touches
+  -- current_period_end (platform-admin/index.ts:410-419). Record a payment
+  -- covering to trial end + 30, then extend the trial by 90 days, and the row
+  -- below is what is in the table: a period end 60 days behind the trial end,
+  -- with the old seven-day window hanging off the NEW trial end.
+  --
+  -- Under `coalesce` this row is not stamped short, it is passed over
+  -- altogether: base + 30 days = now + 80, which is before grace_until at
+  -- now + 117, so the backfill's WHERE clause never matches it and the shop
+  -- keeps seven days. That is the failure worth pinning -- silent, and on a
+  -- shop somebody deliberately extended.
+  update public.shop_subscriptions
+     set trial_ends_at      = now() + interval '110 days',
+         current_period_end = now() + interval '50 days',
+         grace_until        = now() + interval '117 days'
+   where notes = 'lapse-backfill:extend-after-payment';
+
+  -- Two more shops that leave `expired`, to separate the status count from the
+  -- storefront count. One has a published page on the trial plan, which
+  -- carries `storefront`: its page is dark today and serves again after the
+  -- backfill. The other has an identical published page but sits on
+  -- `standard`, which does not carry the module (20260923000000), so it leaves
+  -- `expired` and its page stays dark. The `already-expired` shop above is the
+  -- third case: revived, with no storefronts row at all.
+  --
+  -- The pages are built FIRST, while both shops are still on their trial: the
+  -- enforce_shop_module() trigger refuses a storefronts insert from a shop
+  -- that does not currently have the module, which is exactly the state the
+  -- next two statements put them in. Publishing and then lapsing is also the
+  -- order a real shop lives through.
+  for v_row in
+    select shop_id, notes from public.shop_subscriptions
+     where notes in ('lapse-backfill:revived-lit-page', 'lapse-backfill:revived-no-module')
+  loop
+    update public.shops
+       set slug = 'lapse-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12)
+     where id = v_row.shop_id;
+    insert into public.storefronts (shop_id, theme, palette, headline, published_at)
+      values (v_row.shop_id, 'market', 'ink', 'Open 8am-9pm.', now());
+  end loop;
+
+  update public.shop_subscriptions
+     set plan_id = (select id from public.plans where key = 'standard')
+   where notes = 'lapse-backfill:revived-no-module';
+
+  update public.shop_subscriptions
+     set trial_ends_at = now() - interval '10 days', current_period_end = null,
+         grace_until   = now() - interval '3 days'
+   where notes in ('lapse-backfill:revived-lit-page', 'lapse-backfill:revived-no-module');
 end $$;
 
 -- Roll the setting back to what production had, so the migration's own
@@ -355,7 +411,72 @@ begin
     raise exception 'FAIL D8: a shop still 400 days into its trial was stamped with a window that ended at %, i.e. no grace at all', v_grace;
   end if;
 
+  -- ------------ D9: the shape extend_trial actually writes, not just the worst case
+  -- `coalesce` would skip this row entirely rather than shorten it (see the
+  -- fixture), leaving it on seven days. Measured from the trial end, which is
+  -- the later of its two dates.
+  select grace_until - trial_ends_at into v_gap
+    from public.shop_subscriptions where notes = 'lapse-backfill:extend-after-payment';
+  if v_gap < interval '29 days 23 hours' or v_gap > interval '30 days 1 hour' then
+    raise exception 'FAIL D9: a shop extended after paying got % of grace after its trial end, expected 30 days', v_gap;
+  end if;
+
   raise notice 'D ok: seven-day windows became thirty-day ones, a stale period end did not beat a live trial end, longer windows survived, and a dateless row was left alone';
+end $$;
+
+-- ===========================================================================
+-- E. The push-time number counts storefronts, not subscriptions
+-- ===========================================================================
+-- The migration prints two counts: subscriptions leaving `expired`, and dark
+-- storefronts that serve again. They are not the same number, and the second
+-- is the one the owner reads before deciding to push.
+--
+-- psql cannot read a NOTICE back into SQL, so this does not assert the printed
+-- string. It pins the FACT the string reports -- that among shops this
+-- backfill revives, the two counts differ, and which shops fall in the gap --
+-- using the same public read path the migration counts through. Scoped to the
+-- section D fixtures by `notes`, because sections B and C leave shops of their
+-- own in this transaction.
+do $$
+declare
+  v_revived integer;
+  v_lit     integer;
+  v_status  text;
+begin
+  select count(*) into v_revived
+    from public.shop_subscriptions s
+   where s.notes in ('lapse-backfill:already-expired', 'lapse-backfill:revived-lit-page',
+                     'lapse-backfill:revived-no-module')
+     and public.shop_effective_status(s.shop_id) = 'grace';
+  if v_revived <> 3 then
+    raise exception 'FAIL E1: % of the 3 revival fixtures came back into grace', v_revived;
+  end if;
+
+  select count(*) into v_lit
+    from public.shops sh
+    join public.shop_subscriptions s on s.shop_id = sh.id
+   where s.notes in ('lapse-backfill:already-expired', 'lapse-backfill:revived-lit-page',
+                     'lapse-backfill:revived-no-module')
+     and exists (select 1 from public.get_public_storefront(sh.slug));
+  if v_lit <> 1 then
+    raise exception 'FAIL E2: % of the 3 revived shops serve a page again, expected 1 -- the storefront count must not track the status count', v_lit;
+  end if;
+
+  -- Named, so a future reader knows which shop is which rather than trusting
+  -- the arithmetic. A revived shop on `standard` is in grace and still dark.
+  select public.shop_effective_status(s.shop_id) into v_status
+    from public.shop_subscriptions s where s.notes = 'lapse-backfill:revived-no-module';
+  if v_status <> 'grace' then
+    raise exception 'FAIL E3: the no-module fixture reads %, expected grace', v_status;
+  end if;
+  if exists (select 1 from public.get_public_storefront(
+               (select sh.slug from public.shops sh
+                  join public.shop_subscriptions s on s.shop_id = sh.id
+                 where s.notes = 'lapse-backfill:revived-no-module'))) then
+    raise exception 'FAIL E4: a revived shop on a plan without the storefront module serves a page';
+  end if;
+
+  raise notice 'E ok: 3 subscriptions left expired and 1 storefront came back -- the counts differ, and the notice says so';
 end $$;
 
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;
