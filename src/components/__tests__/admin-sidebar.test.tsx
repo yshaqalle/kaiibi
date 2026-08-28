@@ -209,6 +209,25 @@ describe('AdminSidebar storefront rows', () => {
     expect(labels(tree!)).not.toContain('0');
   });
 
+  // The rail is the primary nav at wide width and already carries both rows.
+  // Repeating them in the menu put the same two destinations on screen twice.
+  // Counted rather than asserted absent on purpose: they SHOULD be on that
+  // screen, just once -- an absence check would pass against a build that lost
+  // them altogether, which is the worse bug.
+  it('does not repeat the rows in the menu at wide width, where the rail has them', async () => {
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(false)); });
+    expect(labels(tree!)).toContain('Storefront');
+    const glyph = tree!.root.findAllByType(Text).find((t) => t.props.children === '\u2630');
+    let node = glyph as unknown as { props: Record<string, unknown>; parent: unknown } | null;
+    while (node && typeof node.props?.onPress !== 'function') node = node.parent as typeof node;
+    await act(async () => { (node!.props.onPress as () => void)(); });
+    const shown = labels(tree!);
+    expect(shown.filter((l) => l === 'Storefront')).toHaveLength(1);
+    expect(shown.filter((l) => l === 'Orders')).toHaveLength(1);
+    expect(shown).toContain('Settings');
+  });
+
   it('puts Storefront and Orders one tap from the phone menu', async () => {
     const shown = labels(await openPhoneMenu());
     expect(shown).toContain('Storefront');
