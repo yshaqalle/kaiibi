@@ -35,7 +35,11 @@ Two design rules earned their keep on real data rather than in a fixture, and bo
 - **Uncategorised is 94% of this shop's revenue.** Filtering it out — the naive version — would have taken every share of $14.70 instead of $244.95.
 - **Sales with no cashier are 18% of it.** Dropping them would leave the column $44 short of the shop's takings with nothing explaining the gap.
 
-And `getLowStockProducts` would have invented a reorder list: **not one of the 12 stock rows has a reorder level**, so the screen correctly rendered its `none-configured` branch.
+~~And `getLowStockProducts` would have invented a reorder list: **not one of the 12 stock rows has a reorder level**, so the screen correctly rendered its `none-configured` branch.~~
+
+**Wrong, and corrected in [#105](https://github.com/yshaqalle/kaiibi/pull/105).** `getLowStockProducts` was not inventing anything. `shops.default_low_stock_level` exists — migration `0030` added it, its header says it *"replaces the previous hardcoded fallback of 5"*, it is `not null default 5` and it is edited at Settings → Inventory alerts. A blank `reorder_level` has always meant **"use the shop's number"** to the Dashboard, the Inventory tile, the stock filter and every product row. The report was the only reader that disagreed, and the `none-configured` branch it "correctly rendered" was telling a shop with empty shelves that its stock could not be judged, while Inventory listed three products below their level one tab away.
+
+**Nobody checked whether the setting existed** before the rule below was written or implemented. One `grep defaultLowStockLevel src/` would have ended it.
 
 **This plan's stated baselines are fiction.** It pins "expected lint after" at 83–89 per task; phase 3 shipped since and the real figure was **122** before this work. **Measure your own and hold those** — a plan that pins a moving baseline teaches its reader to ignore a real regression.
 
@@ -55,7 +59,7 @@ And `getLowStockProducts` would have invented a reorder list: **not one of the 1
 
 - **`reports.ts` does not re-implement the sales read.** `sales.ts`'s pages past PostgREST's 1000-row cap and its mapping has been corrected repeatedly; a second copy would be a second opinion on what a sale is. The four sales reports shape its result and issue it once per screen.
 - **Revenue on a per-cashier or per-store row means takings less tax, never net of refunds.** A refund is handled by whoever is on the till when the customer returns, so charging it to either cashier is a guess. The screens say so.
-- **Task 8 does not use `getLowStockProducts`.** That function defaults a null reorder level to 5, which turns "nobody has set a level" into "the level is 5" — the exact conflation the screen exists to avoid.
+- ~~**Task 8 does not use `getLowStockProducts`.** That function defaults a null reorder level to 5, which turns "nobody has set a level" into "the level is 5" — the exact conflation the screen exists to avoid.~~ **This was wrong — see the correction above and [#105](https://github.com/yshaqalle/kaiibi/pull/105).** There is no conflation: the 5 is `shops.default_low_stock_level`, a real setting the shop owner edits, and treating a blank `reorder_level` as unanswered put this report on a different definition of "low" from the rest of the app. Task 8 still does not *call* `getLowStockProducts`, but for the other reason given below — it reads per-location stock, which the shop-wide rollup hides — and it now resolves the level the same way: branch override → product level → shop default.
 - **Stock Movement has no "Who" column.** `profiles` carries only the "own profile" policy, and the one readable name mapping, `list_shop_staff`, **raises** without one of four people-permissions — which would both throw the screen for a stock clerk and force the card to be gated.
 - **Routing is a `Record`, not a chain of `&&`.** `REPORT_SCREENS` in `report-screens.tsx` is exhaustive over `ReportView`, so a deleted screen or an uncatalogued report **fails `tsc`**. This replaces the defect the ledger's nav test still guards by grepping `accounting.tsx` for `view === 'assets'`. If you touch report routing, do not reintroduce the grep.
 
@@ -331,7 +335,7 @@ Each follows the same shape, and each is one commit. **Do them in this order** �
 | 5 | Sales by Employee | One full-width table, a `context` caveat on not being a leaderboard | 85 |
 | 6 | Sales by Category | One full-width table with a share bar, Uncategorised as a visible row | 86 |
 | 7 | Inventory Balance | KPI strip, by-store table, a `context` caveat about the valuation basis | 87 |
-| 8 | Low Stock & Reorder | One table sorted by shortfall, an empty state that distinguishes "none low" from "none configured" | 88 |
+| 8 | Low Stock & Reorder | One table sorted by shortfall. ~~an empty state that distinguishes "none low" from "none configured"~~ — **the second state does not exist; see #105** | 88 |
 | 9 | Stock Movement | KPI strip, one table merging three sources | 89 |
 
 **For each:**
@@ -347,7 +351,11 @@ Each follows the same shape, and each is one commit. **Do them in this order** �
 **Three specific things not to get wrong:**
 
 - **Task 6 — Uncategorised is a row, not a filter.** 175 products have no category; hiding them makes the percentages add to less than the shop took.
-- **Task 8 — the empty state distinguishes two cases.** "Nothing is low" and "no reorder levels are set" are different facts, and `reorder_level` is nullable and usually blank. An empty report that means the second while reading like the first is a lie.
+- ~~**Task 8 — the empty state distinguishes two cases.** "Nothing is low" and "no reorder levels are set" are different facts, and `reorder_level` is nullable and usually blank. An empty report that means the second while reading like the first is a lie.~~
+
+  **This requirement was false, and it was implemented.** `reorder_level` being blank is not the question going unanswered — `shops.default_low_stock_level` answers it for every row. There is only one empty state and it is "nothing is at or below the level in force". Building the second one produced a screen that told shops with empty shelves that nothing could be judged. Corrected in [#105](https://github.com/yshaqalle/kaiibi/pull/105).
+
+  **What this cost, and the cheap check that would have prevented it.** The claim "`reorder_level` is nullable and usually blank, so nobody has set a level" is a claim about the DATA MODEL, asserted in a plan and never tested against the code. `defaultLowStockLevel` has five call sites in `src/`, all agreeing with each other and all disagreeing with this paragraph. **Before implementing a rule about what a nullable column means, grep for its existing readers.** A plan is a hypothesis about the codebase, not a description of it — and this one was wrong twice (the other was the store share, [#96](https://github.com/yshaqalle/kaiibi/pull/96)'s 124.7%).
 - **Task 9 — three tables, one sequence.** `stock_receipts`, `stock_transfers` and `stock_counts` have different shapes and must be normalised into one row type in `reports.ts`, not merged in the component.
 
 ---
@@ -371,7 +379,8 @@ Check each of the seven renders with real data, and that the four dimmed cards d
 **Two things to actually look for, because tests and types cannot see them:**
 
 - **The four dimmed/handed-off cards.** Inventory Valuation must not navigate at all; P&L, Balance Sheet and Cash Flow must land on the *Accounting* tab with the range picked on Reports still applied.
-- **The caveats that turn on data.** Item Performance's uncosted caveat is `wrong` with a door to `/inventory?filter=nocost`; Low Stock renders three different states (`none-configured` as `wrong`, partial as `partial`, populated as `context`). A shop with every reorder level set will show none of them, which is not the same as them being broken.
+- **The caveats that turn on data.** Item Performance's uncosted caveat is `wrong` with a door to `/inventory?filter=nocost`. ~~Low Stock renders three different states (`none-configured` as `wrong`, partial as `partial`, populated as `context`).~~ **Low Stock now has one `context` caveat naming the shop default in force, and the two states above were deleted in [#105](https://github.com/yshaqalle/kaiibi/pull/105) because neither described anything real.**
+- **Whether two screens agree.** This is the check that was missing, and it is the one that would have caught the defect above in the browser rather than three sessions later: open Reports → Low Stock and the Inventory tab side by side and reconcile them. They will not show the same COUNT — Inventory judges a product against its shop-wide total, the report judges one product at one branch — but they must be using the same reorder level, and the difference must be explained on screen rather than left for the reader to work out.
 
 ---
 
