@@ -1690,6 +1690,176 @@ begin
   raise notice 'F13 ok: a comp that expired, a limit-kind override and a comp for another module each leave the take-down alone -- only an UNEXPIRED module/storefront row skips it';
 end $$;
 
+-- ===========================================================================
+-- G. The ADDRESS is kept too, and stays kept against the whole world
+-- ===========================================================================
+-- "Keep the data" (section C) is asserted there for the rows a shopkeeper can
+-- see: the storefront, the products. The one piece nobody thinks of as data is
+-- the shop's public address -- `shops.slug`, the `<slug>.kaiibi.com` a shop
+-- prints on its cards, paints on its shutter and sends to its customers. It is
+-- not owned by the storefront row and it does not stop mattering when the page
+-- goes dark: a shop that pays after two months away has to come back to the
+-- SAME address, or every card it ever printed is now a link to somebody else.
+--
+-- THIS SECTION PASSES ON THE CODE THAT EXISTS TODAY, AND IT IS SUPPOSED TO.
+-- Nothing anywhere clears `slug` on lapse, and `claim_shop_slug`
+-- (20260925000000) asks `is_slug_available`, which is `not exists (select 1
+-- from shops where slug = v.slug)` -- a plain existence test with NO subscription
+-- join, no status, no notion of a shop being away. So a lapsed shop's address is
+-- held for it for free, by a function that never learned lapsing exists. Like
+-- section C, this is a REGRESSION GUARD: it is here so that the day somebody
+-- adds a tidy-up that nulls `slug` when a shop goes past grace -- which reads as
+-- housekeeping and is in fact handing a competitor a shop's address -- the
+-- database suite goes red naming exactly that, instead of the shop finding out
+-- from a customer.
+--
+-- BOTH SIDES OF THE BOUNDARY. `grace` and `expired` are different statuses
+-- reached by different dates, and a cleanup would almost certainly be written
+-- against one of them. A check that only covered `expired` would leave a
+-- grace-time cleanup free to run, and vice versa, so both run below off the
+-- same body.
+--
+-- THE TRAP THIS IS WRITTEN AROUND. "Another shop cannot claim this slug" is
+-- satisfied by a rival whose claim failed for a reason that has nothing to do
+-- with the slug -- a rival that is not a member of the shop it claims for, or
+-- has no `storefront` module, or does not exist. Each of those raises from
+-- claim_shop_slug too, and each would make this block pass with the address
+-- lying wide open. So the rival CLAIMS A FREE SLUG FIRST and must succeed --
+-- that one call proves membership, module and grants are all in order -- and
+-- only then is it pointed at the lapsed shop's address, where the error text is
+-- compared to `slug_taken` exactly rather than merely being non-empty.
+do $$
+declare
+  r            record;
+  v_shop       uuid;
+  v_slug       text;
+  v_rival      uuid;
+  v_rival_user uuid;
+  v_control    text;
+  v_returned   text;
+  v_ctl_raised boolean;
+  v_ctl_err    text;
+  v_raised     boolean;
+  v_errmsg     text;
+begin
+  for r in
+    select * from (values
+      -- A month left to pay. The page still serves, the modules still resolve
+      -- (section C) -- and the address is not up for grabs either.
+      ('in grace'::text,  'grace'::text,   interval '29 days'),
+      -- The month is over, the page is dark, the rows stay (section C10/C11).
+      -- The address is one of those rows.
+      ('past grace'::text, 'expired'::text, interval '-10 days')
+    ) as t(label, status, grace_offset)
+  loop
+    -- p_expire => false so the shop is built on an ordinary trial and the slug
+    -- can be read BEFORE the lapse. Reading it only afterwards would compare
+    -- the slug to itself and pass for a shop whose address had been cleared and
+    -- re-stamped, or never set at all.
+    v_shop := pg_temp.lapse_shop('Lapse Slug Shop -- ' || r.label, p_expire => false);
+    select slug into v_slug from public.shops where id = v_shop;
+    if v_slug is null then
+      raise exception 'FAIL G1: the % fixture was built with no slug, so there is no address here to keep and everything below passes for free', r.label;
+    end if;
+
+    -- ---- The lapse. trialing -> grace and trialing -> expired are both
+    -- non-crossings for the 20260930000500 trigger (it fires on DARK -> not
+    -- dark), so nothing here disturbs storefronts.published_at.
+    update public.shop_subscriptions
+       set trial_ends_at = now() - interval '1 day', current_period_end = null,
+           grace_until   = now() + r.grace_offset
+     where shop_id = v_shop;
+
+    if public.shop_effective_status(v_shop) <> r.status then
+      raise exception 'FAIL G2: the % fixture reads %, expected % -- it never lapsed, so nothing below is being tested', r.label, public.shop_effective_status(v_shop), r.status;
+    end if;
+
+    -- ---- Property 1: the address survived the lapse.
+    if (select slug from public.shops where id = v_shop) is distinct from v_slug then
+      raise exception 'FAIL G3: a shop % lost its address -- slug was %, is now % -- the shop is away, not gone, and the address on its cards has to still be its own when it pays', r.label, v_slug, coalesce((select slug from public.shops where id = v_shop), '<null>');
+    end if;
+
+    -- ---- The rival: a real shop, on a trial, that could claim a slug today.
+    v_rival_user := gen_random_uuid();
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_rival_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-lapse-g-' || v_rival_user || '@example.test', '', now(), now(), now());
+    insert into public.shops (owner_id, name) values (v_rival_user, 'Lapse Slug Rival -- ' || r.label)
+      returning id into v_rival;
+
+    v_control := 'lapse-g-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+
+    -- claim_shop_slug is granted to `authenticated` only and checks
+    -- is_shop_member itself, so the session has to be the rival's owner -- the
+    -- same dance verify-storefront-editor.sql uses.
+    perform set_config('request.jwt.claims', json_build_object('sub', v_rival_user)::text, true);
+    perform set_config('role', 'authenticated', true);
+
+    -- ---- NON-VACUITY, and the whole reason this block can be trusted. If this
+    -- call fails, every "the rival could not take it" assertion below would
+    -- have passed on a rival that could not have taken ANY slug. It is trapped
+    -- rather than left to abort so that THIS is what the suite prints: a
+    -- claim_shop_slug degraded to "always refuse" satisfies G5 and G6
+    -- perfectly, and G4 is the only thing standing between that and a green run.
+    v_ctl_raised := false;
+    v_ctl_err := null;
+    begin
+      v_returned := public.claim_shop_slug(v_rival, v_control);
+    exception when others then
+      v_ctl_raised := true;
+      v_ctl_err := sqlerrm;
+    end;
+
+    -- ---- Property 2: the same rival, in the same session, one statement
+    -- later, pointed at the lapsed shop's address.
+    v_raised := false;
+    v_errmsg := null;
+    begin
+      perform public.claim_shop_slug(v_rival, v_slug);
+    exception when others then
+      v_raised := true;
+      v_errmsg := sqlerrm;
+    end;
+
+    perform set_config('role', 'postgres', true);
+    perform set_config('request.jwt.claims', null, true);
+
+    if v_ctl_raised then
+      raise exception 'FAIL G4: the rival could not claim the FREE slug % at all ("%") -- it is in no state to claim anything, so the refusal asserted below says nothing about whether the address of a shop % is still held', v_control, coalesce(v_ctl_err, '<null>'), r.label;
+    end if;
+    if v_returned is distinct from v_control then
+      raise exception 'FAIL G4b: the rival''s control claim returned % for %, so claim_shop_slug is not doing what the refusal below is being read as', coalesce(v_returned, '<null>'), v_control;
+    end if;
+
+    if not v_raised then
+      raise exception 'FAIL G5: a rival shop claimed %, the address of a shop that is only % -- that shop pays next week and its cards now point at somebody else', v_slug, r.label;
+    end if;
+    -- Exactly slug_taken, not merely "something raised". A rival refused for
+    -- lack of membership or lack of the storefront module raises here too, and
+    -- would let this pass over an address that was in fact free.
+    if v_errmsg is distinct from 'slug_taken' then
+      raise exception 'FAIL G6: claiming the address of a shop % raised "%", expected slug_taken -- the claim was refused for some other reason, so nothing here shows the address is still held', r.label, coalesce(v_errmsg, '<null>');
+    end if;
+
+    -- ---- The refusal wrote nothing. The rival still holds the control slug
+    -- it legitimately claimed and nothing else.
+    if (select slug from public.shops where id = v_rival) is distinct from v_control then
+      raise exception 'FAIL G7: after a refused claim the rival holds %, expected its own %', coalesce((select slug from public.shops where id = v_rival), '<null>'), v_control;
+    end if;
+    if (select slug from public.shops where id = v_shop) is distinct from v_slug then
+      raise exception 'FAIL G8: a refused claim still moved the % shop''s slug from % to %', r.label, v_slug, coalesce((select slug from public.shops where id = v_shop), '<null>');
+    end if;
+
+    -- The mechanism underneath, named so a failure says WHICH half went: the
+    -- refusal comes from is_slug_available, which reads shops alone.
+    if public.is_slug_available(v_slug) then
+      raise exception 'FAIL G9: is_slug_available says %, the address of a shop %, is free -- the row that holds it is gone, and the next shop to ask will simply be given it', v_slug, r.label;
+    end if;
+  end loop;
+
+  raise notice 'G ok: a lapsed shop keeps its address in grace and past it, and a rival that can demonstrably claim a free slug is refused that one with slug_taken';
+end $$;
+
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;
 
 rollback;
