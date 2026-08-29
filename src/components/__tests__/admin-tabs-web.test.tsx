@@ -110,16 +110,24 @@ afterEach(async () => {
 });
 
 // WHY THIS FILE EXISTS. #102 was the same two rows appearing twice on one
-// screen, and it was fixed in the rail and the ☰ menu together. The web
-// shell's THIRD nav -- the mobile bottom bar in admin-tabs.web.tsx -- had no
-// test at all: admin-sidebar.test.tsx passes `bottomNav={<Text>bottom nav</Text>}`,
-// a stub, so the real bar never rendered under any assertion. Adding a greyed
-// Storefront row to that bar (which is exactly what the comment at the end of
-// its `navItems` warns against) would have put a narrow shop's Storefront in
-// the bar AND the menu, and nothing would have gone red.
+// screen. The web shell's THIRD nav -- the mobile bottom bar in
+// admin-tabs.web.tsx -- had no test at all: admin-sidebar.test.tsx passes
+// `bottomNav={<Text>bottom nav</Text>}`, a stub, so the real bar never
+// rendered under any assertion. Adding a greyed Storefront row to that bar
+// (which is exactly what the comment at the end of its `navItems` warns
+// against) would have put a narrow shop's Storefront in the bar AND the menu,
+// and nothing would have gone red.
 //
-// The counts below are per SCREEN, over the whole rendered tree, so they see
-// every nav the shell puts up at that width at once.
+// KEEP THAT PROPERTY: this file must go on importing the real
+// `@/components/admin-tabs.web` and stubbing nothing below `AdminSidebar`, so
+// the actual `BottomNav` renders under every assertion here. A stub would give
+// the whole file back to the bug it was written for.
+//
+// Storefront and Orders now have ONE home at every width -- the ☰ menu -- so
+// the rule these tests pin has changed shape: the rows must be in the menu at
+// 390 AND at 1280, and in no bar and no rail at either. The counts below are
+// per SCREEN, over the whole rendered tree, so they see every nav the shell
+// puts up at that width at once.
 describe('AdminTabs (web) — each row appears once per screen', () => {
   // The shape that makes this file's subject visible: the phone bar is
   // rendered, the rail is not.
@@ -169,15 +177,31 @@ describe('AdminTabs (web) — each row appears once per screen', () => {
     expect(shown).not.toContain('🔒');
   });
 
-  // And the wide width, where the rail carries both rows and the menu must
-  // not: this is #102's own case, now asserted through the real web shell
-  // rather than through AdminSidebar on its own.
-  it('shows the rows once at desktop width, on the rail and not in the menu', async () => {
+  // The desktop twin of the bottom-bar test above: the rail is the nav on
+  // screen at this width, and neither row belongs in it at any lock state.
+  it('keeps a lapsed shop’s rows out of the rail entirely', async () => {
+    signIn({ hasModule: (m) => m !== 'storefront' });
+    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    await setWidth(DESKTOP);
+    const shown = labels(await render());
+    // The rail is genuinely up -- its footer, and the five rows it carries.
+    expect(shown).toContain('Powered by Ka Iibi');
+    expect(shown).toEqual(expect.arrayContaining(['Dashboard', 'POS', 'Inventory', 'People', 'Accounting']));
+    // Menu CLOSED, so the rail is the only nav on screen.
+    expect(shown.filter((l) => l === 'Storefront')).toHaveLength(0);
+    expect(shown.filter((l) => l === 'Orders')).toHaveLength(0);
+  });
+
+  // And the wide width with the menu open: the ☰ is where both rows live now,
+  // at 1280 exactly as at 390. This is #102's own case, asserted through the
+  // real web shell rather than through AdminSidebar on its own.
+  it('shows the rows once at desktop width, in the menu and not on the rail', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
     (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
     await setWidth(DESKTOP);
     const tree = await render();
     expect(labels(tree)).toContain('Powered by Ka Iibi');
+    expect(labels(tree)).not.toContain('Storefront');
     await openMenu(tree);
     const shown = labels(tree);
     expect(shown.filter((l) => l === 'Storefront')).toHaveLength(1);

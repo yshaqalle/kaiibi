@@ -29,10 +29,11 @@ const navItems = [
   { href: '/accounting', label: 'Accounting', icon: '🧮', isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
   // Storefront and Orders are deliberately NOT here, locked or otherwise.
   // This bar is five items at flex: 1 across a 390pt screen; a seventh leaves
-  // each about 55pt with a label truncated to "Storefr…". They live in the ☰
-  // menu at this width (admin-sidebar.tsx) and in the rail above it -- and
-  // #102's rule is that each row appears once per SCREEN, so adding a greyed
-  // row here would put the narrow shop's Storefront in two places at once.
+  // each about 55pt with a label truncated to "Storefr…". Their one home is
+  // the ☰ menu in admin-sidebar.tsx, which carries them at EVERY width -- the
+  // rail this bar replaces does not carry them either. #102's rule is that
+  // each row appears once per SCREEN, so a greyed row added here would put
+  // the narrow shop's Storefront in two places at once.
 ] as const satisfies readonly { href: string; label: string; icon: string; isVisible: (ctx: NavVisibility) => boolean }[];
 
 // Below `TABLET_BREAKPOINT` the persistent sidebar would eat more than half

@@ -4,8 +4,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { getMyStorefront } from '@/lib/storefront-admin';
 
 // What the Storefront and Orders rows should do, as one answer shared by every
-// nav that carries them (the wide rail and the ☰ menu in admin-sidebar.tsx,
-// and the native phone ☰ in admin-tabs.tsx).
+// nav that carries them -- which is now the ☰ menu and only the ☰ menu, at
+// every width (admin-sidebar.tsx) and on both platforms (the native phone ☰ in
+// admin-tabs.tsx). No rail or bar reads this.
 //
 //   'open'    the shop has the module -- an ordinary row, including through
 //             the whole grace month, where the plan is still the shop's own

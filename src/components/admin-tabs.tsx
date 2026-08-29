@@ -151,9 +151,13 @@ export default function AdminTabs() {
                 -> Storefront, filed under Business between Vendors and
                 Receipt). Kept byte-for-byte in step with admin-sidebar.tsx's
                 menu so the two platforms do not drift.
-                This is the phone branch -- there is no rail here to carry the
-                same two rows, so #102 is satisfied by there being nowhere else
-                for them to appear. */}
+                This is the phone branch, and the ☰ is the only place these two
+                rows appear on it -- there is no rail here, and no trigger for
+                them below. The tablet branch above hands off to AdminSidebar,
+                whose rail does not carry them either: they are in its ☰ at
+                every width. So #102's rule -- each row once per SCREEN -- is
+                satisfied on both platforms the same way, by there being
+                nowhere else for them to appear at any width. */}
             {storefront !== 'hidden' && (
               <>
                 {/* A lapsed shop keeps both rows, greyed and locked: the page
