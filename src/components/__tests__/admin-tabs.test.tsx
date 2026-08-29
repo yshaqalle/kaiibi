@@ -17,7 +17,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { resetStorefrontPresence } from '@/hooks/use-storefront-nav';
 import type { Module } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
-import { countOrdersNeedingAction, getMyStorefront } from '@/lib/storefront-admin';
+import { countOrdersNeedingAction, shopHasStorefront } from '@/lib/storefront-admin';
 
 // Same stubs the sibling shells' suites use, and for the same reasons:
 // `signOut` in the ☰ menu reaches lib/auth, which builds a real Supabase
@@ -53,9 +53,14 @@ jest.mock('expo-image-picker', () => ({
 // whole module would leave it an undefined-returning jest.fn, which the hook
 // swallows into a silent 0 -- and every badge test below would then pass for
 // the wrong reason.
+//
+// `shopHasStorefront` is the other half of the lapsed tests: it is how the nav
+// tells a shop that HAD a page from one that never did, asked as a head count
+// on `storefronts` (use-storefront-nav.ts). Stubbed at "never had one", which
+// is what every test here but the two lapsed ones wants.
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: jest.fn(async () => 0),
-  getMyStorefront: jest.fn(async () => null),
+  shopHasStorefront: jest.fn(async () => false),
 }));
 jest.mock('@/hooks/use-auth', () => ({ useAuth: jest.fn() }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));
@@ -151,7 +156,7 @@ function signIn(
 // `useOrdersNeedingActionBadge` still counts orders for.
 function signInLapsed() {
   signIn({ hasModule: (m) => m !== 'storefront' });
-  (getMyStorefront as jest.Mock).mockResolvedValue({ id: 'sf1', slug: 'jaalala' });
+  (shopHasStorefront as jest.Mock).mockResolvedValue(true);
 }
 
 async function render() {
@@ -163,7 +168,7 @@ async function render() {
 beforeEach(() => {
   jest.clearAllMocks();
   (countOrdersNeedingAction as jest.Mock).mockResolvedValue(0);
-  (getMyStorefront as jest.Mock).mockResolvedValue(null);
+  (shopHasStorefront as jest.Mock).mockResolvedValue(false);
   // Cached per shop for the life of the process, so a test that did not clear
   // it would read the previous test's shop.
   resetStorefrontPresence();

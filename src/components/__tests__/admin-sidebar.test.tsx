@@ -724,9 +724,13 @@ describe('AdminSidebar ☰ badge and sheet accessibility', () => {
     return tree!;
   }
 
+  // The shop whose plan has lapsed but whose page is still on file: no
+  // `storefront` module, and a `storefronts` row that outlived the lapse.
+  // `shopHasStorefront` answering true IS that row -- the nav asks the
+  // question as a head count now, not by reading the editor's payload back.
   function lapsedWithAPage() {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
   }
 
   it('caps the ☰ count at 9+ and sizes the dot from its own style', async () => {
