@@ -195,6 +195,14 @@ describe('withModuleWall', () => {
 // The guarantee the old single choke point used to give for free. The wall now
 // renders inside each screen's shell rather than in place of the navigator, so
 // a new module-gated route that forgets it would simply be free.
+//
+// Kept, but it is no longer the guard -- it is a cheap first line that reads
+// source text and can be satisfied by a comment. The real one is
+// src/__tests__/module-gate.test.tsx, which imports each route and interrogates
+// the component actually default-exported: what `moduleWallOf()` says it is
+// gated on, and whether it renders the wall for a shop with no modules. That
+// one is keyed off `ROUTE_MODULES` rather than off the files on disk, so an
+// entry added to the map with no walled route fails there and not here.
 describe('every module-gated route', () => {
   const adminDir = path.join(__dirname, '..', 'app', '(admin)');
 
