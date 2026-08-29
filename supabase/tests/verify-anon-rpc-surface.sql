@@ -23,13 +23,16 @@
 --              oversight: revoke it, or add it here with a reason.
 --   removed -- a revoke landed. Good; drop the name from this list.
 --
--- INCLUSION HERE IS NOT A CLAIM THAT A FUNCTION IS SAFE. This list is the
--- surface as it stands, not an audit of it. 74 names are pinned; the six that
--- 20261009000000 closed were probed by hand and the ~13 with no in-body guard
--- were read, but the rest are safe *by argument* -- a callee checks, a
--- predicate covers it -- and that is the kind of argument this codebase has
--- now got wrong four times. Narrowing this list is real work that has not been
--- done. The pin exists so it cannot get quietly WIDER while nobody is looking.
+-- THE LIST IS NOW THE WHOLE LEGITIMATE ANON SURFACE, not just "the surface as
+-- it stands". An earlier version of this file pinned 74 functions and said the
+-- narrowing was real work nobody had done. It has been done:
+-- 20261009000100 revoked anon from the other 70, each verified to have no
+-- pre-authentication caller (seven adversarial reading passes plus a
+-- completeness map of every public route). What remains is four functions with
+-- an EXPLICIT anon grant, because a logged-out customer genuinely calls them to
+-- browse a storefront and place an order. Anything else appearing here is a
+-- regression: a new function that took the PUBLIC default, or an anon grant
+-- added without a public flow to justify it.
 --
 -- Trigger functions are excluded: PostgREST will not call them and they are
 -- not reachable as RPCs, so pinning them would be noise that changes whenever
@@ -40,80 +43,13 @@
 do $$
 declare
   v_expected text[] := array[
-    'account_code_for_expense_category',
-    'account_code_for_payment_method',
-    'accounts_payable_debit',
-    'backfill_missing_account',
-    'backfill_shop_ledger',
-    'balance_sheet',
-    'can_access_location',
-    'cash_flow',
-    'close_accounting_period',
-    'close_due_periods',
-    'close_register_session',
-    'customer_points_available',
-    'default_chart_of_accounts',
-    'default_shop_roles',
-    'delete_brand',
-    'delete_category',
-    'delete_invoice_payment',
-    'delete_or_archive_promotion',
-    'delete_sale',
-    'delete_tag',
-    'edit_sale',
-    'ensure_mobile_register',
+    -- The deliberate public storefront: a logged-out customer browses a shop
+    -- and places an order. These four carry an EXPLICIT anon grant, not the
+    -- PUBLIC default, and are the entire legitimate anonymous RPC surface.
     'get_public_delivery_areas',
     'get_public_storefront',
     'get_public_storefront_products',
-    'handover_register_session',
-    'has_any_shop_permission',
-    'has_shop_permission',
-    'is_platform_admin',
-    'is_platform_admin_pending_mfa',
-    'is_shop_member',
-    'journal_entry_reference',
-    'list_accounting_periods',
-    'list_shop_staff',
-    'list_shop_time_off',
-    'log_recurring_bill',
-    'my_location_ids',
-    'my_open_session_at',
-    'my_plan_change_request',
-    'my_shop_member_id',
-    'my_shop_permissions',
-    'open_register_session',
-    'opening_inventory_date',
-    'opening_inventory_gap',
-    'owns_shop',
-    'period_exceptions',
-    'place_storefront_order',
-    'pos_create_customer',
-    'pos_search_customers',
-    'post_payroll_run',
-    'receive_stock',
-    'record_invoice_payment',
-    'refund_sale_items',
-    'register_session_counts',
-    'register_session_expected',
-    'rename_brand',
-    'rename_category',
-    'rename_tag',
-    'reopen_accounting_period',
-    'reserved_slugs',
-    'reverse_journal_entry',
-    'save_stock_count',
-    'set_member_locations',
-    'settle_sale_balance',
-    'shop_limit',
-    'shop_local_date',
-    'statement_lines',
-    'transfer_stock',
-    'unbilled_stock_receipts',
-    'unpost_payroll_run',
-    'unposted_inventory_movement',
-    'unposted_ledger_counts',
-    'unposted_ledger_period_exposure',
-    'user_has_shop_permission'
+    'place_storefront_order'
   ];
   v_actual  text[];
   v_added   text[];
