@@ -19,6 +19,7 @@ import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accountin
 import { REPORT_SCREENS, hasReportScreen } from '@/components/accounting/reports/report-screens';
 import { ReportsHub, isReportView, reportViewMeta, type ReportView } from '@/components/accounting/reports/reports-hub';
 import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
+import { withModuleWall } from '@/components/module-wall';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Colors } from '@/constants/theme';
 import { CashBudgetsTab } from '@/components/accounting/cash-budgets-tab';
@@ -78,7 +79,7 @@ const SHARED_PRESETS: RangePreset[] = [
   { label: '30 days', days: 30 },
 ];
 
-export default function AccountingScreen() {
+function AccountingScreen() {
   const router = useRouter();
   // No `showStoreFilter` here any more: BentoControlBar makes that call
   // itself, so a single-store shop hides the pill without this screen (or the
@@ -352,3 +353,9 @@ const styles = StyleSheet.create({
   blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3 },
   tabBar: { marginBottom: 16 },
 });
+
+// Wrapped so a shop whose plan doesn't cover this screen gets the upgrade wall
+// HERE, in the slot the screen would have filled, rather than in place of the
+// whole `(admin)` navigator -- which is what used to happen, and what left a
+// lapsed shop with no rail, no ☰ and no tab bar. See components/module-wall.tsx.
+export default withModuleWall('accounting', AccountingScreen);

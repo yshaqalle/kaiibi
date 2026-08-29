@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { withModuleWall } from '@/components/module-wall';
 import { ProductForm } from '@/components/product-form';
 import { ScreenHeader } from '@/components/screen-header';
 import { useAuth } from '@/hooks/use-auth';
@@ -10,7 +11,7 @@ import { confirmDestructive } from '@/lib/confirm';
 import { deleteProduct, getProduct, updateProduct } from '@/lib/products';
 import type { Product } from '@/types/models';
 
-export default function EditProductScreen() {
+function EditProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { activeLocation } = useAuth();
@@ -53,3 +54,8 @@ const styles = StyleSheet.create({
   deleteButton: { alignItems: 'center', paddingVertical: 16 },
   deleteText: { color: '#C0392B', fontWeight: '800', fontSize: 13 },
 });
+
+// Same wall, and it brings a `ScreenHeader` because this screen is pushed over
+// the admin shell rather than living inside it -- without one, a walled screen
+// would have no Back and no Home. See components/module-wall.tsx.
+export default withModuleWall('inventory', EditProductScreen, { title: 'Edit product' });

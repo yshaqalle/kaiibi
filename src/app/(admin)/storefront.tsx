@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { withModuleWall } from '@/components/module-wall';
 import { ScreenHeader } from '@/components/screen-header';
 import { ContentDrawer, type ContentDrawerFocusRequest, type ContentDrawerValue, type SlugState } from '@/components/storefront/editor/content-drawer';
 import { DeliveryEditor, type SavedArea } from '@/components/storefront/editor/delivery-editor';
@@ -93,7 +94,7 @@ function messageOf(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function StorefrontEditor() {
+function StorefrontEditor() {
   const { shop, locations, hasModule } = useAuth();
   const router = useRouter();
   const shopId = shop?.id ?? null;
@@ -899,3 +900,8 @@ const styles = StyleSheet.create({
   sheetClose: { fontSize: 13.5, fontWeight: '800', color: theme.bentoAccentInk },
   sheetBody: { padding: 18, paddingBottom: 60 },
 });
+
+// Same wall, and it brings a `ScreenHeader` because this screen is pushed over
+// the admin shell rather than living inside it -- without one, a walled screen
+// would have no Back and no Home. See components/module-wall.tsx.
+export default withModuleWall('storefront', StorefrontEditor, { title: 'Storefront' });

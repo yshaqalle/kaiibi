@@ -8,6 +8,7 @@ import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
+import { withModuleWall } from '@/components/module-wall';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -92,7 +93,7 @@ type StockFilter = (typeof STOCK_FILTERS)[number];
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
-export default function InventoryScreen() {
+function InventoryScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
@@ -1190,3 +1191,9 @@ const styles = StyleSheet.create({
   sheetRowHint: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },
   sheetControl: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 });
+
+// Wrapped so a shop whose plan doesn't cover this screen gets the upgrade wall
+// HERE, in the slot the screen would have filled, rather than in place of the
+// whole `(admin)` navigator -- which is what used to happen, and what left a
+// lapsed shop with no rail, no ☰ and no tab bar. See components/module-wall.tsx.
+export default withModuleWall('inventory', InventoryScreen);

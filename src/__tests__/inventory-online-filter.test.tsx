@@ -70,6 +70,9 @@ jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
     shop: { id: 'shop-1', defaultLowStockLevel: 5, expiryTrackingEnabled: false },
     can: () => true,
+    // The screen's default export is wrapped in `withModuleWall` now, so the
+    // module gate is on the way in -- this fixture is a paying shop.
+    hasModule: () => true,
     locations: [{ id: 'loc-1', name: 'Jaalala 1', isPrimary: true, active: true }],
     activeLocation: { id: 'loc-1', name: 'Jaalala 1', isPrimary: true, active: true },
     limitFor: () => null,
