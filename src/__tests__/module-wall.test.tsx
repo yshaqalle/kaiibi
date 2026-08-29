@@ -53,7 +53,7 @@ jest.mock('expo-router', () => {
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: jest.fn(async () => 0),
-  getMyStorefront: jest.fn(async () => null),
+  shopHasStorefront: jest.fn(async () => false),
 }));
 jest.mock('@/hooks/use-auth', () => ({ useAuth: jest.fn() }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));
@@ -195,6 +195,14 @@ describe('withModuleWall', () => {
 // The guarantee the old single choke point used to give for free. The wall now
 // renders inside each screen's shell rather than in place of the navigator, so
 // a new module-gated route that forgets it would simply be free.
+//
+// Kept, but it is no longer the guard -- it is a cheap first line that reads
+// source text and can be satisfied by a comment. The real one is
+// src/__tests__/module-gate.test.tsx, which imports each route and interrogates
+// the component actually default-exported: what `moduleWallOf()` says it is
+// gated on, and whether it renders the wall for a shop with no modules. That
+// one is keyed off `ROUTE_MODULES` rather than off the files on disk, so an
+// entry added to the map with no walled route fails there and not here.
 describe('every module-gated route', () => {
   const adminDir = path.join(__dirname, '..', 'app', '(admin)');
 
@@ -207,10 +215,17 @@ describe('every module-gated route', () => {
     });
   }
 
+  // The platform suffix is stripped along with `.tsx`: expo-router serves
+  // `orders.web.tsx` at `/orders`, so leaving the `.web` on would hand
+  // `moduleForPath` a pathname it does not know, the variant would look
+  // ungated, and the grep below would never ask it for a wall. Those four are
+  // exactly what expo-router honours (`validPlatforms`, getRoutesCore.js).
+  // Same `(admin)`-rooted limit as module-gate.test.tsx: a gated pathname
+  // served from another route group is invisible here.
   function routePath(file: string): string {
     return `/${path
       .relative(adminDir, file)
-      .replace(/\.tsx$/, '')
+      .replace(/(\.(web|ios|android|native))?\.tsx$/, '')
       .split(path.sep)
       .filter((segment) => !segment.startsWith('('))
       .join('/')}`;

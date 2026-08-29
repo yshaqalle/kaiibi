@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
-import { APP_DOMAIN, slugFromHostname } from '@/lib/storefront-host';
+import {
+  APP_DOMAIN,
+  STOREFRONT_ADDRESS_PREFIX,
+  slugFromHostname,
+  storefrontAddress,
+} from '@/lib/storefront-host';
 
 import { Caveat } from '@/components/ui/caveat';
 import { ContentDrawer, type ContentDrawerValue, type SlugState } from '@/components/storefront/editor/content-drawer';
@@ -144,17 +149,29 @@ describe('ContentDrawer', () => {
 });
 
 describe('the address it shows is the address that works', () => {
-  it('renders the slug as a SUBDOMAIN, and that address round-trips through the real router', () => {
+  it('teaches the address form the app actually serves, beside the field', () => {
     const texts = renderDrawer({ slug: 'xamdi' });
     const joined = texts.join(' ');
 
-    // A path would be wrong: nothing resolves kaiibi.com/xamdi.
-    expect(joined).not.toContain('kaiibi.com/');
-    expect(joined).toContain(`.${APP_DOMAIN}`);
+    // The bare subdomain would be wrong: no wildcard DNS record exists, so
+    // nothing resolves xamdi.kaiibi.com (docs/backlog/2026-08-27-storefront-
+    // wildcard-dns.md). The field must not teach a shop that shape.
+    expect(joined).toContain(STOREFRONT_ADDRESS_PREFIX);
+    expect(joined).not.toContain(`.${APP_DOMAIN}`);
 
-    // The real proof: reassemble what the shop sees and feed it to the actual
-    // function that resolves a hostname. If the two ever drift, this fails.
+    // The real proof: what the row teaches is the prefix of the address every
+    // other surface hands out, so a shop that types the rest into the box gets
+    // the same string Copy link would have given it.
+    expect(storefrontAddress('xamdi').startsWith(STOREFRONT_ADDRESS_PREFIX)).toBe(true);
+    expect(storefrontAddress('xamdi')).toBe(`${STOREFRONT_ADDRESS_PREFIX}xamdi`);
+  });
+
+  // The subdomain resolver is NOT weakened by showing the path form. Pinned
+  // here because it is the same screen's concern: if a wildcard record is ever
+  // added, `<slug>.kaiibi.com` must still land on the right shop.
+  it('leaves the subdomain resolver working for the day DNS exists', () => {
     expect(slugFromHostname(`xamdi.${APP_DOMAIN}`)).toBe('xamdi');
+    expect(slugFromHostname(`www.xamdi.${APP_DOMAIN}`)).toBeNull();
   });
 });
 
@@ -327,7 +344,7 @@ describe('a taken address costs a suffix, not a rethink', () => {
     // domain are adjacent text nodes -- `texts()` would put a space between
     // them and no address has one.
     expect(textsIn(d.find('content-drawer-claimed-address').props.children).join('')).toBe(
-      `${claimedAddress}.${APP_DOMAIN}`
+      storefrontAddress(claimedAddress)
     );
   });
 
@@ -363,13 +380,13 @@ describe('a taken address costs a suffix, not a rethink', () => {
     expect(d.onChange).toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-road-no-1' }));
   });
 
-  it('shows the assembled address in full, as a subdomain and never as a path', () => {
+  it('shows the assembled address in full, in the form the app serves', () => {
     const d = collide(['koodbuur']);
     const full = textsIn(d.find('content-drawer-full-address').props.children).join('');
-    expect(full).toBe(`xamdi-electronics-koodbuur.${APP_DOMAIN}`);
-    expect(d.texts()).not.toContain(`${APP_DOMAIN}/`);
-    // The address the shop reads here is the address the router resolves.
-    expect(slugFromHostname(full)).toBe('xamdi-electronics-koodbuur');
+    expect(full).toBe(storefrontAddress('xamdi-electronics-koodbuur'));
+    // Never the bare subdomain: that form has no DNS record, so the router's
+    // own hostname parser is what tells the two apart.
+    expect(slugFromHostname(full)).toBeNull();
   });
 
   it('says a suffixed address is taken in the same field, without moving the shop backwards', () => {
@@ -405,7 +422,7 @@ describe('a taken address costs a suffix, not a rethink', () => {
     // still describes the SAME address the row shows, not one silently
     // rebuilt from the new name.
     const full = textsIn(d.find('content-drawer-full-address').props.children).join('');
-    expect(full).toBe(`xamdi-electronics-koodbuur.${APP_DOMAIN}`);
+    expect(full).toBe(storefrontAddress('xamdi-electronics-koodbuur'));
     expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'xamdi-electronics-and-solar' }));
   });
 
@@ -440,7 +457,7 @@ describe('a taken address costs a suffix, not a rethink', () => {
 // every one of those links is dead and nobody told the shop.
 describe('a claimed address does not follow a rename', () => {
   const CLAIMED = 'xamdi-electronics-koodbuur';
-  const CLAIMED_ADDRESS = `${CLAIMED}.${APP_DOMAIN}`;
+  const CLAIMED_ADDRESS = storefrontAddress(CLAIMED);
 
   // The state the editor opens in for a shop that has already claimed: the
   // row's slug IS the draft, because the screen seeds slugDraft from row.slug
@@ -453,16 +470,16 @@ describe('a claimed address does not follow a rename', () => {
     return textsIn(d.find('content-drawer-claimed-address').props.children).join('');
   }
 
-  it('renders a claimed address read-only, in full, and as a subdomain', () => {
+  it('renders a claimed address read-only, in full, and in the served form', () => {
     const d = claimed();
 
     expect(shownAddress(d)).toBe(CLAIMED_ADDRESS);
     // Read-only: the field is not something a stray tap can edit.
     expect(d.find('content-drawer-slug-input').props.editable).toBe(false);
-    // Still a subdomain, still built from APP_DOMAIN, and still the address
-    // the real router resolves -- the thing that gets printed on a card.
-    expect(d.texts()).not.toContain(`${APP_DOMAIN}/`);
-    expect(slugFromHostname(shownAddress(d))).toBe(CLAIMED);
+    // Still one string, still built by storefrontAddress, and still NOT the
+    // bare subdomain -- the thing that gets printed on a card has to resolve.
+    expect(shownAddress(d)).toBe(storefrontAddress(CLAIMED));
+    expect(slugFromHostname(shownAddress(d))).toBeNull();
   });
 
   // THE test. Both halves matter: Task 2's review found a bug where exactly
@@ -482,7 +499,7 @@ describe('a claimed address does not follow a rename', () => {
     expect(d.onClaimSlug).toHaveBeenCalledWith(CLAIMED);
 
     // Byte-identical to each other, not merely each correct in isolation.
-    expect(`${d.onClaimSlug.mock.calls[0][0]}.${APP_DOMAIN}`).toBe(shown);
+    expect(storefrontAddress(d.onClaimSlug.mock.calls[0][0])).toBe(shown);
     // And the new name never reached the draft on the way through.
     expect(d.onChange).not.toHaveBeenCalledWith(expect.objectContaining({ slug: 'burco-traders-and-solar' }));
   });

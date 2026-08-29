@@ -151,7 +151,18 @@ function StorefrontEditor() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
 
   const [publishing, setPublishing] = useState(false);
-  const [publishError, setPublishError] = useState<string | null>(null);
+  // A write that did not land, and the thing that makes it again.
+  //
+  // The retry travels WITH the sentence because four operations report through
+  // this one caveat -- publish, unpublish, discard, auto-advance -- and it is
+  // drawn `tone="wrong"`, which on this project always carries an action that
+  // removes its CAUSE (components/ui/caveat.tsx). The cause is the failed
+  // write, so the only honest action is that same write again, and "Try again"
+  // has to retry the one that actually failed: retrying a PUBLISH after a
+  // failed unpublish would put the page back up, the opposite of what the shop
+  // asked for. A dismiss would be worse than nothing -- it hides the fact that
+  // the page is not in the state the shop just asked for.
+  const [publishError, setPublishError] = useState<{ message: string; retry: () => void } | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusRequest, setFocusRequest] = useState<ContentDrawerFocusRequest | null>(null);
@@ -427,7 +438,10 @@ function StorefrontEditor() {
       await setAutoAdvance(shopId, on);
       setWorking((w) => (w ? { ...w, autoAdvance: on } : w));
     } catch (err) {
-      setPublishError(describePlanError(err) ?? messageOf(err, 'Could not save that setting. Try again.'));
+      setPublishError({
+        message: describePlanError(err) ?? messageOf(err, 'Could not save that setting. Try again.'),
+        retry: () => handleAutoAdvanceChange(on),
+      });
     }
   }
 
@@ -507,7 +521,7 @@ function StorefrontEditor() {
     try {
       const flushed = await flushAutosave();
       if (!flushed) {
-        setPublishError('Could not save your last changes. Try again before publishing.');
+        setPublishError({ message: 'Could not save your last changes. Try again before publishing.', retry: handlePublish });
         return;
       }
       await publishDraft(shopId);
@@ -517,7 +531,7 @@ function StorefrontEditor() {
         setWorking({ ...fresh, ...(fresh.draft ?? {}) });
       }
     } catch (err) {
-      setPublishError(describePlanError(err) ?? messageOf(err, 'Could not publish. Try again.'));
+      setPublishError({ message: describePlanError(err) ?? messageOf(err, 'Could not publish. Try again.'), retry: handlePublish });
     } finally {
       setPublishing(false);
     }
@@ -530,7 +544,7 @@ function StorefrontEditor() {
       await unpublish(shopId);
       setWorking((w) => (w ? { ...w, publishedAt: null } : w));
     } catch (err) {
-      setPublishError(describePlanError(err) ?? messageOf(err, 'Could not unpublish. Try again.'));
+      setPublishError({ message: describePlanError(err) ?? messageOf(err, 'Could not unpublish. Try again.'), retry: handleUnpublish });
     }
   }
 
@@ -550,7 +564,7 @@ function StorefrontEditor() {
         setWorking({ ...fresh, ...(fresh.draft ?? {}) });
       }
     } catch (err) {
-      setPublishError(messageOf(err, 'Could not discard your draft. Try again.'));
+      setPublishError({ message: messageOf(err, 'Could not discard your draft. Try again.'), retry: handleDiscardDraft });
     }
   }
 
@@ -746,7 +760,11 @@ function StorefrontEditor() {
         onUnpublish={handleUnpublish}
       />
       {publishing ? <Caveat tone="context">Publishing your page…</Caveat> : null}
-      {publishError ? <Caveat tone="wrong">{publishError}</Caveat> : null}
+      {publishError ? (
+        <Caveat tone="wrong" action={{ label: 'Try again', onPress: publishError.retry }}>
+          {publishError.message}
+        </Caveat>
+      ) : null}
       {dirty ? (
         <Pressable
           accessibilityRole="button"

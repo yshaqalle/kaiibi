@@ -43,6 +43,36 @@ export function storefrontPath(slug: string): string {
   return `/${STOREFRONT_SEGMENT}/${slug}`;
 }
 
+// WHAT A SHOP IS TOLD ITS ADDRESS IS -- the one place it is built, for every
+// surface that shows it, copies it or sends it.
+//
+// It is the PATH form, `kaiibi.com/store/<slug>`, because that is the form
+// that resolves. `<slug>.kaiibi.com` was never given a wildcard DNS record
+// (docs/backlog/2026-08-27-storefront-wildcard-dns.md); `dig +short
+// xamdi.kaiibi.com` returns nothing to this day. The editor showed and copied
+// that form anyway, so a shop that published, pressed Copy link and sent the
+// result watched it fail DNS at the customer's end -- and had no way to tell
+// that the address it had been handed was the problem. A long address that
+// works beats a short one that does not.
+//
+// WHICH FORM IS CANONICAL LONG-TERM IS NOT DECIDED HERE. That is options
+// A/B/C in the backlog doc above, deliberately deferred. This function is why
+// that decision stays cheap: on the day a wildcard record (or a per-shop
+// CNAME) exists, this body becomes `${slug}.${APP_DOMAIN}` and every surface
+// follows from one edit. slugFromHostname below is untouched by that choice
+// and stays working either way -- it is what serves the subdomain form the
+// moment DNS makes it reachable.
+export function storefrontAddress(slug: string): string {
+  return `${APP_DOMAIN}${storefrontPath(slug)}`;
+}
+
+// The same address with the shop's own part left off -- what the editor puts
+// in FRONT of the slug field while it is still being typed. Derived from
+// storefrontAddress rather than written out, so a change to the form above
+// cannot leave the field teaching an address the rest of the app no longer
+// gives out.
+export const STOREFRONT_ADDRESS_PREFIX = storefrontAddress('');
+
 export function slugFromHostname(hostname: string, appDomain: string = APP_DOMAIN): string | null {
   if (typeof hostname !== 'string') return null;
   const host = hostname.trim().toLowerCase();

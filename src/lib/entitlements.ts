@@ -157,7 +157,15 @@ export function expandModules(stored: readonly string[]): Module[] {
 // active member must reach whatever the shop pays, and locking a shop out of
 // Settings would take away the Billing panel -- the one screen that tells them
 // how to start paying again.
-const ROUTE_MODULES: { prefix: string; module: Module }[] = [
+//
+// Exported because this is the LIST OF WHAT MUST BE GATED, and
+// src/__tests__/module-gate.test.tsx holds the route files to it: every prefix
+// here must resolve to at least one route file under `(admin)` whose default
+// export carries `withModuleWall(<module>)`. Adding an entry here and
+// forgetting the wrapper is therefore a test failure rather than a shop
+// getting the screen free. Keeping the test's own copy of this list would let
+// both sides drift together, which is the whole failure being closed.
+export const ROUTE_MODULES: { prefix: string; module: Module }[] = [
   { prefix: '/dashboard', module: 'dashboard' },
   { prefix: '/pos', module: 'pos' },
   { prefix: '/inventory', module: 'inventory' },
