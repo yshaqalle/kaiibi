@@ -782,6 +782,31 @@ begin
     null;
   end;
 
+  -- ...AND THE OTHER DIRECTION OF THE SAME SENTENCE, which three-valued logic
+  -- used to let through. The migration claims (20260930000500:99-104) that "a
+  -- reason with no timestamp, OR A TIMESTAMP WITH NO REASON, is a half-recorded
+  -- cause ... the write is refused outright". F1l above is the first half. This
+  -- is the second, and it was ACCEPTED: a CHECK refuses only on FALSE and
+  -- passes on NULL, and with the reason NULL the arm
+  -- `lapse_unpublished_reason in ('lapsed','suspended')` is NULL, not false --
+  -- so `false or (true and NULL)` is NULL and the row stood, carrying a
+  -- take-down stamp with nothing to explain it. Pinned here rather than
+  -- inferred from the constraint text, because the text READ correct.
+  begin
+    update public.storefronts set lapse_unpublished_reason = null where shop_id = v_shop;
+    raise exception 'FAIL F1m: the CAUSE was cleared while the take-down timestamp stayed behind -- a stamp with no explanation, and the editor has a draft it cannot account for. `reason in (...)` is NULL rather than false when reason is null, so the arm needs an explicit `is not null` to refuse this';
+  exception when check_violation then
+    null;
+  end;
+
+  -- Neither refused write may have landed. A constraint that raised after
+  -- writing would be a different bug wearing the same green.
+  select * into v_row from public.storefronts where shop_id = v_shop;
+  if v_row.lapse_unpublished_at is null or v_row.lapse_unpublished_reason is distinct from 'lapsed' then
+    raise exception 'FAIL F1n: a refused half-record write changed the row anyway -- it now reads at=%, reason=%',
+      coalesce(v_row.lapse_unpublished_at::text, '<null>'), coalesce(v_row.lapse_unpublished_reason, '<null>');
+  end if;
+
   -- EVERYTHING ELSE STAYS. This is the whole decision: keep the data.
   if v_row.theme <> 'window' or v_row.palette <> 'palm' or v_row.headline <> 'Open 8am-9pm.' then
     raise exception 'FAIL F1d: the unpublish rewrote the page content -- theme %, palette %, headline %', v_row.theme, v_row.palette, v_row.headline;
@@ -1571,6 +1596,98 @@ begin
   end if;
 
   raise notice 'F12 ok: a comped page that never went dark survives the payment untouched, and the skip does not cover a suspension';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F13. An override that is NOT the comp buys no pass
+-- ---------------------------------------------------------------------------
+-- F12 asserts the skip in the only direction it FIRES: a shop whose comp
+-- resolves keeps its page. That catches the skip being REMOVED, and F12a
+-- catches its premise failing -- but it cannot catch the skip being WIDENED.
+-- Every fixture in F12 holds an override that is SUPPOSED to skip, so a
+-- predicate that skipped on any row at all in shop_entitlement_overrides
+-- satisfies the whole block, and F12i only covers the `suspended` axis.
+--
+-- That mutation is not academic. Drop `expires_at`, `kind` and `key`:
+--
+--     if v_was = 'expired' and exists (select 1 from shop_entitlement_overrides o
+--          where o.shop_id = new.shop_id) then return null; end if;
+--
+-- and a shop holding a LONG-DEAD comp, or a `limit` override on its product
+-- count, or a `module` grant for payroll, pays and its month-old page relights
+-- with no cause recorded -- the exact stale-price hole this file exists to
+-- close, reopened, under a verify-lapse that printed ALL CHECKS PASSED.
+--
+-- So this is the other direction: three shops holding an override the skip must
+-- NOT honour. Each is measured DARK before the payment, because an override
+-- that quietly resolved would make these pass for the wrong reason; and each is
+-- measured to have a LIVE page to lose, because `published_at is null` after a
+-- return is satisfied for free by a fixture that never published.
+do $$
+declare
+  r           record;
+  v_shop      uuid;
+  v_slug      text;
+  v_published timestamptz;
+  v_cause     text;
+begin
+  for r in
+    select * from (values
+      -- The comp is real and for the right module -- it has simply RUN OUT.
+      -- shop_has_module honours `expires_at is null or expires_at > now()`, so
+      -- this shop went dark like any other and its page owes a month of stale
+      -- prices.
+      ('a comp that expired'::text,      'module'::text, 'storefront'::text, now() - interval '1 day'),
+      -- Right shop, right key, wrong KIND. A `limit` row overrides a numeric
+      -- allowance; it never granted the module and never kept a page serving.
+      ('a limit-kind override'::text,    'limit'::text,  'storefront'::text, now() + interval '60 days'),
+      -- Right shop, right kind, wrong KEY. Comping payroll does not light a
+      -- storefront.
+      ('a comp for another module'::text,'module'::text, 'payroll'::text,    now() + interval '60 days')
+    ) as t(label, kind, key, expires_at)
+  loop
+    v_shop := pg_temp.lapse_shop('Lapse Non Comp Shop -- ' || r.label);
+    select slug into v_slug from public.shops where id = v_shop;
+
+    insert into public.shop_entitlement_overrides (shop_id, kind, key, expires_at, reason)
+      values (v_shop, r.kind, r.key, r.expires_at, 'not the storefront comp: ' || r.label);
+
+    -- ---- Non-vacuity, both halves, BEFORE the crossing.
+    if public.shop_has_module(v_shop, 'storefront') then
+      raise exception 'FAIL F13a: an expired shop holding % resolves the storefront module -- then its page never went dark, the take-down asserted below would be wrong, and this fixture is measuring nothing', r.label;
+    end if;
+    select published_at into v_published from public.storefronts where shop_id = v_shop;
+    if v_published is null then
+      raise exception 'FAIL F13b: the % fixture has no live page to lose, so the "published_at is null" assertion below would pass for free', r.label;
+    end if;
+    if exists (select 1 from public.get_public_storefront(v_slug)) then
+      raise exception 'FAIL F13c: an expired shop holding % still serves its page, so there is no dark month here and the premise of the take-down is absent', r.label;
+    end if;
+
+    -- ---- The shop pays: the crossing the trigger fires on.
+    update public.shop_subscriptions
+       set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+     where shop_id = v_shop;
+    if public.shop_effective_status(v_shop) <> 'active' then
+      raise exception 'FAIL F13d: the % shop reads % after paying, expected active -- no crossing happened, so nothing below is being tested', r.label, public.shop_effective_status(v_shop);
+    end if;
+
+    select published_at, lapse_unpublished_reason into v_published, v_cause
+      from public.storefronts where shop_id = v_shop;
+
+    -- ---- THE MUTATION THIS BLOCK EXISTS TO KILL.
+    if v_published is not null then
+      raise exception 'FAIL F13e: a shop holding % kept its page LIVE through the payment (published_at %) -- the skip honoured an override that never kept the page serving, so a page dark for a month relights at month-old prices with no cause recorded', r.label, v_published;
+    end if;
+    if v_cause is distinct from 'lapsed' then
+      raise exception 'FAIL F13f: a shop holding % came back recorded as %, expected lapsed -- its plan ran out and the editor must say so', r.label, coalesce(v_cause, '<null>');
+    end if;
+    if exists (select 1 from public.get_public_storefront(v_slug)) then
+      raise exception 'FAIL F13g: a shop holding % serves its page again the moment it pays', r.label;
+    end if;
+  end loop;
+
+  raise notice 'F13 ok: a comp that expired, a limit-kind override and a comp for another module each leave the take-down alone -- only an UNEXPIRED module/storefront row skips it';
 end $$;
 
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;

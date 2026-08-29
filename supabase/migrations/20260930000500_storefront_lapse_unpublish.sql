@@ -104,10 +104,22 @@ alter table public.storefronts add column lapse_unpublished_at timestamptz;
 -- leaving a message behind with nothing to hang it on.
 alter table public.storefronts add column lapse_unpublished_reason text;
 
+-- THE `is not null` IN THE SECOND ARM IS LOAD-BEARING, and it is not the same
+-- fact as the `in (...)` beside it. A CHECK refuses a row only when it
+-- evaluates to FALSE; it PASSES on NULL. With the timestamp set and the reason
+-- NULL, `lapse_unpublished_reason in ('lapsed','suspended')` is NULL rather
+-- than false, so without this conjunct the second arm reads `true and NULL` =
+-- NULL, the first arm is false, and `false or NULL` is NULL -- accepted. The
+-- sentence above claims BOTH directions ("a reason with no timestamp, OR a
+-- timestamp with no reason"), and only the first of them survived three-valued
+-- logic; `update storefronts set lapse_unpublished_reason = null` on a
+-- stamped row was taken. Both directions are pinned in verify-lapse F1l/F1m,
+-- and the value set itself in F1k.
 alter table public.storefronts add constraint storefronts_lapse_reason_matches_stamp
   check (
     (lapse_unpublished_at is null and lapse_unpublished_reason is null)
-    or (lapse_unpublished_at is not null and lapse_unpublished_reason in ('lapsed', 'suspended'))
+    or (lapse_unpublished_at is not null and lapse_unpublished_reason is not null
+        and lapse_unpublished_reason in ('lapsed', 'suspended'))
   );
 
 comment on column public.storefronts.lapse_unpublished_at is
