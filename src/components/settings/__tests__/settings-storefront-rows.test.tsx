@@ -52,6 +52,44 @@ function colourOf(tree: ReactTestRenderer, label: string): string | undefined {
   return (StyleSheet.flatten(node.props.style) as { color?: string } | undefined)?.color;
 }
 
+// WCAG relative luminance, and the contrast between two inks. Here to answer
+// "can a person SEE that this row is greyed?", which `not.toBe` cannot: the
+// sidebar shipped a locked ink of #717078 against an ordinary #6B7280, two
+// hex digits and a contrast of 1.01 apart -- a different string, an identical
+// row. `not.toBe` passed on it for as long as it was there.
+function luminance(hex: string): number {
+  const channel = (i: number) => {
+    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+}
+
+function separation(a: string, b: string): number {
+  const [x, y] = [luminance(a), luminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+// The floor a difference has to clear to count as one. 1.25 sits well above
+// the 1.01 the old sidebar shipped and below the 1.31 it wears now, so it
+// fails the invisible greying and passes the visible one.
+const VISIBLE = 1.25;
+
+// Locked rows are still doors -- tapping one lands on the upgrade wall -- so
+// "greyed" has to mean RECEDING from the pane's ordinary ink, not just
+// differing from it. Direction is pinned as well as magnitude: a future
+// change that greys a Settings row DARKER than its neighbours would clear the
+// magnitude floor while making the locked row the loudest thing in the pane.
+function expectGreyedAgainst(locked: string | undefined, ordinary: string | undefined) {
+  expect({ locked, ordinary }).toEqual({ locked: expect.any(String), ordinary: expect.any(String) });
+  const gap = separation(locked!, ordinary!);
+  expect({
+    lighterThanOrdinary: luminance(locked!) > luminance(ordinary!),
+    visible: gap >= VISIBLE,
+    gap: Number(gap.toFixed(2)),
+  }).toEqual({ lighterThanOrdinary: true, visible: true, gap: expect.any(Number) });
+}
+
 beforeEach(() => {
   mockCount = 0;
   mockHasStorefrontRow = false;
@@ -93,6 +131,8 @@ describe('Settings nav — storefront rows after a lapse', () => {
     const locked = colourOf(tree, 'Storefront');
     expect(colourOf(tree, 'Orders')).toBe(locked);
     expect(colourOf(tree, 'Receipt')).not.toBe(locked);
+    // ...and the difference is one a lapsed shop can actually see.
+    expectGreyedAgainst(locked, colourOf(tree, 'Receipt'));
   });
 
   it('greys both rows on the phone list too', async () => {
@@ -103,6 +143,10 @@ describe('Settings nav — storefront rows after a lapse', () => {
     expect(shown).toContain('Orders');
     expect(shown.filter((l) => l === '🔒')).toHaveLength(2);
     expect(colourOf(tree, 'Storefront')).not.toBe(colourOf(tree, 'Receipt'));
+    // This pane's ordinary row is #111111, so `bentoMuted2` is a real greying
+    // here and stays. Held to the same visible floor as the sidebar so the two
+    // cannot silently diverge on what "locked" is worth.
+    expectGreyedAgainst(colourOf(tree, 'Storefront'), colourOf(tree, 'Receipt'));
   });
 
   // The requirement that outranks everything else here: those customers are

@@ -215,10 +215,17 @@ describe('every module-gated route', () => {
     });
   }
 
+  // The platform suffix is stripped along with `.tsx`: expo-router serves
+  // `orders.web.tsx` at `/orders`, so leaving the `.web` on would hand
+  // `moduleForPath` a pathname it does not know, the variant would look
+  // ungated, and the grep below would never ask it for a wall. Those four are
+  // exactly what expo-router honours (`validPlatforms`, getRoutesCore.js).
+  // Same `(admin)`-rooted limit as module-gate.test.tsx: a gated pathname
+  // served from another route group is invisible here.
   function routePath(file: string): string {
     return `/${path
       .relative(adminDir, file)
-      .replace(/\.tsx$/, '')
+      .replace(/(\.(web|ios|android|native))?\.tsx$/, '')
       .split(path.sep)
       .filter((segment) => !segment.startsWith('('))
       .join('/')}`;

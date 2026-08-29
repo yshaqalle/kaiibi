@@ -97,10 +97,24 @@ function routeFiles(dir: string): string[] {
 
 // `(admin)/(tabs)/pos.tsx` -> `/pos`. Group segments are routing-invisible, so
 // they drop out exactly the way expo-router drops them.
+//
+// The platform suffix goes too: expo-router serves `orders.web.tsx` at
+// `/orders` on web, so a naive `.tsx`-only strip yields `/orders.web`, which
+// `moduleForPath` does not know and which therefore expects no wall -- an
+// unwalled platform variant would slip past every assertion in this file.
+// Those four are exactly the suffixes expo-router honours
+// (`validPlatforms` in expo-router/build/getRoutesCore.js); anything else,
+// `foo.tvos.tsx` included, keeps its dot in the route there as it does here.
+//
+// KNOWN LIMIT: enumeration is rooted at `(admin)`, so a gated pathname served
+// from a file in another route group is invisible in both directions -- it is
+// neither checked for its wall nor caught wearing one the map does not name.
+// Left as a comment rather than code: widening the root would have to model
+// every group's URL prefix, and today every entry in ROUTE_MODULES lives here.
 function routePath(file: string): string {
   return `/${path
     .relative(adminDir, file)
-    .replace(/\.tsx$/, '')
+    .replace(/(\.(web|ios|android|native))?\.tsx$/, '')
     .split(path.sep)
     .filter((segment) => !segment.startsWith('('))
     .join('/')}`;

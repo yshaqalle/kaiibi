@@ -195,7 +195,7 @@ export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; o
               const focused = item.id === active;
               return (
                 <Pressable key={item.id} onPress={() => onSelect(item.id)} style={[styles.navButton, focused && styles.navButtonFocused]}>
-                  <Ionicons name={item.icon} size={17} color={item.locked ? LOCKED_INK : focused ? '#111111' : '#6B7280'} />
+                  <Ionicons name={item.icon} size={17} color={item.locked ? SIDEBAR_LOCKED_INK : focused ? '#111111' : '#6B7280'} />
                   <Text style={[styles.navText, focused && styles.navTextFocused, item.locked && styles.navTextLocked]}>
                     {item.label}
                   </Text>
@@ -253,8 +253,18 @@ export function SettingsNavList({ onSelect }: { onSelect: (id: SettingsNavId) =>
 
 // The same grey the ☰ paints a locked row in (`menuItemTextLocked`,
 // admin-sidebar.tsx), taken from the Bento ramp rather than written out, so the
-// two navs cannot drift apart on what "locked" looks like.
+// two navs cannot drift apart on what "locked" looks like. Used by the phone
+// list below, where an ordinary row is #111111 and this is a plain greying.
 const LOCKED_INK = Colors.light.bentoMuted2;
+
+// The sidebar needs its own, one step lighter, because its ordinary row is
+// ALREADY grey (#6B7280, 4.83:1 on white) and `bentoMuted2` is 4.89:1 -- so
+// greying a row there moved it two hex digits in the WRONG direction and the
+// only lock signal surviving at tablet width was the 🔒 itself. A shop that
+// has lapsed has to be able to SEE which doors closed, so this pane greys
+// away from its ordinary ink rather than into it. See `bentoMuted3` in
+// constants/theme.ts for the ramp step and its contrast figures.
+const SIDEBAR_LOCKED_INK = Colors.light.bentoMuted3;
 
 const styles = StyleSheet.create({
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC' },
@@ -276,7 +286,7 @@ const styles = StyleSheet.create({
   navButtonFocused: { backgroundColor: '#F3F4F6', borderLeftColor: '#111111' },
   navText: { fontSize: 13.5, fontWeight: '500', color: '#6B7280' },
   navTextFocused: { color: '#111111', fontWeight: '700' },
-  navTextLocked: { color: LOCKED_INK, fontWeight: '500' },
+  navTextLocked: { color: SIDEBAR_LOCKED_INK, fontWeight: '500' },
   navLock: { fontSize: 11, marginLeft: 'auto' },
 
   listContent: { padding: 20, paddingBottom: 60 },
