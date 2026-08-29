@@ -14,8 +14,9 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useOrdersNeedingActionBadge } from '@/hooks/use-orders-needing-action-badge';
 import { useShopLogo } from '@/hooks/use-shop-logo';
+import { useStorefrontNavState, type StorefrontNavState } from '@/hooks/use-storefront-nav';
 import { signOut } from '@/lib/auth';
-import { moduleForPath, type Module } from '@/lib/entitlements';
+import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
 import { AppModal } from '@/components/ui/app-modal';
 
@@ -31,17 +32,26 @@ import { AppModal } from '@/components/ui/app-modal';
 // People is also the entry point to self-service Team for every active staff
 // member, even when their role has no management permissions.
 //
-// `hasModule` is here for the same reason `can` is: Storefront and Orders are
-// sold, not merely permitted, and a row for a module the shop has not bought
-// is an offer, not navigation. It is a HIDE rather than the 🔒 the five paid
-// tabs get, because those five are the app -- a shop that loses Inventory has
-// to be shown the way back to it. A shop that never had a storefront is not
-// missing anything it can see.
+// `storefront` is here for the same reason `can` is: Storefront and Orders are
+// sold, not merely permitted. Unlike the five paid tabs, though, they are
+// sometimes HIDDEN rather than shown with the 🔒, and the line between the two
+// is not the plan:
+//
+//   - A shop that NEVER had a storefront still sees nothing. It is not missing
+//     anything it can see, and a row for a page that has never existed is an
+//     advert, not navigation.
+//   - A shop that HAD one and lapsed sees both rows greyed with the 🔒, like
+//     any other paid tab. Hiding them from that shop takes away the only
+//     signpost back to paying, and its customers' orders are still waiting
+//     behind the Orders row.
+//
+// useStorefrontNavState() is what tells those two apart -- see its own header
+// for why the distinction is a `storefronts` row and not a flag.
 type NavVisibility = {
   can: (p: Permission) => boolean;
   canAny: (p: Permission[]) => boolean;
   hasActiveMembership: boolean;
-  hasModule: (m: Module) => boolean;
+  storefront: StorefrontNavState;
 };
 
 // A row's icon is EITHER a drawn PNG from assets/images/tabIcons or an
@@ -70,11 +80,12 @@ const navItems = [
   // (admin)/_layout.tsx checks for these two routes (permissions.ts) -- the
   // nav must never offer a door that bounces straight back -- and on the
   // `storefront` module, the way the settings sidebar already gates them.
-  { href: '/storefront', label: 'Storefront', icon: { ionicon: 'globe-outline' }, isVisible: (ctx: NavVisibility) => ctx.can('settings.access') && ctx.hasModule('storefront') },
+  { href: '/storefront', label: 'Storefront', icon: { ionicon: 'globe-outline' }, isVisible: (ctx: NavVisibility) => ctx.storefront !== 'hidden' },
   // Beside Storefront on purpose: this is what the page it edits produces.
   // Carries the count of orders waiting on the shop -- the badge is the whole
-  // reason this row belongs on a nav somebody actually looks at.
-  { href: '/orders', label: 'Orders', icon: { ionicon: 'bag-check-outline' }, badge: 'orders', isVisible: (ctx: NavVisibility) => ctx.can('settings.access') && ctx.hasModule('storefront') },
+  // reason this row belongs on a nav somebody actually looks at, and it stays
+  // on the row when the row is locked.
+  { href: '/orders', label: 'Orders', icon: { ionicon: 'bag-check-outline' }, badge: 'orders', isVisible: (ctx: NavVisibility) => ctx.storefront !== 'hidden' },
 ] as const satisfies readonly { href: string; label: string; icon: NavIcon; badge?: 'orders'; isVisible: (ctx: NavVisibility) => boolean }[];
 
 type NavItem = (typeof navItems)[number];
@@ -101,14 +112,18 @@ function SidebarNavItem({ item, focused, locked, badgeCount = 0 }: { item: NavIt
           <Ionicons name={item.icon.ionicon} size={19} color={tint} style={styles.navIcon} />
         )}
         <Text style={[styles.navText, focused && styles.navTextFocused, locked && styles.navTextLocked]}>{item.label}</Text>
-        {/* Still navigable: tapping lands on the upgrade wall in
-            (admin)/_layout.tsx, which is where the offer belongs. Hiding the
-            row instead would mean nobody ever discovers what they'd be paying
-            for. */}
-        {locked && <Text style={styles.navLock}>🔒</Text>}
-        {badgeCount > 0 && (
-          <View style={styles.navBadge}>
-            <Badge label={badgeCount > 9 ? '9+' : String(badgeCount)} tone="danger" />
+        {/* One trailing slot for both marks, because Orders can now carry both
+            at once: a lapsed shop's orders are still waiting on it. This used
+            to be two siblings each claiming `marginLeft: 'auto'`, which was
+            safe only while no row was ever locked AND badged. */}
+        {(badgeCount > 0 || locked) && (
+          <View style={styles.navTrailing}>
+            {badgeCount > 0 && <Badge label={badgeCount > 9 ? '9+' : String(badgeCount)} tone="danger" />}
+            {/* Still navigable: tapping lands on the upgrade wall in
+                (admin)/_layout.tsx, which is where the offer belongs. Hiding
+                the row instead would mean nobody ever discovers what they'd
+                be paying for. */}
+            {locked && <Text style={styles.navLock}>🔒</Text>}
           </View>
         )}
       </Pressable>
@@ -162,15 +177,14 @@ export function AdminSidebar({
   const subtitle = shop?.categories?.[0];
   const [menuOpen, setMenuOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
-  const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active), hasModule }));
+  // Offer the rows, grey them, or show nothing -- one answer, shared by the
+  // rail below and the ☰ menu further down so the two cannot disagree at the
+  // same width. It already carries the route guard's `settings.access`.
+  const storefront = useStorefrontNavState();
+  const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active), storefront }));
   // The same hook the settings sidebar's Orders row uses -- one server-side
   // count, not a second list of orders pulled down to be counted here.
   const ordersBadge = useOrdersNeedingActionBadge();
-  // Mirrors the route guard for /storefront and /orders (permissions.ts:177,181)
-  // AND the module, the same pair the settings sidebar already gates them on.
-  // Matching the guard is the rule this file's header states: filtering here
-  // keeps the nav from offering a destination that would just bounce back.
-  const storefrontEnabled = hasModule('storefront') && can('settings.access');
 
   // Lets the shop logo be changed straight from the sidebar avatar, not just
   // from Settings — a quick "click your logo to change it" affordance. The
@@ -285,9 +299,16 @@ export function AdminSidebar({
                 (navItems above), and it is the primary nav there -- repeating
                 them in this menu made the same two destinations appear twice on
                 one screen. On a phone there is no rail, the bottom bar is full
-                at five, and this menu is the only place they can live. */}
-            {compact && storefrontEnabled && (
+                at five, and this menu is the only place they can live.
+                `compact &&` is what keeps #102 true, and it has to keep being
+                the ONLY width test in this file: the rail's own visibility and
+                this one both read `storefront`, so a locked row cannot appear
+                in one and not the other. */}
+            {compact && storefront !== 'hidden' && (
               <>
+                {/* Still pushed, still locked: /storefront and /orders are
+                    module-gated routes (entitlements.ts), so a lapsed shop
+                    lands on the upgrade wall rather than a dead tap. */}
                 <Pressable
                   onPress={() => {
                     setMenuOpen(false);
@@ -296,7 +317,8 @@ export function AdminSidebar({
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={styles.menuItemIcon}>🌐</Text>
-                  <Text style={styles.menuItemText}>Storefront</Text>
+                  <Text style={[styles.menuItemText, storefront === 'locked' && styles.menuItemTextLocked]}>Storefront</Text>
+                  {storefront === 'locked' ? <Text style={styles.menuLock}>🔒</Text> : null}
                 </Pressable>
                 <Pressable
                   onPress={() => {
@@ -306,15 +328,17 @@ export function AdminSidebar({
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={styles.menuItemIcon}>🛍</Text>
-                  <Text style={styles.menuItemText}>Orders</Text>
+                  <Text style={[styles.menuItemText, storefront === 'locked' && styles.menuItemTextLocked]}>Orders</Text>
                   {/* The one signal that a customer is waiting. It was only
                       ever rendered inside the settings sidebar, four taps
-                      down -- a count nobody was going to see. */}
+                      down -- a count nobody was going to see. It survives a
+                      lapse: those orders still have to be picked. */}
                   {ordersBadge > 0 ? (
                     <View style={styles.menuBadgeSlot}>
                       <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
                     </View>
                   ) : null}
+                  {storefront === 'locked' ? <Text style={[styles.menuLock, ordersBadge > 0 && styles.menuLockAfterBadge]}>🔒</Text> : null}
                 </Pressable>
                 <View style={styles.menuDivider} />
               </>
@@ -398,10 +422,10 @@ const styles = StyleSheet.create({
   navIconFocused: {},
   navText: { color: '#555555', fontSize: 14.5, fontWeight: '700' },
   navTextLocked: { color: '#999999' },
-  navLock: { fontSize: 11, marginLeft: 'auto' },
-  // Pushed to the far edge of the row, the way the lock is -- and `auto` on
-  // both is harmless because no row is ever locked AND badged.
-  navBadge: { marginLeft: 'auto' },
+  navLock: { fontSize: 11 },
+  // The far edge of the row, holding the badge and the lock in that order. A
+  // lapsed shop's Orders row wears both.
+  navTrailing: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6 },
   navTextFocused: { color: '#111111', fontWeight: '800' },
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
@@ -437,6 +461,12 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
   menuItemIcon: { fontSize: 15, color: '#111111' },
   menuItemText: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  // The muted step of the bento ramp, solved against this sheet's white
+  // ground -- the greyed half of the same 🔒 treatment the rail applies.
+  menuItemTextLocked: { color: Colors.light.bentoMuted2 },
+  menuLock: { fontSize: 11, marginLeft: 'auto' },
+  // When the badge already took the far edge, the lock just trails it.
+  menuLockAfterBadge: { marginLeft: 6 },
   menuBadgeSlot: { marginLeft: 'auto' },
   menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#ECECEC' },
 });

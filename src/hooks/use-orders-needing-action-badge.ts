@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { useShopHasStorefront } from '@/hooks/use-storefront-nav';
 import { countOrdersNeedingAction } from '@/lib/storefront-admin';
 
 // How many orders are waiting on the shop, as ONE number.
@@ -25,7 +26,14 @@ import { countOrdersNeedingAction } from '@/lib/storefront-admin';
 // this hook rather than fetching orders of its own.
 export function useOrdersNeedingActionBadge(): number {
   const { shop, hasModule } = useAuth();
-  const enabled = hasModule('storefront');
+  // A lapsed shop loses the module but not its customers: the orders it has
+  // already taken still exist, still need picking, and are still readable (the
+  // `orders` and `storefronts` policies gate on shop membership, and the
+  // module gates are triggers on WRITE -- 20260926000050:147, 20260924000000:82).
+  // Gating this on the module alone would silently drop the count to zero for
+  // exactly the shop whose customers are still waiting.
+  const hasPage = useShopHasStorefront();
+  const enabled = hasModule('storefront') || hasPage === true;
   const [count, setCount] = useState(0);
 
   const refresh = useCallback(async () => {

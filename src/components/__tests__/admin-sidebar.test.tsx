@@ -1,14 +1,15 @@
 import { useEffect } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 // Below the mocks in intent, above them in source: babel-plugin-jest-hoist
 // lifts every `jest.mock` above the imports regardless.
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { useAuth } from '@/hooks/use-auth';
+import { resetStorefrontPresence } from '@/hooks/use-storefront-nav';
 import type { Module } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
-import { countOrdersNeedingAction } from '@/lib/storefront-admin';
+import { countOrdersNeedingAction, getMyStorefront } from '@/lib/storefront-admin';
 
 // `signOut` in the ☰ menu reaches lib/auth, which constructs a real Supabase
 // client at import time and throws without the app's env vars.
@@ -26,7 +27,14 @@ jest.mock('expo-router', () => ({
 // whole module would leave it an undefined-returning jest.fn, which the hook
 // would swallow into a silent 0 -- and the badge test would then pass for the
 // wrong reason.
-jest.mock('@/lib/storefront-admin', () => ({ countOrdersNeedingAction: jest.fn(async () => 0) }));
+// `getMyStorefront` is the other half of the lapsed test: the nav tells a shop
+// that HAD a page from one that never did by asking whether a `storefronts`
+// row exists. Stubbed at "never had one", which is the majority case and the
+// one every pre-existing test in this file was written against.
+jest.mock('@/lib/storefront-admin', () => ({
+  countOrdersNeedingAction: jest.fn(async () => 0),
+  getMyStorefront: jest.fn(async () => null),
+}));
 jest.mock('@/hooks/use-auth', () => ({ useAuth: jest.fn() }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));
 jest.mock('@/components/location-switcher', () => ({ LocationSwitcher: () => null }));
@@ -57,15 +65,30 @@ function labels(tree: ReactTestRenderer) {
   return tree.root.findAllByType(Text).flatMap((t) => (typeof t.props.children === 'string' ? [t.props.children] : []));
 }
 
+// The resolved colour a given row's label is painted in. Read rather than
+// compared against a literal on purpose: the assertion these tests want to
+// make is "the same grey the five paid tabs get", not "#999999".
+function colourOf(tree: ReactTestRenderer, label: string): string | undefined {
+  const node = tree.root.findAllByType(Text).find((t) => t.props.children === label);
+  if (!node) throw new Error(`no row labelled ${label} on screen`);
+  return (StyleSheet.flatten(node.props.style) as { color?: string } | undefined)?.color;
+}
+
 // A shop on every plan, run by someone allowed everything. Each test narrows
 // the one thing it is about.
-function signIn(overrides: { can?: (p: Permission) => boolean; hasModule?: (m: Module) => boolean } = {}) {
+function signIn(
+  overrides: { can?: (p: Permission) => boolean; hasModule?: (m: Module) => boolean; entitlements?: { resolved: boolean } } = {}
+) {
   (useAuth as jest.Mock).mockReturnValue({
     shop: { id: 's1', name: 'Jaalala Skincare', logoUrl: null, categories: ['Skincare'] },
     can: () => true,
     canAny: () => true,
     myMembership: { active: true },
     hasModule: () => true,
+    // `resolved: false` is the fail-closed default the entitlement lookup
+    // falls back to when it could not be read at all (entitlements.ts) --
+    // signed-in shops here have a real answer.
+    entitlements: { resolved: true },
     ...overrides,
   });
 }
@@ -74,6 +97,10 @@ beforeEach(() => {
   mounts = 0;
   jest.clearAllMocks();
   (countOrdersNeedingAction as jest.Mock).mockResolvedValue(0);
+  (getMyStorefront as jest.Mock).mockResolvedValue(null);
+  // The presence lookup is cached per shop for the life of the process, so a
+  // test that did not clear it would read the previous test's shop.
+  resetStorefrontPresence();
   signIn();
 });
 
@@ -151,9 +178,10 @@ describe('AdminSidebar storefront rows', () => {
     expect(shown).toEqual(expect.arrayContaining(['Dashboard', 'POS', 'Inventory', 'People', 'Accounting']));
   });
 
-  // A shop whose plan has no storefront must not be shown a page it cannot
-  // have -- the settings sidebar already gates both rows this way.
-  it('hides both from a shop without the storefront module', async () => {
+  // A shop that never set a page up is not missing anything it can see. Note
+  // what makes this true here and not in the lapsed block below: the stubbed
+  // `getMyStorefront` returns null, i.e. there is no `storefronts` row.
+  it('hides both from a shop that never had a storefront and has no module', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
     const shown = labels(await renderRail());
     expect(shown).not.toContain('Storefront');
@@ -264,11 +292,261 @@ describe('AdminSidebar storefront rows', () => {
     expect(labels(await renderRail())).not.toContain('0');
   });
 
-  // One count on the wire, not one per row: a shop without the module is never
-  // asked at all.
-  it('does not ask for the count when the shop has no storefront', async () => {
+  // One count on the wire, not one per row: a shop with no page and no module
+  // has no Orders row to badge, so it is never asked at all.
+  it('does not ask for the count when the shop never had a storefront', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
     await renderRail();
     expect(countOrdersNeedingAction).not.toHaveBeenCalled();
+  });
+});
+
+// A plan lapses, the month of grace runs out, and the shop keeps its page in
+// the database while losing the module. Hiding the rows from THAT shop takes
+// away the only signpost back to paying, so they are greyed instead -- the same
+// 🔒 the five paid tabs get, landing on the same upgrade wall.
+describe('AdminSidebar storefront rows after a lapse', () => {
+  // The lapsed shape: no `storefront` module, but a `storefronts` row still
+  // there. Everything else about the shop is untouched -- the other four paid
+  // modules still resolve, which is what makes the lock assertions below about
+  // storefront alone.
+  function lapsedWithAPage() {
+    signIn({ hasModule: (m) => m !== 'storefront' });
+    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+  }
+
+  async function renderRail() {
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(false)); });
+    return tree!;
+  }
+
+  async function openMenu(tree: ReactTestRenderer) {
+    const glyph = tree.root.findAllByType(Text).find((t) => t.props.children === '☰');
+    let node = glyph as unknown as { props: Record<string, unknown>; parent: unknown } | null;
+    while (node && typeof node.props?.onPress !== 'function') node = node.parent as typeof node;
+    await act(async () => { (node!.props.onPress as () => void)(); });
+    return tree;
+  }
+
+  it('shows Storefront and Orders rather than hiding them', async () => {
+    lapsedWithAPage();
+    const shown = labels(await renderRail());
+    expect(shown).toContain('Storefront');
+    expect(shown).toContain('Orders');
+  });
+
+  // Property 1: the same treatment, not a second implementation of it. The
+  // expected colour is READ OFF a paid tab that is genuinely locked in the
+  // same rail, so a fork of the lock styling fails this even if it looks fine.
+  it('greys them with the same lock the five paid tabs get', async () => {
+    signIn({ hasModule: (m) => m !== 'inventory' });
+    const paidTabGrey = colourOf(await renderRail(), 'Inventory');
+
+    resetStorefrontPresence();
+    lapsedWithAPage();
+    const rail = await renderRail();
+    expect(colourOf(rail, 'Storefront')).toBe(paidTabGrey);
+    expect(colourOf(rail, 'Orders')).toBe(paidTabGrey);
+    // And a row that is NOT locked is not painted that grey, or the assertion
+    // above would hold for a rail with no lock treatment at all.
+    expect(colourOf(rail, 'Accounting')).not.toBe(paidTabGrey);
+  });
+
+  it('marks both rows with the 🔒 and nothing else', async () => {
+    lapsedWithAPage();
+    const shown = labels(await renderRail());
+    expect(shown.filter((l) => l === '🔒')).toHaveLength(2);
+  });
+
+  // Property 2: the half of the original reasoning that still stands.
+  it('still shows nothing to a shop that never had a page', async () => {
+    signIn({ hasModule: (m) => m !== 'storefront' });
+    (getMyStorefront as jest.Mock).mockResolvedValue(null);
+    const shown = labels(await renderRail());
+    expect(shown).not.toContain('Storefront');
+    expect(shown).not.toContain('Orders');
+    expect(shown).not.toContain('🔒');
+    // Not an empty rail -- the other five are still there, so this is an
+    // absence of two rows and not an absence of a nav.
+    expect(shown).toContain('Inventory');
+  });
+
+  // The nav must not offer a door the route guard would bounce. Both routes
+  // are `settings.access` in permissions.ts, lapsed or not.
+  it('shows nothing to someone who cannot open Settings, lapsed or not', async () => {
+    lapsedWithAPage();
+    signIn({ can: (p) => p !== 'settings.access', hasModule: (m) => m !== 'storefront' });
+    const shown = labels(await renderRail());
+    expect(shown).not.toContain('Storefront');
+    expect(shown).not.toContain('Orders');
+    expect(shown).toContain('Inventory');
+  });
+
+  // #102, restated for the lapsed shop. The rail carries both rows at wide
+  // width, so the ☰ menu must not carry them too. Counted rather than asserted
+  // absent: they SHOULD be on that screen, exactly once.
+  it('still shows each row once per screen at wide width', async () => {
+    lapsedWithAPage();
+    const tree = await openMenu(await renderRail());
+    const shown = labels(tree);
+    expect(shown.filter((l) => l === 'Storefront')).toHaveLength(1);
+    expect(shown.filter((l) => l === 'Orders')).toHaveLength(1);
+    expect(shown.filter((l) => l === '🔒')).toHaveLength(2);
+    expect(shown).toContain('Settings');
+  });
+
+  // And the phone, where there is no rail and the menu is the only place the
+  // rows can live -- still once each, and still locked.
+  it('still shows each row once per screen at narrow width', async () => {
+    lapsedWithAPage();
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    // Closed menu: neither row is anywhere yet.
+    expect(labels(tree!)).not.toContain('Storefront');
+    await openMenu(tree!);
+    const shown = labels(tree!);
+    expect(shown.filter((l) => l === 'Storefront')).toHaveLength(1);
+    expect(shown.filter((l) => l === 'Orders')).toHaveLength(1);
+    expect(shown.filter((l) => l === '🔒')).toHaveLength(2);
+  });
+
+  it('greys the phone menu rows too', async () => {
+    lapsedWithAPage();
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    await openMenu(tree!);
+    expect(colourOf(tree!, 'Storefront')).not.toBe(colourOf(tree!, 'Settings'));
+    expect(colourOf(tree!, 'Orders')).not.toBe(colourOf(tree!, 'Settings'));
+  });
+
+  // Property 5. Those orders exist and still need picking; a shop that has
+  // stopped paying has not stopped owing its customers their goods.
+  it('keeps the waiting-order count on the menu button', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(3);
+    lapsedWithAPage();
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    // Read WITHOUT opening the menu -- the count has to reach the person at
+    // the till, not only someone who already went looking.
+    expect(labels(tree!)).toContain('3');
+    expect(countOrdersNeedingAction).toHaveBeenCalledWith('s1');
+  });
+
+  // A locked row that also has orders waiting has to carry both marks. The
+  // rail used to assume no row was ever locked AND badged, which a lapsed
+  // shop with open orders makes false.
+  it('carries the count and the lock on the same Orders row', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(3);
+    lapsedWithAPage();
+    const rail = await renderRail();
+    const shown = labels(rail);
+    expect(shown).toContain('3');
+    expect(shown.filter((l) => l === '🔒')).toHaveLength(2);
+
+    // Both marks present is not enough: they used to be two siblings each
+    // claiming `marginLeft: 'auto'`, which was safe only while no row was ever
+    // locked AND badged. Two auto margins in one row means the second one gets
+    // no space pushed to it, so it lands wherever the first left it. Exactly
+    // one thing in the row may claim the far edge.
+    // Walked up by `onHoverIn` rather than `onPress`: the rail's rows take
+    // their press handler from expo-router's `Link asChild`, which is stubbed
+    // out at the top of this file, so no onPress survives into the tree.
+    const label = rail.root.findAllByType(Text).find((t) => t.props.children === 'Orders')!;
+    let row = label as unknown as { props: Record<string, unknown>; parent: unknown };
+    while (row && typeof row.props?.onHoverIn !== 'function') row = row.parent as typeof row;
+    const pushedToTheEdge = (row as unknown as ReactTestRenderer['root']).findAll(
+      // Host elements only -- a composite and the host it renders would
+      // otherwise both count, and one View would read as two.
+      (node) =>
+        typeof node.type === 'string' &&
+        (StyleSheet.flatten(node.props?.style) as { marginLeft?: unknown } | undefined)?.marginLeft === 'auto',
+      { deep: true }
+    );
+    expect(pushedToTheEdge).toHaveLength(1);
+  });
+
+  // What the rows render before the answer arrives. Both halves of the
+  // condition land asynchronously, and either flash is a defect: a locked row
+  // for a shop that turns out to be paying, or an open row for one that is
+  // not. Neither row exists until the answer does.
+  it('shows nothing at all while the storefront lookup is still in flight', async () => {
+    signIn({ hasModule: (m) => m !== 'storefront' });
+    (getMyStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
+    const shown = labels(await renderRail());
+    expect(shown).not.toContain('Storefront');
+    expect(shown).not.toContain('Orders');
+    expect(shown).not.toContain('🔒');
+    expect(shown).toContain('Inventory');
+  });
+
+  // The entitlement lookup failing is NOT the same as a lapse. `resolved:
+  // false` is the fail-closed default (entitlements.ts), and telling a
+  // possibly-paid-up shop its storefront is locked would be a false
+  // accusation dressed up as an upsell -- the same call _layout.tsx makes.
+  it('does not lock the rows when the plan could not be read at all', async () => {
+    signIn({ hasModule: (m) => m !== 'storefront', entitlements: { resolved: false } });
+    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    const shown = labels(await renderRail());
+    expect(shown).not.toContain('Storefront');
+    expect(shown).not.toContain('🔒');
+    expect(getMyStorefront).not.toHaveBeenCalled();
+  });
+
+  // And the same in the direction a background auth reload takes it: the
+  // answer was known, then the next entitlement fetch failed. A remembered
+  // answer must not outlive the plan it was read against.
+  it('takes the lock back off if the plan stops resolving', async () => {
+    lapsedWithAPage();
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(false)); });
+    expect(labels(tree!)).toContain('Storefront');
+
+    signIn({ hasModule: (m) => m !== 'storefront', entitlements: { resolved: false } });
+    await act(async () => { tree!.update(shell(false)); });
+    expect(labels(tree!)).not.toContain('Storefront');
+    expect(labels(tree!)).not.toContain('🔒');
+  });
+
+  // A shop in the grace month keeps its whole plan, so nothing about it looks
+  // different -- the greying starts only once grace has run out.
+  it('leaves a shop that still has the module completely alone', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    const rail = await renderRail();
+    const shown = labels(rail);
+    expect(shown).toContain('Storefront');
+    expect(shown).not.toContain('🔒');
+    expect(colourOf(rail, 'Storefront')).toBe(colourOf(rail, 'Accounting'));
+    // And no query is made for a shop whose module already answers the
+    // question -- the nav renders on every screen.
+    expect(getMyStorefront).not.toHaveBeenCalled();
+  });
+
+  // An answer is about one shop. Someone who moves to a second shop must not
+  // be shown the first shop's lapse for the render it takes to find out --
+  // that is a locked row on a shop that may well be paying.
+  it('does not answer for one shop with another shop’s page', async () => {
+    lapsedWithAPage();
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(false)); });
+    expect(labels(tree!)).toContain('Storefront');
+
+    const signedIn = (useAuth as jest.Mock)();
+    (useAuth as jest.Mock).mockReturnValue({ ...signedIn, shop: { id: 's2', name: 'Xamdi Electronics', logoUrl: null, categories: [] } });
+    // Left in flight, so the only thing that could put a row on screen here is
+    // the previous shop's answer.
+    (getMyStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
+    await act(async () => { tree!.update(shell(false)); });
+    expect(labels(tree!)).not.toContain('Storefront');
+    expect(labels(tree!)).not.toContain('🔒');
+  });
+
+  // One request per shop for the whole session, however many navs ask. The
+  // rail and the orders badge are two callers in one tree.
+  it('asks the database once however many places need the answer', async () => {
+    lapsedWithAPage();
+    await renderRail();
+    await renderRail();
+    expect(getMyStorefront).toHaveBeenCalledTimes(1);
   });
 });
