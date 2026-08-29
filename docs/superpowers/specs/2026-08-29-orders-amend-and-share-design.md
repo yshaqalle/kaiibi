@@ -433,7 +433,7 @@ splitting adds order-number sprawl. Hold it until a shop asks.
 | | Part | Migration | Independently shippable |
 |---|---|---|---|
 | 0a | Storefront completion never requires a register | Yes | Yes — unblocks shops that cannot complete an order at all today |
-| 0b | Pick-up always visible, with the address | No | Yes |
+| 0b | Pick-up always visible, with the address | Yes — `get_public_storefront` must return it | Yes |
 | 1 | Screen redesign | No | Yes |
 | 2 | `amend_order` + amend sheet | Yes | Yes — alone it breaks the shortfall dead end |
 | 3 | Share token, public page, confirm | Yes | Yes |
