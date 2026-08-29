@@ -2,10 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 // Shared with the main nav's Orders row (admin-sidebar.tsx) -- one count on
 // the wire, not two. See the hook's own header.
 import { useOrdersNeedingActionBadge } from '@/hooks/use-orders-needing-action-badge';
+import { useStorefrontNavState } from '@/hooks/use-storefront-nav';
 import type { Module } from '@/lib/entitlements';
 import { primaryLocationOf } from '@/lib/location-selection';
 import type { Permission } from '@/lib/permissions';
@@ -126,13 +128,38 @@ export const SETTINGS_NAV: NavGroup[] = [
   },
 ];
 
-function useVisibleNav() {
+// A row this pane will draw, and whether it is drawn greyed.
+type VisibleItem = NavItem & { locked: boolean };
+
+// WHY `storefront` and `orders` are not filtered like every other module-gated
+// row here, and why that is not an inconsistency.
+//
+// The rule this pane keeps is "a module-gated PANEL vanishes without its
+// module" -- `promotions` still does exactly that, below, because it opens a
+// panel that lives inside this screen and there is nothing behind it to land
+// on. These two open no panel at all: handleSelectNav routes both straight out
+// to /storefront and /orders (settings.tsx), the same module-gated routes the
+// ☰ points at, each rendering its own upgrade wall (module-wall.tsx). They are
+// the SAME two doors, listed in a second nav.
+//
+// So they take the same answer the ☰ takes, from the same hook -- greyed with
+// the 🔒 for a shop that HAD a page and lapsed, hidden for one that never had
+// one. A shop shown the way back in one nav and refused it in the other is
+// being told two different things about one plan, and the pane that hid them
+// was the one saying the page is simply gone.
+function useVisibleNav(): { group: string; items: VisibleItem[] }[] {
   const { can, hasModule } = useAuth();
+  const storefront = useStorefrontNavState();
   return SETTINGS_NAV.map((group) => ({
     ...group,
-    items: group.items.filter(
-      (item) => (!item.permission || can(item.permission)) && (!item.module || hasModule(item.module))
-    ),
+    items: group.items.flatMap<VisibleItem>((item) => {
+      if (item.id === 'storefront' || item.id === 'orders') {
+        return storefront === 'hidden' ? [] : [{ ...item, locked: storefront === 'locked' }];
+      }
+      if (item.permission && !can(item.permission)) return [];
+      if (item.module && !hasModule(item.module)) return [];
+      return [{ ...item, locked: false }];
+    }),
   })).filter((group) => group.items.length > 0);
 }
 
@@ -168,11 +195,20 @@ export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; o
               const focused = item.id === active;
               return (
                 <Pressable key={item.id} onPress={() => onSelect(item.id)} style={[styles.navButton, focused && styles.navButtonFocused]}>
-                  <Ionicons name={item.icon} size={17} color={focused ? '#111111' : '#6B7280'} />
-                  <Text style={[styles.navText, focused && styles.navTextFocused]}>{item.label}</Text>
+                  <Ionicons name={item.icon} size={17} color={item.locked ? SIDEBAR_LOCKED_INK : focused ? '#111111' : '#6B7280'} />
+                  <Text style={[styles.navText, focused && styles.navTextFocused, item.locked && styles.navTextLocked]}>
+                    {item.label}
+                  </Text>
                   {item.id === 'orders' && ordersBadge > 0 ? (
                     <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
                   ) : null}
+                  {/* The only thing in this row allowed to claim the far edge.
+                      The badge deliberately does not -- two `marginLeft: auto`
+                      siblings means the second gets no space pushed to it and
+                      lands wherever the first left it, which is exactly the
+                      hazard an Orders row that is locked AND badged walks
+                      into. */}
+                  {item.locked ? <Text style={styles.navLock}>🔒</Text> : null}
                 </Pressable>
               );
             })}
@@ -197,11 +233,14 @@ export function SettingsNavList({ onSelect }: { onSelect: (id: SettingsNavId) =>
           <View style={styles.listCard}>
             {group.items.map((item, index) => (
               <Pressable key={item.id} onPress={() => onSelect(item.id)} style={[styles.listRow, index > 0 && styles.listRowBorder]}>
-                <Ionicons name={item.icon} size={19} color="#374151" />
-                <Text style={styles.listRowText}>{item.label}</Text>
+                <Ionicons name={item.icon} size={19} color={item.locked ? LOCKED_INK : '#374151'} />
+                <Text style={[styles.listRowText, item.locked && styles.listRowTextLocked]}>{item.label}</Text>
                 {item.id === 'orders' && ordersBadge > 0 ? (
                   <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
                 ) : null}
+                {/* No `marginLeft: auto` needed on this one -- listRowText
+                    already takes `flex: 1` and does the pushing. */}
+                {item.locked ? <Text style={styles.listRowLock}>🔒</Text> : null}
                 <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
               </Pressable>
             ))}
@@ -211,6 +250,21 @@ export function SettingsNavList({ onSelect }: { onSelect: (id: SettingsNavId) =>
     </ScrollView>
   );
 }
+
+// The same grey the ☰ paints a locked row in (`menuItemTextLocked`,
+// admin-sidebar.tsx), taken from the Bento ramp rather than written out, so the
+// two navs cannot drift apart on what "locked" looks like. Used by the phone
+// list below, where an ordinary row is #111111 and this is a plain greying.
+const LOCKED_INK = Colors.light.bentoMuted2;
+
+// The sidebar needs its own, one step lighter, because its ordinary row is
+// ALREADY grey (#6B7280, 4.83:1 on white) and `bentoMuted2` is 4.89:1 -- so
+// greying a row there moved it two hex digits in the WRONG direction and the
+// only lock signal surviving at tablet width was the 🔒 itself. A shop that
+// has lapsed has to be able to SEE which doors closed, so this pane greys
+// away from its ordinary ink rather than into it. See `bentoMuted3` in
+// constants/theme.ts for the ramp step and its contrast figures.
+const SIDEBAR_LOCKED_INK = Colors.light.bentoMuted3;
 
 const styles = StyleSheet.create({
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC' },
@@ -232,6 +286,8 @@ const styles = StyleSheet.create({
   navButtonFocused: { backgroundColor: '#F3F4F6', borderLeftColor: '#111111' },
   navText: { fontSize: 13.5, fontWeight: '500', color: '#6B7280' },
   navTextFocused: { color: '#111111', fontWeight: '700' },
+  navTextLocked: { color: SIDEBAR_LOCKED_INK, fontWeight: '500' },
+  navLock: { fontSize: 11, marginLeft: 'auto' },
 
   listContent: { padding: 20, paddingBottom: 60 },
   listGroup: { marginBottom: 22 },
@@ -239,4 +295,6 @@ const styles = StyleSheet.create({
   listRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
   listRowBorder: { borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   listRowText: { flex: 1, fontSize: 14.5, fontWeight: '600', color: '#111111' },
+  listRowTextLocked: { color: LOCKED_INK },
+  listRowLock: { fontSize: 11 },
 });

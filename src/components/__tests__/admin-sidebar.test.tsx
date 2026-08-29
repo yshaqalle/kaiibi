@@ -9,7 +9,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { resetStorefrontPresence } from '@/hooks/use-storefront-nav';
 import type { Module } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
-import { countOrdersNeedingAction, getMyStorefront } from '@/lib/storefront-admin';
+import { countOrdersNeedingAction, shopHasStorefront } from '@/lib/storefront-admin';
 
 // `signOut` in the ☰ menu reaches lib/auth, which constructs a real Supabase
 // client at import time and throws without the app's env vars.
@@ -27,13 +27,13 @@ jest.mock('expo-router', () => ({
 // whole module would leave it an undefined-returning jest.fn, which the hook
 // would swallow into a silent 0 -- and the badge test would then pass for the
 // wrong reason.
-// `getMyStorefront` is the other half of the lapsed test: the nav tells a shop
+// `shopHasStorefront` is the other half of the lapsed test: the nav tells a shop
 // that HAD a page from one that never did by asking whether a `storefronts`
 // row exists. Stubbed at "never had one", which is the majority case and the
 // one every pre-existing test in this file was written against.
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: jest.fn(async () => 0),
-  getMyStorefront: jest.fn(async () => null),
+  shopHasStorefront: jest.fn(async () => false),
 }));
 jest.mock('@/hooks/use-auth', () => ({ useAuth: jest.fn() }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));
@@ -112,7 +112,7 @@ beforeEach(() => {
   mounts = 0;
   jest.clearAllMocks();
   (countOrdersNeedingAction as jest.Mock).mockResolvedValue(0);
-  (getMyStorefront as jest.Mock).mockResolvedValue(null);
+  (shopHasStorefront as jest.Mock).mockResolvedValue(false);
   // The presence lookup is cached per shop for the life of the process, so a
   // test that did not clear it would read the previous test's shop.
   resetStorefrontPresence();
@@ -206,7 +206,7 @@ describe('AdminSidebar storefront rows', () => {
 
   // A shop that never set a page up is not missing anything it can see. Note
   // what makes this true here and not in the lapsed block below: the stubbed
-  // `getMyStorefront` returns null, i.e. there is no `storefronts` row.
+  // `shopHasStorefront` answers false, i.e. there is no `storefronts` row.
   it('hides both from a shop that never had a storefront and has no module', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
     const shown = labels(await openMenu(await renderWide()));
@@ -329,6 +329,55 @@ describe('AdminSidebar storefront rows', () => {
   });
 });
 
+// The dot on the ☰ button points at ONE thing: the Orders row inside the menu.
+// A cashier cannot open that row -- `/orders` is `settings.access` in
+// permissions.ts and (admin)/_layout.tsx redirects on it -- so a count on their
+// button is a notification about a screen they will be bounced off. The lapsed
+// path was already gated this way (use-storefront-nav.ts); this is the paying
+// shop's half of the same rule.
+describe('AdminSidebar orders badge and who can reach Orders', () => {
+  async function renderPhone() {
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(true)); });
+    return tree!;
+  }
+
+  // The POSITIVE half, and it has to come first: everything below asserts an
+  // absence, and an absence is satisfied by a nav that never rendered. This is
+  // the same shop, the same count, the same closed menu -- with the one
+  // permission put back.
+  it('shows the count to someone who CAN open Orders, at a shop with the module', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(3);
+    const tree = await renderPhone();
+    expect(labels(tree)).toContain('3');
+    expect(countOrdersNeedingAction).toHaveBeenCalledWith('s1');
+  });
+
+  it('shows no count to a cashier at a paying shop, and does not count for them', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(3);
+    signIn({ can: (p) => p !== 'settings.access' });
+    const tree = await renderPhone();
+    // The nav is genuinely on screen -- the ☰ button and the bottom bar are
+    // both up -- so this is a missing dot, not a missing menu.
+    expect(labels(tree)).toContain('☰');
+    expect(labels(tree)).toContain('bottom nav');
+    expect(labels(tree)).not.toContain('3');
+    expect(countOrdersNeedingAction).not.toHaveBeenCalled();
+  });
+
+  it('offers a cashier no Orders row to badge either, once the menu is open', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(3);
+    signIn({ can: (p) => p !== 'settings.access' });
+    const shown = labels(await openMenu(await renderPhone()));
+    // The menu is open -- Settings and Sign out are in it -- so the two
+    // absences below are about the row and the dot, not about the sheet.
+    expect(shown).toContain('Settings');
+    expect(shown).toContain('Sign out');
+    expect(shown).not.toContain('Orders');
+    expect(shown).not.toContain('3');
+  });
+});
+
 // A plan lapses, the month of grace runs out, and the shop keeps its page in
 // the database while losing the module. Hiding the rows from THAT shop takes
 // away the only signpost back to paying, so they are greyed instead -- the same
@@ -340,7 +389,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
   // storefront alone.
   function lapsedWithAPage() {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
   }
 
   async function renderWide() {
@@ -394,7 +443,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
   // Property 2: the half of the original reasoning that still stands.
   it('still shows nothing to a shop that never had a page', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue(null);
+    (shopHasStorefront as jest.Mock).mockResolvedValue(false);
     const shown = labels(await openMenu(await renderWide()));
     expect(shown).not.toContain('Storefront');
     expect(shown).not.toContain('Orders');
@@ -424,7 +473,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
     lapsedWithAPage();
     signIn({ can: (p) => p !== 'settings.access', hasModule: (m) => m !== 'storefront' });
     await renderWide();
-    expect(getMyStorefront).not.toHaveBeenCalled();
+    expect(shopHasStorefront).not.toHaveBeenCalled();
   });
 
   // #102 at 1280, restated for the lapsed shop. The ☰ is the only surface that
@@ -526,7 +575,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
   // not. Neither row exists until the answer does.
   it('shows nothing at all while the storefront lookup is still in flight', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
+    (shopHasStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
     const shown = labels(await openMenu(await renderWide()));
     expect(shown).not.toContain('Storefront');
     expect(shown).not.toContain('Orders');
@@ -542,12 +591,12 @@ describe('AdminSidebar storefront rows after a lapse', () => {
   // accusation dressed up as an upsell -- the same call _layout.tsx makes.
   it('does not lock the rows when the plan could not be read at all', async () => {
     signIn({ hasModule: (m) => m !== 'storefront', entitlements: { resolved: false } });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     const shown = labels(await openMenu(await renderWide()));
     expect(shown).not.toContain('Storefront');
     expect(shown).not.toContain('🔒');
     expect(shown).toContain('Settings');
-    expect(getMyStorefront).not.toHaveBeenCalled();
+    expect(shopHasStorefront).not.toHaveBeenCalled();
   });
 
   // And the same in the direction a background auth reload takes it: the
@@ -573,7 +622,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
   // A shop in the grace month keeps its whole plan, so nothing about it looks
   // different -- the greying starts only once grace has run out.
   it('leaves a shop that still has the module completely alone', async () => {
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     const menu = await openMenu(await renderWide());
     const shown = labels(menu);
     expect(shown).toContain('Storefront');
@@ -582,7 +631,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
     expect(colourOf(menu, 'Storefront')).toBe(colourOf(menu, 'Settings'));
     // And no query is made for a shop whose module already answers the
     // question -- the nav renders on every screen.
-    expect(getMyStorefront).not.toHaveBeenCalled();
+    expect(shopHasStorefront).not.toHaveBeenCalled();
   });
 
   // An answer is about one shop. Someone who moves to a second shop must not
@@ -599,7 +648,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
     (useAuth as jest.Mock).mockReturnValue({ ...signedIn, shop: { id: 's2', name: 'Xamdi Electronics', logoUrl: null, categories: [] } });
     // Left in flight, so the only thing that could put a row on screen here is
     // the previous shop's answer.
-    (getMyStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
+    (shopHasStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
     await act(async () => { tree!.update(shell(false)); });
     expect(labels(tree!)).not.toContain('Storefront');
     expect(labels(tree!)).not.toContain('🔒');
@@ -611,7 +660,7 @@ describe('AdminSidebar storefront rows after a lapse', () => {
     lapsedWithAPage();
     await renderWide();
     await renderWide();
-    expect(getMyStorefront).toHaveBeenCalledTimes(1);
+    expect(shopHasStorefront).toHaveBeenCalledTimes(1);
   });
 });
 

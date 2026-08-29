@@ -69,6 +69,7 @@ import {
   saveDraft,
   setAutoAdvance,
   checkSlug,
+  unpublish,
 } from '@/lib/storefront-admin';
 import StorefrontEditor from '@/app/(admin)/storefront';
 
@@ -315,6 +316,66 @@ describe('storefront editor', () => {
     expect(publishDraft).not.toHaveBeenCalled();
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
     expect(texts).toMatch(/try again|could not/i);
+  });
+
+  // `tone="wrong"` on this project ALWAYS carries an action that removes its
+  // cause (components/ui/caveat.tsx: "A 'wrong' caveat with no fix ... trains
+  // people to ignore the whole family"). The publish-error caveat had none.
+  // The cause here is a write that did not land, so the only action that
+  // genuinely removes it is making that same write again -- not a dismiss,
+  // which would leave the page unpublished and nothing on screen saying so.
+  it('offers to retry a failed publish, and retrying re-publishes', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (countOnlineProducts as jest.Mock).mockResolvedValue(3);
+    (publishBlockers as jest.Mock).mockReturnValue([]);
+    (saveDraft as jest.Mock).mockResolvedValue(undefined);
+    (publishDraft as jest.Mock).mockRejectedValue(new Error('network down'));
+    const tree = await renderScreen();
+
+    const publishButton = tree.root.findAll((node) => node.props.testID === 'publish-bar-publish')[0];
+    await act(async () => { publishButton.props.onPress(); });
+
+    // The caveat is up and says what happened -- the positive half, so the
+    // action below is being read off a caveat that actually rendered.
+    expect(textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ')).toContain('network down');
+    expect(publishDraft).toHaveBeenCalledTimes(1);
+
+    // caveatAction throws when nothing offers the label, so this IS the
+    // assertion that a `wrong` caveat carries an action at all.
+    const action = caveatAction(tree, 'Try again');
+    (publishDraft as jest.Mock).mockResolvedValue(undefined);
+    await act(async () => { action.props.onPress(); });
+    expect(publishDraft).toHaveBeenCalledTimes(2);
+    expect(publishDraft).toHaveBeenLastCalledWith('s1');
+    // And the caveat is gone, because its cause is: the page published.
+    expect(textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ')).not.toContain('network down');
+  });
+
+  // One caveat, four operations reporting through it. "Try again" has to retry
+  // the one that actually failed -- retrying a PUBLISH after a failed unpublish
+  // would put the page back up, the exact opposite of what the shop asked for.
+  it('retries the unpublish, not the publish, when unpublishing is what failed', async () => {
+    const live = { ...BASE, publishedAt: '2026-08-01T00:00:00.000Z', firstPublishedAt: '2026-08-01T00:00:00.000Z' };
+    (getMyStorefront as jest.Mock).mockResolvedValue(live);
+    (ensureStorefront as jest.Mock).mockResolvedValue(live);
+    (countOnlineProducts as jest.Mock).mockResolvedValue(3);
+    (publishBlockers as jest.Mock).mockReturnValue([]);
+    (unpublish as jest.Mock).mockRejectedValue(new Error('could not reach the server'));
+    const tree = await renderScreen();
+
+    const unpublishButton = tree.root.findAll((node) => node.props.testID === 'publish-bar-unpublish')[0];
+    await act(async () => { unpublishButton.props.onPress(); });
+    const confirm = tree.root.findAll((node) => node.props.testID === 'publish-bar-unpublish-confirm')[0];
+    await act(async () => { confirm.props.onPress(); });
+
+    expect(textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ')).toContain('could not reach the server');
+    expect(unpublish).toHaveBeenCalledTimes(1);
+
+    const action = caveatAction(tree, 'Try again');
+    await act(async () => { action.props.onPress(); });
+    expect(unpublish).toHaveBeenCalledTimes(2);
+    expect(publishDraft).not.toHaveBeenCalled();
   });
 
   // B2: Task 7b's whole justification for the debounce is "losing the

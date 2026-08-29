@@ -62,6 +62,21 @@ export const Colors = {
     // between a label and an axis tick survives.
     bentoMuted: '#5e5d65', // 6.02:1 on soft, 6.50:1 on white
     bentoMuted2: '#717078', // 4.53:1 on soft, 4.89:1 on white
+    // The third muted step, for a row that is DE-EMPHASISED against text that
+    // is itself already muted -- a locked nav row in a pane whose ordinary
+    // rows are grey, not black.
+    //
+    // It exists because `bentoMuted2` could not do that job. The Settings
+    // sidebar paints an ordinary row #6B7280, which is 4.83:1 on white, and
+    // `bentoMuted2` is 4.89:1 -- so "greyed out" came out a hair DARKER than
+    // ordinary. Not merely invisible: backwards. In the ☰ and the Settings
+    // phone list the ordinary row is #111111, so `bentoMuted2` is a real
+    // greying there and those keep it; this step is for the panes where it
+    // is not.
+    //
+    // Continues the ramp's own rhythm: the two steps above are 1.33:1 apart,
+    // and 4.89/1.33 lands here. Same cool hue, only lightness moved.
+    bentoMuted3: '#85848d', // 3.42:1 on soft, 3.70:1 on white
     bentoLine: '#ececf0',
     // The line BETWEEN rows, deliberately firmer than `bentoLine`.
     //
@@ -194,6 +209,18 @@ export const Colors = {
     bentoInk2: '#c9c9d2',
     bentoMuted: '#8a8a94',
     bentoMuted2: '#6f6f78',
+    // The dark mirror of the third muted step. Recedes by getting DARKER here,
+    // the way the rest of this ramp does.
+    //
+    // The step is shallower than the light one (1.19:1 rather than 1.33:1)
+    // because the dark ramp has far less headroom: `bentoMuted2` is already
+    // only 3.59:1 on `bentoSurface`, so a full 1.33 step would land near 2.7:1
+    // on every ground. This clears 3:1 on the two grounds a nav pane actually
+    // sits on and dips to 2.80:1 on `bentoSoft` -- which is the KPI-tile and
+    // selected-row inset ground, not a nav's. Anything wearing this token is
+    // a locked row, and every one of those also carries a 🔒, so the state is
+    // never signalled by colour alone.
+    bentoMuted3: '#636370', // 3.02:1 on surface, 3.26:1 on page, 2.80:1 on soft
     bentoLine: '#26262e',
     // Lighter than bentoLine here, not darker: on a dark surface a divider
     // separates by being brighter than its ground, which is the mirror of what

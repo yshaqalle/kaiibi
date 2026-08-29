@@ -130,6 +130,7 @@ import {
   reorderFlyers,
   saveDraft,
   setAutoAdvance,
+  shopHasStorefront,
   updateFlyer,
 } from '@/lib/storefront-admin';
 
@@ -147,6 +148,43 @@ beforeEach(() => {
   fake.orderCalls.length = 0;
   fake.selectCalls.length = 0;
   fake.selectResult = { data: [], error: null };
+});
+
+// The nav's whole question about a shop's page is "is there a row", and that
+// is a count, not a read. It used to be answered with getMyStorefront, which
+// selects every live column AND the `draft` jsonb -- a shop's entire unsaved
+// editor state, dragged down a phone connection so a menu could decide whether
+// to draw two rows.
+describe('shopHasStorefront', () => {
+  it('asks for a count only -- head:true, no rows, and no draft payload', async () => {
+    fake.selectResult = { data: null, error: null, count: 1 };
+    expect(await shopHasStorefront('shop-1')).toBe(true);
+    expect(fake.selectCalls).toEqual([
+      { table: 'storefronts', columns: 'shop_id', options: { count: 'exact', head: true } },
+    ]);
+    expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
+  });
+
+  it('is false for a shop that has never set a page up', async () => {
+    fake.selectResult = { data: null, error: null, count: 0 };
+    expect(await shopHasStorefront('shop-1')).toBe(false);
+  });
+
+  // Same defensive fallback countOrdersNeedingAction takes: a null count is
+  // not an answer, and "no page" is the safe reading -- it hides the rows,
+  // which is what they did before any of this existed.
+  it('treats a null count as no page rather than throwing', async () => {
+    fake.selectResult = { data: null, error: null, count: null };
+    expect(await shopHasStorefront('shop-1')).toBe(false);
+  });
+
+  // A failure must reach the caller. useShopHasStorefront forgets a rejected
+  // lookup so the next mount asks again -- swallowing the error here into
+  // `false` would instead pin "no page" on one bad request.
+  it('throws rather than answering when the query fails', async () => {
+    fake.selectResult = { data: null, error: { message: 'nope' }, count: null };
+    await expect(shopHasStorefront('shop-1')).rejects.toEqual({ message: 'nope' });
+  });
 });
 
 describe('publishBlockers', () => {

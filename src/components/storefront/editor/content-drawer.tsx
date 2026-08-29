@@ -8,7 +8,7 @@ import { copyText } from '@/lib/copy-text';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { pickPhotoFromLibrary } from '@/lib/photo-picker';
 import { applySuffix, deriveSlugFromName, type SlugProblem } from '@/lib/storefront-slug';
-import { APP_DOMAIN } from '@/lib/storefront-host';
+import { STOREFRONT_ADDRESS_PREFIX, storefrontAddress } from '@/lib/storefront-host';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
 // screen.
@@ -354,7 +354,7 @@ export function ContentDrawer({
         : undefined
       : SLUG_STATE_COPY[slugState];
   const claimDisabled = !value.slug.trim() || slugState === 'checking';
-  const fullAddress = `${value.slug.trim()}.${APP_DOMAIN}`;
+  const fullAddress = storefrontAddress(value.slug.trim());
 
   function commitPhone() {
     const draft = phoneDraft.trim();
@@ -401,13 +401,16 @@ export function ContentDrawer({
   return (
     <BentoCard title="Content">
       <Text style={styles.eyebrow}>Web address</Text>
-      {/* The slug is a SUBDOMAIN, not a path. slugFromHostname only ever
-          resolves `<slug>.kaiibi.com` (src/lib/storefront-host.ts), so showing
-          `kaiibi.com/<slug>` here would hand a shopkeeper an address that does
-          not work -- and it is exactly the address they print on a card. The
-          test asserts the rendered address round-trips through the real router
-          function, so the two can never drift apart again. */}
+      {/* The field shows the WHOLE address, not just the part being typed --
+          a shop should never have to join a box and a domain in its head
+          before printing the result on a card. The fixed part comes from
+          STOREFRONT_ADDRESS_PREFIX (src/lib/storefront-host.ts), the same
+          source every other address on this screen is built from, so the box
+          cannot teach one form while Copy link hands over another. That is
+          precisely what happened: this row taught `<slug>.kaiibi.com`, which
+          no DNS record resolves. */}
       <View style={styles.slugRow}>
+        <Text style={styles.slugPrefix}>{STOREFRONT_ADDRESS_PREFIX}</Text>
         {inSuffixMode ? (
           <>
             {/* Frozen, and rendered with the joining hyphen so the row reads
@@ -441,19 +444,16 @@ export function ContentDrawer({
             autoCorrect={false}
           />
         )}
-        <Text style={styles.slugSuffix}>{`.${APP_DOMAIN}`}</Text>
       </View>
 
-      {/* A claimed address, in one piece and ready to be copied. Same shape the
-          suffix mode uses below for the same reason: a shop should never have
-          to join a field and a domain in its head before printing the result
-          on a card. Built from APP_DOMAIN, so it round-trips through the real
-          router function the test puts it through. */}
+      {/* A claimed address, in one piece and ready to be copied. Built by
+          storefrontAddress -- the same call Copy link below hands to the
+          clipboard, so what is read off the screen and what is pasted into
+          WhatsApp are one string and not two that happen to agree today. */}
       {frozen ? (
         <>
           <Text testID="content-drawer-claimed-address" style={styles.fullAddress}>
-            {claimed}
-            {`.${APP_DOMAIN}`}
+            {storefrontAddress(claimed)}
           </Text>
           <View style={styles.claimedActions}>
             <Pressable testID="content-drawer-copy-address" onPress={handleCopyAddress} style={styles.secondaryButton}>
@@ -483,10 +483,11 @@ export function ContentDrawer({
 
       {inSuffixMode ? (
         <>
-          {/* The assembled address, in full and in one piece, built from
-              APP_DOMAIN like every other address on this screen -- a shop
-              reading a base, a box and a domain separately should not have to
-              do the joining in its head before printing it on a card. */}
+          {/* The assembled address, in full and in one piece, built by
+              storefrontAddress like every other address on this screen -- a
+              shop reading a prefix, a base and a box separately should not
+              have to do the joining in its head before printing it on a
+              card. */}
           <Text testID="content-drawer-full-address" style={styles.fullAddress}>{fullAddress}</Text>
           {suffixSuggestions.length > 0 ? (
             <>
@@ -686,9 +687,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
   },
-  slugSuffix: { fontSize: 13.5, fontWeight: '700', color: theme.bentoMuted2 },
+  slugPrefix: { fontSize: 13.5, fontWeight: '700', color: theme.bentoMuted2 },
   slugInput: { flex: 1, fontSize: 13.5, fontWeight: '700', color: theme.bentoInk, paddingVertical: 11 },
-  // Muted, like the domain on the other end of the row: both are parts of the
+  // Muted, like the domain at the head of the row: both are parts of the
   // address the shop is not editing right now.
   slugBase: { fontSize: 13.5, fontWeight: '700', color: theme.bentoMuted2, paddingVertical: 11 },
   // A claimed address should not LOOK like a box waiting for a keystroke. The
