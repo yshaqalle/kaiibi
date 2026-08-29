@@ -67,6 +67,7 @@ const shop: PublicStorefront = {
   about: 'Open every day but Friday morning.',
   heroImageUrl: null,
   offersDelivery: true,
+  collectAddress: null,
   paymentMode: 'on_collection',
   flyers: [],
   autoAdvance: false,

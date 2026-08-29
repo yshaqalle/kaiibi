@@ -628,6 +628,13 @@ function StorefrontEditor() {
   // No primary location is exactly what a LEFT JOIN with no match yields
   // there too, so `null` here is correct, not a fallback.
   const primaryCity = locations.find((location) => location.isPrimary)?.city ?? null;
+  // Off the SAME row as primaryCity, on purpose: a preview whose town and
+  // whose street address came from two different branches would be showing
+  // the owner something the public page can never produce. Null for a shop
+  // that has not filled the optional address field in, which is most of them
+  // -- and null is what the live page gets in that case too, so the preview
+  // is honest about the line being absent rather than inventing one.
+  const primaryAddress = locations.find((location) => location.isPrimary)?.address ?? null;
 
   // What get_public_storefront (20260930000100) would return for this shop,
   // reproduced client-side for the preview -- the same reason
@@ -685,6 +692,7 @@ function StorefrontEditor() {
     about: working.about,
     heroImageUrl: working.heroImageUrl,
     offersDelivery: working.offersDelivery,
+    collectAddress: primaryAddress,
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,

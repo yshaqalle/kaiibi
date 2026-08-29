@@ -231,6 +231,68 @@ describe('getPublicStorefront autoAdvance', () => {
   });
 });
 
+// Orders Part 0, task 3: get_public_storefront gained a `collect_address`
+// column in 20261010000100 -- the primary location's street address -- and
+// nothing read it. A shop that does not deliver renders no fulfilment choice
+// at all, so the order is placed as a collection the customer was never told
+// about; without this mapping the page still has no address to tell them.
+//
+// The mapper is not exported and is not exported for these -- same as the
+// flyers and autoAdvance blocks above, this drives it through
+// getPublicStorefront with the RPC mocked.
+describe('getPublicStorefront collectAddress', () => {
+  beforeEach(() => rpc.mockReset());
+
+  const row = {
+    shop_name: 'Xamdi Electronics',
+    city: 'Hargeisa',
+    slug: 'xamdi',
+    whatsapp_e164: '+252634456789',
+    theme: 'market',
+    palette: 'ink',
+    headline: null,
+    about: null,
+    hero_image_url: null,
+    offers_delivery: false,
+    payment_mode: 'on_collection',
+    flyers: [],
+    auto_advance: false,
+  };
+
+  it('maps collect_address to collectAddress', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, collect_address: 'Shop 12, Bakaaro Market' }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.collectAddress).toBe('Shop 12, Bakaaro Market');
+  });
+
+  it('leaves collectAddress null when the shop has no address', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, collect_address: null }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.collectAddress).toBeNull();
+  });
+
+  // This is the common case today, not a corner: nothing has ever populated
+  // shop_locations.address automatically -- not 20260808000000's backfill,
+  // not createShop -- so it holds something only for a shop whose owner typed
+  // it into the optional field in Settings.
+  it('reads a missing collect_address column as null, not undefined', async () => {
+    rpc.mockResolvedValue({ data: [row], error: null });
+    const storefront = await getPublicStorefront('xamdi');
+    // toBeNull, not toBeFalsy: `undefined` leaking through would render as an
+    // empty address line rather than as no line at all, which is the exact
+    // thing the null-over-empty-string convention exists to prevent.
+    expect(storefront?.collectAddress).toBeNull();
+  });
+
+  // An empty string is not an address. It survives `?? null` untouched, so if
+  // it ever reaches here it is the shop's own doing -- locations-panel.tsx
+  // writes `address.trim() || null` and the column is nullable, so this pins
+  // that the mapper does not have to launder it and does not silently start
+  // to.
+  it('does not invent an address, and does not launder one it was given', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, collect_address: 'Unit 4, Airport Road' }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.collectAddress).toBe('Unit 4, Airport Road');
+  });
+});
+
 // Task 6, property 5: this is the FIRST caller of get_public_delivery_areas
 // (20260924000100_storefront_public_read.sql) -- it has had none since plan
 // 1. Mirrors getPublicStorefront/getPublicStorefrontProducts exactly: an RPC

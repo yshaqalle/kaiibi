@@ -1297,6 +1297,20 @@ export type PublicStorefront = {
   about: string | null;
   heroImageUrl: string | null;
   offersDelivery: boolean;
+  // Where to come and get it. The PRIMARY location's street address -- the
+  // same branch a storefront sale is filed against and stock is checked at --
+  // so the page names the counter the goods will actually be waiting on.
+  // Null when the shop has not filled one in, which is a real answer: the
+  // pick-up line renders without an address rather than with an empty one.
+  //
+  // AND NULL IS THE COMMON CASE, not the corner. Nothing has ever populated
+  // shop_locations.address automatically -- 20260808000000's backfill and
+  // createShop both carry name/city/neighborhood/contact_phone forward and
+  // not this -- so it holds something only for a shop whose owner typed it
+  // into the optional field in Settings -> Locations. Anything rendering it
+  // must degrade to `city`, which is on this same object and IS populated for
+  // every shop, rather than to a blank line.
+  collectAddress: string | null;
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a

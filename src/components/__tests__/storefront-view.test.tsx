@@ -46,6 +46,7 @@ const shop: PublicStorefront = {
   about: 'Open 8am–9pm.',
   heroImageUrl: null,
   offersDelivery: true,
+  collectAddress: null,
   paymentMode: 'on_collection',
   // No flyers: these fixtures predate them, and a shop with none must
   // render exactly as it did before they existed.
