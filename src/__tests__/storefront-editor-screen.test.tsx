@@ -117,6 +117,7 @@ const BASE = {
   headline: 'Everything for the house and the phone.', about: null,
   heroImageUrl: null, offersDelivery: false, publishedAt: null,
   firstPublishedAt: null,
+  lapseUnpublishedAt: null,
   autoAdvance: false,
   draft: null,
 };
@@ -372,6 +373,48 @@ describe('storefront editor', () => {
 
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
     expect(texts).toContain('Chosen for you');
+  });
+
+  // T4 property 3: after paying, the editor shows the page as a draft AND
+  // SAYS WHY, rather than leaving the shop to guess.
+  //
+  // The state itself is invisible without this: published_at going null looks
+  // identical whether the plan lapsed, the shop unpublished on purpose, or it
+  // never published at all. storefronts.lapse_unpublished_at (20260930000500)
+  // is the only thing that separates them, and it is cleared by
+  // publish_storefront so the sentence cannot outlive its cause.
+  it('says WHY the page is a draft when a lapse took it down, and offers to publish it again', async () => {
+    const row = { ...BASE, publishedAt: null, firstPublishedAt: '2026-01-01T00:00:00.000Z',
+                  lapseUnpublishedAt: '2026-08-01T00:00:00.000Z' };
+    (getMyStorefront as jest.Mock).mockResolvedValue(row);
+    (ensureStorefront as jest.Mock).mockResolvedValue(row);
+    (countOnlineProducts as jest.Mock).mockResolvedValue(3);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Draft');
+    expect(texts).toContain('came down while your plan had lapsed');
+
+    // A `wrong` caveat must always carry the action that removes its cause --
+    // here, publishing. caveatAction throws when nothing offers the label, so
+    // this is a real assertion that the button exists and not just that the
+    // words do.
+    const action = caveatAction(tree, 'Publish again');
+    await act(async () => { action.props.onPress(); });
+    expect(publishDraft).toHaveBeenCalledWith('s1');
+  });
+
+  // The other half, and the one that keeps the sentence honest: a shop whose
+  // page is a draft for any OTHER reason must not be told its plan lapsed.
+  // BASE has never published, which is the commonest case by far.
+  it('does not blame a lapse for a draft that no lapse caused', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Draft');
+    expect(texts).not.toContain('came down while your plan had lapsed');
   });
 
   it('does not resurface "Chosen for you" once a shop has ever published, even after unpublishing', async () => {

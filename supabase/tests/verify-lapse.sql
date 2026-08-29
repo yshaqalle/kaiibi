@@ -335,7 +335,29 @@ end $$;
 -- guard on it is exercised rather than skipped.
 update public.platform_settings set default_grace_days = 7 where id;
 
+-- REPLAYING THE ORDER THE TWO MIGRATIONS ACTUALLY APPLY IN.
+--
+-- 20260930000500 adds an AFTER UPDATE trigger on shop_subscriptions that
+-- unpublishes a page when a shop stops being past grace. The backfill below
+-- revives shops from `expired` into `grace`, which is exactly that crossing --
+-- so with the trigger live, re-running the backfill here takes down the very
+-- pages section E is about to count.
+--
+-- In a real database that sequence CANNOT HAPPEN: 20260930000400 sorts before
+-- 20260930000500, so the backfill runs at a point where this trigger does not
+-- yet exist, and its push-time count of pages that come back is accurate.
+-- Leaving the trigger enabled across this \ir would not test anything a
+-- database will ever do; it would only make section D and E's fixtures
+-- disagree with the migration they are re-running.
+--
+-- This is NOT sweeping the interaction under the rug -- section F7 pins it
+-- head-on: a shop revived from expired into grace by an operator widening its
+-- window, with the trigger in place, comes back as a draft.
+alter table public.shop_subscriptions disable trigger shop_subscriptions_unpublish_storefront_on_return;
+
 \ir ../migrations/20260930000400_storefront_grace_month.sql
+
+alter table public.shop_subscriptions enable trigger shop_subscriptions_unpublish_storefront_on_return;
 
 do $$
 declare
@@ -477,6 +499,578 @@ begin
   end if;
 
   raise notice 'E ok: 3 subscriptions left expired and 1 storefront came back -- the counts differ, and the notice says so';
+end $$;
+
+-- ===========================================================================
+-- F. Coming back from expiry leaves the page a DRAFT, on purpose
+-- ===========================================================================
+-- The other half of the decision, and the one nothing in this project had a
+-- place to put. Sections A-E are about the month a shop gets; this is about
+-- what it comes back TO.
+--
+-- WHY A TRIGGER AND NOT A JOB. There is no clock in this project. Status is
+-- computed on every read (shop_effective_status, 20260818000200:18) -- no
+-- stored column, no pg_cron, no scheduled anything -- and a migration runs
+-- once, at deploy. So "at the end of grace" has no seam to hang code off. The
+-- two lazy readings both fail: a lapsed shop cannot reach the editor at all
+-- (T3 greys the row and routes taps to the upgrade wall), and
+-- get_public_storefront is `stable` and called by anonymous customers, so it
+-- cannot write and must not be made to. The moment that IS observable is the
+-- shop coming BACK -- an UPDATE on shop_subscriptions -- and that is where
+-- 20260930000500 hangs the unpublish.
+--
+-- WHAT IT IS FOR (property 2 of the brief): today the page is dark only
+-- because shop_has_module fails, so paying makes it reappear EXACTLY AS IT
+-- WAS. After a month away that page may be advertising last month's prices to
+-- a customer who then orders at them. Publishing again should be a deliberate
+-- act.
+--
+-- Every check below is scoped to its own fixture shop. Sections B, C and D
+-- leave shops of their own in this same transaction.
+
+-- One fixture shop, built the way a real one lives: created on trial (which
+-- carries `storefront`, so the storefronts insert gate lets it through),
+-- given a page, and only then pushed past its grace. Returns the shop id.
+create function pg_temp.lapse_shop(p_name text, p_publish boolean default true, p_plan text default 'trial',
+                                   p_expire boolean default true)
+returns uuid language plpgsql as $$
+declare
+  v_user uuid := gen_random_uuid();
+  v_shop uuid;
+begin
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-lapse-f-' || v_user || '@example.test', '', now(), now(), now());
+
+  insert into public.shops (owner_id, name, slug, whatsapp_e164)
+    values (v_user, p_name, 'lapse-f-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), '+252634456789')
+    returning id into v_shop;
+
+  insert into public.shop_locations (shop_id, name, city, is_primary, active)
+    values (v_shop, 'Road No.1', 'Hargeisa', true, true);
+
+  insert into public.products (shop_id, name, category, price_cents, cost_cents, stock, is_listed_online)
+    values (v_shop, 'Solar lantern', 'Light', 1400, 900, 6, true);
+
+  -- The page, plus the things the decision says must SURVIVE it: a flyer and
+  -- a delivery area. Both are built while the shop still has the module,
+  -- because their own insert gates would refuse them afterwards.
+  insert into public.storefronts (shop_id, theme, palette, headline, published_at, first_published_at)
+    values (v_shop, 'window', 'palm', 'Open 8am-9pm.',
+            case when p_publish then now() - interval '90 days' else null end,
+            case when p_publish then now() - interval '90 days' else null end);
+
+  insert into public.storefront_flyers (shop_id, image_path, headline, position, draft)
+    values (v_shop, 'flyers/' || v_shop || '.jpg', 'Solar week', 0, false);
+
+  insert into public.storefront_delivery_areas (shop_id, name, fee_cents, sort_order)
+    values (v_shop, 'Ahmed Dhagah', 1500, 0);
+
+  if p_plan <> 'trial' then
+    update public.shop_subscriptions set plan_id = (select id from public.plans where key = p_plan)
+     where shop_id = v_shop;
+  end if;
+
+  -- Past grace. Its page is dark right now, and its rows are all still here.
+  --
+  -- p_expire => false leaves the shop on its ordinary trial instead, for the
+  -- checks that need a shop which has NOT yet been past grace -- putting one
+  -- there and taking it back out is itself a crossing, so a fixture that
+  -- expires first cannot be used to prove what a non-crossing update does.
+  if p_expire then
+    update public.shop_subscriptions
+       set trial_ends_at = now() - interval '40 days', current_period_end = null,
+           grace_until   = now() - interval '10 days'
+     where shop_id = v_shop;
+
+    if public.shop_effective_status(v_shop) <> 'expired' then
+      raise exception 'FAIL F-fixture: % was built past grace but reads %', p_name, public.shop_effective_status(v_shop);
+    end if;
+  elsif public.shop_effective_status(v_shop) <> 'trialing' then
+    raise exception 'FAIL F-fixture: % was built to stay on trial but reads %', p_name, public.shop_effective_status(v_shop);
+  end if;
+
+  return v_shop;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F0. WHICH ROW THE TRIGGER ACTUALLY SEES -- measured, not assumed
+-- ---------------------------------------------------------------------------
+-- shop_effective_status(shop_id) takes a SHOP ID and selects from
+-- shop_subscriptions itself. So inside a trigger it does not report "the row
+-- as passed in"; it reports whatever is in the table at that instant. A
+-- BEFORE UPDATE trigger sees the OLD dates, an AFTER UPDATE trigger sees the
+-- NEW ones, and in EITHER timing calling it twice yields the SAME answer
+-- twice.
+--
+-- That is why 20260930000500 derives both sides from OLD and NEW directly
+-- (through subscription_effective_status, which takes a ROW). The obvious
+-- alternative -- call shop_effective_status before and after -- produces a
+-- condition of the form `x = 'expired' and x <> 'expired'`, which is false for
+-- every row, i.e. a trigger that never fires and whose tests all pass by
+-- accident because nothing ever changes.
+--
+-- This block installs its own throwaway probes and records what each timing
+-- sees, so the claim above is a measurement in this file rather than a comment
+-- somebody has to trust.
+create temp table lapse_probe_log (phase text, seen text);
+
+create function pg_temp.lapse_probe_before() returns trigger language plpgsql as $$
+begin
+  insert into lapse_probe_log values ('before', public.shop_effective_status(new.shop_id));
+  return new;
+end $$;
+
+create function pg_temp.lapse_probe_after() returns trigger language plpgsql as $$
+begin
+  insert into lapse_probe_log values ('after', public.shop_effective_status(new.shop_id));
+  return null;
+end $$;
+
+-- Named to sort after the real trigger, so the real one has already run and
+-- cannot be perturbed by these.
+create trigger zzz_lapse_probe_before before update on public.shop_subscriptions
+  for each row execute function pg_temp.lapse_probe_before();
+create trigger zzz_lapse_probe_after after update on public.shop_subscriptions
+  for each row execute function pg_temp.lapse_probe_after();
+
+do $$
+declare
+  v_shop   uuid;
+  v_before text;
+  v_after  text;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Probe Shop');
+  -- The fixture's own final UPDATE fired the probes too; only the crossing
+  -- update below is being measured.
+  delete from lapse_probe_log;
+
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+
+  select seen into v_before from lapse_probe_log where phase = 'before';
+  select seen into v_after  from lapse_probe_log where phase = 'after';
+
+  if v_before <> 'expired' then
+    raise exception 'FAIL F0a: inside BEFORE UPDATE, shop_effective_status() read %, expected the PRE-update expired', v_before;
+  end if;
+  if v_after <> 'active' then
+    raise exception 'FAIL F0b: inside AFTER UPDATE, shop_effective_status() read %, expected the POST-update active', v_after;
+  end if;
+  if v_before = v_after then
+    raise exception 'FAIL F0c: both trigger timings read the same status (%), so before/after cannot come from two calls to it', v_before;
+  end if;
+
+  raise notice 'F0 ok: BEFORE UPDATE reads % and AFTER UPDATE reads % -- one timing cannot yield both, so the trigger reads OLD and NEW', v_before, v_after;
+end $$;
+
+drop trigger zzz_lapse_probe_before on public.shop_subscriptions;
+drop trigger zzz_lapse_probe_after on public.shop_subscriptions;
+
+-- ---------------------------------------------------------------------------
+-- F0d. The refactor did not change what a status MEANS
+-- ---------------------------------------------------------------------------
+-- 20260930000500 moves the case expression out of shop_effective_status and
+-- into subscription_effective_status, then redefines the former to call the
+-- latter. Everything in this product that gates on a plan goes through
+-- shop_effective_status -- shop_effective_plan, shop_has_module, the RLS
+-- policies, the platform portal -- so a divergence of one arm would be a
+-- silent entitlement change.
+--
+-- Checked over every subscription row in this transaction, which by now
+-- includes the sections B, C and D fixtures: trialing, active, grace, expired,
+-- a row with neither date, and rows with inverted dates. Not a hand-written
+-- list of cases, which could only miss the arm somebody got wrong.
+do $$
+declare
+  v_rows      integer;
+  v_disagree  integer;
+  v_statuses  integer;
+begin
+  select count(*), count(*) filter (
+           where public.shop_effective_status(s.shop_id)
+                 is distinct from public.subscription_effective_status(s))
+    into v_rows, v_disagree
+    from public.shop_subscriptions s;
+
+  if v_disagree > 0 then
+    raise exception 'FAIL F0d: % of % subscription rows get a different status from shop_effective_status() than from subscription_effective_status()', v_disagree, v_rows;
+  end if;
+
+  -- Otherwise "they agree" could mean "both say the same thing about
+  -- everything", which a pair of functions that always returned `expired`
+  -- would also satisfy.
+  select count(distinct public.subscription_effective_status(s)) into v_statuses
+    from public.shop_subscriptions s;
+  if v_statuses < 3 then
+    raise exception 'FAIL F0e: the fixtures only exercise % distinct status(es), so agreement between the two functions proves little', v_statuses;
+  end if;
+
+  -- A shop with no subscription row at all must still read `expired`, not
+  -- null -- the arm the old body wrote as `s.id is null` off a LEFT JOIN.
+  if public.shop_effective_status(gen_random_uuid()) is distinct from 'expired' then
+    raise exception 'FAIL F0f: a shop with no subscription row reads %, expected expired', coalesce(public.shop_effective_status(gen_random_uuid()), '<null>');
+  end if;
+
+  raise notice 'F0d ok: both functions agree on all % rows across % distinct statuses, and a shop with no row still reads expired', v_rows, v_statuses;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F1. A payment brings the shop back, and the page comes back as a DRAFT
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_shop      uuid;
+  v_slug      text;
+  v_row       record;
+  v_flyers    integer;
+  v_areas     integer;
+  v_products  integer;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Paid Shop');
+  select slug into v_slug from public.shops where id = v_shop;
+
+  -- record_payment's shape (supabase/functions/platform-admin/index.ts:472):
+  -- a period end in the future, and grace stamped past it.
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+
+  if public.shop_effective_status(v_shop) <> 'active' then
+    raise exception 'FAIL F1a: the paid shop reads %, expected active', public.shop_effective_status(v_shop);
+  end if;
+
+  select * into v_row from public.storefronts where shop_id = v_shop;
+
+  if v_row.published_at is not null then
+    raise exception 'FAIL F1b: a shop that came back from expiry still has its page LIVE (published_at %) -- paying republished it silently', v_row.published_at;
+  end if;
+
+  if v_row.lapse_unpublished_at is null then
+    raise exception 'FAIL F1c: the page was taken down with no reason recorded -- the editor cannot say WHY it is a draft';
+  end if;
+
+  -- EVERYTHING ELSE STAYS. This is the whole decision: keep the data.
+  if v_row.theme <> 'window' or v_row.palette <> 'palm' or v_row.headline <> 'Open 8am-9pm.' then
+    raise exception 'FAIL F1d: the unpublish rewrote the page content -- theme %, palette %, headline %', v_row.theme, v_row.palette, v_row.headline;
+  end if;
+
+  -- first_published_at is deliberately never cleared (20260926000100), so the
+  -- "Chosen for you" badge does not come back for a shop that has chosen.
+  if v_row.first_published_at is null then
+    raise exception 'FAIL F1e: the unpublish cleared first_published_at -- "Chosen for you" would come back for a shop that has already chosen';
+  end if;
+
+  select count(*) into v_flyers   from public.storefront_flyers where shop_id = v_shop;
+  select count(*) into v_areas    from public.storefront_delivery_areas where shop_id = v_shop;
+  select count(*) into v_products from public.products where shop_id = v_shop;
+  if v_flyers <> 1 or v_areas <> 1 or v_products <> 1 then
+    raise exception 'FAIL F1f: the unpublish took data with it -- % flyer(s), % delivery area(s), % product(s), expected 1 of each', v_flyers, v_areas, v_products;
+  end if;
+
+  if (select slug from public.shops where id = v_shop) is distinct from v_slug then
+    raise exception 'FAIL F1g: the unpublish released the shop slug';
+  end if;
+
+  -- And the consequence a customer sees: the address does not serve, even
+  -- though the shop is paying again and the module resolves.
+  if not public.shop_has_module(v_shop, 'storefront') then
+    raise exception 'FAIL F1h: the paid shop does not resolve the storefront module -- the rest of this check would pass for the wrong reason';
+  end if;
+  if exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F1i: the page serves again the moment the shop pays -- it must be republished deliberately';
+  end if;
+
+  raise notice 'F1 ok: paying brought the shop back and the page came back as a draft, with the flyer, the area, the products, the theme and the slug all still there';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F2. An EXTENSION brings it back too -- the trigger is not keyed to one column
+-- ---------------------------------------------------------------------------
+-- extend_trial (platform-admin/index.ts:404-419) writes trial_ends_at and
+-- grace_until and never touches current_period_end. A trigger written against
+-- the payment path alone would miss it -- and so would an edit to
+-- record_payment, which is why this lives in the database and not in the edge
+-- function.
+do $$
+declare
+  v_shop      uuid;
+  v_published timestamptz;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Extended Shop');
+
+  update public.shop_subscriptions
+     set trial_ends_at = now() + interval '90 days', grace_until = now() + interval '120 days'
+   where shop_id = v_shop;
+
+  if public.shop_effective_status(v_shop) <> 'trialing' then
+    raise exception 'FAIL F2a: the extended shop reads %, expected trialing', public.shop_effective_status(v_shop);
+  end if;
+
+  select published_at into v_published from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F2b: an operator extending the trial relit the page silently (published_at %)', v_published;
+  end if;
+
+  raise notice 'F2 ok: an extension brings the shop back and the page is a draft, same as a payment';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F3. An update that does not cross the boundary does NOTHING
+-- ---------------------------------------------------------------------------
+-- Property 4, the half that a passing test can hide: a trigger that fires on
+-- EVERY update looks identical to a correct one in F1 and F2. These are the
+-- three non-crossings a real database produces.
+do $$
+declare
+  v_shop      uuid;
+  v_published timestamptz;
+  v_reason    timestamptz;
+begin
+  -- ---- F3a: still expired, and staying expired (grace pushed further back)
+  v_shop := pg_temp.lapse_shop('Lapse Still Expired Shop');
+  update public.shop_subscriptions
+     set grace_until = now() - interval '200 days'
+   where shop_id = v_shop;
+
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F3a: an update that left the shop expired unpublished the page -- the page must survive the lapse itself';
+  end if;
+  if v_reason is not null then
+    raise exception 'FAIL F3b: an update that changed nothing stamped a lapse reason';
+  end if;
+
+  -- ---- F3c: paying, and paying again. The second payment must be inert.
+  v_shop := pg_temp.lapse_shop('Lapse Paid Twice Shop');
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+  select lapse_unpublished_at into v_reason from public.storefronts where shop_id = v_shop;
+  if v_reason is null then
+    raise exception 'FAIL F3c: the first payment did not unpublish -- the rest of this check would pass for the wrong reason';
+  end if;
+
+  -- A shop that publishes again while paying, then pays again.
+  update public.storefronts set published_at = now(), lapse_unpublished_at = null where shop_id = v_shop;
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '60 days', grace_until = now() + interval '90 days'
+   where shop_id = v_shop;
+
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F3d: a second payment from an ALREADY PAYING shop tore its live page down';
+  end if;
+  if v_reason is not null then
+    raise exception 'FAIL F3e: a second payment from an already paying shop stamped a lapse reason on a live page';
+  end if;
+
+  -- ---- F3f: the lapse itself. Falling OUT of grace must not touch the page.
+  -- Section C10 pins this for the whole grace path; restated here scoped to
+  -- the trigger, because inverting its comparison is the single most likely
+  -- way to get this wrong and it would show up exactly here.
+  --
+  -- Built to STAY on trial (p_expire => false): a shop pushed past grace and
+  -- then pulled back into it has already crossed the boundary once, and would
+  -- arrive at the lapse below with its page already down -- an assertion that
+  -- passes no matter which direction the trigger runs in.
+  v_shop := pg_temp.lapse_shop('Lapse Falling Out Shop', p_expire => false);
+  update public.shop_subscriptions
+     set trial_ends_at = now() - interval '1 day', current_period_end = null,
+         grace_until = now() + interval '29 days'
+   where shop_id = v_shop;
+  if public.shop_effective_status(v_shop) <> 'grace' then
+    raise exception 'FAIL F3f: the fixture did not land in grace, it reads %', public.shop_effective_status(v_shop);
+  end if;
+  -- ...and now out of it.
+  update public.shop_subscriptions set grace_until = now() - interval '1 day' where shop_id = v_shop;
+  select published_at into v_published from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F3g: LAPSING unpublished the page -- the trigger is running in the wrong direction';
+  end if;
+
+  raise notice 'F3 ok: staying expired, paying twice and lapsing all leave the page exactly as they found it';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F4. A shop that never published is never told its plan took its page down
+-- ---------------------------------------------------------------------------
+-- The trap the brief names: a check that asserts `published_at is null` after
+-- a return passes for a fixture that never published in the first place. The
+-- REASON column is what separates the two, and stamping it here would put a
+-- sentence on the editor that is simply untrue.
+do $$
+declare
+  v_shop   uuid;
+  v_reason timestamptz;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Never Published Shop', p_publish => false);
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+
+  select lapse_unpublished_at into v_reason from public.storefronts where shop_id = v_shop;
+  if v_reason is not null then
+    raise exception 'FAIL F4: a shop that has NEVER published was stamped as unpublished-by-lapse -- the editor would tell it a page it never had was taken down';
+  end if;
+
+  raise notice 'F4 ok: a shop that never published is not told its lapse took a page down';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F5. Publishing again clears the reason, and a SECOND cycle still works
+-- ---------------------------------------------------------------------------
+-- Property 3's second half: the message must not outlive its cause. And
+-- property 4 at full length -- a shop that has since republished is not
+-- damaged by the next lapse-and-return, it simply goes through it again.
+do $$
+declare
+  v_shop      uuid;
+  v_owner     uuid;
+  v_published timestamptz;
+  v_reason    timestamptz;
+  v_first     timestamptz;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Republish Shop');
+  select owner_id into v_owner from public.shops where id = v_shop;
+  select first_published_at into v_first from public.storefronts where shop_id = v_shop;
+
+  -- Cycle one: pay, get unpublished.
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+  select lapse_unpublished_at into v_reason from public.storefronts where shop_id = v_shop;
+  if v_reason is null then
+    raise exception 'FAIL F5a: cycle one did not unpublish -- everything after this would pass for the wrong reason';
+  end if;
+
+  -- The shop publishes again, through the real function, as the real owner.
+  -- publish_storefront refuses without the module (20260926000100:33-35),
+  -- which is exactly why this only works now that the shop has paid.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner)::text, true);
+  perform set_config('role', 'authenticated', true);
+  perform public.publish_storefront(v_shop);
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F5b: publish_storefront did not put the page back up';
+  end if;
+  if v_reason is not null then
+    raise exception 'FAIL F5c: the page is live again and still carries a lapse reason -- the editor would keep saying the plan took it down';
+  end if;
+
+  -- Cycle two: lapse again, then come back again. The page must go down
+  -- again, and the earlier republish must not have broken anything.
+  update public.shop_subscriptions
+     set trial_ends_at = now() - interval '40 days', current_period_end = now() - interval '35 days',
+         grace_until   = now() - interval '10 days'
+   where shop_id = v_shop;
+  if public.shop_effective_status(v_shop) <> 'expired' then
+    raise exception 'FAIL F5d: the second lapse did not expire the shop, it reads %', public.shop_effective_status(v_shop);
+  end if;
+  select published_at into v_published from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F5e: the second lapse took the page down by itself -- lapsing must keep the data';
+  end if;
+
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F5f: the SECOND return left the page live -- the trigger only works once';
+  end if;
+  if v_reason is null then
+    raise exception 'FAIL F5g: the second return recorded no reason';
+  end if;
+
+  if (select first_published_at from public.storefronts where shop_id = v_shop) is distinct from v_first then
+    raise exception 'FAIL F5h: two cycles moved first_published_at, which is set once and never changed';
+  end if;
+
+  raise notice 'F5 ok: publishing again clears the reason, and a second lapse-and-return takes the page down again without damaging anything';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F6. A shop on a plan without `storefront` must not have its payment refused
+-- ---------------------------------------------------------------------------
+-- storefronts carries a BEFORE UPDATE gate -- storefronts_module_gate,
+-- enforce_shop_module('storefront') (20260818000400:33) -- that raises
+-- `module_not_included` for ANY write from a shop whose plan lacks the module.
+-- An unguarded unpublish inside this trigger therefore does not merely fail to
+-- unpublish: it RAISES, and the raise propagates out of the trigger and aborts
+-- the subscription UPDATE that fired it. That is record_payment returning a
+-- 500 for a shop the operator has just taken money from.
+--
+-- Measured, not argued: an unpublish attempted for a `standard`-plan shop
+-- raises module_not_included on this schema today.
+do $$
+declare
+  v_shop uuid;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse No Module Shop', p_plan => 'standard');
+
+  begin
+    update public.shop_subscriptions
+       set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+     where shop_id = v_shop;
+  exception when others then
+    raise exception 'FAIL F6: recording a payment for a revived shop on a plan without the storefront module raised % -- the trigger aborts the operator''s payment', sqlerrm;
+  end;
+
+  if public.shop_effective_status(v_shop) <> 'active' then
+    raise exception 'FAIL F6b: the payment did not take -- the shop reads %', public.shop_effective_status(v_shop);
+  end if;
+
+  raise notice 'F6 ok: a revived shop on a plan without the storefront module takes its payment without raising';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F7. Widening the WINDOW brings a shop back too, and that page is a draft
+-- ---------------------------------------------------------------------------
+-- The third way back, after a payment (F1) and an extension (F2): an operator
+-- moving grace_until forward, which lands the shop in `grace` rather than
+-- `active` or `trialing`. It is not hypothetical -- it is precisely what the
+-- 20260930000400 backfill does, and section D above has to disable this
+-- trigger to replay that migration in the order a real database applies it.
+-- This block is where that interaction is stated outright instead: the ONLY
+-- reason section D's pages survive is the apply order, and any widening that
+-- happens after this migration is deployed takes the page down.
+do $$
+declare
+  v_shop      uuid;
+  v_published timestamptz;
+  v_reason    timestamptz;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Widened Window Shop');
+
+  -- grace_until forward and nothing else -- the shop has not paid and its
+  -- trial has not moved. Exactly the backfill's own UPDATE.
+  update public.shop_subscriptions
+     set grace_until = now() + interval '20 days'
+   where shop_id = v_shop;
+
+  if public.shop_effective_status(v_shop) <> 'grace' then
+    raise exception 'FAIL F7a: the widened shop reads %, expected grace', public.shop_effective_status(v_shop);
+  end if;
+
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F7b: widening the grace window relit the page silently (published_at %) -- only `active` and `trialing` are being treated as coming back', v_published;
+  end if;
+  if v_reason is null then
+    raise exception 'FAIL F7c: the page came down with no reason recorded';
+  end if;
+
+  raise notice 'F7 ok: an operator widening the window brings the shop back into grace and the page comes back as a draft';
 end $$;
 
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;
