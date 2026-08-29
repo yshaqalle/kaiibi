@@ -54,10 +54,22 @@ type Props = {
   // re-derive that choice from whether a number exists, or the two controls
   // collapse back into one silent redirect.
   whatsappE164?: string | null;
+  // Where to come and get it, ALREADY COMPOSED by collectLocation
+  // (storefront-collect.ts) -- not the raw shop_locations.address column,
+  // which is empty for nearly every shop and would render as a blank line.
+  // That helper joins the hand-typed address to the city and degrades to the
+  // city alone, so this is either a string worth showing or null.
+  //
+  // Null when the shop has neither on file. The pick-up CHOICE still renders
+  // in that case; only the line naming the place goes away. Losing the address
+  // must never lose the option.
+  collectLocation?: string | null;
   onSubmit: (details: CheckoutDetails, via: 'direct' | 'whatsapp') => void;
 };
 
-export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, whatsappE164, onSubmit }: Props) {
+export function CheckoutForm({
+  cart, colors, offersDelivery, areas, submitting, whatsappE164, collectLocation, onSubmit,
+}: Props) {
   // Property 4: collection-only unless the shop BOTH offers delivery AND has
   // listed at least one area. A shop with delivery on and nothing priced
   // would otherwise show a "Deliver" choice that leads nowhere.
@@ -209,87 +221,97 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, submitting, 
       />
       {phoneError ? <Text style={[styles.error, { color: colors.danger }]}>{phoneError}</Text> : null}
 
-      {/* Property 4: nothing below this point mounts unless the shop both
-          offers delivery AND has priced at least one area -- a disabled
-          "Deliver" choice would claim delivery exists when it does not. */}
-      {canDeliver ? (
+      {/* THE CHOICE ALWAYS RENDERS. It used to sit behind `canDeliver`, so a
+          collection-only shop was shown nothing at all and its order went
+          through as a pick-up the customer was never told about -- to a
+          counter they were never given. Property 4's actual rule survives and
+          is applied where it belongs, one level in: a "Deliver" choice must
+          not exist unless the shop both offers delivery AND has priced an
+          area, so Deliver is OMITTED, never disabled. A disabled control would
+          still claim delivery exists. */}
+      <Text style={[styles.label, styles.spaced, { color: colors.ink }]}>How will you get your order?</Text>
+      <View style={styles.segmented}>
+        <Pressable
+          testID="checkout-form-fulfilment-collect"
+          accessibilityRole="button"
+          onPress={() => selectFulfilment('collect')}
+          style={[
+            styles.segment,
+            { borderColor: colors.soft },
+            fulfilment === 'collect' && { backgroundColor: colors.accent, borderColor: colors.accent },
+          ]}
+        >
+          <Text style={[styles.segmentText, { color: fulfilment === 'collect' ? colors.ground : colors.ink }]}>
+            Store pick-up
+          </Text>
+        </Pressable>
+        {canDeliver ? (
+          <Pressable
+            testID="checkout-form-fulfilment-deliver"
+            accessibilityRole="button"
+            onPress={() => selectFulfilment('deliver')}
+            style={[
+              styles.segment,
+              { borderColor: colors.soft },
+              fulfilment === 'deliver' && { backgroundColor: colors.accent, borderColor: colors.accent },
+            ]}
+          >
+            <Text style={[styles.segmentText, { color: fulfilment === 'deliver' ? colors.ground : colors.ink }]}>
+              Deliver
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {/* Only when there is something to name -- `collectLocation` is null
+          when the shop has neither an address nor a city, and a "Collect
+          from" with nothing after it is worse than no line. */}
+      {fulfilment === 'collect' && collectLocation ? (
+        <Text style={[styles.collectLocation, { color: colors.muted }]}>Collect from {collectLocation}</Text>
+      ) : null}
+
+      {fulfilment === 'deliver' ? (
         <>
-          <Text style={[styles.label, styles.spaced, { color: colors.ink }]}>How will you get your order?</Text>
-          <View style={styles.segmented}>
-            <Pressable
-              testID="checkout-form-fulfilment-collect"
-              accessibilityRole="button"
-              onPress={() => selectFulfilment('collect')}
-              style={[
-                styles.segment,
-                { borderColor: colors.soft },
-                fulfilment === 'collect' && { backgroundColor: colors.accent, borderColor: colors.accent },
-              ]}
-            >
-              <Text style={[styles.segmentText, { color: fulfilment === 'collect' ? colors.ground : colors.ink }]}>
-                Collect
-              </Text>
-            </Pressable>
-            <Pressable
-              testID="checkout-form-fulfilment-deliver"
-              accessibilityRole="button"
-              onPress={() => selectFulfilment('deliver')}
-              style={[
-                styles.segment,
-                { borderColor: colors.soft },
-                fulfilment === 'deliver' && { backgroundColor: colors.accent, borderColor: colors.accent },
-              ]}
-            >
-              <Text style={[styles.segmentText, { color: fulfilment === 'deliver' ? colors.ground : colors.ink }]}>
-                Deliver
-              </Text>
-            </Pressable>
+          <Text style={[styles.hint, { color: colors.muted }]}>
+            Pick the area you&apos;re in, then describe a landmark near you -- Hargeisa addresses are landmarks,
+            not street numbers.
+          </Text>
+          <View style={styles.areas}>
+            {areas.map((area) => {
+              const selected = area.name === areaName;
+              return (
+                <Pressable
+                  key={area.name}
+                  testID={`checkout-form-area-${area.name}`}
+                  accessibilityRole="button"
+                  onPress={() => selectArea(area.name)}
+                  style={[
+                    styles.areaRow,
+                    { borderColor: colors.soft },
+                    selected && { backgroundColor: colors.soft, borderColor: colors.accent },
+                  ]}
+                >
+                  <Text style={[styles.areaName, { color: colors.ink }]}>{area.name}</Text>
+                  <Text style={[styles.areaFee, { color: colors.muted }]}>{formatCents(area.feeCents)}</Text>
+                </Pressable>
+              );
+            })}
           </View>
+          {areaError ? <Text style={[styles.error, { color: colors.danger }]}>{areaError}</Text> : null}
 
-          {fulfilment === 'deliver' ? (
-            <>
-              <Text style={[styles.hint, { color: colors.muted }]}>
-                Pick the area you&apos;re in, then describe a landmark near you -- Hargeisa addresses are landmarks,
-                not street numbers.
-              </Text>
-              <View style={styles.areas}>
-                {areas.map((area) => {
-                  const selected = area.name === areaName;
-                  return (
-                    <Pressable
-                      key={area.name}
-                      testID={`checkout-form-area-${area.name}`}
-                      accessibilityRole="button"
-                      onPress={() => selectArea(area.name)}
-                      style={[
-                        styles.areaRow,
-                        { borderColor: colors.soft },
-                        selected && { backgroundColor: colors.soft, borderColor: colors.accent },
-                      ]}
-                    >
-                      <Text style={[styles.areaName, { color: colors.ink }]}>{area.name}</Text>
-                      <Text style={[styles.areaFee, { color: colors.muted }]}>{formatCents(area.feeCents)}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {areaError ? <Text style={[styles.error, { color: colors.danger }]}>{areaError}</Text> : null}
-
-              <TextInput
-                testID="checkout-form-landmark-input"
-                style={[styles.input, styles.spaced, { borderColor: colors.soft, color: colors.ink }]}
-                value={landmark}
-                onChangeText={(t) => {
-                  setLandmark(t);
-                  if (landmarkError) setLandmarkError(null);
-                }}
-                placeholder="e.g. behind Maansoor Hotel, blue gate"
-                placeholderTextColor={colors.muted}
-                multiline
-              />
-              {landmarkError ? <Text style={[styles.error, { color: colors.danger }]}>{landmarkError}</Text> : null}
-            </>
-          ) : null}
+          <TextInput
+            testID="checkout-form-landmark-input"
+            style={[styles.input, styles.spaced, { borderColor: colors.soft, color: colors.ink }]}
+            value={landmark}
+            onChangeText={(t) => {
+              setLandmark(t);
+              if (landmarkError) setLandmarkError(null);
+            }}
+            placeholder="e.g. behind Maansoor Hotel, blue gate"
+            placeholderTextColor={colors.muted}
+            multiline
+          />
+          {landmarkError ? <Text style={[styles.error, { color: colors.danger }]}>{landmarkError}</Text> : null}
         </>
       ) : null}
 
@@ -381,6 +403,7 @@ const styles = StyleSheet.create({
   },
   error: { fontSize: 12, marginTop: 6, fontWeight: '600' },
   hint: { fontSize: 12, marginTop: 8, lineHeight: 16 },
+  collectLocation: { fontSize: 13, marginTop: 8, lineHeight: 18 },
   segmented: { flexDirection: 'row', gap: 8, marginTop: 6 },
   segment: { flex: 1, borderWidth: 1, borderRadius: 999, paddingVertical: 9, alignItems: 'center' },
   segmentText: { fontSize: 13, fontWeight: '800' },
