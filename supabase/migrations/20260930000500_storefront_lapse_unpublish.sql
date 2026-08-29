@@ -49,6 +49,21 @@
 -- twin of the same case expression. The case is MOVED, not copied:
 -- shop_effective_status is redefined below to call it, so there is one
 -- definition of "what status do these dates mean" and it cannot drift.
+--
+-- WHAT THIS FILE DOES TO SHOPS ALREADY IN THE DATABASE, ON THE PUSH ITSELF.
+-- 20260930000400 (the grace month) sorts BEFORE this file, and its backfill
+-- widens seven-day windows to thirty -- which is exactly the crossing this
+-- trigger fires on. On a real `db push --include-all` that UPDATE runs while
+-- this trigger does not yet exist, so THE PAGES IT REVIVES COME BACK LIVE,
+-- NOT AS DRAFTS. That is a real exposure and it is accepted, because every
+-- shop it revives satisfies `greatest(current_period_end, trial_ends_at) +
+-- 30 days > now()` -- it is still INSIDE the new grace month, and the decision
+-- (20260930000400) says a shop in grace serves its page. No shop that has
+-- actually finished its month slips through: the widest gap the backfill can
+-- close is 30 - 7 = 23 days, so the most this can do is relight a page that
+-- has been dark for up to ~23 days of a month the shop still has. From the
+-- push onward every return goes through this trigger, including a second
+-- widening by an operator (verify-lapse F7).
 
 -- ---------------------------------------------------------------------------
 -- 1. The reason, recorded
@@ -114,12 +129,108 @@ language sql security definer stable set search_path = public as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 3. The unpublish
+-- 3. Taking a page DOWN is always allowed, module or no module
 -- ---------------------------------------------------------------------------
--- Fires when the row was PAST GRACE before the update and is not after it --
--- that is, the shop came back, however it came back.
+-- storefronts carries a BEFORE INSERT OR UPDATE gate, storefronts_module_gate
+-- / enforce_shop_module('storefront') (20260924000000:93, 20260818000400:33),
+-- which RAISES `module_not_included` for ANY write on behalf of a shop whose
+-- plan lacks the module. That raise is not a quiet refusal: inside the trigger
+-- below it propagates out and ABORTS THE SUBSCRIPTION UPDATE THAT FIRED IT --
+-- record_payment returning a 500 for a shop the operator has just taken money
+-- from. No trigger TIMING avoids it: while the shop is past grace it resolves
+-- to `free` and has no module either way.
 --
--- THREE GUARDS, each of which is a bug if removed:
+-- Guarding the unpublish on shop_has_module (which is what this file did
+-- first) buys that safety by leaving the page UP on the two paths the portal
+-- itself drives -- suspend/pay/unsuspend, and lapse-on-a-plan-without-the-
+-- module then upgrade -- both of which end in a month-old page serving
+-- month-old prices, which is the exact harm this file exists to prevent.
+--
+-- So the gate is relaxed instead, at the root: A SHOP THAT HAS LOST THE MODULE
+-- MAY ALWAYS HAVE ITS PAGE TAKEN DOWN. Refusing that write protects no
+-- revenue -- the page it refuses to take down is a page the shop is no longer
+-- paying for -- and it is the only write a gate has no interest in blocking.
+--
+-- The exemption is deliberately narrow, and narrow in a way that cannot rot:
+--
+--   * UPDATE only. An INSERT without the module still raises.
+--   * published_at must go from NOT NULL to NULL. Setting it to a non-null
+--     value -- publishing, or re-stamping a live page -- still raises.
+--   * EVERY OTHER COLUMN MUST BE UNCHANGED, compared as jsonb rather than as a
+--     hand-written column list, so a column added to storefronts tomorrow is
+--     protected by this gate on the day it is added rather than the day
+--     somebody remembers to extend a list. The three exempted keys are the
+--     take-down itself (published_at) and the two pieces of bookkeeping that
+--     describe it (lapse_unpublished_at, the recorded reason; updated_at).
+--     Neither of those is page CONTENT: no headline, price, theme, image or
+--     delivery area can move through this door.
+--
+-- Only public.storefronts changes gate. storefront_delivery_areas,
+-- storefront_flyers, orders and the other eleven gated tables keep
+-- enforce_shop_module() exactly as it is -- a shop without the module still
+-- cannot touch any of them.
+create or replace function public.enforce_storefront_module()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_allowed boolean := public.shop_has_module(new.shop_id, 'storefront');
+begin
+  -- OLD is only read under UPDATE; `and` is not guaranteed to short-circuit,
+  -- so this is a nested if rather than one condition.
+  if not v_allowed and tg_op = 'UPDATE' then
+    v_allowed := old.published_at is not null
+             and new.published_at is null
+             and (to_jsonb(new) - 'published_at' - 'lapse_unpublished_at' - 'updated_at')
+               = (to_jsonb(old) - 'published_at' - 'lapse_unpublished_at' - 'updated_at');
+  end if;
+
+  if not v_allowed then
+    -- Byte-for-byte the shape enforce_shop_module() raises, so the client's
+    -- upgrade prompt cannot tell the two apart.
+    raise exception 'module_not_included'
+      using errcode = 'P0001',
+            detail = json_build_object('module', 'storefront')::text,
+            hint = 'Upgrade the plan to make changes here.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.enforce_storefront_module() from public;
+
+-- Same trigger name, same timing, same events -- only the function behind it
+-- changes, so nothing that reads pg_trigger or fires in name order moves.
+drop trigger storefronts_module_gate on public.storefronts;
+create trigger storefronts_module_gate
+  before insert or update on public.storefronts
+  for each row execute function public.enforce_storefront_module();
+
+-- ---------------------------------------------------------------------------
+-- 4. The unpublish
+-- ---------------------------------------------------------------------------
+-- Fires when the page was DARK before the update and is not after it -- that
+-- is, the shop came back, however it came back.
+--
+-- "DARK", NOT "EXPIRED". A page does not serve for two statuses, not one:
+-- `expired` (the plan lapsed, the shop resolves to `free`, no module) and
+-- `suspended` (shop_has_module, 20260818000200:63, returns false outright).
+-- Writing the condition as `= 'expired'` / `<> 'expired'` reads as though it
+-- meant "no longer dark" and does not: it counts a shop going INTO suspension
+-- as coming back, and does not count a shop coming OUT of one. Both halves
+-- matter, and the second is a hole the portal's own buttons walk through --
+-- suspend a lapsed shop, take its payment, unsuspend it, and every individual
+-- step is a non-crossing while the page ends up live with last month's prices
+-- on it (verify-lapse F9).
+--
+-- The consequence, stated rather than discovered: a shop that was suspended
+-- and is unsuspended comes back to a DRAFT, even if it never lapsed. That is
+-- the rule working, not a side effect -- its page was dark for the length of
+-- the suspension, and coming back from dark is what has to be deliberate. It
+-- is pinned by verify-lapse F10, and the shopkeeper is told why and can
+-- publish in one tap.
+--
+-- TWO GUARDS, each of which is a bug if removed:
 --
 --   `published_at is not null` -- a shop that never published must not be
 --   stamped with a reason. Without this, the editor would tell a shop that has
@@ -128,23 +239,16 @@ $$;
 --   `published_at is null` after a return passes for a fixture that never
 --   published at all.
 --
---   `shop_has_module(new.shop_id, 'storefront')` -- storefronts carries a
---   BEFORE UPDATE gate, storefronts_module_gate / enforce_shop_module
---   ('storefront') (20260818000400:33), which RAISES `module_not_included` for
---   any write on behalf of a shop whose plan lacks the module. An unguarded
---   update here does not merely fail to unpublish: it raises, and the raise
---   propagates out of this trigger and ABORTS THE SUBSCRIPTION UPDATE THAT
---   FIRED IT -- record_payment returning a 500 for a shop the operator has
---   just taken money from. A shop that comes back onto a plan without
---   `storefront` therefore keeps published_at; its page stays dark either way,
---   because get_public_storefront ends in the same module check. The residual
---   case -- that shop later upgrading to a plan that does carry the module,
---   and its old page relighting -- is the pre-existing downgrade/upgrade
---   behaviour, unchanged by this file and not reachable through a lapse.
+--   AFTER, not BEFORE -- it writes a different table, and section 3's gate
+--   needs shop_has_module to resolve against the NEW subscription row.
+--   Measured: verify-lapse.sql F0.
 --
---   AFTER, not BEFORE -- it writes a different table, and it needs
---   shop_has_module to resolve against the NEW subscription row. Measured:
---   verify-lapse.sql F0.
+-- There is deliberately NO shop_has_module guard here. Section 3 is what makes
+-- that safe: the take-down this runs is the one write the gate now permits
+-- without the module, so a shop coming back onto a plan that does not carry
+-- `storefront` has its page taken down too -- and record_payment still
+-- succeeds (verify-lapse F6). The two changes go together; removing the guard
+-- without relaxing the gate is what turns a payment into a 500.
 --
 -- security definer because the party doing the UPDATE is a service-role edge
 -- function or an operator, and taking the page down must not depend on which.
@@ -155,9 +259,8 @@ security definer
 set search_path = public
 as $$
 begin
-  if public.subscription_effective_status(old) = 'expired'
-     and public.subscription_effective_status(new) <> 'expired'
-     and public.shop_has_module(new.shop_id, 'storefront')
+  if public.subscription_effective_status(old) in ('expired', 'suspended')
+     and public.subscription_effective_status(new) not in ('expired', 'suspended')
   then
     update public.storefronts
        set published_at         = null,
@@ -176,13 +279,20 @@ $$;
 -- context.
 revoke execute on function public.unpublish_storefront_on_return() from public;
 
+-- The WHEN clause keeps an UPDATE that changed nothing out of plpgsql
+-- altogether -- `update ... set updated_at = updated_at`, an upsert that
+-- rewrites a row identically, a client PATCH with no diff. Such a row can
+-- never satisfy the condition above (old and new are the same row, so they
+-- have the same status), so this costs nothing and saves two function calls
+-- per no-op write on a table the platform portal touches on every action.
 create trigger shop_subscriptions_unpublish_storefront_on_return
   after update on public.shop_subscriptions
   for each row
+  when (old.* is distinct from new.*)
   execute function public.unpublish_storefront_on_return();
 
 -- ---------------------------------------------------------------------------
--- 4. Publishing again clears the reason
+-- 5. Publishing again clears the reason
 -- ---------------------------------------------------------------------------
 -- Otherwise the editor keeps saying "your plan lapsed and we took your page
 -- down" over a page that is live -- the message outliving its cause.

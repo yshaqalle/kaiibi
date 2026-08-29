@@ -306,9 +306,10 @@ begin
   -- third case: revived, with no storefronts row at all.
   --
   -- The pages are built FIRST, while both shops are still on their trial: the
-  -- enforce_shop_module() trigger refuses a storefronts insert from a shop
-  -- that does not currently have the module, which is exactly the state the
-  -- next two statements put them in. Publishing and then lapsing is also the
+  -- storefronts_module_gate trigger refuses a storefronts INSERT from a shop
+  -- that does not currently have the module (the take-down exemption
+  -- 20260930000500 adds is UPDATE-only, and pinned so in F8e), which is
+  -- exactly the state the next two statements put them in. Publishing and then lapsing is also the
   -- order a real shop lives through.
   for v_row in
     select shop_id, notes from public.shop_subscriptions
@@ -999,37 +1000,79 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- F6. A shop on a plan without `storefront` must not have its payment refused
+-- F6. THE SECOND REPRODUCTION: lapse on a plan without `storefront`, pay,
+--     upgrade -- and the payment must still go through
 -- ---------------------------------------------------------------------------
--- storefronts carries a BEFORE UPDATE gate -- storefronts_module_gate,
--- enforce_shop_module('storefront') (20260818000400:33) -- that raises
--- `module_not_included` for ANY write from a shop whose plan lacks the module.
--- An unguarded unpublish inside this trigger therefore does not merely fail to
--- unpublish: it RAISES, and the raise propagates out of the trigger and aborts
--- the subscription UPDATE that fired it. That is record_payment returning a
--- 500 for a shop the operator has just taken money from.
+-- storefronts carries a BEFORE INSERT OR UPDATE gate -- storefronts_module_gate
+-- (20260924000000:93) -- that raises `module_not_included` for ANY write from a
+-- shop whose plan lacks the module. An unpublish inside an AFTER UPDATE trigger
+-- therefore does not merely fail to unpublish: it RAISES, and the raise
+-- propagates out of the trigger and aborts the subscription UPDATE that fired
+-- it. That is record_payment returning a 500 for a shop the operator has just
+-- taken money from. BOTH HALVES ARE PINNED HERE, and they are the same check:
 --
--- Measured, not argued: an unpublish attempted for a `standard`-plan shop
--- raises module_not_included on this schema today.
+--   * the payment must not raise (F6a) -- what the module guard used to buy;
+--   * the page must come DOWN anyway (F6c/F6d) -- what the guard used to cost.
+--
+-- Because with the guard, this shop kept published_at, and the day it upgraded
+-- to a plan that DOES carry `storefront` its month-old page relit with nobody
+-- deciding anything (F6e/F6f). 20260930000500 section 3 is what lets both be
+-- true at once: the gate now permits a take-down without the module, so the
+-- trigger needs no guard.
 do $$
 declare
-  v_shop uuid;
+  v_shop  uuid;
+  v_slug  text;
+  v_row   record;
 begin
   v_shop := pg_temp.lapse_shop('Lapse No Module Shop', p_plan => 'standard');
+  select slug into v_slug from public.shops where id = v_shop;
+
+  if public.shop_has_module(v_shop, 'storefront') then
+    raise exception 'FAIL F6-fixture: the standard-plan fixture resolves the storefront module, so this check proves nothing';
+  end if;
 
   begin
     update public.shop_subscriptions
        set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
      where shop_id = v_shop;
   exception when others then
-    raise exception 'FAIL F6: recording a payment for a revived shop on a plan without the storefront module raised % -- the trigger aborts the operator''s payment', sqlerrm;
+    raise exception 'FAIL F6a: recording a payment for a revived shop on a plan without the storefront module raised % -- the trigger aborts the operator''s payment', sqlerrm;
   end;
 
   if public.shop_effective_status(v_shop) <> 'active' then
     raise exception 'FAIL F6b: the payment did not take -- the shop reads %', public.shop_effective_status(v_shop);
   end if;
 
-  raise notice 'F6 ok: a revived shop on a plan without the storefront module takes its payment without raising';
+  select * into v_row from public.storefronts where shop_id = v_shop;
+  if v_row.published_at is not null then
+    raise exception 'FAIL F6c: a shop that came back onto a plan WITHOUT the storefront module kept its page live (published_at %) -- it is dark only while the plan lacks the module, and relights the day it upgrades', v_row.published_at;
+  end if;
+  if v_row.lapse_unpublished_at is null then
+    raise exception 'FAIL F6d: the page came down with no reason recorded';
+  end if;
+  if v_row.headline <> 'Open 8am-9pm.' then
+    raise exception 'FAIL F6e: the take-down went through the gate and changed the page content -- headline reads %', v_row.headline;
+  end if;
+
+  -- ...and now the upgrade that used to relight it. `standard` -> `pro`, the
+  -- ordinary plan change, which is another UPDATE on shop_subscriptions that
+  -- crosses nothing (active before, active after).
+  update public.shop_subscriptions
+     set plan_id = (select id from public.plans where key = 'pro')
+   where shop_id = v_shop;
+
+  if not public.shop_has_module(v_shop, 'storefront') then
+    raise exception 'FAIL F6f: the upgrade did not grant the storefront module, so the rest of this check would pass for the wrong reason';
+  end if;
+  if (select published_at from public.storefronts where shop_id = v_shop) is not null then
+    raise exception 'FAIL F6g: upgrading onto a plan with the storefront module relit a month-old page';
+  end if;
+  if exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F6h: the page serves after the upgrade -- last month''s prices are back with nobody deciding so';
+  end if;
+
+  raise notice 'F6 ok: a revived shop on a plan without the storefront module takes its payment without raising, its page comes down anyway, and upgrading does not relight it';
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -1071,6 +1114,277 @@ begin
   end if;
 
   raise notice 'F7 ok: an operator widening the window brings the shop back into grace and the page comes back as a draft';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F8. THE GATE ITSELF: a take-down passes, and NOTHING else does
+-- ---------------------------------------------------------------------------
+-- 20260930000500 section 3 relaxes storefronts_module_gate so that a shop
+-- without the module may take its page DOWN. That is a security gate, so the
+-- relaxation is only as good as its edges: this block walks each edge and
+-- requires the raise to still be there.
+--
+-- The fixture is a shop on `standard` (no storefront module) that is NOT
+-- expired -- it is trialing, with a live page. So every raise below is the
+-- gate, not the subscription status, and the shop has a page to try to change.
+do $$
+declare
+  v_shop      uuid;
+  v_other     uuid;
+  v_err       text;
+  v_published timestamptz;
+  v_headline  text;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Gate Shop', p_plan => 'standard', p_expire => false);
+  if public.shop_has_module(v_shop, 'storefront') then
+    raise exception 'FAIL F8-fixture: the gate fixture resolves the storefront module, so nothing below would raise for the right reason';
+  end if;
+
+  -- ---- F8a: page CONTENT still refused.
+  v_err := null;
+  begin
+    update public.storefronts set headline = 'Half price this week.' where shop_id = v_shop;
+  exception when others then v_err := sqlerrm;
+  end;
+  if v_err is distinct from 'module_not_included' then
+    raise exception 'FAIL F8a: a shop without the storefront module edited its headline (error: %) -- the gate has been widened past a take-down', coalesce(v_err, '<none>');
+  end if;
+
+  -- ---- F8b: PUBLISHING still refused. The relaxation is one-directional.
+  v_err := null;
+  begin
+    update public.storefronts set published_at = now() where shop_id = v_shop;
+  exception when others then v_err := sqlerrm;
+  end;
+  if v_err is distinct from 'module_not_included' then
+    raise exception 'FAIL F8b: a shop without the storefront module set published_at to a non-null value (error: %) -- the exemption must only take a page DOWN', coalesce(v_err, '<none>');
+  end if;
+
+  -- ---- F8c: a take-down with a content change smuggled alongside it.
+  v_err := null;
+  begin
+    update public.storefronts set published_at = null, headline = 'Half price this week.' where shop_id = v_shop;
+  exception when others then v_err := sqlerrm;
+  end;
+  if v_err is distinct from 'module_not_included' then
+    raise exception 'FAIL F8c: a content edit rode through the gate alongside a take-down (error: %)', coalesce(v_err, '<none>');
+  end if;
+  select headline into v_headline from public.storefronts where shop_id = v_shop;
+  if v_headline <> 'Open 8am-9pm.' then
+    raise exception 'FAIL F8d: the refused write changed the headline anyway -- it reads %', v_headline;
+  end if;
+
+  -- ---- F8e: the DELETE-nothing case is not the point; the INSERT is. A shop
+  -- without the module still cannot create a storefront row.
+  delete from public.storefronts where shop_id = v_shop;
+  v_err := null;
+  begin
+    insert into public.storefronts (shop_id, theme, palette, headline)
+      values (v_shop, 'market', 'ink', 'A brand new page.');
+  exception when others then v_err := sqlerrm;
+  end;
+  if v_err is distinct from 'module_not_included' then
+    raise exception 'FAIL F8e: a shop without the storefront module created a storefront row (error: %) -- the exemption is UPDATE-only', coalesce(v_err, '<none>');
+  end if;
+
+  -- ---- F8f: and THE ONE WRITE THAT MUST PASS. Fresh fixture, because the
+  -- row above was deleted.
+  v_shop := pg_temp.lapse_shop('Lapse Gate Takedown Shop', p_plan => 'standard', p_expire => false);
+  begin
+    update public.storefronts
+       set published_at = null, lapse_unpublished_at = now(), updated_at = now()
+     where shop_id = v_shop;
+  exception when others then
+    raise exception 'FAIL F8f: taking a page DOWN for a shop without the module raised % -- this is the write the trigger depends on, and refusing it protects nothing', sqlerrm;
+  end;
+  select published_at into v_published from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F8g: the take-down was accepted and the page is still live';
+  end if;
+
+  -- src/lib/storefront-admin.ts:594 writes published_at ALONE. The exemption
+  -- has to cover that shape too, not only the trigger's three columns.
+  v_other := pg_temp.lapse_shop('Lapse Gate Bare Takedown Shop', p_plan => 'standard', p_expire => false);
+  begin
+    update public.storefronts set published_at = null where shop_id = v_other;
+  exception when others then
+    raise exception 'FAIL F8h: the shop''s own unpublish (published_at alone) raised %', sqlerrm;
+  end;
+
+  -- ---- F8i: NOTHING ELSE MOVED. The sibling tables keep the unrelaxed gate.
+  v_err := null;
+  begin
+    update public.storefront_delivery_areas set fee_cents = 9900 where shop_id = v_other;
+  exception when others then v_err := sqlerrm;
+  end;
+  if v_err is distinct from 'module_not_included' then
+    raise exception 'FAIL F8i: delivery areas stopped being gated (error: %) -- the relaxation was supposed to touch public.storefronts alone', coalesce(v_err, '<none>');
+  end if;
+
+  -- ---- F8j: and a shop that HAS the module still writes freely.
+  v_other := pg_temp.lapse_shop('Lapse Gate Paying Shop', p_expire => false);
+  begin
+    update public.storefronts set headline = 'Now open Sundays.' where shop_id = v_other;
+  exception when others then
+    raise exception 'FAIL F8j: a shop WITH the storefront module can no longer edit its page (error: %) -- the new gate broke the ordinary path', sqlerrm;
+  end;
+
+  raise notice 'F8 ok: the gate lets a take-down through and still refuses content, publishing, inserts and the sibling tables';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F9. THE FIRST REPRODUCTION: suspend, take payment, unsuspend
+-- ---------------------------------------------------------------------------
+-- Three buttons in the platform portal, in an order an operator reaches for
+-- every day: suspend a lapsed shop (index.ts:497), record its payment
+-- (index.ts:471), unsuspend it (index.ts:497). Every step is a non-crossing if
+-- "came back" is written as `expired -> not expired`:
+--
+--   1 lapsed      status=expired    published  -- the page is dark
+--   2 suspended   status=suspended  published  -- expired -> suspended
+--   3 paid        status=suspended  published  -- suspended -> suspended
+--   4 unsuspended status=active     published  -- suspended -> active  <== here
+--
+-- ...and the page is live at the end of it with last month's prices on it. The
+-- condition is written `dark -> not dark` (`in ('expired','suspended')` on both
+-- sides) precisely so step 4 is the crossing it obviously is.
+do $$
+declare
+  v_shop      uuid;
+  v_slug      text;
+  v_published timestamptz;
+  v_reason    timestamptz;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Suspended Shop');
+  select slug into v_slug from public.shops where id = v_shop;
+
+  -- ---- Step 2. Suspending a LAPSED shop must not tear its page down: the
+  -- page is not coming back, it is going further away.
+  update public.shop_subscriptions set manual_status = 'suspended' where shop_id = v_shop;
+  if public.shop_effective_status(v_shop) <> 'suspended' then
+    raise exception 'FAIL F9a: the suspended shop reads %', public.shop_effective_status(v_shop);
+  end if;
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F9b: SUSPENDING a lapsed shop took its page down -- the trigger is treating a shop going dark as a shop coming back';
+  end if;
+  if v_reason is not null then
+    raise exception 'FAIL F9c: suspending a lapsed shop stamped a lapse reason on a page that is still up';
+  end if;
+
+  -- ---- Step 3. The payment lands while the shop is still suspended.
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+  if public.shop_effective_status(v_shop) <> 'suspended' then
+    raise exception 'FAIL F9d: paying while suspended changed the status to % -- the fixture no longer reproduces the path', public.shop_effective_status(v_shop);
+  end if;
+  if (select published_at from public.storefronts where shop_id = v_shop) is null then
+    raise exception 'FAIL F9e: a payment taken while the shop is suspended took the page down -- the page is still dark, nothing has come back yet';
+  end if;
+
+  -- ---- Step 4. The unsuspend. THIS is the shop coming back.
+  update public.shop_subscriptions set manual_status = 'active' where shop_id = v_shop;
+  if public.shop_effective_status(v_shop) <> 'active' then
+    raise exception 'FAIL F9f: the unsuspended shop reads %, expected active', public.shop_effective_status(v_shop);
+  end if;
+
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F9g: suspend -> pay -> unsuspend left the page LIVE (published_at %) -- three portal buttons walked a month-old page back online with nobody deciding so', v_published;
+  end if;
+  if v_reason is null then
+    raise exception 'FAIL F9h: the page came down with no reason recorded, so the editor cannot say why it is a draft';
+  end if;
+  if exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F9i: the address still serves after suspend -> pay -> unsuspend';
+  end if;
+
+  raise notice 'F9 ok: suspend, pay, unsuspend -- the page comes back as a draft, not as last month''s prices';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F10. The consequence of writing it as "dark", stated on purpose
+-- ---------------------------------------------------------------------------
+-- A shop that never lapsed, was suspended, and is unsuspended ALSO comes back
+-- to a draft. That is the rule, not an accident: while suspended its page did
+-- not serve (shop_has_module, 20260818000200:63, returns false for `suspended`
+-- outright), so it went dark, and coming back from dark is the thing this
+-- decision makes deliberate. Pinned here so that nobody "fixes" it into
+-- silence -- and so the cost is visible next to the benefit in F9.
+do $$
+declare
+  v_shop      uuid;
+  v_slug      text;
+  v_published timestamptz;
+  v_reason    timestamptz;
+begin
+  v_shop := pg_temp.lapse_shop('Lapse Suspended Paying Shop', p_expire => false);
+  select slug into v_slug from public.shops where id = v_shop;
+
+  -- It is live and serving before any of this.
+  if not exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F10a: the fixture is not serving before it is suspended, so nothing below is measuring a page going dark';
+  end if;
+
+  update public.shop_subscriptions set manual_status = 'suspended' where shop_id = v_shop;
+  if exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F10b: a suspended shop still serves its page -- then suspension is not darkness and this rule is written on a false premise';
+  end if;
+
+  update public.shop_subscriptions set manual_status = 'active' where shop_id = v_shop;
+
+  select published_at, lapse_unpublished_at into v_published, v_reason
+    from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F10c: coming out of a suspension left the page live -- "dark -> not dark" is not being applied to suspension';
+  end if;
+  if v_reason is null then
+    raise exception 'FAIL F10d: the page came down after a suspension with no reason recorded, so the shopkeeper is shown a draft and no explanation';
+  end if;
+
+  raise notice 'F10 ok: coming out of a suspension leaves the page a draft too, with the reason recorded';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F11. An UPDATE that changed nothing does not even enter the function
+-- ---------------------------------------------------------------------------
+-- shop_subscriptions is written on every portal action, and some of those
+-- writes are no-ops (a PATCH with no diff, an upsert that rewrites a row
+-- identically). Such a row cannot possibly satisfy the crossing condition --
+-- OLD and NEW are the same row -- so the WHEN clause costs nothing and saves
+-- two function calls per no-op. Asserted on the installed trigger rather than
+-- inferred, because it is invisible in behaviour and would be dropped by the
+-- next hand that rewrites the CREATE TRIGGER.
+do $$
+declare
+  v_def       text;
+  v_shop      uuid;
+  v_published timestamptz;
+begin
+  select pg_get_triggerdef(t.oid) into v_def
+    from pg_trigger t
+   where t.tgrelid = 'public.shop_subscriptions'::regclass
+     and t.tgname = 'shop_subscriptions_unpublish_storefront_on_return';
+
+  if v_def is null then
+    raise exception 'FAIL F11a: the unpublish trigger is not installed on shop_subscriptions at all';
+  end if;
+  if v_def !~* '\mwhen\M' then
+    raise exception 'FAIL F11b: the unpublish trigger has no WHEN clause, so every no-op UPDATE on shop_subscriptions enters plpgsql -- def: %', v_def;
+  end if;
+
+  -- And the behaviour that clause must not change.
+  v_shop := pg_temp.lapse_shop('Lapse No Op Shop', p_expire => false);
+  update public.shop_subscriptions set manual_status = manual_status where shop_id = v_shop;
+  select published_at into v_published from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F11c: an UPDATE that changed nothing took the page down';
+  end if;
+
+  raise notice 'F11 ok: the trigger is skipped for an UPDATE that changed nothing, and such an update leaves the page alone';
 end $$;
 
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;
