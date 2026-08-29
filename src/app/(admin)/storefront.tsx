@@ -714,6 +714,11 @@ export default function StorefrontEditor() {
         // once the page is live.
         slug={working.slug}
         shopName={shop?.name ?? ''}
+        // WHY the page is a draft, when the shop did not choose that. Set by
+        // the 20260930000500 trigger when a lapsed shop comes back, cleared
+        // by publish_storefront -- so this stops being true the moment the
+        // shop publishes, and the sentence never outlives its cause.
+        unpublishedByLapse={working.lapseUnpublishedAt !== null}
         onEdit={handleEdit}
         onFocusBlocker={focusBlocker}
         onGoToInventory={handleGoToInventory}

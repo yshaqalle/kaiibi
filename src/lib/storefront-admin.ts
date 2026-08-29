@@ -30,6 +30,18 @@ export type ShopStorefront = {
   // even once, has chosen, whatever it chose, and is never told otherwise
   // again just because it later unpublished.
   firstPublishedAt: string | null;
+  // WHY the page is a draft, when the reason is not the shop's own doing.
+  //
+  // Set by the 20260930000500 trigger at the moment a lapsed shop comes back
+  // -- pays, is extended, or has its window widened -- because that is when
+  // its page is taken down. Once published_at is null nothing else could tell
+  // "the plan lapsed and we took it down" apart from "never published" or "the
+  // shop pulled it down itself", and the editor would have to leave the shop
+  // to guess.
+  //
+  // Cleared by publish_storefront, so the sentence cannot outlive its cause,
+  // and never set for a shop that had nothing published to take down.
+  lapseUnpublishedAt: string | null;
   // Whether the shop has asked the flyer band to move on its own
   // (storefronts.auto_advance, 20260930000200). NOT in EditableFields below
   // and deliberately so: publish_storefront (20260925000200) copies a fixed
@@ -93,6 +105,7 @@ function mapStorefrontRow(
     offers_delivery?: boolean | null;
     published_at?: string | null;
     first_published_at?: string | null;
+    lapse_unpublished_at?: string | null;
     auto_advance?: boolean | null;
     draft?: Record<string, unknown> | null;
   }
@@ -109,6 +122,7 @@ function mapStorefrontRow(
     offersDelivery: Boolean(sf.offers_delivery),
     publishedAt: sf.published_at ?? null,
     firstPublishedAt: sf.first_published_at ?? null,
+    lapseUnpublishedAt: sf.lapse_unpublished_at ?? null,
     autoAdvance: Boolean(sf.auto_advance),
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
@@ -121,7 +135,7 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   const { data, error } = await supabase
     .from('shops')
     .select(
-      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, auto_advance, draft)'
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, auto_advance, draft)'
     )
     .eq('id', shopId)
     .maybeSingle();

@@ -68,6 +68,7 @@ export function PublishBar({
   dirty,
   slug,
   shopName = '',
+  unpublishedByLapse = false,
   onEdit,
   onFocusBlocker,
   onGoToInventory,
@@ -86,6 +87,18 @@ export function PublishBar({
   slug: string | null;
   /** Named in the WhatsApp message, which gets forwarded away from any context. */
   shopName?: string;
+  /**
+   * Whether this page is a draft BECAUSE THE PLAN LAPSED -- the shop stopped
+   * paying, its month of grace ran out, and coming back took the page down
+   * (20260930000500). Read from storefronts.lapse_unpublished_at, which
+   * publish_storefront clears, so this goes false again the moment the shop
+   * publishes.
+   *
+   * Only ever meaningful while `status` is 'draft'; the render below checks
+   * both rather than trusting the caller, because a live page carrying this
+   * sentence would be flatly wrong on screen.
+   */
+  unpublishedByLapse?: boolean;
   /** The Edit button. Opens the editor; knows nothing about blockers. */
   onEdit: () => void;
   /**
@@ -212,6 +225,29 @@ export function PublishBar({
               no cause left for an action to remove. */}
           {copyFailed ? <Caveat tone="context">Could not copy your address — write it down instead.</Caveat> : null}
         </View>
+      ) : null}
+
+      {/* WHY the pill above says Draft, when the shop never chose that.
+          Without this the shop opens the editor after paying, finds its page
+          offline, and has nothing to go on -- the state is correct and
+          completely unexplained.
+
+          `wrong`, not `context`: caveat.tsx is explicit that `context` means
+          "no action is required and none should be implied", and here action
+          is exactly what is required -- the page stays offline until the shop
+          publishes. So it carries the action that removes its own cause,
+          which is the rule that tone comes with. Pressing it runs the same
+          handler as the Publish button, blockers and all.
+
+          The sentence names the cause and the thing worth doing before
+          publishing, because that is the whole reason this is deliberate: a
+          page that quietly came back after a month away could be advertising
+          last month's prices to a customer who then orders at them. */}
+      {status === 'draft' && unpublishedByLapse ? (
+        <Caveat tone="wrong" action={{ label: 'Publish again', onPress: onPublish }}>
+          Your page came down while your plan had lapsed. Check your prices and offers are still right, then publish it
+          again.
+        </Caveat>
       ) : null}
 
       {blockers.map((blocker) => {
