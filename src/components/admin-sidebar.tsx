@@ -119,10 +119,11 @@ function SidebarNavItem({ item, focused, locked, badgeCount = 0 }: { item: NavIt
         {(badgeCount > 0 || locked) && (
           <View style={styles.navTrailing}>
             {badgeCount > 0 && <Badge label={badgeCount > 9 ? '9+' : String(badgeCount)} tone="danger" />}
-            {/* Still navigable: tapping lands on the upgrade wall in
-                (admin)/_layout.tsx, which is where the offer belongs. Hiding
-                the row instead would mean nobody ever discovers what they'd
-                be paying for. */}
+            {/* Still navigable: tapping lands on the upgrade wall that
+                `withModuleWall` renders inside the route itself
+                (components/module-wall.tsx), which is where the offer belongs.
+                Hiding the row instead would mean nobody ever discovers what
+                they'd be paying for. */}
             {locked && <Text style={styles.navLock}>🔒</Text>}
           </View>
         )}

@@ -1,12 +1,24 @@
 -- Coming back from a lapse leaves the page a DRAFT.
 --
 -- THE DECISION. A shop that stops paying gets a month (20260930000400), keeps
--- every row it ever had, and its page goes dark. Today it goes dark for one
--- reason only -- shop_has_module() fails while the shop resolves to the `free`
--- plan -- so the day it pays again the page comes back EXACTLY AS IT WAS. After
--- a month away that page may be advertising last month's prices to a customer
--- who then orders at them, and the order path honours the price the customer
--- agreed to. Publishing again has to be a deliberate act.
+-- every row it ever had, and its page goes dark. It goes dark whenever
+-- shop_has_module() fails, and that is TWO statuses, not one: `expired` (the
+-- shop resolves to the `free` plan, which carries no `storefront`) and
+-- `suspended` (shop_has_module returns false outright). The trigger in section
+-- 4 fires on both -- see its DARK, NOT EXPIRED note for why the difference
+-- between the two still matters.
+--
+-- Whichever way it went dark, the day the shop pays again the page comes back
+-- EXACTLY AS IT WAS. After a month away that page may be advertising last
+-- month's prices to a customer who then orders at them, and the order path
+-- honours the price the customer agreed to. Publishing again has to be a
+-- deliberate act.
+--
+-- The one shop this is NOT true of, and the one exception below: an `expired`
+-- shop that support has comped the `storefront` module to. Its page never
+-- stopped serving, so its prices were never unseen, so there is nothing to
+-- make deliberate -- section 4 skips it and takes nothing down. Suspension has
+-- no such exception; no override survives it.
 --
 -- WHERE THERE IS NO SEAM, AND WHY THIS IS A TRIGGER. "At the end of grace"
 -- sounds like a scheduled job, and there is no clock anywhere in this project
@@ -325,10 +337,12 @@ create trigger storefronts_module_gate
 --
 --   the comped-override skip -- the premise above, enforced. Only under
 --   `expired`, never under `suspended`, because suspension is dark whatever the
---   overrides table says (verify-lapse F12e pins that the skip does NOT let a
---   suspended shop through). It reads the overrides table rather than calling
---   shop_has_module, which would answer about the NEW subscription row and
---   report the shop coming back rather than the page that was serving.
+--   overrides table says (verify-lapse F12i/F12j pin that the skip does NOT
+--   let a suspended shop through: F12i that a comped shop coming out of
+--   suspension loses its page, F12j that it is stamped `suspended`). It reads
+--   the overrides table rather than calling shop_has_module, which would
+--   answer about the NEW subscription row and report the shop coming back
+--   rather than the page that was serving.
 --
 --   AFTER, not BEFORE -- it writes a different table, and section 3's gate
 --   needs shop_has_module to resolve against the NEW subscription row.

@@ -112,11 +112,21 @@ function Frame({ title, children }: { title?: string; children: React.ReactNode 
  * plan doesn't cover it.
  *
  * The module is named here rather than derived from the pathname so this needs
- * no router at all -- and `src/__tests__/module-wall.test.tsx` walks every
- * route file under `(admin)` and fails if one is module-gated in
- * `entitlements.ts` and not wrapped here, or wrapped with the wrong module. The
- * catalogue in `ROUTE_MODULES` stays the single answer to "does this route cost
- * money"; this is only where that answer is rendered.
+ * no router at all. That is also why `ROUTE_MODULES` in `entitlements.ts` is no
+ * longer the RUNTIME authority for routes: nothing consults it to decide
+ * whether a screen is walled. The hardcoded module literal in each route file's
+ * own `withModuleWall(...)` call is what decides that. `ROUTE_MODULES` now only
+ * drives the navs' 🔒 derivation (`moduleForPath` in admin-sidebar.tsx and
+ * admin-tabs.web.tsx) and the test below.
+ *
+ * The only guard against a future route forgetting the wrapper is
+ * `src/__tests__/module-wall.test.tsx:219-228`, and it is worth knowing its
+ * limit: it is a SOURCE-TEXT check. It walks every route file under `(admin)`
+ * and, for each one `moduleForPath()` says is gated, asserts the file's text
+ * contains `withModuleWall('<module>'`. It never renders the route, so it
+ * cannot tell whether the wrapped component is the one actually exported as
+ * default -- a file that calls `withModuleWall` and then exports the unwrapped
+ * screen passes.
  *
  * The wrapped screen is not rendered at all when the wall is up, so a walled
  * screen never mounts and never fires the queries it would have made.

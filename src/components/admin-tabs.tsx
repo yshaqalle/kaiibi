@@ -159,8 +159,9 @@ export default function AdminTabs() {
                 {/* A lapsed shop keeps both rows, greyed and locked: the page
                     and its orders are still there, and this is the only route
                     back to paying. Tapping still pushes -- /storefront and
-                    /orders are module-gated in entitlements.ts, so the push
-                    lands on the upgrade wall in (admin)/_layout.tsx. */}
+                    /orders are module-gated in entitlements.ts and each route
+                    wraps itself in `withModuleWall`, so the push lands on the
+                    upgrade wall in components/module-wall.tsx. */}
                 <Pressable
                   onPress={() => {
                     setMenuOpen(false);

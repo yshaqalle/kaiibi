@@ -10,7 +10,8 @@ import { getMyStorefront } from '@/lib/storefront-admin';
 //   'open'    the shop has the module -- an ordinary row, including through
 //             the whole grace month, where the plan is still the shop's own
 //   'locked'  the shop HAD a page and no longer has the module -- greyed with
-//             the 🔒, landing on the upgrade wall in (admin)/_layout.tsx
+//             the 🔒, landing on the upgrade wall that `withModuleWall`
+//             renders inside the route itself (components/module-wall.tsx)
 //   'hidden'  no page to come back to, or we do not know yet
 //
 // There is no "lapsed" flag anywhere to read. A shop past its grace month
@@ -60,7 +61,7 @@ export function useShopHasStorefront(): boolean | null {
   // the fail-closed FREE_FALLBACK rather than the shop's real plan
   // (entitlements.ts). Asking then, and greying a row off the answer, would
   // tell a possibly-paid-up shop its storefront had lapsed -- the same false
-  // accusation the upgrade wall refuses to make in (admin)/_layout.tsx.
+  // accusation the upgrade wall refuses to make in components/module-wall.tsx.
   //
   // `settings.access` is in here for a plainer reason: it is the permission
   // useStorefrontNavState() below returns 'hidden' on, so for a cashier the

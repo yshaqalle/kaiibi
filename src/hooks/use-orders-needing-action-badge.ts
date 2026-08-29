@@ -9,8 +9,12 @@ import { countOrdersNeedingAction } from '@/lib/storefront-admin';
 //
 // Task 7: publishing a storefront is retroactively consent to take orders, and
 // a shop that never thinks to open the Orders row would otherwise never find
-// out one arrived. Gated on the `storefront` module the same way every entry
-// that offers this route is -- a shop without storefront is never even asked.
+// out one arrived. Deliberately NOT gated on the `storefront` module alone:
+// `enabled` below is `hasModule('storefront') || hasPage === true`, so a shop
+// whose plan has lapsed is still asked as long as a `storefronts` row exists
+// for it. That is the whole point -- the orders it already took are the ones
+// most likely to be forgotten, and the badge is what tells it they are there.
+// A shop that never had a page has neither half, so it is never asked.
 //
 // Refetched on focus rather than polled -- see use-refresh-on-focus.ts's own
 // header for why a timer here would cost a shop on data it pays for by the

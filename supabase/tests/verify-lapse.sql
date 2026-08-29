@@ -1526,8 +1526,11 @@ end $$;
 -- And the skip is narrow: it is keyed to `expired` alone. Suspension is dark
 -- unconditionally -- shop_has_module short-circuits false on it before it looks
 -- at overrides at all -- so a comped shop coming out of SUSPENSION must still
--- have its page taken down. F12e is that half, and it is what a skip written as
--- "any comped shop" would fail.
+-- have its page taken down. F12i and F12j are that half -- F12i that the page
+-- did come down, F12j that it was stamped `suspended` -- and they are what a
+-- skip written as "any comped shop" would fail. (F12g and F12h measure the
+-- premise underneath them: that the override does not resolve, and the page
+-- does not serve, while the shop is suspended.)
 do $$
 declare
   v_shop      uuid;
