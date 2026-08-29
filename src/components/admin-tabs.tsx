@@ -169,6 +169,13 @@ export default function AdminTabs() {
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>🌐</Text>
+                  {/* `bentoMuted` and NOT `bentoMuted2` for the locked label:
+                      this sheet paints with Colors.dark on a black ground (see
+                      `colors` above), where the second muted step is the DARKER
+                      one and a greyed row would sink into the sheet. Each side
+                      of the ramp is solved against its own ground -- see
+                      admin-sidebar.tsx, which takes `bentoMuted2` for the same
+                      row on white. */}
                   <Text style={[styles.menuItemText, { color: storefront === 'locked' ? colors.bentoMuted : colors.text }]}>Storefront</Text>
                   {storefront === 'locked' ? <Text style={styles.menuLock}>🔒</Text> : null}
                 </Pressable>
@@ -180,6 +187,8 @@ export default function AdminTabs() {
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>🛍</Text>
+                  {/* `bentoMuted`, not `bentoMuted2` -- same dark ground, same
+                      reason as the Storefront label above. */}
                   <Text style={[styles.menuItemText, { color: storefront === 'locked' ? colors.bentoMuted : colors.text }]}>Orders</Text>
                   {/* The count of customers waiting. Server-side, through the
                       one shared hook -- it used to render only inside the
@@ -333,11 +342,6 @@ const styles = StyleSheet.create({
   menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, paddingVertical: 6, overflow: 'hidden' },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
   menuItemText: { fontSize: 14, fontWeight: '700' },
-  // `bentoMuted` and not `bentoMuted2` for the locked label above: this sheet
-  // paints with Colors.dark on a black ground, where the second muted step is
-  // the darker one and a greyed row would sink into the sheet. Each side of
-  // the ramp is solved against its own ground -- see admin-sidebar.tsx, which
-  // takes `bentoMuted2` for the same row on white.
   menuLock: { fontSize: 11, marginLeft: 'auto' },
   menuLockAfterBadge: { marginLeft: 6 },
   menuBadgeSlot: { marginLeft: 'auto' },

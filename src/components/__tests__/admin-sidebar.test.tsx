@@ -383,6 +383,17 @@ describe('AdminSidebar storefront rows after a lapse', () => {
     expect(shown).toContain('Inventory');
   });
 
+  // And not even asked for. `settings.access` is checked before the lookup as
+  // well as after it: a cashier's answer cannot change anything on their
+  // screen, so asking is a request every cashier session at every shop without
+  // the module would spend for nothing.
+  it('does not ask the database at all for someone who cannot open Settings', async () => {
+    lapsedWithAPage();
+    signIn({ can: (p) => p !== 'settings.access', hasModule: (m) => m !== 'storefront' });
+    await renderRail();
+    expect(getMyStorefront).not.toHaveBeenCalled();
+  });
+
   // #102, restated for the lapsed shop. The rail carries both rows at wide
   // width, so the ☰ menu must not carry them too. Counted rather than asserted
   // absent: they SHOULD be on that screen, exactly once.

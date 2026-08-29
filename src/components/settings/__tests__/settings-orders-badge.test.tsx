@@ -95,10 +95,26 @@ describe('SettingsSidebar — orders badge', () => {
     expect(texts).not.toContain('0');
   });
 
-  it('never fetches the count for a shop without the storefront module -- property 4', async () => {
+  // Both halves matter, and the name has to say so: "no module" alone is NOT
+  // enough to stay silent any more. A shop that lost the module but still has
+  // a `storefronts` row is a lapse, and the test below it is the one that
+  // pins what happens then.
+  it('never fetches the count for a shop with neither the storefront module nor a storefronts row -- property 4', async () => {
     mockHasModule = false;
+    mockHasStorefrontRow = false;
     await renderSidebar();
     expect(mockCountOrdersNeedingAction).not.toHaveBeenCalled();
+  });
+
+  // The lapse. The module is gone, the page and its orders are not: those
+  // customers are still waiting, and a count that drops to zero the moment
+  // somebody stops paying hides them (use-orders-needing-action-badge.ts).
+  it('still fetches the count for a shop that lost the module but kept its storefront row', async () => {
+    mockHasModule = false;
+    mockHasStorefrontRow = true;
+    mockCount = 2;
+    await renderSidebar();
+    expect(mockCountOrdersNeedingAction).toHaveBeenCalledWith('shop-1');
   });
 });
 

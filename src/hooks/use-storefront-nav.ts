@@ -54,14 +54,20 @@ export function resetStorefrontPresence() {
  * does not carry storefront.
  */
 export function useShopHasStorefront(): boolean | null {
-  const { shop, hasModule, entitlements } = useAuth();
+  const { shop, can, hasModule, entitlements } = useAuth();
   const shopId = shop?.id ?? null;
   // `resolved` false means the entitlement lookup did not succeed and this is
   // the fail-closed FREE_FALLBACK rather than the shop's real plan
   // (entitlements.ts). Asking then, and greying a row off the answer, would
   // tell a possibly-paid-up shop its storefront had lapsed -- the same false
   // accusation the upgrade wall refuses to make in (admin)/_layout.tsx.
-  const worthAsking = Boolean(shopId) && entitlements.resolved && !hasModule('storefront');
+  //
+  // `settings.access` is in here for a plainer reason: it is the permission
+  // useStorefrontNavState() below returns 'hidden' on, so for a cashier the
+  // answer cannot change anything on screen. Without it every cashier session
+  // at every shop without the `storefront` module spent one request finding
+  // out something it would not be allowed to act on.
+  const worthAsking = Boolean(shopId) && can('settings.access') && entitlements.resolved && !hasModule('storefront');
   // The answer is stored WITH the shop it is about, so switching shops cannot
   // be answered for a moment by the previous shop's page. A failed lookup is
   // simply never recorded: no answer stays no answer, and the rows stay hidden,
