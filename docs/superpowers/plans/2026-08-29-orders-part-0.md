@@ -49,7 +49,7 @@
 
 **Interfaces:**
 - Consumes: `public.my_open_session_at(p_location_id uuid) returns uuid` (`20260822000000:219`) — returns the calling user's open session at a location, or null.
-- Produces: `public.complete_sale(…, p_require_register boolean default true)` — a 16-argument signature. Later work calling `complete_sale` must use the new arity in any `grant`/`revoke`/`drop`.
+- Produces: `public.complete_sale(…)` at its **unchanged fifteen-argument signature**. A security review rejected the `p_require_register boolean default true` parameter this plan originally specified: `complete_sale` is granted to `authenticated` and exposed over PostgREST, so the parameter was a JSON field any member with `pos.access` could send, and `p_require_register => false` (or `=> null`, which made the `if` evaluate to NULL) defeated the `require_open_register` setting outright. A default is not an enforcement. The opt-out is instead read off the `storefront_order_fulfilments` mark `complete_storefront_order` already writes as a SECURITY DEFINER around the call — see `20261010000000`'s header. **Later work calling `complete_sale` keeps the fifteen-argument arity in any `grant`/`revoke`/`drop`.**
 
 - [ ] **Step 1: Write the failing checks**
 

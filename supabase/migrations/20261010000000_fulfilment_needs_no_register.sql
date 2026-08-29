@@ -17,11 +17,73 @@
 -- at the door, or handed to a driver going to Koodbuur, has no drawer to
 -- reconcile against. Requiring one protects nothing and refuses the sale.
 --
--- ── p_require_register defaults TRUE ──────────────────────────────────
--- Every caller that existed before this migration is unchanged, the POS
--- included -- the same posture p_prices_include_tax took at 20260929000100.
--- complete_storefront_order is the single caller passing false, and it says
--- why at the call site.
+-- ── THERE IS NO OPT-OUT PARAMETER, AND THAT IS THE POINT ────────────────
+-- The first version of this migration gave complete_sale a sixteenth
+-- argument, `p_require_register boolean default true`, and had
+-- complete_storefront_order pass false. It defaulted true, so every caller
+-- that existed before it was unchanged -- and that was the whole of the
+-- argument for it, which is the mistake.
+--
+-- A DEFAULT IS NOT AN ENFORCEMENT. complete_sale is granted to
+-- `authenticated` and exposed over PostgREST, so every parameter it declares
+-- is a field any member holding `pos.access` can put in a JSON body. A
+-- default decides what happens when the client says nothing; it decides
+-- nothing at all about what happens when the client speaks. The guard three
+-- screens down says in its own comment that "without this the setting is
+-- advisory, and the client is the party it is meant to constrain" -- and a
+-- parameter named in that guard's own condition hands that same client the
+-- off switch. Reproduced against the live database as role `authenticated`
+-- with a real JWT claim, at a shop whose primary location has
+-- require_open_register set:
+--
+--   default                     => REFUSED
+--   p_require_register => false => ACCEPTED   <- the setting defeated
+--   p_require_register => null  => ACCEPTED   <- `if NULL and ...` is NULL,
+--                                                so the `if` never fires
+--
+-- Both were one extra JSON field. So the parameter is gone: complete_sale's
+-- signature is exactly what it was before this migration, there is no
+-- argument that turns the guard off, and the null case cannot arise because
+-- there is no flag to send a null for.
+--
+-- ── WHAT SKIPS THE GUARD INSTEAD: THE FULFILMENT MARK ALREADY IN FLIGHT ──
+-- The property actually wanted is "only complete_storefront_order may skip
+-- this", which is a provenance question, not a parameter. This repo has
+-- answered that question twice already and this migration reuses the second
+-- answer verbatim rather than inventing a third.
+--
+-- 20260928000500's header rejects the obvious mechanism -- a transaction-
+-- local `set_config` marker -- on inspection rather than on style: custom GUC
+-- names carry NO privilege system, so `authenticated` can call
+-- `set_config('some.key', <anything>, true)` for any key it reads out of a
+-- migration, and "a same-session marker authenticates nothing about WHO set
+-- it". A marker built on it would be defeated by one extra statement, which
+-- is the same shape of defeat as the parameter it would have replaced.
+--
+-- What holds instead is a row in a table nobody but the owner can write.
+-- public.storefront_order_fulfilments (20260929000200:209) already exists,
+-- already carries exactly this meaning -- "complete_storefront_order is
+-- part-way through fulfilling this order, in THIS transaction" -- and is
+-- already inserted immediately before the complete_sale call and deleted the
+-- moment it returns. complete_sale already trusts it, one screen further
+-- down, to excuse an agreed price below the shelf price. The register
+-- requirement is the same kind of exemption for the same reason, so it is
+-- read off the same mark:
+--
+--   * the table grants nothing to `anon` or `authenticated`, not even SELECT,
+--     and carries row level security with no policy at all -- two independent
+--     layers, both proven at verify-order-transitions check 52a, which shows
+--     `authenticated` cannot write its own mark;
+--   * `f.xact_id = pg_current_xact_id()` means a mark left behind by an
+--     earlier, already-finished transaction authorises nothing -- transaction
+--     ids are monotonic and never reused. Check 52b proves that for the
+--     agreed price, check 57e below for the register guard;
+--   * the marked order must belong to THIS shop, so a fulfilment in flight at
+--     one shop never excuses a till sale at another.
+--
+-- A client cannot interleave statements inside one PostgREST call, so the
+-- only way the predicate is true is that complete_storefront_order, in this
+-- very transaction, is between its own insert and its own delete.
 --
 -- ── But a session IS attached when there genuinely is one ───────────────
 -- Passing null unconditionally, which is what happens today, is also wrong in
@@ -42,13 +104,15 @@
 -- location than this sale" check (:213) refuses loudly rather than misfiling
 -- the money quietly.
 --
--- ── Why a drop, and not just a replace ──────────────────────────────
--- complete_sale gains an argument, and create or replace cannot change an
--- argument list -- it would leave a fifteen-argument and a sixteen-argument
--- function side by side, and a call naming only the first three parameters
--- would then be ambiguous. The drop names the old signature exactly, the same
--- move 20260929000100:211 had to make for the same reason, and the ACL does
--- not survive a drop, so the revoke/grant pair at the foot restates it.
+-- ── NEITHER SIGNATURE CHANGES, so neither function is dropped ───────────
+-- With the parameter gone, complete_sale takes the same fifteen arguments it
+-- took before, so both functions below are a plain `create or replace` with
+-- no drop and both ACLs survive -- the same posture, and the same sentence,
+-- 20260929000200's own header uses. The revoke/grant pairs at the foot
+-- therefore RESTATE rather than repair; they are written anyway, revoke
+-- first, because `grant execute` alone is a no-op against Postgres's default
+-- EXECUTE-to-PUBLIC and a reader must not have to know which migrations
+-- dropped and which replaced to know who can call these.
 --
 -- ── WHICH ANCESTOR EACH FUNCTION WAS COPIED FORWARD FROM ────────────────
 -- Written down because they are DIFFERENT FILES, and taking both from the one
@@ -68,9 +132,7 @@
 -- typed refusal, and verify-order-transitions check 53 is what would have
 -- caught it.
 
--- ── complete_sale, re-created in full at sixteen arguments ──────────────
-
-drop function if exists public.complete_sale(uuid, jsonb, jsonb, text, text, text, text, integer, uuid, timestamptz, uuid, integer, uuid, boolean, boolean);
+-- ── complete_sale, re-created in full at its unchanged fifteen ──────────
 
 create or replace function public.complete_sale(
   p_shop_id uuid,
@@ -90,13 +152,13 @@ create or replace function public.complete_sale(
   -- THE PRICES IN THIS CART ALREADY HAVE THE TAX IN THEM. Default false, so
   -- every caller that existed before this migration goes on being taxed on top
   -- exactly as it was. See the header for what it does and what it does not.
-  p_prices_include_tax boolean default false,
-  -- Whether a location's require_open_register setting applies to this call.
-  -- TRUE for every caller that existed before this migration, the POS
-  -- included. Only complete_storefront_order passes false, and its call site
-  -- says why: an order handed over at a door has no drawer to reconcile
-  -- against.
-  p_require_register boolean default true
+  p_prices_include_tax boolean default false
+  -- AND NOTHING AFTER IT. A sixteenth parameter here, `p_require_register`,
+  -- is what the first version of this migration used to let a fulfilment skip
+  -- the open-register guard, and it was an off switch handed to the very
+  -- party that guard exists to constrain. See the header: the exemption is
+  -- now read off a mark only a SECURITY DEFINER can write, and there is
+  -- deliberately no argument that reaches it.
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
@@ -292,11 +354,37 @@ begin
   -- A branch that requires an open register means it: without this the setting
   -- is advisory, and the client is the party it is meant to constrain. Read off
   -- the resolved location, so turning it on at one branch never stops another
-  -- selling. Skipped entirely when the caller is not ringing up at a till --
-  -- see this migration's header.
-  if p_require_register
-     and p_register_session_id is null
-     and (select require_open_register from public.shop_locations where id = v_location_id) then
+  -- selling.
+  --
+  -- THE ONE THING THAT SKIPS IT IS A FULFILMENT ALREADY IN FLIGHT, and it is a
+  -- fact this function LOOKS UP rather than a claim a caller MAKES. A register
+  -- session reconciles one physical drawer; an order collected at the door or
+  -- handed to a driver has no drawer to reconcile against, so requiring one
+  -- protects nothing and refuses the sale. But "this is a fulfilment" must not
+  -- be assertable by the client -- see the header for the parameter that used
+  -- to be here and why it is gone.
+  --
+  -- The mark is the same public.storefront_order_fulfilments row the agreed-
+  -- price exemption below already trusts, written by complete_storefront_order
+  -- as the table's owner immediately before it calls this function and deleted
+  -- the moment this function returns. `authenticated` has no privilege on that
+  -- table and it carries row level security with no policy, so no client can
+  -- forge one (check 52a); `xact_id = pg_current_xact_id()` means one left
+  -- behind by an earlier transaction authorises nothing (check 57e); and the
+  -- marked order must belong to THIS shop, so a fulfilment in flight at one
+  -- shop never excuses a till sale at another.
+  --
+  -- ORDER MATTERS: the lookup is LAST, so the ordinary till path at a shop
+  -- that does not require a register -- which is almost every call -- never
+  -- runs it at all.
+  if p_register_session_id is null
+     and (select require_open_register from public.shop_locations where id = v_location_id)
+     and not exists (
+       select 1
+         from public.storefront_order_fulfilments f
+         join public.orders o on o.id = f.order_id
+        where f.xact_id = pg_current_xact_id()
+          and o.shop_id = p_shop_id) then
     raise exception 'this store requires an open register before a sale can be rung up';
   end if;
 
@@ -1371,9 +1459,12 @@ begin
       -- location -- a handover at the counter belongs in that drawer's count.
       -- Null when they do not, which is the honest answer for a delivery.
       p_register_session_id => v_session_id,
-      p_prices_include_tax  => true,
-      -- Never refused for want of a till. See this migration's header.
-      p_require_register    => false);
+      -- NOTHING IS PASSED TO SKIP THE REGISTER GUARD, and nothing can be.
+      -- complete_sale looks up the fulfilment mark inserted a few statements
+      -- above -- the one this function deletes the moment this call returns --
+      -- and skips the guard on that. See this migration's header for why this
+      -- is not a parameter.
+      p_prices_include_tax  => true);
   exception
     when others then
       -- Bare `when others` with an explicit message match and an unconditional
@@ -1577,14 +1668,16 @@ $$;
 -- ── The grants ──────────────────────────────────────────────────
 --
 -- The revoke goes first: Postgres grants EXECUTE to PUBLIC on every new
--- function, so a grant alone would be a no-op dressed as a decision. The ACL
--- did not survive the drop above, so both statements are load-bearing here.
-revoke execute on function public.complete_sale(uuid, jsonb, jsonb, text, text, text, text, integer, uuid, timestamptz, uuid, integer, uuid, boolean, boolean, boolean) from public;
-grant  execute on function public.complete_sale(uuid, jsonb, jsonb, text, text, text, text, integer, uuid, timestamptz, uuid, integer, uuid, boolean, boolean, boolean) to authenticated;
+-- function, so a grant alone would be a no-op dressed as a decision.
+--
+-- complete_sale was REPLACED, not dropped -- its fifteen-argument signature is
+-- unchanged -- so its ACL survives and these two statements RESTATE it rather
+-- than repair it. Written anyway, and at the signature spelled out in full, so
+-- the grant is visible in the file that defines the function.
+revoke execute on function public.complete_sale(uuid, jsonb, jsonb, text, text, text, text, integer, uuid, timestamptz, uuid, integer, uuid, boolean, boolean) from public;
+grant  execute on function public.complete_sale(uuid, jsonb, jsonb, text, text, text, text, integer, uuid, timestamptz, uuid, integer, uuid, boolean, boolean) to authenticated;
 
--- complete_storefront_order was REPLACED, not dropped -- its signature is
--- unchanged -- so its ACL survives. Restated anyway, the same way
--- 20260929000200 restates it, so the grant is visible in the file that
--- defines the function.
+-- complete_storefront_order, the same: replaced, not dropped, restated the
+-- same way 20260929000200 restates it.
 revoke execute on function public.complete_storefront_order(uuid, text) from public;
 grant  execute on function public.complete_storefront_order(uuid, text) to authenticated;
