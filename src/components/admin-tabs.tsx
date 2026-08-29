@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useOrdersNeedingActionBadge } from '@/hooks/use-orders-needing-action-badge';
 import { useStorefrontNavState } from '@/hooks/use-storefront-nav';
 import { isTabletDevice } from '@/lib/device';
+import { menuButtonA11yLabel, menuRowA11yLabel } from '@/lib/nav-a11y';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { deleteImageByPublicUrl } from '@/lib/storage';
@@ -124,6 +125,11 @@ export default function AdminTabs() {
           <Pressable
             onPress={() => setMenuOpen(true)}
             hitSlop={8}
+            accessibilityRole="button"
+            // The dot below is paint. This is what a shopkeeper who cannot see
+            // it hears -- and it carries the real number, not the clamped "9+".
+            // See lib/nav-a11y.ts.
+            accessibilityLabel={menuButtonA11yLabel(ordersBadge)}
             style={({ pressed }) => [styles.menuButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
           >
             <Text style={[styles.menuIcon, { color: colors.text }]}>☰</Text>
@@ -133,15 +139,34 @@ export default function AdminTabs() {
                 dashboard. Neither reaches the person at the till. */}
             {ordersBadge > 0 ? (
               <View style={styles.menuButtonDot}>
-                <Text style={styles.menuButtonDotText}>{ordersBadge > 9 ? '9+' : String(ordersBadge)}</Text>
+                {/* One line, always. Without this the string is free to wrap
+                    the moment it does not fit -- which is the whole of the bug
+                    described on `menuButtonDot` below, and would come back at
+                    a large Dynamic Type setting even with the fixed width. */}
+                <Text style={styles.menuButtonDotText} numberOfLines={1}>{ordersBadge > 9 ? '9+' : String(ordersBadge)}</Text>
               </View>
             ) : null}
           </Pressable>
         </View>
       </View>
       <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
-          <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
+        {/* `accessible={false}` is load-bearing, not tidying. React Native's
+            Pressable defaults `accessible` to TRUE (Pressable.js:252), and an
+            accessible node is a LEAF to iOS: with it left on, the whole sheet
+            was exposed as one element labelled "🌐, Storefront, 🛍, Orders, 9+,
+            ⚙, Settings, Help and support, Sign out" and not a single row could
+            be focused or activated. On a phone this menu is the only route to
+            Storefront and Orders, so that made both unreachable outright.
+            The backdrop is a dismiss target and nothing else, so it gives up
+            its place in the tree and the rows inside take theirs. */}
+        <Pressable accessible={false} style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          {/* And since the backdrop is no longer focusable, tap-anywhere-to-
+              close is no longer reachable either -- so the sheet answers
+              VoiceOver's two-finger-scrub escape instead. */}
+          <View
+            onAccessibilityEscape={() => setMenuOpen(false)}
+            style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}
+          >
             {/* Here rather than as a sixth and seventh NativeTabs.Trigger, for
                 the same two reasons the web menu gives: the bottom bar is what
                 a shopkeeper reaches for all day and five is already what fits
@@ -171,6 +196,10 @@ export default function AdminTabs() {
                     setMenuOpen(false);
                     router.push('/storefront');
                   }}
+                  accessibilityRole="button"
+                  // Named in words so the 🌐 below does not become the row's
+                  // name, and so the 🔒 is heard rather than only seen.
+                  accessibilityLabel={menuRowA11yLabel('Storefront', { locked: storefront === 'locked' })}
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>🌐</Text>
@@ -189,6 +218,10 @@ export default function AdminTabs() {
                     setMenuOpen(false);
                     router.push('/orders');
                   }}
+                  accessibilityRole="button"
+                  // Carries both marks the row draws: the waiting count and,
+                  // for a lapsed shop, the lock.
+                  accessibilityLabel={menuRowA11yLabel('Orders', { waiting: ordersBadge, locked: storefront === 'locked' })}
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>🛍</Text>
@@ -216,6 +249,8 @@ export default function AdminTabs() {
                     setMenuOpen(false);
                     router.push('/settings');
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={menuRowA11yLabel('Settings')}
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
@@ -241,6 +276,8 @@ export default function AdminTabs() {
                 setMenuOpen(false);
                 signOut().then(() => router.replace('/login'));
               }}
+              accessibilityRole="button"
+              accessibilityLabel={menuRowA11yLabel('Sign out')}
               style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
             >
               <Text style={[styles.menuItemText, { color: colors.text }]}>Sign out</Text>
@@ -329,9 +366,27 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '800' },
   shopName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // Absolutely positioned so adding it cannot move the ☰, and given an
+  // EXPLICIT size for the reason it used to lack one.
+  //
+  // It was `minWidth: 18` plus `paddingHorizontal: 5` and no width at all, and
+  // an absolutely positioned Yoga node with no width is measured against its
+  // parent's CONTENT box -- here the ☰ glyph, about 19pt at fontSize 16. Take
+  // this pill's own 10pt of padding off that and roughly 9pt was left for a
+  // string that needs about 14, so at ten or more waiting orders the `Text`
+  // wrapped and rendered "9" stacked above "+": a tall red capsule over a third
+  // of the ☰ and bulging past the button. One to nine fit, which is why it went
+  // unnoticed until a shop had ten.
+  //
+  // Confirmed on the simulator by enlarging the ☰ glyph and changing NOTHING
+  // else -- the wrap vanished, so the parent's width was the whole cause.
+  //
+  // The label is capped at two characters ("9+" -- see the render above), so a
+  // fixed box can hold every value it will ever be asked to draw, and a fixed
+  // box is the one thing the parent cannot argue with.
   menuButtonDot: {
-    position: 'absolute', top: -5, right: -6, minWidth: 18,
-    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999,
+    position: 'absolute', top: -5, right: -6, width: 20, height: 16,
+    borderRadius: 999,
     backgroundColor: '#B3261E', alignItems: 'center', justifyContent: 'center',
   },
   menuButtonDotText: { fontSize: 10.5, fontWeight: '800', color: '#FFFFFF' },
