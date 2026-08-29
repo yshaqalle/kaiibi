@@ -1,3 +1,4 @@
+import { withSerializationRetry } from '@/lib/serialization-retry';
 import { supabase } from '@/lib/supabase';
 
 // The fixed-asset register, as the database returns it.
@@ -190,7 +191,20 @@ export async function deleteFixedAsset(assetId: string): Promise<string | null> 
  * that does not exist.
  */
 export async function runDepreciation(shopId: string): Promise<number> {
-  const { data, error } = await supabase.rpc('run_depreciation', { p_shop_id: shopId, p_through: null });
+  // run_depreciation raises 40001 when a door that does NOT take the shop lock
+  // -- reverse_journal_entry above all -- lands mid-run and its charge-row
+  // self-check disagrees (20261008000000, part two). That is the run choosing
+  // to abort rather than commit a ledger and a register that disagree, and it
+  // rolls back completely -- so a retry is safe: the run is idempotent (a second
+  // press over the same months writes nothing and returns 0) and re-runs from
+  // the same state. Without this the reader gets a raw serialization error for a
+  // race the button would win on a second press; the migration left this client
+  // retry as the sanctioned follow-up.
+  const { data, error } = await withSerializationRetry(async () =>
+    // Awaited inside the thunk so each attempt is a fresh request: the builder
+    // supabase.rpc returns is single-shot, and the retry needs a new one per try.
+    supabase.rpc('run_depreciation', { p_shop_id: shopId, p_through: null })
+  );
   if (error) throw error;
   return Number(data ?? 0);
 }
