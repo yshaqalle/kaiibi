@@ -272,6 +272,14 @@ begin
   end if;
 
   -- ------------------------------------------------- 12. the client payload
+  -- AS THE CLIENT, which is what this section is named for and what it was
+  -- not doing: it inherited section 11's superuser context, so it exercised
+  -- a path no browser can take. That passed only because the function was
+  -- ungated -- and it was ungated to `anon` too, which is the hole the
+  -- 20261009000000 migration closes.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+
   v_ents := public.my_shop_entitlements(v_shop_id);
   if v_ents -> 'usage' ->> 'products' is null then
     raise exception 'FAIL: my_shop_entitlements reports no product usage';
@@ -279,6 +287,27 @@ begin
   if v_ents ->> 'status' is null or v_ents -> 'plan' ->> 'key' is null then
     raise exception 'FAIL: my_shop_entitlements is missing status or plan';
   end if;
+  -- Every key the client reads, pinned. The migration rewrote this function's
+  -- body by hand to prepend a guard, and a hand-copied body is exactly the
+  -- kind of change that looks right and quietly returns the wrong join --
+  -- the first draft invented a field, dropped `grace_until`, and joined
+  -- `plans` on an id instead of selecting `shop_effective_plan` as a record.
+  if not (v_ents ?& array['status','plan','modules','limits','usage','trial_ends_at','current_period_end','grace_until']) then
+    raise exception 'FAIL: my_shop_entitlements is missing a key the client reads: %', v_ents;
+  end if;
+
+  -- ...and a member of no shop cannot read this one. The grant stops a caller
+  -- with no session at all; this is the second barrier, for a real user asking
+  -- about somebody else's shop.
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000000999')::text, true);
+  begin
+    v_ents := public.my_shop_entitlements(v_shop_id);
+    raise exception 'FAIL: a non-member read another shop''s plan, usage and billing dates';
+  exception when sqlstate 'P0001' then
+    if sqlerrm like 'FAIL:%' then raise; end if;
+  end;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
 
   -- ------------------------------ 13. a shop cannot upgrade itself for free
   -- Payment is confirmed by hand, so a shop that could set its own plan could
