@@ -13,7 +13,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { resetStorefrontPresence } from '@/hooks/use-storefront-nav';
 import type { Module } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
-import { countOrdersNeedingAction, getMyStorefront } from '@/lib/storefront-admin';
+import { countOrdersNeedingAction, shopHasStorefront } from '@/lib/storefront-admin';
 
 // Same stubs admin-sidebar.test.tsx uses, and for the same reasons: `signOut`
 // in the ☰ menu reaches lib/auth, which builds a real Supabase client at
@@ -30,7 +30,7 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: jest.fn(async () => 0),
-  getMyStorefront: jest.fn(async () => null),
+  shopHasStorefront: jest.fn(async () => false),
 }));
 jest.mock('@/hooks/use-auth', () => ({ useAuth: jest.fn() }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));
@@ -98,7 +98,7 @@ async function openMenu(tree: ReactTestRenderer) {
 beforeEach(() => {
   jest.clearAllMocks();
   (countOrdersNeedingAction as jest.Mock).mockResolvedValue(0);
-  (getMyStorefront as jest.Mock).mockResolvedValue(null);
+  (shopHasStorefront as jest.Mock).mockResolvedValue(false);
   resetStorefrontPresence();
   signIn();
 });
@@ -141,7 +141,7 @@ describe('AdminTabs (web) — each row appears once per screen', () => {
 
   it('keeps a lapsed shop’s rows out of the bottom bar entirely', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     await setWidth(PHONE);
     // Menu CLOSED: the bottom bar is the only nav on screen, and neither row
     // belongs in it at any lock state.
@@ -152,7 +152,7 @@ describe('AdminTabs (web) — each row appears once per screen', () => {
 
   it('shows a lapsed shop’s rows exactly once with the menu open at phone width', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     await setWidth(PHONE);
     const tree = await openMenu(await render());
     const shown = labels(tree);
@@ -181,7 +181,7 @@ describe('AdminTabs (web) — each row appears once per screen', () => {
   // screen at this width, and neither row belongs in it at any lock state.
   it('keeps a lapsed shop’s rows out of the rail entirely', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     await setWidth(DESKTOP);
     const shown = labels(await render());
     // The rail is genuinely up -- its footer, and the five rows it carries.
@@ -197,7 +197,7 @@ describe('AdminTabs (web) — each row appears once per screen', () => {
   // real web shell rather than through AdminSidebar on its own.
   it('shows the rows once at desktop width, in the menu and not on the rail', async () => {
     signIn({ hasModule: (m) => m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     await setWidth(DESKTOP);
     const tree = await render();
     expect(labels(tree)).toContain('Powered by Ka Iibi');
@@ -228,7 +228,7 @@ describe('AdminTabs (web) — each row appears once per screen', () => {
   // Pinned so that treatment stays about THOSE five.
   it('greys and locks a paid tab in the bar without moving the storefront rows into it', async () => {
     signIn({ hasModule: (m) => m !== 'inventory' && m !== 'storefront' });
-    (getMyStorefront as jest.Mock).mockResolvedValue({ shopId: 's1', slug: 'jaalala', publishedAt: null });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
     await setWidth(PHONE);
     const tree = await render();
     const shown = labels(tree);

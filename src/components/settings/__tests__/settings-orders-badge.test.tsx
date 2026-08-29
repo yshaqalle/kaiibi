@@ -28,7 +28,7 @@ const mockCountOrdersNeedingAction = jest.fn((_shopId: string) => Promise.resolv
 let mockHasStorefrontRow = false;
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: (shopId: string) => mockCountOrdersNeedingAction(shopId),
-  getMyStorefront: () => Promise.resolve(mockHasStorefrontRow ? { shopId: 'shop-1' } : null),
+  shopHasStorefront: () => Promise.resolve(mockHasStorefrontRow),
 }));
 
 let mockHasModule = true;

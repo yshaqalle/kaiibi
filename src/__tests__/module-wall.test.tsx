@@ -53,7 +53,7 @@ jest.mock('expo-router', () => {
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: jest.fn(async () => 0),
-  getMyStorefront: jest.fn(async () => null),
+  shopHasStorefront: jest.fn(async () => false),
 }));
 jest.mock('@/hooks/use-auth', () => ({ useAuth: jest.fn() }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));
