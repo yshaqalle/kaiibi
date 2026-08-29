@@ -76,7 +76,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
       <ConfirmationScreen
         order={checkout.order}
         shopName={storefront.shopName}
-        collectLocation={collectLocation(storefront.collectAddress, storefront.city)}
+        collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
       />

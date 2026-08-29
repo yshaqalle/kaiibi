@@ -68,6 +68,7 @@ const shop: PublicStorefront = {
   heroImageUrl: null,
   offersDelivery: true,
   collectAddress: null,
+  collectNeighborhood: null,
   paymentMode: 'on_collection',
   flyers: [],
   autoAdvance: false,

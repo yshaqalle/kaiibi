@@ -291,6 +291,40 @@ describe('getPublicStorefront collectAddress', () => {
     rpc.mockResolvedValue({ data: [{ ...row, collect_address: 'Unit 4, Airport Road' }], error: null });
     expect((await getPublicStorefront('xamdi'))?.collectAddress).toBe('Unit 4, Airport Road');
   });
+
+  // The neighbourhood travels on the same call and by the same rules. It is
+  // the field the common shop actually HAS -- both paths that create a
+  // location write it, neither writes an address -- so a mapping that dropped
+  // it would leave the pick-up line naming a city and nothing else.
+  it('maps collect_neighborhood to collectNeighborhood', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, collect_neighborhood: 'Jigjiga Yar' }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.collectNeighborhood).toBe('Jigjiga Yar');
+  });
+
+  it('leaves collectNeighborhood null when the shop has no neighbourhood', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, collect_neighborhood: null }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.collectNeighborhood).toBeNull();
+  });
+
+  // A client shipped ahead of its database sees no such column at all.
+  // toBeNull and not toBeFalsy, for the same reason as the address above.
+  it('reads a missing collect_neighborhood column as null, not undefined', async () => {
+    rpc.mockResolvedValue({ data: [row], error: null });
+    expect((await getPublicStorefront('xamdi'))?.collectNeighborhood).toBeNull();
+  });
+
+  // Both columns are read off the SAME row and must both survive the mapping
+  // -- the composed line is [address, neighborhood, city], and a mapper that
+  // kept one and dropped the other would silently shorten it.
+  it('carries the address and the neighbourhood through together', async () => {
+    rpc.mockResolvedValue({
+      data: [{ ...row, collect_address: 'Shop 12', collect_neighborhood: 'Jigjiga Yar' }],
+      error: null,
+    });
+    const storefront = await getPublicStorefront('xamdi');
+    expect(storefront?.collectAddress).toBe('Shop 12');
+    expect(storefront?.collectNeighborhood).toBe('Jigjiga Yar');
+  });
 });
 
 // Task 6, property 5: this is the FIRST caller of get_public_delivery_areas

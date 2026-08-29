@@ -635,6 +635,11 @@ function StorefrontEditor() {
   // -- and null is what the live page gets in that case too, so the preview
   // is honest about the line being absent rather than inventing one.
   const primaryAddress = locations.find((location) => location.isPrimary)?.address ?? null;
+  // And the neighbourhood off that same row, for the same reason. This is the
+  // one of the two the owner is most likely to actually have -- it is written
+  // for every shop at signup -- so a preview without it would show the owner a
+  // pick-up line noticeably barer than the one their customers get.
+  const primaryNeighborhood = locations.find((location) => location.isPrimary)?.neighborhood ?? null;
 
   // What get_public_storefront (20260930000100) would return for this shop,
   // reproduced client-side for the preview -- the same reason
@@ -693,6 +698,7 @@ function StorefrontEditor() {
     heroImageUrl: working.heroImageUrl,
     offersDelivery: working.offersDelivery,
     collectAddress: primaryAddress,
+    collectNeighborhood: primaryNeighborhood,
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,

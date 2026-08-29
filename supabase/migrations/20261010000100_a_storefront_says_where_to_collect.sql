@@ -28,9 +28,19 @@
 -- written in exactly one place -- the optional "Unit or building, street"
 -- field in settings/panels/locations-panel.tsx -- so it holds something only
 -- for a shop whose owner went and typed it. Tasks 4 and 5 must render the
--- pick-up line with no address at all in that case, not an empty one, and
--- `city` (already on this call, and populated for every shop by both paths
--- above) is the fallback that is actually there.
+-- pick-up line with no address at all in that case, not an empty one.
+--
+-- WHICH IS WHY `neighborhood` TRAVELS WITH IT. It is on the same row and is
+-- the field both creation paths DO populate -- the backfill at :134-135 below
+-- carries it for every pre-existing shop, createShop (shops.ts:132) writes it
+-- from signup's "area" box (signup.tsx:68) for every shop since -- and
+-- 20260808000000:47-48 says outright that a shop addresses itself "by
+-- neighborhood/landmark (e.g. 'Jigjiga Yar, near the main market')". Adding
+-- only the street would have left the common shop degrading straight to
+-- `city`, which names a town of a million people and not a shop. With both,
+-- src/lib/storefront-collect.ts composes [address, neighborhood, city] -- the
+-- repo's own place-string order (locations-panel.tsx:138, poster-sheet.tsx:79,
+-- location-switcher.tsx:45) -- dropping whichever parts are unset.
 --
 -- Anon reads this, which is the point -- a shop's street address is the one
 -- fact it most wants a stranger to have. No new function and no fifth entry
@@ -39,7 +49,8 @@
 -- neither adds to that list nor takes anything off it.
 --
 -- DROPPED AND RECREATED rather than `create or replace`d, and not by choice:
--- the result type gains a column, which `create or replace function` refuses.
+-- the result type gains two columns, which `create or replace function`
+-- refuses.
 -- The drop takes the ACL with it, which is why the grants are re-issued at the
 -- foot -- revoke before grant, because Postgres hands EXECUTE to PUBLIC on
 -- every new function and a bare grant would be a no-op dressed as a decision.
@@ -72,11 +83,22 @@ returns table (
   offers_delivery boolean,
   -- NEW in this migration, and the only change to this function. Placed beside
   -- offers_delivery because it is the other half of the same question: that
-  -- column says whether the goods can come to you, this one says where to go
+  -- column says whether the goods can come to you, these say where to go
   -- if they cannot. Callers read the result by NAME (src/lib/storefront.ts
-  -- maps `row.collect_address`), so its position here is for a reader, not
-  -- for a client.
+  -- maps `row.collect_address` and `row.collect_neighborhood`), so their
+  -- position here is for a reader, not for a client.
   collect_address text,
+  -- AND THE NEIGHBOURHOOD, which for the common shop is the only one of the
+  -- two that will hold anything. `address` is written in exactly one place and
+  -- only by an owner who went looking for it; `neighborhood` is carried
+  -- forward for EVERY shop by both paths that create a location --
+  -- 20260808000000:134-135's backfill and createShop (src/lib/shops.ts:132,
+  -- from signup's "area" box, signup.tsx:68). It is also the field this region
+  -- navigates by rather than a nicety: 20260808000000:47-48 says a shop
+  -- addresses itself "by neighborhood/landmark (e.g. 'Jigjiga Yar, near the
+  -- main market')". Without it the pick-up line degrades from an address
+  -- straight to a city of a million people.
+  collect_neighborhood text,
   payment_mode    text,
   flyers          jsonb,
   auto_advance    boolean
@@ -90,19 +112,25 @@ as $$
     s.name, sl.city, s.slug, s.whatsapp_e164,
     f.theme, f.palette, f.headline, f.about, f.hero_image_url,
     f.offers_delivery,
-    -- The PRIMARY location's street address, by the same ordering every other
-    -- "the shop's location" rule in this codebase uses -- complete_sale
-    -- (20260908000300:182-186) and storefront-admin.ts's primaryLocation. A
-    -- subquery rather than a reference to the `sl` join below, because that
-    -- join is `and sl.is_primary` with no fallback: a shop whose rows somehow
-    -- carry no primary would get null from it, where this picks the oldest
-    -- branch and names a real counter. `city` still comes from the join; the
-    -- two are not made to agree here because changing what `city` returns is
-    -- not this migration's business.
-    (select l.address from public.shop_locations l
-      where l.shop_id = s.id
-      order by l.is_primary desc, l.created_at asc
-      limit 1),
+    -- The PRIMARY location's street address and neighbourhood, by the same
+    -- ordering every other "the shop's location" rule in this codebase uses --
+    -- complete_sale (20260908000300:182-186) and storefront-admin.ts's
+    -- primaryLocation. Read off `pick`, the lateral below, rather than the
+    -- `sl` join, because that join is `and sl.is_primary` with no fallback: a
+    -- shop whose rows somehow carry no primary would get null from it, where
+    -- the lateral picks the oldest branch and names a real counter.
+    --
+    -- ONE lateral for both columns, not a subquery each. Two subqueries with
+    -- the same order-by would agree only as long as the ordering stays total,
+    -- and `is_primary desc, created_at asc` is not: two branches created in
+    -- the same transaction tie, and the two subqueries could then read a
+    -- street off one row and a neighbourhood off another, composing an address
+    -- that exists nowhere. Taking one row settles it.
+    --
+    -- `city` still comes from the `sl` join; the two are not made to agree
+    -- here because changing what `city` returns is not this migration's
+    -- business.
+    pick.address, pick.neighborhood,
     f.payment_mode,
     -- coalesce to '[]', never null. A shop with no flyers, a shop whose
     -- flyers are all drafts and a shop whose only offer just expired all read
@@ -189,6 +217,17 @@ as $$
   from public.shops s
   join public.storefronts f on f.shop_id = s.id
   left join public.shop_locations sl on sl.shop_id = s.id and sl.is_primary
+  -- LEFT join lateral, so a shop with no locations at all still returns its
+  -- row with both columns null rather than dropping off the storefront
+  -- entirely. `on true` because the correlation is already in the subquery's
+  -- own where clause.
+  left join lateral (
+    select l.address, l.neighborhood
+    from public.shop_locations l
+    where l.shop_id = s.id
+    order by l.is_primary desc, l.created_at asc
+    limit 1
+  ) pick on true
   where s.slug = lower(p_slug)
     and f.published_at is not null
     and public.shop_has_module(s.id, 'storefront');

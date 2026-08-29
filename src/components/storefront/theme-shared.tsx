@@ -468,10 +468,11 @@ export function CheckoutScreen({
           submitting={submitting}
           whatsappE164={storefront.whatsappE164}
           // Composed here, not in the form: `collectAddress` is null for
-          // nearly every shop (see storefront-collect.ts), and `city` is the
-          // fallback that is actually populated. The form receives a line
-          // worth printing or nothing at all.
-          collectLocation={collectLocation(storefront.collectAddress, storefront.city)}
+          // nearly every shop (see storefront-collect.ts), and
+          // `collectNeighborhood` then `city` are the fallbacks that actually
+          // are populated. The form receives a line worth printing or nothing
+          // at all.
+          collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
           onSubmit={onSubmit}
         />
         {submitting ? <Text style={[styles.screenHint, { color: colors.muted }]}>Placing your order…</Text> : null}

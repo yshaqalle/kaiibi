@@ -1308,9 +1308,23 @@ export type PublicStorefront = {
   // createShop both carry name/city/neighborhood/contact_phone forward and
   // not this -- so it holds something only for a shop whose owner typed it
   // into the optional field in Settings -> Locations. Anything rendering it
-  // must degrade to `city`, which is on this same object and IS populated for
-  // every shop, rather than to a blank line.
+  // must degrade to `collectNeighborhood` and then `city`, both on this same
+  // object and both populated for every shop, rather than to a blank line.
   collectAddress: string | null;
+  // The same PRIMARY location's neighbourhood, and the part of the pick-up
+  // line the common shop will actually have. Unlike `collectAddress` this IS
+  // written automatically for every shop -- 20260808000000:134-135's backfill
+  // for those that predate locations, createShop (src/lib/shops.ts:132) from
+  // signup's "area" box for every one since -- and it is what this region
+  // navigates by: 20260808000000:47-48 describes a shop addressing itself "by
+  // neighborhood/landmark (e.g. 'Jigjiga Yar, near the main market')".
+  //
+  // Still nullable, because an owner can clear the field in Settings ->
+  // Locations even though nothing else ever leaves it empty. Compose it with
+  // collectLocation (src/lib/storefront-collect.ts) rather than reading it
+  // directly, so the [address, neighborhood, city] order and the drop-empties
+  // rule stay in one place.
+  collectNeighborhood: string | null;
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a

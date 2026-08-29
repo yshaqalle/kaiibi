@@ -57,7 +57,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
       <ConfirmationScreen
         order={checkout.order}
         shopName={storefront.shopName}
-        collectLocation={collectLocation(storefront.collectAddress, storefront.city)}
+        collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
       />

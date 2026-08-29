@@ -121,6 +121,13 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // value this path has to launder, and laundering it here would put the
     // decision in two places.
     collectAddress: (row.collect_address as string | null) ?? null,
+    // Same `?? null` and for the same two reasons: a client shipped ahead of
+    // its database sees no `collect_neighborhood` column at all, and undefined
+    // must arrive as the null a shop with a blank field already produces
+    // rather than as a third state. '' still passes through untouched --
+    // locations-panel.tsx writes `neighborhood.trim() || null`, and
+    // collectLocation drops empty parts anyway.
+    collectNeighborhood: (row.collect_neighborhood as string | null) ?? null,
     paymentMode: row.payment_mode,
     flyers: flyersOf(row.flyers),
     // Boolean(...), same guard `offersDelivery` uses two lines up: a client
