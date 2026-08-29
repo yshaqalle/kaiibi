@@ -752,6 +752,36 @@ begin
     raise exception 'FAIL F1c: the page was taken down with no reason recorded -- the editor cannot say WHY it is a draft';
   end if;
 
+  -- WHICH reason, not merely that there is one. This shop's bill ran out; the
+  -- editor's sentence for it is "your plan had lapsed", and F10 requires the
+  -- OTHER value for a shop that was suspended instead. The two checks together
+  -- are what a single shared sentence could not satisfy.
+  if v_row.lapse_unpublished_reason is distinct from 'lapsed' then
+    raise exception 'FAIL F1j: a shop whose PLAN ran out was recorded as %, expected lapsed -- the editor would explain the wrong cause', coalesce(v_row.lapse_unpublished_reason, '<null>');
+  end if;
+
+  -- ...and the cause is CONSTRAINED, not free text. The editor renders a
+  -- `case` over exactly two values; a third would render nothing at all and
+  -- put the shop back to guessing, silently. This shop has the module, so the
+  -- module gate cannot be what refuses the write below -- only the constraint
+  -- can be.
+  begin
+    update public.storefronts set lapse_unpublished_reason = 'paused' where shop_id = v_shop;
+    raise exception 'FAIL F1k: storefronts accepted the cause "paused" -- the column is free text, so a value the editor has no sentence for can be written to it';
+  exception when check_violation then
+    null;
+  end;
+
+  -- The other half of the same constraint: the timestamp and the cause are one
+  -- record. Clearing either alone leaves a message with nothing to hang it on,
+  -- which is how publish_storefront is held to clearing both.
+  begin
+    update public.storefronts set lapse_unpublished_at = null where shop_id = v_shop;
+    raise exception 'FAIL F1l: the take-down timestamp was cleared while the cause stayed behind -- half a record, and a sentence that outlives its cause';
+  exception when check_violation then
+    null;
+  end;
+
   -- EVERYTHING ELSE STAYS. This is the whole decision: keep the data.
   if v_row.theme <> 'window' or v_row.palette <> 'palm' or v_row.headline <> 'Open 8am-9pm.' then
     raise exception 'FAIL F1d: the unpublish rewrote the page content -- theme %, palette %, headline %', v_row.theme, v_row.palette, v_row.headline;
@@ -854,8 +884,12 @@ begin
     raise exception 'FAIL F3c: the first payment did not unpublish -- the rest of this check would pass for the wrong reason';
   end if;
 
-  -- A shop that publishes again while paying, then pays again.
-  update public.storefronts set published_at = now(), lapse_unpublished_at = null where shop_id = v_shop;
+  -- A shop that publishes again while paying, then pays again. Both halves of
+  -- the record clear together -- storefronts_lapse_reason_matches_stamp refuses
+  -- a write that clears one and leaves the other.
+  update public.storefronts
+     set published_at = now(), lapse_unpublished_at = null, lapse_unpublished_reason = null
+   where shop_id = v_shop;
   update public.shop_subscriptions
      set current_period_end = now() + interval '60 days', grace_until = now() + interval '90 days'
    where shop_id = v_shop;
@@ -964,6 +998,13 @@ begin
   end if;
   if v_reason is not null then
     raise exception 'FAIL F5c: the page is live again and still carries a lapse reason -- the editor would keep saying the plan took it down';
+  end if;
+  -- BOTH halves, behaviourally. storefronts_lapse_reason_matches_stamp already
+  -- refuses a publish that clears one and not the other, but a constraint and
+  -- the code it holds honest should not be each other's only test: drop the
+  -- constraint and this is what still notices.
+  if (select lapse_unpublished_reason from public.storefronts where shop_id = v_shop) is not null then
+    raise exception 'FAIL F5i: publishing cleared the timestamp but left the CAUSE behind -- half a record, and the next take-down would report the old cause';
   end if;
 
   -- Cycle two: lapse again, then come back again. The page must go down
@@ -1192,7 +1233,8 @@ begin
   v_shop := pg_temp.lapse_shop('Lapse Gate Takedown Shop', p_plan => 'standard', p_expire => false);
   begin
     update public.storefronts
-       set published_at = null, lapse_unpublished_at = now(), updated_at = now()
+       set published_at = null, lapse_unpublished_at = now(),
+           lapse_unpublished_reason = 'lapsed', updated_at = now()
      where shop_id = v_shop;
   exception when others then
     raise exception 'FAIL F8f: taking a page DOWN for a shop without the module raised % -- this is the write the trigger depends on, and refusing it protects nothing', sqlerrm;
@@ -1210,6 +1252,26 @@ begin
   exception when others then
     raise exception 'FAIL F8h: the shop''s own unpublish (published_at alone) raised %', sqlerrm;
   end;
+
+  -- ---- F8k: the exempted keys are not a free-standing door. The gate does
+  -- not merely SKIP lapse_unpublished_at / lapse_unpublished_reason /
+  -- updated_at in its comparison -- a caller riding a valid take-down chooses
+  -- their values outright (see the header of section 3 in 20260930000500). What
+  -- keeps that from being a forgery surface is that the take-down itself must
+  -- be real: published_at has to move from non-null to NULL. v_other's page is
+  -- already down from F8h, so stamping a cause on it now has no take-down to
+  -- ride, and must be refused. Both columns are written together so the check
+  -- constraint is satisfied and the ONLY thing that can refuse this is the gate.
+  v_err := null;
+  begin
+    update public.storefronts
+       set lapse_unpublished_at = now() - interval '400 days', lapse_unpublished_reason = 'suspended'
+     where shop_id = v_other;
+  exception when others then v_err := sqlerrm;
+  end;
+  if v_err is distinct from 'module_not_included' then
+    raise exception 'FAIL F8k: a shop without the module stamped a take-down cause on a page that was ALREADY down (error: %) -- the exempted keys must only ride a real take-down', coalesce(v_err, '<none>');
+  end if;
 
   -- ---- F8i: NOTHING ELSE MOVED. The sibling tables keep the unrelaxed gate.
   v_err := null;
@@ -1254,6 +1316,7 @@ declare
   v_slug      text;
   v_published timestamptz;
   v_reason    timestamptz;
+  v_cause     text;
 begin
   v_shop := pg_temp.lapse_shop('Lapse Suspended Shop');
   select slug into v_slug from public.shops where id = v_shop;
@@ -1290,13 +1353,23 @@ begin
     raise exception 'FAIL F9f: the unsuspended shop reads %, expected active', public.shop_effective_status(v_shop);
   end if;
 
-  select published_at, lapse_unpublished_at into v_published, v_reason
+  select published_at, lapse_unpublished_at, lapse_unpublished_reason
+    into v_published, v_reason, v_cause
     from public.storefronts where shop_id = v_shop;
   if v_published is not null then
     raise exception 'FAIL F9g: suspend -> pay -> unsuspend left the page LIVE (published_at %) -- three portal buttons walked a month-old page back online with nobody deciding so', v_published;
   end if;
   if v_reason is null then
     raise exception 'FAIL F9h: the page came down with no reason recorded, so the editor cannot say why it is a draft';
+  end if;
+  -- The one path where BOTH causes are true at once: this shop lapsed AND was
+  -- suspended. The tie-break is written down in 20260930000500 ("the OLD status
+  -- is the state the page was dark in at the moment it came back") and pinned
+  -- here, because it is a choice and not a consequence: at step 4 the shop had
+  -- been suspended, its bill had already been settled at step 3, and the half
+  -- it still needs is the half that names a person to talk to.
+  if v_cause is distinct from 'suspended' then
+    raise exception 'FAIL F9j: the crossing out of SUSPENSION was recorded as %, expected suspended -- the state the page was dark in at the moment it came back is what the editor has to explain', coalesce(v_cause, '<null>');
   end if;
   if exists (select 1 from public.get_public_storefront(v_slug)) then
     raise exception 'FAIL F9i: the address still serves after suspend -> pay -> unsuspend';
@@ -1310,16 +1383,28 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- A shop that never lapsed, was suspended, and is unsuspended ALSO comes back
 -- to a draft. That is the rule, not an accident: while suspended its page did
--- not serve (shop_has_module, 20260818000200:63, returns false for `suspended`
--- outright), so it went dark, and coming back from dark is the thing this
+-- not serve, so it went dark, and coming back from dark is the thing this
 -- decision makes deliberate. Pinned here so that nobody "fixes" it into
 -- silence -- and so the cost is visible next to the benefit in F9.
+--
+-- WHY SUSPENSION IS DARK, EXACTLY. shop_has_module (20260818000200:63) returns
+-- false for `suspended` in its FIRST arm, before it consults either the plan or
+-- shop_entitlement_overrides -- so suspension is dark unconditionally, and no
+-- comp can keep the page up through one. That is NOT true of `expired`, which
+-- is dark only because the free plan lacks the module and which an override
+-- therefore CAN keep serving (F12). The premise is measured either way: F10b
+-- below stops the fixture serving before anything is concluded from it.
+--
+-- AND WHAT THE SHOP IS TOLD. This shop was current on its bill. "Your plan
+-- lapsed" would be a flat lie to it, so F10d requires the SUSPENSION cause, not
+-- merely that some cause was written -- which is what the editor branches on.
 do $$
 declare
   v_shop      uuid;
   v_slug      text;
   v_published timestamptz;
   v_reason    timestamptz;
+  v_cause     text;
 begin
   v_shop := pg_temp.lapse_shop('Lapse Suspended Paying Shop', p_expire => false);
   select slug into v_slug from public.shops where id = v_shop;
@@ -1336,7 +1421,8 @@ begin
 
   update public.shop_subscriptions set manual_status = 'active' where shop_id = v_shop;
 
-  select published_at, lapse_unpublished_at into v_published, v_reason
+  select published_at, lapse_unpublished_at, lapse_unpublished_reason
+    into v_published, v_reason, v_cause
     from public.storefronts where shop_id = v_shop;
   if v_published is not null then
     raise exception 'FAIL F10c: coming out of a suspension left the page live -- "dark -> not dark" is not being applied to suspension';
@@ -1344,8 +1430,15 @@ begin
   if v_reason is null then
     raise exception 'FAIL F10d: the page came down after a suspension with no reason recorded, so the shopkeeper is shown a draft and no explanation';
   end if;
+  -- THE CHECK THAT WOULD NOT SURVIVE ONE SHARED SENTENCE. This fixture was
+  -- built p_expire => false: it never lapsed, and it paid on time throughout.
+  -- Recording 'lapsed' here would put "your plan had lapsed" in the editor of
+  -- a shop with nothing wrong with its plan.
+  if v_cause is distinct from 'suspended' then
+    raise exception 'FAIL F10e: a shop that was SUSPENDED while current on its bill was recorded as %, expected suspended -- the editor would tell it its plan had lapsed, which is false', coalesce(v_cause, '<null>');
+  end if;
 
-  raise notice 'F10 ok: coming out of a suspension leaves the page a draft too, with the reason recorded';
+  raise notice 'F10 ok: coming out of a suspension leaves the page a draft too, recorded as a suspension and not as a lapse';
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -1385,6 +1478,99 @@ begin
   end if;
 
   raise notice 'F11 ok: the trigger is skipped for an UPDATE that changed nothing, and such an update leaves the page alone';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- F12. A page that never went dark is not torn down
+-- ---------------------------------------------------------------------------
+-- Every take-down in this file is justified by ONE premise: the page was dark,
+-- so its prices sat unseen for a month and may be stale, so coming back has to
+-- be deliberate. There is exactly one shop for which that premise is false.
+--
+-- shop_has_module (20260818000200:68-72) honours an unexpired
+-- `module`/`storefront` row in shop_entitlement_overrides -- support comping a
+-- shop the page while it sorts its bill out. An EXPIRED shop holding one keeps
+-- the module, so get_public_storefront keeps serving, so its page never goes
+-- dark at all. When it then pays, a trigger that fires anyway takes down a page
+-- that was live the whole time and stamps a cause on it that did not happen.
+--
+-- The premise is MEASURED here (F12a) before anything is concluded from it,
+-- because a fixture whose override silently failed to resolve would make every
+-- assertion below pass for the wrong reason.
+--
+-- And the skip is narrow: it is keyed to `expired` alone. Suspension is dark
+-- unconditionally -- shop_has_module short-circuits false on it before it looks
+-- at overrides at all -- so a comped shop coming out of SUSPENSION must still
+-- have its page taken down. F12e is that half, and it is what a skip written as
+-- "any comped shop" would fail.
+do $$
+declare
+  v_shop      uuid;
+  v_slug      text;
+  v_published timestamptz;
+  v_cause     text;
+begin
+  -- ---- F12a: the premise. An expired shop with a comped module SERVES.
+  v_shop := pg_temp.lapse_shop('Lapse Comped Shop');
+  select slug into v_slug from public.shops where id = v_shop;
+
+  insert into public.shop_entitlement_overrides (shop_id, kind, key, expires_at, reason)
+    values (v_shop, 'module', 'storefront', now() + interval '60 days', 'comped while they sort the bill out');
+
+  if not public.shop_has_module(v_shop, 'storefront') then
+    raise exception 'FAIL F12a: the comped override did not resolve the storefront module for an expired shop -- the rest of this check would pass for the wrong reason';
+  end if;
+  if not exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F12b: a comped expired shop does not serve its page, so there is no premise here to protect and this whole block is measuring nothing';
+  end if;
+
+  -- ---- The shop pays. This is the crossing the trigger fires on.
+  update public.shop_subscriptions
+     set current_period_end = now() + interval '30 days', grace_until = now() + interval '60 days'
+   where shop_id = v_shop;
+  if public.shop_effective_status(v_shop) <> 'active' then
+    raise exception 'FAIL F12c: the comped shop reads % after paying, expected active', public.shop_effective_status(v_shop);
+  end if;
+
+  select published_at, lapse_unpublished_reason into v_published, v_cause
+    from public.storefronts where shop_id = v_shop;
+  if v_published is null then
+    raise exception 'FAIL F12d: paying took down the page of a shop whose page NEVER WENT DARK -- its prices were on display the whole time, so there is nothing stale to make deliberate';
+  end if;
+  if v_cause is not null then
+    raise exception 'FAIL F12e: a page that never came down was stamped with the cause "%" -- the editor would explain a take-down that did not happen', v_cause;
+  end if;
+  if not exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F12f: the comped shop stopped serving the moment it PAID -- paying made things worse';
+  end if;
+
+  -- ---- F12g: and the half the skip must NOT cover. Same comp, but the shop
+  -- goes dark through SUSPENSION, which no override survives.
+  v_shop := pg_temp.lapse_shop('Lapse Comped Suspended Shop', p_expire => false);
+  select slug into v_slug from public.shops where id = v_shop;
+  insert into public.shop_entitlement_overrides (shop_id, kind, key, expires_at, reason)
+    values (v_shop, 'module', 'storefront', now() + interval '60 days', 'comped, and then suspended anyway');
+
+  update public.shop_subscriptions set manual_status = 'suspended' where shop_id = v_shop;
+  if public.shop_has_module(v_shop, 'storefront') then
+    raise exception 'FAIL F12g: a SUSPENDED shop still resolves the storefront module through its override -- then suspension is not unconditional darkness and the skip below is written on a false premise';
+  end if;
+  if exists (select 1 from public.get_public_storefront(v_slug)) then
+    raise exception 'FAIL F12h: a suspended shop with a comped module still serves its page';
+  end if;
+
+  update public.shop_subscriptions set manual_status = 'active' where shop_id = v_shop;
+
+  select published_at, lapse_unpublished_reason into v_published, v_cause
+    from public.storefronts where shop_id = v_shop;
+  if v_published is not null then
+    raise exception 'FAIL F12i: coming out of a suspension left the page live because the shop holds an override -- the skip is keyed to `expired`, and suspension is dark whatever the overrides table says';
+  end if;
+  if v_cause is distinct from 'suspended' then
+    raise exception 'FAIL F12j: the comped shop came out of suspension recorded as %, expected suspended', coalesce(v_cause, '<null>');
+  end if;
+
+  raise notice 'F12 ok: a comped page that never went dark survives the payment untouched, and the skip does not cover a suspension';
 end $$;
 
 do $$ begin raise notice 'ALL CHECKS PASSED'; end $$;

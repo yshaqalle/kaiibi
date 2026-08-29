@@ -6,7 +6,7 @@ import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { copyText } from '@/lib/copy-text';
 import { APP_DOMAIN } from '@/lib/storefront-host';
-import type { PublishBlocker } from '@/lib/storefront-admin';
+import type { LapseReason, PublishBlocker } from '@/lib/storefront-admin';
 import { shareOnWhatsApp } from '@/lib/whatsapp';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
@@ -46,6 +46,28 @@ const BLOCKER_ACTION: Record<PublishBlocker, { label: string; goes: 'here' | 'in
   no_products: { label: 'Go to Inventory', goes: 'inventory' },
 };
 
+// WHY the page came down, in the shop's own words, ONE SENTENCE PER CAUSE.
+//
+// The trigger that takes the page down (20260930000500) fires on two different
+// dark states, and they are not the same news. Collapsing them onto one line
+// would mean telling a shop that was current on its bill, and was suspended by
+// us, that its plan had lapsed -- which is false, and which sends it hunting
+// for a payment problem it does not have instead of getting in touch with us.
+// A false WHY is worse than no WHY; that is the whole reason this text exists.
+//
+// Both entries end the same way, because the ACTION is the same in both cases
+// and it is the thing worth doing before publishing: a page that has been off
+// for a month may be advertising last month's prices to a customer who then
+// orders at them. The suspension line adds who to talk to, in the same register
+// the billing panel already uses for a paused account ("Please get in touch
+// with us").
+const LAPSE_COPY: Record<LapseReason, string> = {
+  lapsed:
+    'Your page came down while your plan had lapsed. Check your prices and offers are still right, then publish it again.',
+  suspended:
+    'Your page came down while your account was paused by us. Get in touch with us if you do not know why. Check your prices and offers are still right, then publish it again.',
+};
+
 // The message a shop sends its customers, written to be forwarded: it names
 // the shop (a message passed on has no other context), says what the link is
 // for in the plain register the rest of this app uses, and ends on the
@@ -68,7 +90,7 @@ export function PublishBar({
   dirty,
   slug,
   shopName = '',
-  unpublishedByLapse = false,
+  unpublishedBy = null,
   onEdit,
   onFocusBlocker,
   onGoToInventory,
@@ -88,17 +110,25 @@ export function PublishBar({
   /** Named in the WhatsApp message, which gets forwarded away from any context. */
   shopName?: string;
   /**
-   * Whether this page is a draft BECAUSE THE PLAN LAPSED -- the shop stopped
-   * paying, its month of grace ran out, and coming back took the page down
-   * (20260930000500). Read from storefronts.lapse_unpublished_at, which
-   * publish_storefront clears, so this goes false again the moment the shop
-   * publishes.
+   * WHY this page is a draft when the shop did not choose that -- the cause
+   * that took it down, or null when no such cause was recorded (never
+   * published, or the shop unpublished it itself).
+   *
+   * `'lapsed'` is a missed payment; `'suspended'` is an operator suspending
+   * the shop. Read from storefronts.lapse_unpublished_reason, which the
+   * 20260930000500 trigger stamps and publish_storefront clears, so this goes
+   * null again the moment the shop publishes.
+   *
+   * The cause is passed through rather than reduced to a boolean here,
+   * because the two get DIFFERENT sentences: telling a shop that was current
+   * on its bill that its plan lapsed is simply untrue, and it hides the one
+   * fact a suspended shop needs -- that a person did this and it is us to ask.
    *
    * Only ever meaningful while `status` is 'draft'; the render below checks
-   * both rather than trusting the caller, because a live page carrying this
+   * both rather than trusting the caller, because a live page carrying either
    * sentence would be flatly wrong on screen.
    */
-  unpublishedByLapse?: boolean;
+  unpublishedBy?: LapseReason | null;
   /** The Edit button. Opens the editor; knows nothing about blockers. */
   onEdit: () => void;
   /**
@@ -242,11 +272,12 @@ export function PublishBar({
           The sentence names the cause and the thing worth doing before
           publishing, because that is the whole reason this is deliberate: a
           page that quietly came back after a month away could be advertising
-          last month's prices to a customer who then orders at them. */}
-      {status === 'draft' && unpublishedByLapse ? (
+          last month's prices to a customer who then orders at them. WHICH
+          sentence is LAPSE_COPY's business -- a lapse and a suspension are
+          different news and must not share a line. */}
+      {status === 'draft' && unpublishedBy ? (
         <Caveat tone="wrong" action={{ label: 'Publish again', onPress: onPublish }}>
-          Your page came down while your plan had lapsed. Check your prices and offers are still right, then publish it
-          again.
+          {LAPSE_COPY[unpublishedBy]}
         </Caveat>
       ) : null}
 

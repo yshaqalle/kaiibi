@@ -715,10 +715,14 @@ export default function StorefrontEditor() {
         slug={working.slug}
         shopName={shop?.name ?? ''}
         // WHY the page is a draft, when the shop did not choose that. Set by
-        // the 20260930000500 trigger when a lapsed shop comes back, cleared
-        // by publish_storefront -- so this stops being true the moment the
-        // shop publishes, and the sentence never outlives its cause.
-        unpublishedByLapse={working.lapseUnpublishedAt !== null}
+        // the 20260930000500 trigger when a shop comes back out of a dark
+        // state, cleared by publish_storefront -- so this goes null the moment
+        // the shop publishes, and the sentence never outlives its cause.
+        //
+        // The CAUSE goes down, not a boolean: a lapse and a suspension both
+        // land here and the editor says a different thing for each, because
+        // telling a shop that paid on time that its plan lapsed is untrue.
+        unpublishedBy={working.lapseUnpublishedReason}
         onEdit={handleEdit}
         onFocusBlocker={focusBlocker}
         onGoToInventory={handleGoToInventory}

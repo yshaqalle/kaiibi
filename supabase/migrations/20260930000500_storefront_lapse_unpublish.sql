@@ -80,8 +80,41 @@
 -- page came down because somebody chose to, and it needs no explanation.
 alter table public.storefronts add column lapse_unpublished_at timestamptz;
 
+-- WHEN is not enough, because the trigger below fires on SIX transitions and
+-- they do not all mean the same thing. A shop whose plan ran out and a shop an
+-- operator suspended both end up dark, both come back, and both have their page
+-- taken down here -- but "your plan lapsed" said to a shop that was current on
+-- its bill and was suspended by us is FALSE, and a false explanation is worse
+-- than a vague one. It also loses the one piece of information a suspended shop
+-- actually needs: that a person did this, and which person to talk to.
+--
+-- So the CAUSE is stored beside the timestamp, and the editor branches on it.
+-- Two values, not free text, and constrained here rather than by convention:
+-- the sentence on screen is a `case` over this column, and a third value
+-- arriving would silently render nothing at all.
+--
+--   'lapsed'    -- the shop was past grace (status `expired`): a missed payment
+--   'suspended' -- an operator had suspended the shop (status `suspended`)
+--
+-- The two columns are locked together by the check below: a reason with no
+-- timestamp, or a timestamp with no reason, is a half-recorded cause and there
+-- is no state of this table where either is meaningful. That is also what keeps
+-- publish_storefront honest -- it clears the timestamp, so it MUST clear the
+-- reason in the same statement or the write is refused outright rather than
+-- leaving a message behind with nothing to hang it on.
+alter table public.storefronts add column lapse_unpublished_reason text;
+
+alter table public.storefronts add constraint storefronts_lapse_reason_matches_stamp
+  check (
+    (lapse_unpublished_at is null and lapse_unpublished_reason is null)
+    or (lapse_unpublished_at is not null and lapse_unpublished_reason in ('lapsed', 'suspended'))
+  );
+
 comment on column public.storefronts.lapse_unpublished_at is
-  'When this page was taken down because the shop''s plan had lapsed and it then came back. Null for a page that is live, was never published, or was unpublished by the shop itself. Cleared by publish_storefront.';
+  'When this page was taken down because the shop had gone dark -- its plan lapsed, or it was suspended -- and it then came back. Null for a page that is live, was never published, or was unpublished by the shop itself. Cleared by publish_storefront. Which of the two causes it was is in lapse_unpublished_reason.';
+
+comment on column public.storefronts.lapse_unpublished_reason is
+  'WHY this page was taken down: ''lapsed'' (the plan ran past grace) or ''suspended'' (an operator suspended the shop). The editor says a different sentence for each, because telling a shop that was current on its bill that its plan lapsed is untrue. Always null exactly when lapse_unpublished_at is null; cleared by publish_storefront.';
 
 -- ---------------------------------------------------------------------------
 -- 2. "What do these dates mean", once, in a shape a trigger can use
@@ -159,11 +192,22 @@ $$;
 --   * EVERY OTHER COLUMN MUST BE UNCHANGED, compared as jsonb rather than as a
 --     hand-written column list, so a column added to storefronts tomorrow is
 --     protected by this gate on the day it is added rather than the day
---     somebody remembers to extend a list. The three exempted keys are the
---     take-down itself (published_at) and the two pieces of bookkeeping that
---     describe it (lapse_unpublished_at, the recorded reason; updated_at).
---     Neither of those is page CONTENT: no headline, price, theme, image or
---     delivery area can move through this door.
+--     somebody remembers to extend a list. The four exempted keys are the
+--     take-down itself (published_at) and the three pieces of bookkeeping that
+--     describe it (lapse_unpublished_at and lapse_unpublished_reason, the
+--     recorded cause; updated_at). None of those is page CONTENT: no headline,
+--     price, theme, image or delivery area can move through this door.
+--
+--     SAY IT PLAINLY: those keys are not merely EXEMPT FROM COMPARISON, THE
+--     CALLER CHOOSES THEIR VALUES. A shop member without the module, riding an
+--     otherwise-valid take-down, can write a backdated lapse_unpublished_at, a
+--     forged updated_at, or either reason string the check constraint permits
+--     -- once, on a page that was up, and only through RLS they already hold.
+--     That is accepted: the worst it buys is a wrong sentence in that shop's
+--     OWN editor, on a page they were entitled to take down anyway. It is not
+--     a hole to widen, though -- a reason stamped on a page that is ALREADY
+--     down is still refused, because published_at must move from non-null to
+--     null for the exemption to apply at all (verify-lapse F8k).
 --
 -- Only public.storefronts changes gate. storefront_delivery_areas,
 -- storefront_flyers, orders and the other eleven gated tables keep
@@ -180,8 +224,8 @@ begin
   if not v_allowed and tg_op = 'UPDATE' then
     v_allowed := old.published_at is not null
              and new.published_at is null
-             and (to_jsonb(new) - 'published_at' - 'lapse_unpublished_at' - 'updated_at')
-               = (to_jsonb(old) - 'published_at' - 'lapse_unpublished_at' - 'updated_at');
+             and (to_jsonb(new) - 'published_at' - 'lapse_unpublished_at' - 'lapse_unpublished_reason' - 'updated_at')
+               = (to_jsonb(old) - 'published_at' - 'lapse_unpublished_at' - 'lapse_unpublished_reason' - 'updated_at');
   end if;
 
   if not v_allowed then
@@ -212,9 +256,29 @@ create trigger storefronts_module_gate
 -- Fires when the page was DARK before the update and is not after it -- that
 -- is, the shop came back, however it came back.
 --
--- "DARK", NOT "EXPIRED". A page does not serve for two statuses, not one:
--- `expired` (the plan lapsed, the shop resolves to `free`, no module) and
--- `suspended` (shop_has_module, 20260818000200:63, returns false outright).
+-- "DARK", NOT "EXPIRED". A page stops serving for two statuses, not one:
+-- `expired` (the plan lapsed, the shop resolves to `free`, so it has no
+-- `storefront` module) and `suspended` (shop_has_module, 20260818000200:63,
+-- returns false outright). The two are dark in DIFFERENT WAYS, and the
+-- difference matters below:
+--
+--   * `suspended` is dark UNCONDITIONALLY. shop_has_module short-circuits to
+--     false on it before it looks at anything else, so no comp, no override
+--     and no plan can keep the page up.
+--   * `expired` is dark only BECAUSE the free plan carries no `storefront`.
+--     shop_has_module (20260818000200:68-72) also honours an unexpired
+--     `module`/`storefront` row in shop_entitlement_overrides -- so an expired
+--     shop that support has comped the module to STILL SERVES ITS PAGE.
+--     Measured, not assumed: verify-lapse F12a.
+--
+-- That is the one case where "the page was dark" is simply not true, and the
+-- take-down is justified by nothing but that premise: the whole reason to make
+-- the shop publish again is that a page nobody could see for a month may be
+-- advertising a month-old price. A page that never stopped serving has no such
+-- gap, its prices were on display the whole time, and tearing it down (and
+-- telling its owner a lapse did it) is a take-down of a live page for no
+-- reason. So a comped shop is SKIPPED below.
+--
 -- Writing the condition as `= 'expired'` / `<> 'expired'` reads as though it
 -- meant "no longer dark" and does not: it counts a shop going INTO suspension
 -- as coming back, and does not count a shop coming OUT of one. Both halves
@@ -230,7 +294,15 @@ create trigger storefronts_module_gate
 -- is pinned by verify-lapse F10, and the shopkeeper is told why and can
 -- publish in one tap.
 --
--- TWO GUARDS, each of which is a bug if removed:
+-- WHICH CAUSE IS RECORDED. The OLD status is the state the page was dark in at
+-- the moment it came back, so that is what gets written: `suspended` -> the
+-- shop was suspended, anything else (i.e. `expired`) -> the plan lapsed. A shop
+-- that lapsed AND was then suspended (verify-lapse F9) records `suspended`,
+-- because that is the state it was actually in when it came back and it is the
+-- half that names a person to talk to; the lapse has by then already been
+-- settled by the payment that is part of the same sequence.
+--
+-- THREE GUARDS, each of which is a bug if removed:
 --
 --   `published_at is not null` -- a shop that never published must not be
 --   stamped with a reason. Without this, the editor would tell a shop that has
@@ -238,6 +310,13 @@ create trigger storefronts_module_gate
 --   It is also what makes a test of this trigger non-vacuous: asserting
 --   `published_at is null` after a return passes for a fixture that never
 --   published at all.
+--
+--   the comped-override skip -- the premise above, enforced. Only under
+--   `expired`, never under `suspended`, because suspension is dark whatever the
+--   overrides table says (verify-lapse F12e pins that the skip does NOT let a
+--   suspended shop through). It reads the overrides table rather than calling
+--   shop_has_module, which would answer about the NEW subscription row and
+--   report the shop coming back rather than the page that was serving.
 --
 --   AFTER, not BEFORE -- it writes a different table, and section 3's gate
 --   needs shop_has_module to resolve against the NEW subscription row.
@@ -258,14 +337,30 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_was text := public.subscription_effective_status(old);
 begin
-  if public.subscription_effective_status(old) in ('expired', 'suspended')
+  if v_was in ('expired', 'suspended')
      and public.subscription_effective_status(new) not in ('expired', 'suspended')
   then
+    -- The page never went dark: an expired shop holding a comped `storefront`
+    -- module served throughout. Nothing to make deliberate, so nothing to take
+    -- down -- and no cause to stamp on it either.
+    if v_was = 'expired' and exists (
+         select 1 from public.shop_entitlement_overrides o
+          where o.shop_id = new.shop_id
+            and o.kind = 'module'
+            and o.key = 'storefront'
+            and (o.expires_at is null or o.expires_at > now()))
+    then
+      return null;
+    end if;
+
     update public.storefronts
-       set published_at         = null,
-           lapse_unpublished_at = now(),
-           updated_at           = now()
+       set published_at             = null,
+           lapse_unpublished_at     = now(),
+           lapse_unpublished_reason = case when v_was = 'suspended' then 'suspended' else 'lapsed' end,
+           updated_at               = now()
      where shop_id = new.shop_id
        and published_at is not null;
   end if;
@@ -338,8 +433,12 @@ begin
     -- Set once, kept forever: the second and every later publish leaves an
     -- already-set first_published_at exactly as it was.
     first_published_at  = coalesce(first_published_at, now()),
-    -- THE NEW LINE. The page is live, so there is no longer a lapse to explain.
-    lapse_unpublished_at = null,
+    -- THE NEW LINES. The page is live, so there is no longer a take-down to
+    -- explain -- and BOTH halves of the record go, together. The check
+    -- constraint on storefronts makes that structural rather than a habit:
+    -- clearing one and leaving the other refuses the write.
+    lapse_unpublished_at     = null,
+    lapse_unpublished_reason = null,
     draft                = null,
     updated_at           = now()
   where shop_id = p_shop_id;
