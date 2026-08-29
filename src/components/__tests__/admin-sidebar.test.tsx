@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { StyleSheet, Text } from 'react-native';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { StyleSheet, Text, View } from 'react-native';
+import { act, create, type ReactTestRenderer, type ReactTestInstance } from 'react-test-renderer';
 
 // Below the mocks in intent, above them in source: babel-plugin-jest-hoist
 // lifts every `jest.mock` above the imports regardless.
@@ -661,5 +661,139 @@ describe('AdminSidebar storefront rows after a lapse', () => {
     await renderWide();
     await renderWide();
     expect(shopHasStorefront).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The same two defects that were found on the phone shell by driving a real
+// iPhone. They belong here too because this file is not web-only: `admin-tabs
+// .tsx` hands every TABLET straight to `<AdminSidebar>` (its `isTabletDevice()`
+// branch), so on an iPad these are the same Yoga layout and the same iOS
+// accessibility tree as the ones that broke -- from a byte-identical copy of
+// the same style block and the same backdrop.
+//
+// On the WEB half the exposure is smaller: a browser sizes an absolutely
+// positioned box against the padding box rather than the content box, so the
+// count had more room and was unlikely to wrap; and the DOM has no way to
+// collapse a subtree into one node, so the rows were always separate elements
+// there. Neither of those saves the tablet, and neither is a reason to keep the
+// construct that broke.
+
+// The nearest ancestor that actually handles a press -- matching `Pressable` by
+// TYPE does not work, for the reason `openMenu` above already gives.
+function pressableAbove(node: ReactTestInstance, skip = 0): ReactTestInstance {
+  let found = skip;
+  let cursor: ReactTestInstance | null = node.parent as ReactTestInstance | null;
+  while (cursor) {
+    if (typeof cursor.props?.onPress === 'function') {
+      if (found === 0) return cursor;
+      found -= 1;
+    }
+    cursor = cursor.parent as ReactTestInstance | null;
+  }
+  throw new Error('no pressable ancestor');
+}
+
+function glyph(tree: ReactTestRenderer, char: string): ReactTestInstance {
+  const node = tree.root.findAllByType(Text).find((t) => t.props.children === char);
+  if (!node) throw new Error(`no ${char} on screen`);
+  return node;
+}
+
+// Found through the BUTTON rather than by its string, because the Orders row
+// inside the sheet renders the same "9+".
+function headerDot(tree: ReactTestRenderer) {
+  const text = pressableAbove(glyph(tree, '☰'))
+    .findAllByType(Text)
+    .find((t) => t.props.children !== '☰');
+  if (!text) return null;
+  return { text, box: text.parent as ReactTestInstance };
+}
+
+// Labelled elements, read off the host `View` each `Pressable` renders -- a
+// labelled `Pressable` appears twice in this tree, once as the composite.
+function a11yLabels(tree: ReactTestRenderer) {
+  return tree.root
+    .findAll((n) => n.type === View && typeof n.props.accessibilityLabel === 'string')
+    .map((n) => n.props.accessibilityLabel as string);
+}
+
+describe('AdminSidebar ☰ badge and sheet accessibility', () => {
+  async function renderWide() {
+    let tree: ReactTestRenderer | undefined;
+    await act(async () => { tree = create(shell(false)); });
+    return tree!;
+  }
+
+  // The shop whose plan has lapsed but whose page is still on file: no
+  // `storefront` module, and a `storefronts` row that outlived the lapse.
+  // `shopHasStorefront` answering true IS that row -- the nav asks the
+  // question as a head count now, not by reading the editor's payload back.
+  function lapsedWithAPage() {
+    signIn({ hasModule: (m) => m !== 'storefront' });
+    (shopHasStorefront as jest.Mock).mockResolvedValue(true);
+  }
+
+  it('caps the ☰ count at 9+ and sizes the dot from its own style', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(12);
+    const dot = headerDot(await renderWide());
+    expect(dot?.text.props.children).toBe('9+');
+    const box = StyleSheet.flatten(dot!.box.props.style) as { width?: number; height?: number };
+    expect(typeof box.width).toBe('number');
+    expect(box.width).toBeGreaterThanOrEqual(14);
+    expect(typeof box.height).toBe('number');
+    expect(dot!.text.props.numberOfLines).toBe(1);
+  });
+
+  it('keeps the 9+ badge for a lapsed shop whose customers are still waiting', async () => {
+    lapsedWithAPage();
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(12);
+    const tree = await renderWide();
+    expect(headerDot(tree)?.text.props.children).toBe('9+');
+    // And the row behind it is still there, greyed and locked rather than gone.
+    const shown = labels(await openMenu(tree));
+    expect(shown).toContain('Orders');
+    expect(shown).toContain('🔒');
+  });
+
+  it('does not swallow its rows into the backdrop', async () => {
+    const tree = await openMenu(await renderWide());
+    // The row, then the backdrop that wraps every row.
+    expect(pressableAbove(glyph(tree, '🌐'), 1).props.accessible).toBe(false);
+  });
+
+  it('gives every row its own label instead of letting the emoji name it', async () => {
+    const tree = await openMenu(await renderWide());
+    const rows = a11yLabels(tree);
+    expect(rows).toEqual(expect.arrayContaining(['Storefront', 'Orders', 'Settings', 'Sign out']));
+    for (const row of rows) expect(row).toMatch(/^[A-Z]/);
+  });
+
+  it('says the waiting count out loud on the ☰ button and on the Orders row', async () => {
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(12);
+    const tree = await renderWide();
+    expect(pressableAbove(glyph(tree, '☰')).props.accessibilityLabel).toBe('Menu, 12 orders waiting');
+    await openMenu(tree);
+    expect(a11yLabels(tree)).toContain('Orders, 12 waiting');
+  });
+
+  it('says just Menu when nothing is waiting', async () => {
+    const tree = await renderWide();
+    expect(pressableAbove(glyph(tree, '☰')).props.accessibilityLabel).toBe('Menu');
+  });
+
+  it('conveys the lock on a lapsed shop rather than drawing it only', async () => {
+    lapsedWithAPage();
+    (countOrdersNeedingAction as jest.Mock).mockResolvedValue(12);
+    const rows = a11yLabels(await openMenu(await renderWide()));
+    expect(rows).toContain('Storefront, locked');
+    expect(rows).toContain('Orders, 12 waiting, locked');
+  });
+
+  it('can still be dismissed by a screen reader', async () => {
+    const tree = await openMenu(await renderWide());
+    const sheet = tree.root.find((n) => typeof n.props.onAccessibilityEscape === 'function');
+    await act(async () => { (sheet.props.onAccessibilityEscape as () => void)(); });
+    expect(labels(tree)).not.toContain('Storefront');
+    expect(labels(tree)).toContain('☰');
   });
 });

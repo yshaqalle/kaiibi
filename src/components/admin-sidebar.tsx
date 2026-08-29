@@ -16,6 +16,7 @@ import { useShopLogo } from '@/hooks/use-shop-logo';
 import { useStorefrontNavState } from '@/hooks/use-storefront-nav';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
+import { menuButtonA11yLabel, menuRowA11yLabel } from '@/lib/nav-a11y';
 import type { Permission } from '@/lib/permissions';
 import { AppModal } from '@/components/ui/app-modal';
 
@@ -214,11 +215,21 @@ export function AdminSidebar({
                 reaches the person at the till, which is the one who has to go
                 and pick the order. This is the difference between an order
                 inbox and an order notification. */}
-            <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
+            <Pressable
+              onPress={() => setMenuOpen(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              // The dot is paint; this is what somebody who cannot see it
+              // hears, and it carries the real number rather than the clamped
+              // "9+". See lib/nav-a11y.ts.
+              accessibilityLabel={menuButtonA11yLabel(ordersBadge)}
+              style={styles.menuButton}
+            >
               <Text style={styles.menuIcon}>☰</Text>
               {ordersBadge > 0 ? (
                 <View style={styles.menuButtonDot}>
-                  <Text style={styles.menuButtonDotText}>{ordersBadge > 9 ? '9+' : String(ordersBadge)}</Text>
+                  {/* One line, always -- see the note on `menuButtonDot`. */}
+                  <Text style={styles.menuButtonDotText} numberOfLines={1}>{ordersBadge > 9 ? '9+' : String(ordersBadge)}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -239,10 +250,21 @@ export function AdminSidebar({
           shift `children`'s index either. */}
       {compact ? bottomNav : null}
       <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+        {/* `accessible={false}` is load-bearing, not tidying. React Native's
+            Pressable defaults `accessible` to TRUE (Pressable.js:252), and an
+            accessible node is a LEAF to iOS -- so on a TABLET, where
+            admin-tabs.tsx renders this very component, the whole sheet was
+            exposed as one element labelled "🌐, Storefront, 🛍, Orders, 9+, ⚙,
+            Settings, Help and support, Sign out" and no row could be focused or
+            activated. The web half was spared, having a DOM node per row, but
+            it is the same construct and it now gives its place in the tree up
+            on both. The backdrop is a dismiss target and nothing else. */}
+        <Pressable accessible={false} style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           {/* Under the bar in both worlds: the compact header is a fixed 52
-              tall and takes no inset, where the top bar grows with it. */}
-          <View style={[styles.menuSheet, { top: compact ? 56 : insets.top + 50 }]}>
+              tall and takes no inset, where the top bar grows with it.
+              `onAccessibilityEscape` because the backdrop is no longer
+              focusable, so tap-anywhere-to-close is no longer reachable. */}
+          <View onAccessibilityEscape={() => setMenuOpen(false)} style={[styles.menuSheet, { top: compact ? 56 : insets.top + 50 }]}>
             {/* THE ONE HOME for Storefront and Orders, at EVERY width. They
                 are not in `navItems` above, so no rail carries them; not in
                 the web bottom bar (admin-tabs.web.tsx); and not a NativeTabs
@@ -290,6 +312,10 @@ export function AdminSidebar({
                     setMenuOpen(false);
                     router.push('/storefront');
                   }}
+                  accessibilityRole="button"
+                  // Named in words so the 🌐 below does not become the row's
+                  // name, and so the 🔒 is heard rather than only seen.
+                  accessibilityLabel={menuRowA11yLabel('Storefront', { locked: storefront === 'locked' })}
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={styles.menuItemIcon}>🌐</Text>
@@ -301,6 +327,10 @@ export function AdminSidebar({
                     setMenuOpen(false);
                     router.push('/orders');
                   }}
+                  accessibilityRole="button"
+                  // Carries both marks the row draws: the waiting count and,
+                  // for a lapsed shop, the lock.
+                  accessibilityLabel={menuRowA11yLabel('Orders', { waiting: ordersBadge, locked: storefront === 'locked' })}
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={styles.menuItemIcon}>🛍</Text>
@@ -326,6 +356,8 @@ export function AdminSidebar({
                     setMenuOpen(false);
                     router.push('/settings');
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={menuRowA11yLabel('Settings')}
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={styles.menuItemIcon}>⚙</Text>
@@ -346,6 +378,8 @@ export function AdminSidebar({
                 setMenuOpen(false);
                 signOut().then(() => router.replace('/login'));
               }}
+              accessibilityRole="button"
+              accessibilityLabel={menuRowA11yLabel('Sign out')}
               style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
             >
               <Text style={styles.menuItemText}>Sign out</Text>
@@ -422,10 +456,24 @@ const styles = StyleSheet.create({
   // is zero-height on the ordinary day when there is nothing unread.
   bannerSlot: { paddingHorizontal: 16, backgroundColor: Colors.light.bentoSurface },
   // Sits on the corner of the ☰ so it reads at a glance from across a
-  // counter. Absolutely positioned so adding it cannot move the button.
+  // counter. Absolutely positioned so adding it cannot move the button, and
+  // given an EXPLICIT size for the reason it used to lack one.
+  //
+  // It was `minWidth: 18` plus `paddingHorizontal: 5` and no width, and an
+  // absolutely positioned Yoga node with no width is measured against its
+  // parent's CONTENT box -- here the ☰ glyph, about 19pt at fontSize 16. After
+  // this pill's own 10pt of padding roughly 9pt was left for a string needing
+  // about 14, so at ten or more waiting orders the `Text` wrapped and drew "9"
+  // stacked above "+". Confirmed on an iPhone, where the twin of this style in
+  // admin-tabs.tsx did exactly that; this copy reaches the same engine, because
+  // admin-tabs.tsx renders THIS component on every tablet.
+  //
+  // The label is capped at two characters ("9+"), so a fixed box holds every
+  // value it can be asked to draw -- and a fixed box is the one thing the
+  // parent cannot argue with.
   menuButtonDot: {
-    position: 'absolute', top: -5, right: -6, minWidth: 18,
-    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999,
+    position: 'absolute', top: -5, right: -6, width: 20, height: 16,
+    borderRadius: 999,
     backgroundColor: '#B3261E', alignItems: 'center', justifyContent: 'center',
   },
   menuButtonDotText: { fontSize: 10.5, fontWeight: '800', color: '#FFFFFF' },
