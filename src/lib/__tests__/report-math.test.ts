@@ -265,25 +265,42 @@ describe('rolling stock up by bucket', () => {
 });
 
 describe('the reorder level in force', () => {
+  // Three terms, all distinct, so a wrong precedence cannot land on the right
+  // answer: branch 12, product 30, shop 5.
   it('lets a branch override the product', () => {
-    expect(effectiveReorderLevel(12, 30)).toBe(12);
+    expect(effectiveReorderLevel(12, 30, 5)).toBe(12);
   });
 
   it('falls back to the product when the branch has no override', () => {
-    expect(effectiveReorderLevel(null, 30)).toBe(30);
+    expect(effectiveReorderLevel(null, 30, 5)).toBe(30);
   });
 
-  it('keeps a branch override of zero rather than falling through to the product', () => {
+  it("falls back to the shop's default when neither is set", () => {
+    // The correction. This used to return null and the low-stock report read
+    // that as "nobody has said what the level is" -- but migration 0030 added
+    // shops.default_low_stock_level precisely to answer it, and the Dashboard,
+    // the Inventory tile and every product row have always used it. Returning
+    // null here put this report on a different definition of "low" from the
+    // rest of the app.
+    expect(effectiveReorderLevel(null, null, 5)).toBe(5);
+  });
+
+  it('keeps a branch override of zero rather than falling through', () => {
     // Zero is a real instruction -- "this branch does not stock this" -- and is
-    // falsy, so an implementation using `||` silently reinstates the shop-wide
-    // level of 30 and puts the product on a reorder list it was taken off.
-    expect(effectiveReorderLevel(0, 30)).toBe(0);
+    // falsy, so an implementation using `||` silently promotes the product's 30
+    // and puts the product back on a reorder list it was taken off.
+    expect(effectiveReorderLevel(0, 30, 5)).toBe(0);
   });
 
-  it('is null when nobody has set a level anywhere', () => {
-    // The third state, and the one the low-stock empty message turns on. Zero
-    // here would report every product as adequately stocked.
-    expect(effectiveReorderLevel(null, null)).toBeNull();
+  it("keeps a product level of zero rather than falling through to the shop's", () => {
+    // The same falsiness trap one hop down, which `||` would also get wrong.
+    expect(effectiveReorderLevel(null, 0, 5)).toBe(0);
+  });
+
+  it("honours a shop default of zero rather than treating it as unset", () => {
+    // `default_low_stock_level` is `not null default 5` with a `>= 0` check, so
+    // a shop may legitimately set 0 -- meaning "only tell me when it is gone".
+    expect(effectiveReorderLevel(null, null, 0)).toBe(0);
   });
 });
 
@@ -340,42 +357,39 @@ describe('the low-stock reading', () => {
     expect(reading.rows.map((row) => row.sku)).toEqual(['oil', 'milk', 'detergent']);
     expect(reading.rows.map((row) => row.shortfall)).toEqual([21, 20, 2]);
     expect(reading.rows.map((row) => row.urgency)).toEqual(['critical', 'out', 'low']);
-    expect(reading.emptyReason).toBeNull();
   });
 
-  it('says nothing is low when levels are set and everything is above them', () => {
+  it('is empty when everything is above its level', () => {
     const reading = lowStockReading([
       { stock: 90, reorderLevel: 20 },
       { stock: 21, reorderLevel: 20 },
     ]);
     expect(reading.rows).toEqual([]);
-    expect(reading.configured).toBe(2);
-    expect(reading.emptyReason).toBe('nothing-low');
   });
 
-  it('says nothing is configured when no reorder level is set anywhere', () => {
-    // THE TWO EMPTY STATES ARE DIFFERENT FACTS. This shop has a product at zero
-    // and one at one unit -- it is not in good shape -- and an empty report
-    // reading "nothing is low" would tell it that it is.
+  it('judges a row on the level it was given, having no opinion about where it came from', () => {
+    // The correction, at this layer. There used to be a second empty state --
+    // 'none-configured' -- for rows with a null level, on the belief that the
+    // question had gone unanswered. It never had: the caller now resolves the
+    // branch override, then the product's level, then the shop's
+    // `default_low_stock_level`, so a level always arrives here. A shop whose
+    // default is 5 and whose product has nothing of its own is at 5, and a
+    // product sitting on 1 is low -- which is exactly what the Inventory tab
+    // has always said and what this report used to deny.
     const reading = lowStockReading([
-      { stock: 0, reorderLevel: null },
-      { stock: 1, reorderLevel: null },
+      { stock: 1, reorderLevel: 5 },
+      { stock: 0, reorderLevel: 5 },
+      { stock: 90, reorderLevel: 5 },
     ]);
-    expect(reading.rows).toEqual([]);
-    expect(reading.configured).toBe(0);
-    expect(reading.emptyReason).toBe('none-configured');
+    expect(reading.rows.map((row) => row.shortfall)).toEqual([5, 4]);
+    expect(reading.rows.map((row) => row.urgency)).toEqual(['out', 'critical']);
   });
 
-  it('says nothing is low, not nothing is configured, when only some are set', () => {
-    // The mixed shop, which is the common one. One product has a level and is
-    // fine; forty do not. The report is empty for the first reason, not the
-    // second, and a `configured === rows.length` test would get it backwards.
-    const reading = lowStockReading([
-      { stock: 90, reorderLevel: 20 },
-      { stock: 0, reorderLevel: null },
-    ]);
-    expect(reading.configured).toBe(1);
-    expect(reading.emptyReason).toBe('nothing-low');
+  it('reports nothing low when the level in force is zero', () => {
+    // A shop may set `default_low_stock_level` to 0 -- "only tell me when it is
+    // gone". Stock of 0 against a level of 0 is not short, and reporting it
+    // would make the setting unusable.
+    expect(lowStockReading([{ stock: 0, reorderLevel: 0 }]).rows).toEqual([]);
   });
 });
 

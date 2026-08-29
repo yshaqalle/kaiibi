@@ -56,10 +56,15 @@ export function InventoryBalanceView({
   const { shop } = useAuth();
   const [rows, setRows] = useState<StockOnHandRow[] | null>(null);
 
+  // Passed but unused by this screen, which shows what stock is WORTH rather
+  // than what is short. It is a required argument because the same read backs
+  // Low Stock, where the level decides every row.
+  const defaultLowStockLevel = shop?.defaultLowStockLevel ?? 5;
+
   const reload = useCallback(async () => {
     if (!shop) return;
-    setRows(await loadInventoryReport(shop.id, locationFilter));
-  }, [shop, locationFilter]);
+    setRows(await loadInventoryReport(shop.id, locationFilter, defaultLowStockLevel));
+  }, [shop, locationFilter, defaultLowStockLevel]);
 
   // See the note in chart-of-accounts-view.tsx: use-refresh-on-focus does not
   // fetch on the mounting focus, and depends on this effect having done it.
