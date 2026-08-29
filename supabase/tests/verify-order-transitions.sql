@@ -1695,9 +1695,9 @@ exception
       -- DELIBERATELY NOT THE WORDS "all checks passed". run-all.sh decides a
       -- script's verdict by grepping its WHOLE output for that phrase, so a
       -- block that says it here would report this file as passing even when
-      -- the Task 4 block below fails -- the second block's own notice is the
-      -- only place the phrase now appears.
-      raise notice 'verify-order-transitions: checks 1-45 passed, rolled back (part 1 of 2)';
+      -- a block below fails -- the LAST block's own notice is the only place
+      -- the phrase now appears.
+      raise notice 'verify-order-transitions: checks 1-45 passed, rolled back (part 1 of 3)';
     else
       raise;
     end if;
@@ -2354,7 +2354,218 @@ begin
 exception
   when others then
     if sqlerrm = 'rollback_marker' then
-      raise notice 'verify-order-transitions: ALL CHECKS PASSED (1-53), rolled back';
+      -- Same reason the first block does not say it either: the phrase is the
+      -- runner's whole verdict, and it now lives at the foot of block 3.
+      raise notice 'verify-order-transitions: checks 46-53 passed, rolled back (part 2 of 3)';
+    else
+      raise;
+    end if;
+end $$;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- Task 1 (orders, part 0): FULFILLING AN ORDER DOES NOT HAPPEN AT A TILL
+-- (20261010000000_fulfilment_needs_no_register.sql)
+-- ════════════════════════════════════════════════════════════════════════
+--
+-- A THIRD BLOCK rather than more checks bolted into the second, for the same
+-- reason there is a second: every check above sells at a location with
+-- require_open_register OFF and would refuse outright with it ON, and one of
+-- these needs an open register session, which no fixture above has any use
+-- for. Nothing above is renumbered and no check above is edited.
+--
+--   54.   A LOCATION THAT REQUIRES AN OPEN REGISTER CAN STILL COMPLETE A
+--         STOREFRONT ORDER. Before this migration complete_storefront_order
+--         passed p_register_session_id => null unconditionally, and `orders`
+--         carries no location -- so every storefront sale resolved to the
+--         shop's PRIMARY location and complete_sale's guard refused it, with
+--         no parameter anywhere to pass a session through. A shop with the
+--         setting on could not complete a single online order. The sale is
+--         also asserted to carry NO session, which is the honest answer for
+--         an order going out on a motorbike: there is no drawer.
+--   55.   THE POS GUARD SURVIVED, and it is the assertion this task is most
+--         at risk of breaking -- complete_sale is the function the whole till
+--         runs through. The SAME location, the SAME member with no session
+--         open, ringing up through complete_sale DIRECTLY, is still refused,
+--         and refused by that exact sentence rather than merely by something.
+--         The new parameter defaults TRUE, so every caller that existed
+--         before the migration -- the POS included -- is unchanged.
+--   56.   AN OPEN SESSION AT THE LOCATION IS ATTACHED TO THE SALE. A handover
+--         at the counter, by someone who has a drawer open, IS a drawer
+--         transaction and belongs in that drawer's count -- so
+--         complete_storefront_order asks my_open_session_at
+--         (20260822000000:219) for the completing member's session at the
+--         resolved location and passes it when there is one. Asserted against
+--         the session's own id, not merely "not null", and against the
+--         session's own takings so the money really lands in that drawer.
+--
+-- WHY THESE RAISE RATHER THAN PRINT. run-all.sh decides a script's verdict by
+-- grepping its whole output for `ALL CHECKS PASSED`; a `raise notice 'FAIL
+-- ...'` is printed and then ignored, and the suite goes green with the
+-- failure sitting in the log. Every check in this file raises, and so do
+-- these. It is also why the verdict line moved off the end of block 2 and
+-- onto the end of this one.
+
+do $$
+declare
+  v_owner_id   uuid := gen_random_uuid();
+  v_shop_id    uuid;
+  v_loc_id     uuid;
+  v_member_id  uuid;
+  v_register   uuid;
+  v_session    uuid;
+  v_prod       uuid;
+
+  v_bike_id    uuid;   -- check 54: goes out on a motorbike, no drawer
+  v_counter_id uuid;   -- check 56: handed over at the counter
+
+  v_sale_id    uuid;
+  v_on_sale    uuid;
+  v_detail     text;
+  v_raised     boolean;
+  v_amount     bigint;
+begin
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_owner_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-order-transitions-t0-' || v_owner_id || '@example.test', '', now(), now(), now());
+
+  insert into public.shops (owner_id, name) values (v_owner_id, 'Drawer Shop')
+    returning id into v_shop_id;
+  insert into public.storefronts (shop_id) values (v_shop_id);
+
+  -- The setting under test, on from birth. Primary, because that is the
+  -- location every storefront sale resolves to: `orders` carries none, so
+  -- complete_sale falls through to its own is_primary/created_at default
+  -- (20260908000300:182-191) and this is the row it lands on.
+  insert into public.shop_locations (shop_id, name, is_primary, require_open_register)
+    values (v_shop_id, 'Main', true, true) returning id into v_loc_id;
+
+  -- shops_seed_defaults (20260823000000:134) gives the owner a real
+  -- shop_members row; my_open_session_at joins through it, and
+  -- register_sessions.shop_member_id is a foreign key into it.
+  select id into v_member_id from public.shop_members
+   where shop_id = v_shop_id and user_id = v_owner_id;
+  if v_member_id is null then
+    raise exception 'FAIL 54: fixture -- the owner has no shop_members row to open a register against';
+  end if;
+
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Sambuusa', 700, 150) returning id into v_prod;
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod, v_loc_id, 100);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Koodbuur Customer', '+252634300001', 'deliver', 'Koodbuur', 'By the water tank', 700, 0, 700)
+    returning id into v_bike_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_bike_id, v_prod, 'Sambuusa', 700, 1, 700);
+
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'Counter Customer', '+252634300002', 'collect', 700, 0, 700)
+    returning id into v_counter_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_counter_id, v_prod, 'Sambuusa', 700, 1, 700);
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  perform public.transition_order(v_bike_id, 'accepted', null);
+  perform public.transition_order(v_bike_id, 'ready', null);
+  perform public.transition_order(v_counter_id, 'accepted', null);
+  perform public.transition_order(v_counter_id, 'ready', null);
+
+  -- Same posture as the two blocks above from check 23 on: postgres for the
+  -- assertions, with the JWT claim still set, which is what every permission
+  -- and membership gate under test actually reads.
+  perform set_config('role', 'postgres', true);
+
+  -- ------------------------------------------------ 54. require_open_register no longer refuses a fulfilment
+  -- No register exists at this shop yet, so my_open_session_at has nothing to
+  -- find and complete_storefront_order passes null -- which is exactly the
+  -- call the old guard refused.
+  if public.my_open_session_at(v_loc_id) is not null then
+    raise exception 'FAIL 54: fixture -- the completing member already has a session open';
+  end if;
+
+  v_sale_id := public.complete_storefront_order(v_bike_id, 'cash');
+  if v_sale_id is null then
+    raise exception 'FAIL 54: completing an order at a require_open_register location returned no sale id';
+  end if;
+  if (select status from public.orders where id = v_bike_id) <> 'completed' then
+    raise exception 'FAIL 54: the order is % rather than completed', (select status from public.orders where id = v_bike_id);
+  end if;
+  if (select total_cents from public.sales where id = v_sale_id) <> 700 then
+    raise exception 'FAIL 54: the sale totals % against a quote of 700',
+      (select total_cents from public.sales where id = v_sale_id);
+  end if;
+  -- And it is filed against NO drawer. A delivery has none to reconcile
+  -- against, and inventing one would put the money in a count nobody took.
+  if (select register_session_id from public.sales where id = v_sale_id) is not null then
+    raise exception 'FAIL 54: a delivery was filed against register session %',
+      (select register_session_id from public.sales where id = v_sale_id);
+  end if;
+  -- The setting is left exactly where the shop put it: completing an order is
+  -- not a way to turn a branch's register requirement off.
+  if not (select require_open_register from public.shop_locations where id = v_loc_id) then
+    raise exception 'FAIL 54: completing the order cleared the location''s require_open_register';
+  end if;
+
+  -- ------------------------------------------------ 55. the POS guard is untouched
+  -- The same shop, the same location, the same member with no session -- but
+  -- through complete_sale directly, which is what the till does. The payment
+  -- equals the total on purpose, so the ONLY thing left to refuse this sale is
+  -- the guard: were it gone, this call would succeed rather than fail on some
+  -- unrelated arithmetic and pass this check for the wrong reason.
+  v_raised := false;
+  begin
+    perform public.complete_sale(
+      p_shop_id  => v_shop_id,
+      p_items    => jsonb_build_array(jsonb_build_object('product_id', v_prod, 'quantity', 1)),
+      p_payments => jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 700)));
+  exception
+    when others then
+      v_raised := true;
+      v_detail := sqlerrm;
+  end;
+  if not v_raised then
+    raise exception 'FAIL 55: complete_sale rang up a till sale with no session at a require_open_register location';
+  end if;
+  if v_detail <> 'this store requires an open register before a sale can be rung up' then
+    raise exception 'FAIL 55: refused, but for the wrong reason: %', v_detail;
+  end if;
+
+  -- ------------------------------------------------ 56. a counter handover reconciles into the open drawer
+  insert into public.registers (shop_id, location_id, name, kind)
+    values (v_shop_id, v_loc_id, 'Counter 1', 'counter') returning id into v_register;
+  insert into public.register_sessions (shop_id, location_id, register_id, shop_member_id, opened_by)
+    values (v_shop_id, v_loc_id, v_register, v_member_id, v_owner_id) returning id into v_session;
+
+  if public.my_open_session_at(v_loc_id) is distinct from v_session then
+    raise exception 'FAIL 56: fixture -- my_open_session_at returns % rather than the session just opened %',
+      public.my_open_session_at(v_loc_id), v_session;
+  end if;
+
+  v_sale_id := public.complete_storefront_order(v_counter_id, 'cash');
+  select register_session_id into v_on_sale from public.sales where id = v_sale_id;
+  if v_on_sale is distinct from v_session then
+    raise exception 'FAIL 56: expected session % on the sale, got %', v_session, v_on_sale;
+  end if;
+  -- Not just the pointer: the money is in that drawer's count. The session's
+  -- takings are read the way the register screen reads them -- off the sale
+  -- payments filed against it.
+  select coalesce(sum(sp.amount_cents), 0) into v_amount
+    from public.sale_payments sp
+    join public.sales s on s.id = sp.sale_id
+   where s.register_session_id = v_session;
+  if v_amount <> 700 then
+    raise exception 'FAIL 56: the drawer holds % of takings, not the 700 handed over', v_amount;
+  end if;
+
+  raise notice 'PASS: fulfilment needs no register, and uses one when there is one';
+  raise exception 'rollback_marker';
+exception
+  when others then
+    if sqlerrm = 'rollback_marker' then
+      raise notice 'verify-order-transitions: ALL CHECKS PASSED (1-56), rolled back';
     else
       raise;
     end if;

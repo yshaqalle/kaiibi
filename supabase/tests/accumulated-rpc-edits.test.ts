@@ -386,6 +386,25 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // header states the whole of what is and is not enforced.
   ['20260929000200', 'the exemption covers only the product and price that order quoted',
     'and oi.product_id = v_product.id\n              and oi.unit_price_cents = v_agreed_price'],
+
+  // ── 20261010000000 ───────────────────────────────────────────────────────
+  //
+  // TWO ENTRIES, because the parameter and the guard fail differently and a
+  // copy-forward can lose either on its own. A reproduction that keeps the
+  // parameter but drops it from the guard restores the dead end this migration
+  // exists to remove -- silently, with the sixteen-argument signature still in
+  // place and every caller still compiling. One that drops the parameter
+  // instead breaks complete_storefront_order's call loudly, which is the safer
+  // half of the same mistake; it is pinned anyway so the failure names itself
+  // here rather than at the till.
+  //
+  // The guard entry is the CONJUNCT, not the parameter name: `p_require_register`
+  // appears in the signature too, so a presence-only match on the name alone
+  // would be satisfied by a copy that kept the argument and threw the rule away.
+  ['20261010000000', 'a caller that is not ringing up at a till may opt out of the register requirement',
+    'p_require_register boolean default true'],
+  ['20261010000000', "...and the location's require_open_register is read only when it does not",
+    'if p_require_register\n     and p_register_session_id is null'],
 ];
 
 // complete_storefront_order joins this file at its FIFTH full reproduction,
@@ -532,11 +551,21 @@ const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
   // complete_sale adds the tax on top of the quote and then refuses the quoted
   // payment against its own larger total, which came back as
   // `order_total_changed`: a sentence about prices moving, given to a shop
-  // whose prices had not moved. The token is the argument as it is passed,
-  // trailing `);` and all, so it pins the flag actually REACHING complete_sale
-  // rather than being mentioned in the comment above the call.
+  // whose prices had not moved. The token is the argument as it is passed --
+  // `=>` and a trailing delimiter -- so it pins the flag actually REACHING
+  // complete_sale rather than being mentioned in the comment above the call.
+  //
+  // THE DELIMITER WAS `);` UNTIL 20261010000000 AND IS NOW `,`, and the change
+  // is not a weakening. `);` pinned this argument being LAST in the call, which
+  // was never the rule -- it was where the argument happened to sit while
+  // p_prices_include_tax was complete_sale's final parameter. 20261010000000
+  // added p_require_register after it, the call grew a sixteenth argument, and
+  // this entry went red for a function that had lost nothing: the flag is still
+  // passed, still true. The trailing comma keeps the whole of what the `);`
+  // was actually buying -- that this is an ARGUMENT and not prose -- and stops
+  // pinning an ordering that any later argument moves again.
   ['20260929000200', 'a storefront sale is filed at prices that already include tax',
-    'p_prices_include_tax  => true);'],
+    'p_prices_include_tax  => true,'],
   // ...and what order_total_changed narrowed TO. It now fires only when the
   // order ROW disagrees with the order's own LINES, and the detail carries both
   // figures so the disagreement is legible without a second query against rows
@@ -562,6 +591,30 @@ const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
     "v_msg like 'agreed price for % is out of range%' then"],
   ['20260929000250', 'and refused with a code a client can turn into a sentence',
     "raise exception 'order_line_out_of_range'"],
+
+  // ── 20261010000000 ───────────────────────────────────────────────────────
+  //
+  // THREE ENTRIES, and each one is a different way to be wrong.
+  //
+  // Drop `p_require_register => false` and a shop with require_open_register
+  // set on its primary location cannot complete a single online order again --
+  // the dead end this migration exists to remove, restored by a copy-forward
+  // that keeps the other two.
+  //
+  // Drop the my_open_session_at lookup and every fulfilment files against no
+  // drawer, so a handover taken at the counter goes missing from the count the
+  // person at that counter has to sign off. Nothing fails; the money is simply
+  // in the wrong place.
+  //
+  // Drop the session off the CALL while keeping the lookup and the effect is
+  // identical with a variable left over to make it look intended -- which is
+  // why the argument is pinned separately from the lookup that feeds it.
+  ['20261010000000', 'a fulfilment is never refused for want of a till',
+    'p_require_register    => false'],
+  ['20261010000000', "the completing member's open session at the resolved location is looked up",
+    'v_session_id := public.my_open_session_at(v_register_location);'],
+  ['20261010000000', '...and is what the sale is filed against',
+    'p_register_session_id => v_session_id,'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
