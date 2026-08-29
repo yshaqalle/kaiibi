@@ -57,3 +57,10 @@ google-service-account.json
 
 # Local scaffolding — draft tickets, throwaway scripts, agent working files
 .scratch/
+
+# Screenshots written to the repo root by the Playwright MCP when a bare
+# filename is passed. `.playwright-mcp/` above only catches the ones written
+# into that directory; two of these reached main via `git add -A` before this
+# line existed.
+/*.png
+!assets/**/*.png
