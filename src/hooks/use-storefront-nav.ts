@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/hooks/use-auth';
-import { getMyStorefront } from '@/lib/storefront-admin';
+import { shopHasStorefront } from '@/lib/storefront-admin';
 
 // What the Storefront and Orders rows should do, as one answer shared by every
 // nav that carries them -- which is now the ☰ menu and only the ☰ menu, at
@@ -27,12 +27,19 @@ export type StorefrontNavState = 'hidden' | 'locked' | 'open';
 // deleted (a lapse keeps the data, which is the whole decision), and the only
 // transition it can make, null -> row, happens in the editor, which a shop can
 // only open while it HAS the module and is therefore already 'open' here.
+//
+// What it caches is a COUNT, not the page. shopHasStorefront asks PostgREST for
+// `head: true, count: 'exact'` and gets back a number with no body; this used
+// to call getMyStorefront, the editor's own read, which selects every live
+// column plus the `draft` jsonb -- a shop's entire unsaved page, fetched so a
+// menu could decide whether to draw two rows. Once per session is still once
+// too many for that payload.
 const presence = new Map<string, Promise<boolean>>();
 
 function storefrontPresence(shopId: string): Promise<boolean> {
   const known = presence.get(shopId);
   if (known) return known;
-  const asked = getMyStorefront(shopId).then((row) => row !== null);
+  const asked = shopHasStorefront(shopId);
   presence.set(shopId, asked);
   // A failure is not an answer. Forgetting it lets the next mount ask again,
   // rather than pinning "no page" -- which would hide the rows from a lapsed

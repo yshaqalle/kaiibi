@@ -172,6 +172,30 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   return mapStorefrontRow(data as { id: string; slug: string | null; whatsapp_e164: string | null }, sf);
 }
 
+// Does a `storefronts` row exist for this shop? The nav's whole question about
+// a lapsed page (use-storefront-nav.ts), asked as a count rather than a read.
+//
+// This used to be `getMyStorefront(shopId) !== null`, which is the EDITOR's
+// query: every live column plus `draft`, the jsonb holding a shop's entire
+// unsaved page. `head: true` skips the row payload altogether -- PostgREST
+// answers in Content-Range and sends no body -- so the nav's one question
+// costs a number instead of a page. Same reasoning N3 applied to
+// countOrdersNeedingAction below, one caller further up.
+//
+// Deliberately NOT `count > 0` on a broader read: `shop_id` is the primary key
+// of `storefronts` (20260924000000), so this is at most one row and the count
+// is 0 or 1. RLS (storefronts_member_all) is what narrows it to the caller's
+// own shop; the `eq` is what makes the QUERY itself scoped rather than leaning
+// on that alone, the same posture listOrders takes.
+export async function shopHasStorefront(shopId: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('storefronts')
+    .select('shop_id', { count: 'exact', head: true })
+    .eq('shop_id', shopId);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
 // Inserts the default row (theme/palette/payment_mode all take their column
 // defaults) the first time a shop opens the editor. The storefronts_module_gate
 // trigger (20260924000000) refuses this on a plan without `storefront`, and

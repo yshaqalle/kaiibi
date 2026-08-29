@@ -6,7 +6,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { SupportSheet } from '@/components/support/support-sheet';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { MODULES, type Module } from '@/lib/entitlements';
+import { ALL_MODULES, MODULES, type Module } from '@/lib/entitlements';
 
 // Pinned to the light palette -- no dark mode yet, the same as every other
 // admin surface.
@@ -108,25 +108,54 @@ function Frame({ title, children }: { title?: string; children: React.ReactNode 
 }
 
 /**
+ * The module a walled component answers for, stamped onto the component itself
+ * so the gate can be interrogated at RUNTIME rather than read out of source
+ * text. `Symbol.for` so the key survives a module registry that hands out two
+ * copies of this file (jest.resetModules, a duplicated bundle chunk).
+ */
+export const MODULE_WALL: unique symbol = Symbol.for('kaiibi.module-wall');
+
+export type WalledComponent<P extends object> = ComponentType<P> & { readonly [MODULE_WALL]: Module };
+
+/**
+ * Which module this component's wall answers for, or null if it carries no
+ * wall at all. Deliberately takes `unknown`: its whole job is to be pointed at
+ * a route file's default export -- which is exactly the thing that might not
+ * be walled -- and answer without assuming anything about it.
+ *
+ * This is what `src/__tests__/module-gate.test.tsx` keys off. Because the mark
+ * rides on the component `withModuleWall` RETURNS, a file that wraps a screen
+ * and then default-exports the unwrapped one answers null here, which source
+ * text cannot see.
+ */
+export function moduleWallOf(component: unknown): Module | null {
+  if (component === null || (typeof component !== 'function' && typeof component !== 'object')) return null;
+  const stamped = (component as Record<symbol, unknown>)[MODULE_WALL];
+  if (typeof stamped !== 'string') return null;
+  return (ALL_MODULES as string[]).includes(stamped) ? (stamped as Module) : null;
+}
+
+/**
  * Wraps a route's own component so the wall takes its place when the shop's
  * plan doesn't cover it.
  *
  * The module is named here rather than derived from the pathname so this needs
- * no router at all. That is also why `ROUTE_MODULES` in `entitlements.ts` is no
- * longer the RUNTIME authority for routes: nothing consults it to decide
- * whether a screen is walled. The hardcoded module literal in each route file's
- * own `withModuleWall(...)` call is what decides that. `ROUTE_MODULES` now only
- * drives the navs' 🔒 derivation (`moduleForPath` in admin-sidebar.tsx and
- * admin-tabs.web.tsx) and the test below.
+ * no router at all. That is also why `ROUTE_MODULES` in `entitlements.ts` is
+ * not the RUNTIME authority for a rendering screen: nothing consults it to
+ * decide whether THIS component walls. The hardcoded module literal in each
+ * route file's own `withModuleWall(...)` call is what decides that.
+ * `ROUTE_MODULES` drives the navs' 🔒 derivation (`moduleForPath` in
+ * admin-sidebar.tsx and admin-tabs.web.tsx) and, since it is exported, is the
+ * list `module-gate.test.tsx` holds the routes to -- so it IS the authority on
+ * which routes MUST be walled, just not on what a walled screen then does.
  *
- * The only guard against a future route forgetting the wrapper is
- * `src/__tests__/module-wall.test.tsx:219-228`, and it is worth knowing its
- * limit: it is a SOURCE-TEXT check. It walks every route file under `(admin)`
- * and, for each one `moduleForPath()` says is gated, asserts the file's text
- * contains `withModuleWall('<module>'`. It never renders the route, so it
- * cannot tell whether the wrapped component is the one actually exported as
- * default -- a file that calls `withModuleWall` and then exports the unwrapped
- * screen passes.
+ * The guard against a future route forgetting the wrapper is
+ * `src/__tests__/module-gate.test.tsx`. It does not read source: for every
+ * prefix in `ROUTE_MODULES` it imports the matching route file, asks
+ * `moduleWallOf()` what the DEFAULT EXPORT is gated on, and then renders that
+ * export against a shop with no modules to prove the wall actually comes up.
+ * A file that calls `withModuleWall` and exports the unwrapped screen fails
+ * both halves.
  *
  * The wrapped screen is not rendered at all when the wall is up, so a walled
  * screen never mounts and never fires the queries it would have made.
@@ -135,14 +164,18 @@ export function withModuleWall<P extends object>(
   module: Module,
   Screen: ComponentType<P>,
   options: { title?: string } = {}
-): ComponentType<P> {
+): WalledComponent<P> {
   function Walled(props: P) {
     const { hasModule } = useAuth();
     if (!hasModule(module)) return <UpgradeWall module={module} title={options.title} />;
     return <Screen {...props} />;
   }
   Walled.displayName = `withModuleWall(${Screen.displayName ?? Screen.name ?? 'Screen'})`;
-  return Walled;
+  // defineProperty rather than assignment: non-writable and non-enumerable, so
+  // a later `Object.assign(Screen, ...)` on the way out of some other HOC can
+  // neither overwrite the mark nor carry a stale copy of it onto something
+  // that is not actually walled.
+  return Object.defineProperty(Walled, MODULE_WALL, { value: module }) as WalledComponent<P>;
 }
 
 const styles = StyleSheet.create({

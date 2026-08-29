@@ -103,10 +103,10 @@ Routing, ImprovMX, and Zoho all have free tiers), adding its MX and SPF records 
 Already works. No infrastructure, no cost, longer URL — though `store` reads a good deal better on
 a card than the `s` this option was first written against.
 
-Worth knowing if C is chosen: the editor and the publish bar currently **show and copy
-`<slug>.kaiibi.com`**, the form that does not resolve — not the path form that does. Under A or B
-that resolves itself. Under C it does not, and those two screens would need to show
-`kaiibi.com/store/<slug>` instead. See "What the app tells shops their address is" below.
+As of 2026-08-29 the editor and the publish bar already **show and copy `kaiibi.com/store/<slug>`**
+— they used to show the subdomain form, which does not resolve. So C needs no further work, and
+under A or B one line in `storefrontAddress` switches every surface back. See "What the app tells
+shops their address is" below.
 
 **Suggested order:** A now to unblock shops, B later if shop count justifies the migration.
 
@@ -131,18 +131,29 @@ bar must still read `yusefshop.kaiibi.com` afterwards.
 
 ## What the app tells shops their address is
 
-**The one live consequence of this backlog item, and it is not cosmetic.** Both places a shop can
-read or send its own address build it as `<slug>.kaiibi.com` — the form that does not resolve:
+**Fixed 2026-08-29 — it now shows the path form.** Until then, both places a shop could read or send
+its own address built it as `<slug>.kaiibi.com`, the form that does not resolve, each assembling the
+string itself:
 
-- [`publish-bar.tsx:166`](../../src/components/storefront/editor/publish-bar.tsx) — the address under
+- [`publish-bar.tsx`](../../src/components/storefront/editor/publish-bar.tsx) — the address under
   "Your page is at", the **Copy link** button, and the **Share on WhatsApp** message body.
-- [`content-drawer.tsx:357`](../../src/components/storefront/editor/content-drawer.tsx) — the claimed
-  address, its **Copy link** button, and the suffix shown beside the slug field.
+- [`content-drawer.tsx`](../../src/components/storefront/editor/content-drawer.tsx) — the claimed
+  address, its **Copy link** button, the suffix beside the slug field, and the collision
+  full-address.
 
-Neither has ever emitted `/s/<slug>`, so the segment rename did not touch them. That means a shop
-pressing Copy link today gets a link that fails DNS, while the address that works
-(`kaiibi.com/store/<slug>`) is never shown. Whichever option above is taken, this is the screen to
-check afterwards.
+A shop pressing Copy link got a link that failed DNS at the customer's end, while
+`kaiibi.com/store/<slug>` was never shown. Both now call **`storefrontAddress()`** in
+[`src/lib/storefront-host.ts`](../../src/lib/storefront-host.ts) — the single source, which returns
+the path form and carries the comment explaining why. Nothing else in the app builds a shop address:
+there is no storefront QR (`qr.ts` is receipts), no address on flyers, no URL from Preview, nothing
+server-side, and the storefront's `<Head>` emits no `og:url` or canonical link.
+
+**This did not settle A/B/C.** `slugFromHostname` is untouched and still resolves
+`<slug>.kaiibi.com` to the right shop (and still refuses `www.<slug>.kaiibi.com`), so the moment a
+record exists that form serves. Under **A** or **B**, change the one line in `storefrontAddress` and
+every surface follows. Under **C**, nothing further is needed.
+`storefront-address-one-form.test.tsx` pins display, copy and share to one string and pins that
+string to a route file on disk.
 
 ## Once it works
 

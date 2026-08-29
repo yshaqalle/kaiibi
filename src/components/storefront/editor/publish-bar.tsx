@@ -5,7 +5,7 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { copyText } from '@/lib/copy-text';
-import { APP_DOMAIN } from '@/lib/storefront-host';
+import { storefrontAddress } from '@/lib/storefront-host';
 import type { LapseReason, PublishBlocker } from '@/lib/storefront-admin';
 import { shareOnWhatsApp } from '@/lib/whatsapp';
 
@@ -73,8 +73,8 @@ const LAPSE_COPY: Record<LapseReason, string> = {
 // for in the plain register the rest of this app uses, and ends on the
 // address so it is the last thing read and the easy thing to tap.
 //
-// The address is passed in, never rebuilt here -- it is assembled once, from
-// APP_DOMAIN, at the one place below that also renders it on screen.
+// The address is passed in, never rebuilt here -- it is assembled once, by
+// storefrontAddress, and the same value is rendered on screen and copied.
 function sharePageMessage(shopName: string, address: string): string {
   const who = shopName.trim();
   return `${who || 'Our shop'} is now online — see what we sell and order from your phone: ${address}`;
@@ -152,18 +152,19 @@ export function PublishBar({
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
-  // The address, assembled from APP_DOMAIN and nothing else. The slug is a
-  // SUBDOMAIN, not a path: slugFromHostname (src/lib/storefront-host.ts) only
-  // ever resolves `<slug>.kaiibi.com`, and this screen has already shipped the
-  // `kaiibi.com/<slug>` form once -- an address a shopkeeper printed on a card
-  // and that never worked. The test round-trips what is rendered here through
-  // that same router function so the two cannot drift again.
+  // The address, from storefrontAddress and nowhere else -- never assembled
+  // here. This screen shipped its own copy once, and that copy said
+  // `<slug>.kaiibi.com`, a form no DNS record has ever resolved: a shop
+  // pressed Copy link, sent it, and the customer got a DNS failure. WHICH form
+  // that function returns is its business (and the backlog doc's), not this
+  // component's; what matters here is that the string shown, the string
+  // copied, and the string in the WhatsApp message are all this one value.
   const claimedSlug = slug?.trim() ?? '';
   // ONLY when live. A draft page's address does not resolve, so offering to
   // send it would hand a shopkeeper a link that 404s -- and they would only
   // find out from the customer who tried it.
   const shareable = status === 'live' && claimedSlug.length > 0;
-  const address = `${claimedSlug}.${APP_DOMAIN}`;
+  const address = storefrontAddress(claimedSlug);
 
   const statusLabel = status === 'draft' ? 'Draft' : dirty ? 'Unsaved changes' : 'Live';
   const statusStyle =
