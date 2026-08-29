@@ -1,0 +1,1178 @@
+<meta charset="utf-8" />
+<title>Kaiibi Orders — the table Transactions has, and the stage rail it doesn't</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+
+  /* The app's own light palette, pinned. Frames render the product, so they
+     never follow the document's dark mode — kaiibi has no dark mode yet. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+        --c1:#2f6bff; --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+        --accw:#e6edff; --acci:#1b47b8; --upw:#d9efe4; --upi:#007a38; --dnw:#fbeaec; --dni:#d12339;
+        --refw:#f8efdc; --refi:#8a5a05; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:74ch;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  b.k{font-weight:750;color:var(--ink);}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;white-space:nowrap;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap;}
+  .tag.new{background:var(--tg-a-bg);color:var(--tg-a-fg);}
+  .tag.gap{background:var(--tg-b-bg);color:var(--tg-b-fg);}
+  .tag.blocked{background:var(--tg-c-bg);color:var(--tg-c-fg);}
+  :root{ --tg-a-bg:rgba(47,107,255,.14); --tg-a-fg:#1b47b8;
+         --tg-b-bg:rgba(200,121,26,.18); --tg-b-fg:#a3620f;
+         --tg-c-bg:rgba(215,43,62,.14);  --tg-c-fg:#b21f30; }
+  @media (prefers-color-scheme: dark){
+    :root{ --tg-a-bg:rgba(111,151,255,.18); --tg-a-fg:#9db6ff;
+           --tg-b-bg:rgba(200,121,26,.22);  --tg-b-fg:#e0a556;
+           --tg-c-bg:rgba(215,43,62,.20);   --tg-c-fg:#ff8f9c; }
+  }
+  :root[data-theme="dark"]{ --tg-a-bg:rgba(111,151,255,.18); --tg-a-fg:#9db6ff;
+    --tg-b-bg:rgba(200,121,26,.22); --tg-b-fg:#e0a556;
+    --tg-c-bg:rgba(215,43,62,.20);  --tg-c-fg:#ff8f9c; }
+  :root[data-theme="light"]{ --tg-a-bg:rgba(47,107,255,.14); --tg-a-fg:#1b47b8;
+    --tg-b-bg:rgba(200,121,26,.18); --tg-b-fg:#a3620f;
+    --tg-c-bg:rgba(215,43,62,.14);  --tg-c-fg:#b21f30; }
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;background:var(--pg);padding:12px 0;z-index:5;border-bottom:1px solid var(--ln);}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .switch button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;} .frame.w560{width:560px;}
+  .pair{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;}
+  .pane[hidden]{display:none;}
+
+  /* ── app chrome ───────────────────────────────────────────────── */
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 2px;color:var(--d-mut);font-size:10.5px;letter-spacing:.1em;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .hactions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .btn.dark{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.sm{padding:6px 12px;font-size:11.5px;}
+
+  .grid{display:grid;gap:14px;margin-bottom:14px;}
+  .w1280 .grid.k4{grid-template-columns:repeat(4,1fr);}
+  .w380 .grid.k4{grid-template-columns:repeat(2,1fr);}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx.tight{padding:18px 10px;} .cardx.tight > .crow{margin-left:8px;margin-right:8px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:13px;flex-wrap:wrap;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+
+  .kpi{background:var(--d-soft);border-radius:16px;padding:14px;}
+  .kpi .l{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:22px;font-weight:800;letter-spacing:-.022em;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:11px;color:var(--d-mut2);margin-top:4px;line-height:1.35;}
+  .kpi.urgent{background:var(--accw);} .kpi.urgent .l{color:var(--acci);} .kpi.urgent .n{color:var(--acci);} .kpi.urgent .h{color:var(--acci);opacity:.8;}
+
+  .caveat{display:flex;gap:9px;background:var(--d-soft);border-radius:16px;padding:12px 14px;font-size:12.5px;color:var(--d-ink2);line-height:1.45;margin-bottom:14px;}
+  .caveat .ic{font-size:13px;line-height:1.3;}
+  .caveat b{font-weight:750;}
+
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .tabrow span em{font-style:normal;opacity:.62;margin-left:5px;font-variant-numeric:tabular-nums;}
+  .tabrow span.on em{opacity:.72;}
+  .filterbar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;}
+  .search{background:var(--d-soft);border-radius:12px;height:38px;display:flex;align-items:center;padding:0 13px;font-size:12.5px;color:var(--d-mut2);min-width:250px;flex:1;max-width:340px;gap:8px;}
+
+  /* ── the table ────────────────────────────────────────────────── */
+  table.t{width:100%;border-collapse:collapse;min-width:560px;}
+  .tbl{overflow-x:auto;}
+  table.t th{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);text-align:left;padding:0 10px 10px;border-bottom:1px solid var(--d-ln);white-space:nowrap;}
+  table.t th.r,table.t td.r{text-align:right;}
+  table.t th .ar{opacity:.85;margin-left:3px;}
+  table.t th.sortable{color:var(--d-ink2);}
+  table.t td{padding:11px 10px;border-bottom:1px solid var(--d-ln);font-size:13px;vertical-align:middle;}
+  table.t tr:last-child td{border-bottom:none;}
+  table.t tr.hov td{background:var(--d-soft);}
+  td .p{font-weight:700;color:var(--d-ink);display:block;}
+  td .m{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
+  td.r .p,td.num{font-variant-numeric:tabular-nums;}
+  td.num{color:var(--d-mut);text-align:right;font-size:12.5px;}
+  .money{font-weight:750;font-variant-numeric:tabular-nums;color:var(--d-ink);}
+
+  .stage{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;white-space:nowrap;letter-spacing:.03em;display:inline-block;}
+  .stage.s-new{background:var(--accw);color:var(--acci);}
+  .stage.s-acc{background:var(--d-soft);color:var(--d-ink2);}
+  .stage.s-ready{background:var(--upw);color:var(--upi);}
+  .stage.s-done{background:var(--d-soft);color:var(--d-mut);}
+  .stage.s-can{background:var(--dnw);color:var(--dni);}
+
+  .flag{display:inline-block;font-size:10.5px;font-weight:750;color:var(--loss);margin-top:3px;}
+  .age{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--d-mut);}
+  .age.stale{color:var(--warn);font-weight:750;}
+  .nextbtn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 13px;font-size:11.5px;font-weight:800;color:var(--d-ink2);white-space:nowrap;}
+  .nextbtn.go{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .dash{color:var(--d-mut2);font-size:12.5px;}
+
+  /* ── phone card rows ──────────────────────────────────────────── */
+  .prow{padding:12px 0;border-bottom:1px solid var(--d-ln);}
+  .prow:last-child{border-bottom:none;}
+  .prow .top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .prow .nm{font-size:13.5px;font-weight:800;}
+  .prow .sub{font-size:11.5px;color:var(--d-mut);margin-top:3px;}
+  .prow .bot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;}
+
+  /* ── the sheet ────────────────────────────────────────────────── */
+  .sheet{background:var(--d-pg);border-radius:24px;padding:18px;box-shadow:0 -2px 40px rgba(11,11,13,.14);}
+  .shead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;}
+  .shead .l{display:flex;align-items:center;gap:10px;}
+  .shead h4{margin:0;font-size:18px;font-weight:800;letter-spacing:-.02em;}
+  .slab{font-size:10px;letter-spacing:.1em;font-weight:800;color:var(--d-mut);text-transform:uppercase;margin:0 0 7px;}
+  .sect{margin-bottom:17px;}
+  .sval{font-size:14px;font-weight:700;} .smut{font-size:12.5px;color:var(--d-mut);margin-top:2px;}
+
+  /* stage rail */
+  .rail{display:flex;align-items:flex-start;background:var(--d-sf);border-radius:18px;padding:15px 16px 13px;margin-bottom:17px;}
+  .step{flex:1;min-width:0;position:relative;padding-top:20px;}
+  .step .dot{position:absolute;top:0;left:0;width:13px;height:13px;border-radius:50%;background:var(--d-ln);border:2px solid var(--d-sf);}
+  .step .bar{position:absolute;top:5.5px;left:11px;right:0;height:2px;background:var(--d-ln);}
+  .step:last-child .bar{display:none;}
+  .step.done .dot{background:var(--upi);} .step.done .bar{background:var(--upi);}
+  .step.now .dot{background:var(--acci);box-shadow:0 0 0 3.5px var(--accw);}
+  .step .sn{font-size:11.5px;font-weight:800;color:var(--d-mut2);display:block;}
+  .step.done .sn,.step.now .sn{color:var(--d-ink);}
+  .step .st{font-size:10.5px;color:var(--d-mut2);font-variant-numeric:tabular-nums;display:block;margin-top:1px;}
+  .step.now .st{color:var(--acci);font-weight:750;}
+
+  .lines{margin-top:2px;}
+  .line{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--d-rule);font-size:13px;}
+  .line .nm{flex:1;min-width:0;font-weight:700;}
+  .line .q{width:38px;text-align:right;color:var(--d-mut);font-variant-numeric:tabular-nums;font-size:12.5px;}
+  .line .pr{width:64px;text-align:right;color:var(--d-mut);font-variant-numeric:tabular-nums;font-size:12.5px;}
+  .line .tt{width:72px;text-align:right;font-weight:750;font-variant-numeric:tabular-nums;}
+  .line .short{display:block;font-size:11px;color:var(--loss);font-weight:650;margin-top:2px;}
+
+  .srow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;font-size:13px;}
+  .srow.total{border-top:2px solid var(--d-ink);margin-top:4px;padding-top:11px;font-weight:800;font-size:14px;}
+  .srow .v{font-variant-numeric:tabular-nums;}
+
+  .recon{background:var(--d-sf);border-radius:18px;padding:15px 16px;margin-bottom:17px;}
+  .recon .rl{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:6px 0;}
+  .recon .rl .a{color:var(--d-mut);} .recon .rl .b{font-variant-numeric:tabular-nums;font-weight:700;}
+  .recon .lnk{color:var(--acci);font-weight:750;}
+
+  .actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:4px;flex-wrap:wrap;}
+  .ab{border-radius:12px;padding:12px 20px;font-size:13.5px;font-weight:800;white-space:nowrap;}
+  .ab.p{background:var(--d-ink);color:#fff;} .ab.s{background:var(--d-sf);border:1px solid var(--d-ln);color:var(--d-ink2);}
+  .editlink{font-size:11.5px;font-weight:750;color:var(--acci);}
+
+  /* ── amend ────────────────────────────────────────────────────── */
+  .qty{display:inline-flex;align-items:center;gap:0;border:1px solid var(--d-ln);border-radius:9px;overflow:hidden;background:var(--d-sf);}
+  .qty b{width:34px;text-align:center;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .qty i{font-style:normal;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--d-ink2);background:var(--d-soft);}
+  .line.edit{align-items:flex-start;}
+  .was{color:var(--d-mut2);text-decoration:line-through;font-variant-numeric:tabular-nums;}
+  .drop{font-size:11.5px;font-weight:750;color:var(--loss);}
+  .addline{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px dashed var(--d-rule);font-size:12.5px;color:var(--acci);font-weight:750;}
+
+  .delta{background:var(--accw);border-radius:16px;padding:14px 15px;margin:4px 0 16px;}
+  .delta .dt{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acci);margin-bottom:8px;}
+  .delta .dl{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0;color:var(--acci);}
+  .delta .dl .v{font-variant-numeric:tabular-nums;font-weight:750;}
+  .delta .dl.big{font-size:14px;font-weight:800;border-top:1px solid rgba(27,71,184,.22);margin-top:7px;padding-top:9px;}
+
+  .choice{display:grid;gap:9px;margin:2px 0 16px;}
+  .opt{background:var(--d-sf);border-radius:16px;padding:14px 15px;display:flex;gap:12px;align-items:flex-start;}
+  .opt .ob{flex:0 0 auto;}
+  .opt .oc{min-width:0;} .opt .oc b{font-size:13.5px;font-weight:800;display:block;}
+  .opt .oc span{font-size:12px;color:var(--d-mut);display:block;margin-top:3px;line-height:1.45;}
+
+  .waiting{background:var(--refw);border-radius:16px;padding:12px 14px;display:flex;gap:9px;font-size:12.5px;color:var(--refi);line-height:1.45;margin-bottom:16px;}
+  .waiting b{font-weight:800;}
+  .stage.s-wait{background:var(--refw);color:var(--refi);}
+
+  .wa{background:#1f2c33;color:#fff;border-radius:12px;padding:12px 18px;font-size:13.5px;font-weight:800;display:inline-flex;align-items:center;gap:8px;}
+  .wa .g{width:16px;height:16px;border-radius:50%;background:#25d366;display:inline-block;}
+  .linkbox{background:var(--d-soft);border-radius:12px;padding:11px 13px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--d-ink2);
+    display:flex;align-items:center;justify-content:space-between;gap:10px;word-break:break-all;}
+
+  /* ── the customer page ────────────────────────────────────────── */
+  .cust{background:#fff;border-radius:20px;padding:22px 20px 24px;}
+  .cust .shopname{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);}
+  .cust h5{margin:6px 0 2px;font-size:22px;font-weight:800;letter-spacing:-.02em;}
+  .cust .lead{font-size:13px;color:var(--d-mut);margin:0 0 18px;}
+  .cust .rail{background:var(--d-soft);margin-bottom:18px;}
+  .diffcard{border:1.5px solid var(--acci);border-radius:16px;padding:15px;margin-bottom:18px;}
+  .diffcard .dh{font-size:12.5px;font-weight:800;color:var(--acci);margin-bottom:10px;line-height:1.4;}
+  .diffline{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:7px 0;border-top:1px solid var(--d-ln);}
+  .diffline:first-of-type{border-top:none;}
+  .diffline .l{min-width:0;} .diffline .l b{font-weight:700;display:block;}
+  .diffline .l span{font-size:11.5px;color:var(--d-mut);display:block;margin-top:1px;}
+  .diffline .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .cbtns{display:grid;gap:9px;margin-top:4px;}
+  .cbtn{border-radius:13px;padding:14px;text-align:center;font-size:14px;font-weight:800;}
+  .cbtn.yes{background:var(--d-ink);color:#fff;}
+  .cbtn.no{background:#fff;border:1px solid var(--d-ln);color:var(--d-ink2);}
+  .cust .fine{font-size:11.5px;color:var(--d-mut2);text-align:center;margin-top:13px;line-height:1.5;}
+  .confirmed{background:var(--upw);border-radius:14px;padding:13px 15px;font-size:13px;color:var(--upi);font-weight:750;display:flex;gap:9px;align-items:center;}
+
+  .annot{margin-top:14px;display:grid;gap:9px;}
+  .an{display:flex;gap:9px;font-size:12.5px;color:var(--ink2);line-height:1.45;}
+  .an .no{flex:0 0 20px;height:20px;border-radius:50%;background:var(--ink);color:var(--pg);font-size:11px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;margin-top:1px;}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Storefront · Design</p>
+  <h1>Orders: the table it should have been, and the three things it still can't do</h1>
+  <p class="lede">
+    The screen works — the state machine behind it is airtight — but it is one chip row and one bare table,
+    and a shop that is short on stock has exactly one move: cancel the whole order. This covers the
+    redesign first, then the three capabilities behind it — <b class="k">amending an order</b>, <b class="k">filling
+    part of one</b>, and <b class="k">a link the customer can open</b> — which turn out to be one feature wearing
+    three hats.
+  </p>
+  <p class="note" style="max-width:70ch;margin-bottom:26px;">
+    The through-line: a shop cannot fill an order in full, so it amends it down, sends the customer a link
+    showing exactly what changed, settles the rest on WhatsApp, and carries on. Every piece below exists to
+    serve that one sentence.
+  </p>
+
+  <section>
+    <h2>What "basic" actually is</h2>
+    <p class="h2sub">Feature-by-feature, against the tab it's being measured against.</p>
+    <table class="dtbl">
+      <thead>
+        <tr><th>Transactions has</th><th>Orders has</th><th>Proposed</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A stat strip above the table</td>
+          <td>Nothing — straight into the chips</td>
+          <td>Four tiles: what needs you, what's promised, what's waiting to hand over, what converted</td>
+        </tr>
+        <tr>
+          <td>Search across product, customer, method</td>
+          <td>None</td>
+          <td>Search across order number, customer, phone, landmark</td>
+        </tr>
+        <tr>
+          <td>Sortable column headers</td>
+          <td>Fixed order, newest first</td>
+          <td>Sort by order, customer, total, waiting</td>
+        </tr>
+        <tr>
+          <td>Row actions without opening anything</td>
+          <td>Open the sheet for every move</td>
+          <td>The one legal next move, inline on the row</td>
+        </tr>
+        <tr>
+          <td>CSV export of what's on screen</td>
+          <td>None</td>
+          <td><code>ExportMenu</code>, same component</td>
+        </tr>
+        <tr>
+          <td>A date range that scopes it</td>
+          <td>Every order ever, forever</td>
+          <td>Range scopes <b class="k">Done</b> and <b class="k">Cancelled</b> only — open orders always show in full</td>
+        </tr>
+        <tr>
+          <td>Refund / edit badges that say what happened</td>
+          <td>A status word and nothing else</td>
+          <td>Waiting time, fill shortfalls, and the delivery split, on the row</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:18px;">
+      <b class="k">Not copied:</b> Transactions' table is hand-rolled — <code>#F2F2F2</code> search,
+      <code>#ECECEC</code> row borders, <code>borderRadius: 14</code>, <code>#111111</code> buttons. Those
+      are four of the red flags in <code>building-bento-screens</code>. Orders already uses
+      <code>DataTable</code> and <code>BentoCard</code> correctly, so it copies the <em>density</em>,
+      not the markup. Transactions should eventually come the other way.
+    </p>
+  </section>
+
+  <section>
+    <h2>Three things the current screen can't say</h2>
+    <p class="h2sub">Found while reading the migrations. Each one shows up in the redesign.</p>
+
+    <div class="annot" style="max-width:78ch;">
+      <div class="an"><div class="no">1</div><div>
+        <b class="k">A completed order reaches Transactions for less than the customer paid.</b>
+        <code>complete_storefront_order</code> passes <code>subtotal_cents</code> — goods only — to
+        <code>complete_sale</code>, because the fee would be rejected as an over-payment. The delivery
+        fee is posted separately to <b class="k">4300 Delivery Income</b>. A $47.50 order appears as a
+        $44.50 sale. The books are right; the row is confusing. <span class="tag gap">shown on the row</span>
+      </div></div>
+      <div class="an"><div class="no">2</div><div>
+        <b class="k">Nothing marks a sale as having come from an order.</b> The link runs one way only —
+        <code>orders.sale_id</code> → <code>sales</code>. There is no <code>sales.order_id</code>. Once
+        completed, an online order is indistinguishable from a walk-in.
+        <span class="tag gap">reconciliation block in the sheet</span>
+      </div></div>
+      <div class="an"><div class="no">3</div><div>
+        <b class="k">Editing an order isn't currently possible at all.</b>
+        <code>20260928000300_orders_write_lockdown.sql</code> revoked <code>insert, update, delete</code>
+        on <code>orders</code> from <code>authenticated</code> outright. Every legal move goes through an
+        RPC. Changing a customer's phone or a delivery landmark needs a new
+        <code>security definer</code> function — it is not a UI-only change.
+        <span class="tag blocked">needs a migration</span>
+      </div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="switch" role="tablist">
+      <button role="tab" aria-selected="true" data-pane="p-after">Redesigned · desktop</button>
+      <button role="tab" aria-selected="false" data-pane="p-before">As built today</button>
+      <button role="tab" aria-selected="false" data-pane="p-phone">Phone</button>
+      <button role="tab" aria-selected="false" data-pane="p-sheet">The order sheet</button>
+      <button role="tab" aria-selected="false" data-pane="p-amend">Amend &amp; partial fill</button>
+      <button role="tab" aria-selected="false" data-pane="p-share">The customer's link</button>
+    </div>
+
+    <!-- ══════════════ AFTER · 1280 ══════════════ -->
+    <div class="pane" id="p-after">
+      <div class="frameHead"><b>Orders, redesigned</b><i>1280 · src/app/(admin)/orders.tsx</i></div>
+      <div class="scroller">
+        <div class="frame doc w1280">
+
+          <div class="head">
+            <div>
+              <p class="eyebrow">Storefront</p>
+              <h3>Orders</h3>
+              <p>Every order a customer has placed from your page.</p>
+            </div>
+            <div class="hactions">
+              <span class="pill">7 days ▾</span>
+              <span class="pill">All locations ▾</span>
+              <span class="btn">Export</span>
+            </div>
+          </div>
+
+          <div class="grid k4">
+            <div class="kpi urgent">
+              <div class="l">Needs you now</div>
+              <div class="n">2</div>
+              <div class="h">new, oldest waiting 4h</div>
+            </div>
+            <div class="kpi">
+              <div class="l">Promised</div>
+              <div class="n">$412.00</div>
+              <div class="h">across 5 open orders · not yet revenue</div>
+            </div>
+            <div class="kpi">
+              <div class="l">Ready to hand over</div>
+              <div class="n">$190.00</div>
+              <div class="h">1 order, prepped, uncollected</div>
+            </div>
+            <div class="kpi">
+              <div class="l">Converted · 7 days</div>
+              <div class="n">$1,284.00</div>
+              <div class="h">reached the books as sales</div>
+            </div>
+          </div>
+
+          <div class="caveat">
+            <span class="ic">◆</span>
+            <span><b>$412.00 across 5 open orders is what customers have asked for, not money the shop has
+            taken</b> — none of it has reached the books. It becomes revenue only when an order is completed.</span>
+          </div>
+
+          <div class="cardx tight">
+            <div class="crow">
+              <h4 class="ctitle">Orders</h4>
+              <span class="pill">5 open · 7 days</span>
+            </div>
+            <div class="filterbar" style="margin-left:8px;margin-right:8px;">
+              <div class="tabrow">
+                <span class="on">New <em>2</em></span>
+                <span>Accepted <em>2</em></span>
+                <span>Ready <em>1</em></span>
+                <span>Done <em>18</em></span>
+                <span>Cancelled <em>3</em></span>
+              </div>
+              <div class="search"><span>⌕</span><span>Search order #, customer, phone or landmark</span></div>
+            </div>
+
+            <div class="tbl">
+              <table class="t">
+                <thead>
+                  <tr>
+                    <th class="sortable">Order <span class="ar">▼</span></th>
+                    <th>Status</th>
+                    <th class="sortable">Customer</th>
+                    <th class="r">Items</th>
+                    <th>Fulfilment</th>
+                    <th class="r sortable">Total</th>
+                    <th class="r sortable">Waiting</th>
+                    <th class="r">Next</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="hov">
+                    <td><span class="p">#1042</span><span class="m">14 Aug · 09:12</span></td>
+                    <td><span class="stage s-new">New</span></td>
+                    <td><span class="p">Amina Warsame</span><span class="m">063 441 2290</span></td>
+                    <td class="num">3</td>
+                    <td><span class="p">Deliver · Jigjiga Yar</span><span class="m">opposite Hodan Pharmacy</span></td>
+                    <td class="r"><span class="money">$47.50</span><span class="m">incl. $3.00 delivery</span></td>
+                    <td class="r"><span class="age">2h</span></td>
+                    <td class="r"><span class="nextbtn go">Accept</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1041</span><span class="m">14 Aug · 07:05</span></td>
+                    <td><span class="stage s-new">New</span></td>
+                    <td><span class="p">Khadra Ismail</span><span class="m">063 778 1140</span></td>
+                    <td class="num">1<span class="flag">short 2</span></td>
+                    <td><span class="p">Collect</span></td>
+                    <td class="r"><span class="money">$12.00</span></td>
+                    <td class="r"><span class="age stale">4h</span></td>
+                    <td class="r"><span class="nextbtn go">Accept</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1040</span><span class="m">14 Aug · 10:20</span></td>
+                    <td><span class="stage s-acc">Accepted</span></td>
+                    <td><span class="p">Yusuf Abdi</span><span class="m">063 220 8871</span></td>
+                    <td class="num">6</td>
+                    <td><span class="p">Deliver · Koodbuur</span><span class="m">behind the fuel station</span></td>
+                    <td class="r"><span class="money">$128.00</span><span class="m">incl. $5.00 delivery</span></td>
+                    <td class="r"><span class="age">1h</span></td>
+                    <td class="r"><span class="nextbtn">Mark ready</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1039</span><span class="m">14 Aug · 05:44</span></td>
+                    <td><span class="stage s-acc">Accepted</span></td>
+                    <td><span class="p">Sagal Farah</span><span class="m">063 905 3312</span></td>
+                    <td class="num">2</td>
+                    <td><span class="p">Collect</span></td>
+                    <td class="r"><span class="money">$34.50</span></td>
+                    <td class="r"><span class="age stale">6h</span></td>
+                    <td class="r"><span class="nextbtn">Mark ready</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1038</span><span class="m">14 Aug · 10:58</span></td>
+                    <td><span class="stage s-ready">Ready</span></td>
+                    <td><span class="p">Mustafe Ali</span><span class="m">063 118 4402</span></td>
+                    <td class="num">4</td>
+                    <td><span class="p">Deliver · 26 June</span><span class="m">next to Ganre Hotel</span></td>
+                    <td class="r"><span class="money">$190.00</span><span class="m">incl. $4.00 delivery</span></td>
+                    <td class="r"><span class="age">25m</span></td>
+                    <td class="r"><span class="nextbtn go">Complete</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1037</span><span class="m">13 Aug · 16:30</span></td>
+                    <td><span class="stage s-done">Done</span></td>
+                    <td><span class="p">Hodan Jama</span><span class="m">063 550 7781</span></td>
+                    <td class="num">5</td>
+                    <td><span class="p">Collect</span></td>
+                    <td class="r"><span class="money">$86.00</span><span class="m">sale $86.00</span></td>
+                    <td class="r"><span class="dash">—</span></td>
+                    <td class="r"><span class="dash">—</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1036</span><span class="m">13 Aug · 11:02</span></td>
+                    <td><span class="stage s-can">Cancelled</span></td>
+                    <td><span class="p">Ilhan Nur</span><span class="m">063 332 9095</span></td>
+                    <td class="num">2</td>
+                    <td><span class="p">Deliver · Ahmed Dhagah</span></td>
+                    <td class="r"><span class="money" style="color:var(--d-mut);">$28.00</span><span class="m">never billed</span></td>
+                    <td class="r"><span class="dash">—</span></td>
+                    <td class="r"><span class="dash">—</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">1</div><div><b class="k">The stat strip earns the space by saying something the table can't.</b>
+          "Needs you now" is a count of orders nobody has looked at, with the oldest one's age — that is the
+          only number on this screen a shop must act on within the hour. "Promised" is deliberately not
+          called revenue, and the caveat under it repeats why in words.</div></div>
+        <div class="an"><div class="no">2</div><div><b class="k">Waiting is Orders' own column.</b> A sale is
+          instantaneous, so Transactions has no equivalent and never needed one. An order that has sat
+          unaccepted for four hours is the failure mode this screen exists to prevent, so it gets a sortable
+          column and an amber step past a threshold — with the digits, never colour alone.</div></div>
+        <div class="an"><div class="no">3</div><div><b class="k">One inline button, and only ever the legal one.</b>
+          Read from the same <code>canAccept</code> / <code>canMarkReady</code> / <code>canComplete</code>
+          rules the sheet already uses, which are read off the permitted-moves table in
+          <code>20260928000100_order_transitions.sql</code>. Terminal rows get an em dash, not a disabled
+          button. Cancel is never inline — it needs a typed reason, so it stays in the sheet.</div></div>
+        <div class="an"><div class="no">4</div><div><b class="k">The delivery split is stated on the row.</b>
+          <code>incl. $3.00 delivery</code> under the total, and on a completed order the sale figure it
+          actually became. Finding 1, answered where the confusion happens.</div></div>
+        <div class="an"><div class="no">5</div><div><b class="k">Shortfalls surface before you open anything.</b>
+          <code>checkOrderFulfilment</code> already runs on open; running it for the visible open rows puts
+          "short 2" in the Items column, so a shop sees what it cannot fill while scanning rather than one
+          order at a time.</div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════ BEFORE ══════════════ -->
+    <div class="pane" id="p-before" hidden>
+      <div class="frameHead"><b>As built today</b><i>1280 · unchanged</i></div>
+      <div class="scroller">
+        <div class="frame doc w1280">
+          <div class="head">
+            <div>
+              <p class="eyebrow">Storefront</p>
+              <h3>Orders</h3>
+              <p>Every order a customer has placed from your page.</p>
+            </div>
+          </div>
+
+          <div class="tabrow" style="margin-bottom:14px;">
+            <span class="on">New 2</span><span>Accepted 2</span><span>Ready 1</span><span>Done</span><span>Cancelled</span>
+          </div>
+
+          <div class="cardx tight">
+            <div class="crow"><h4 class="ctitle">Orders</h4><span class="pill">2 orders</span></div>
+            <div class="tbl">
+              <table class="t">
+                <thead>
+                  <tr><th>Order</th><th>Status</th><th>Customer</th><th class="r">Items</th><th>Fulfilment</th><th class="r">Total</th><th class="r">When</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="p">#1042</span></td>
+                    <td><span class="stage s-new">New</span></td>
+                    <td><span class="p">Amina Warsame</span><span class="m">063 441 2290</span></td>
+                    <td class="num">3</td>
+                    <td><span class="p">Deliver · Jigjiga Yar</span><span class="m">opposite Hodan Pharmacy</span></td>
+                    <td class="r"><span class="money">$47.50</span></td>
+                    <td class="r"><span class="age">14 Aug · 09:12</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1041</span></td>
+                    <td><span class="stage s-new">New</span></td>
+                    <td><span class="p">Khadra Ismail</span><span class="m">063 778 1140</span></td>
+                    <td class="num">1</td>
+                    <td><span class="p">Collect</span></td>
+                    <td class="r"><span class="money">$12.00</span></td>
+                    <td class="r"><span class="age">14 Aug · 07:05</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="caveat" style="margin-top:14px;margin-bottom:0;">
+            <span class="ic">◆</span>
+            <span>$412.00 across 5 orders still open is what customers have asked for, not money the shop
+            has taken — none of it has reached the books.</span>
+          </div>
+        </div>
+      </div>
+      <div class="annot">
+        <div class="an"><div class="no">·</div><div>Everything here is correct and none of it is wasted — the
+          caveat in particular is the sharpest thing on the screen and survives unchanged. What's missing is
+          that you cannot tell, without opening seven sheets, which order is the urgent one.</div></div>
+        <div class="an"><div class="no">·</div><div>Only one status at a time is visible, and the chip row is
+          the only filter. There is no range, no search, no sort, and the header row is empty.</div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════ PHONE ══════════════ -->
+    <div class="pane" id="p-phone" hidden>
+      <div class="frameHead"><b>Phone</b><i>380 · the table becomes rows, the strip becomes 2×2</i></div>
+      <div class="pair">
+        <div class="frame doc w380">
+          <div class="head" style="margin-bottom:12px;">
+            <div>
+              <p class="eyebrow">Storefront</p>
+              <h3 style="font-size:24px;">Orders</h3>
+            </div>
+          </div>
+          <div class="hactions" style="margin-bottom:13px;">
+            <span class="pill">7 days ▾</span><span class="btn sm">Export</span>
+          </div>
+
+          <div class="grid k4">
+            <div class="kpi urgent"><div class="l">Needs you</div><div class="n">2</div><div class="h">oldest 4h</div></div>
+            <div class="kpi"><div class="l">Promised</div><div class="n">$412</div><div class="h">5 open</div></div>
+            <div class="kpi"><div class="l">Ready</div><div class="n">$190</div><div class="h">1 order</div></div>
+            <div class="kpi"><div class="l">Converted</div><div class="n">$1.28k</div><div class="h">7 days</div></div>
+          </div>
+
+          <div class="caveat">
+            <span class="ic">◆</span>
+            <span>$412.00 open is what customers have asked for, <b>not money the shop has taken</b>.</span>
+          </div>
+
+          <div class="tabrow" style="margin-bottom:12px;">
+            <span class="on">New <em>2</em></span><span>Accepted <em>2</em></span><span>Ready <em>1</em></span><span>Done</span>
+          </div>
+
+          <div class="cardx">
+            <div class="crow"><h4 class="ctitle">New</h4><span class="pill">2</span></div>
+            <div class="prow">
+              <div class="top">
+                <div style="min-width:0;">
+                  <span class="nm">#1042 · Amina Warsame</span>
+                  <span class="sub">3 items · Deliver · Jigjiga Yar</span>
+                </div>
+                <span class="money">$47.50</span>
+              </div>
+              <div class="bot">
+                <span><span class="stage s-new">New</span> <span class="age" style="margin-left:5px;">2h</span></span>
+                <span class="nextbtn go">Accept</span>
+              </div>
+            </div>
+            <div class="prow">
+              <div class="top">
+                <div style="min-width:0;">
+                  <span class="nm">#1041 · Khadra Ismail</span>
+                  <span class="sub">1 item · Collect <span style="color:var(--loss);font-weight:700;">· short 2</span></span>
+                </div>
+                <span class="money">$12.00</span>
+              </div>
+              <div class="bot">
+                <span><span class="stage s-new">New</span> <span class="age stale" style="margin-left:5px;">4h</span></span>
+                <span class="nextbtn go">Accept</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="max-width:38ch;">
+          <div class="annot" style="margin-top:32px;">
+            <div class="an"><div class="no">1</div><div>The four tiles wrap to 2×2 rather than shrinking —
+              the urgent one stays first, top-left, where the thumb lands.</div></div>
+            <div class="an"><div class="no">2</div><div>Below the table's <code>minWidth</code> the columns
+              become a stacked row: identity and money on top, stage and the next move underneath. No sideways
+              scroll inside a card that is already inside a scrolling page.</div></div>
+            <div class="an"><div class="no">3</div><div>The inline action matters most here — a shop working
+              the phone behind a counter accepts four orders without opening one sheet.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ SHEET ══════════════ -->
+    <div class="pane" id="p-sheet" hidden>
+      <div class="frameHead"><b>The order sheet</b><i>the stage rail, and what a completed order became</i></div>
+      <div class="pair">
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>an open order — #1040, accepted</i></div>
+          <div class="frame doc w560" style="background:#dcdce4;padding:22px;">
+            <div class="sheet">
+              <div class="shead">
+                <div class="l"><h4>Order #1040</h4><span class="stage s-acc">Accepted</span></div>
+                <span class="btn">Close</span>
+              </div>
+
+              <div class="rail">
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Placed</span><span class="st">10:20</span></div>
+                <div class="step now"><span class="dot"></span><span class="bar"></span><span class="sn">Accepted</span><span class="st">1h ago</span></div>
+                <div class="step"><span class="dot"></span><span class="bar"></span><span class="sn">Ready</span><span class="st">—</span></div>
+                <div class="step"><span class="dot"></span><span class="sn">Done</span><span class="st">—</span></div>
+              </div>
+
+              <div class="sect">
+                <p class="slab">Customer <span class="editlink" style="float:right;">Edit</span></p>
+                <div class="sval">Yusuf Abdi</div>
+                <div class="smut">063 220 8871</div>
+              </div>
+
+              <div class="sect">
+                <p class="slab">Fulfilment <span class="editlink" style="float:right;">Edit</span></p>
+                <div class="sval">Deliver · Koodbuur</div>
+                <div class="smut">behind the fuel station</div>
+              </div>
+
+              <div class="sect">
+                <p class="slab">What to collect</p>
+                <div class="lines">
+                  <div class="line"><span class="nm">Basmati rice 5kg</span><span class="q">×2</span><span class="pr">$24.00</span><span class="tt">$48.00</span></div>
+                  <div class="line"><span class="nm">Cooking oil 3L</span><span class="q">×3</span><span class="pr">$18.00</span><span class="tt">$54.00</span></div>
+                  <div class="line"><span class="nm">Sugar 2kg<span class="short">Short by 1 — has 0, needs 1</span></span><span class="q">×1</span><span class="pr">$21.00</span><span class="tt">$21.00</span></div>
+                </div>
+                <div style="margin-top:8px;">
+                  <div class="srow"><span>Goods</span><span class="v">$123.00</span></div>
+                  <div class="srow"><span>Delivery</span><span class="v">$5.00</span></div>
+                  <div class="srow total"><span>Amount to collect</span><span class="v">$128.00</span></div>
+                </div>
+              </div>
+
+              <p style="font-size:12.5px;color:var(--loss);font-weight:650;margin:0 0 15px;line-height:1.45;">
+                This order cannot be filled in full right now. Source more stock, or cancel it below.
+              </p>
+
+              <div class="actions">
+                <span class="ab s">Cancel order</span>
+                <span class="ab p">Mark ready</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>a completed order — #1037, and where its money went</i></div>
+          <div class="frame doc w560" style="background:#dcdce4;padding:22px;">
+            <div class="sheet">
+              <div class="shead">
+                <div class="l"><h4>Order #1037</h4><span class="stage s-done">Done</span></div>
+                <span class="btn">Close</span>
+              </div>
+
+              <div class="rail">
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Placed</span><span class="st">13 Aug 16:30</span></div>
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Accepted</span><span class="st">16:41</span></div>
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Ready</span><span class="st">17:05</span></div>
+                <div class="step done now"><span class="dot"></span><span class="sn">Done</span><span class="st">17:52</span></div>
+              </div>
+
+              <div class="sect">
+                <p class="slab">Customer</p>
+                <div class="sval">Hodan Jama</div>
+                <div class="smut">063 550 7781</div>
+              </div>
+
+              <p class="slab">Where this order's money went</p>
+              <div class="recon">
+                <div class="rl"><span class="a">Goods, paid by cash</span><span class="b">$86.00</span></div>
+                <div class="rl"><span class="a">→ Sale <span class="lnk">#f3a2c1</span>, in Transactions</span><span class="b">$86.00</span></div>
+                <div class="rl" style="border-top:1px solid var(--d-ln);margin-top:5px;padding-top:10px;"><span class="a">Delivery fee</span><span class="b">$0.00</span></div>
+                <div class="rl"><span class="a">→ <span class="lnk">4300 Delivery Income</span></span><span class="b">not charged</span></div>
+              </div>
+
+              <div class="caveat" style="background:var(--d-sf);">
+                <span class="ic">◆</span>
+                <span>A delivered order reaches Transactions for its <b>goods only</b>. The delivery fee is
+                posted straight to 4300 Delivery Income, so the two figures will differ by the fee — that is
+                correct, not a discrepancy.</span>
+              </div>
+
+              <div class="sect">
+                <p class="slab">What was collected</p>
+                <div class="lines">
+                  <div class="line"><span class="nm">Tea leaves 500g</span><span class="q">×4</span><span class="pr">$9.00</span><span class="tt">$36.00</span></div>
+                  <div class="line"><span class="nm">Powdered milk 900g</span><span class="q">×1</span><span class="pr">$50.00</span><span class="tt">$50.00</span></div>
+                </div>
+                <div style="margin-top:8px;">
+                  <div class="srow total"><span>Collected</span><span class="v">$86.00</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">1</div><div><b class="k">The stage rail is the answer to "move it to
+          the different stages".</b> A word in a badge tells you where an order is; the rail tells you where it
+          has been, how long each step took, and what is left. Cancelled renders as a fifth, red terminal step
+          replacing whatever was next — an off-ramp, not a stop on the road.</div></div>
+        <div class="an"><div class="no">2</div><div><b class="k">Edit is drawn, and it is the one part that
+          isn't free.</b> Customer and fulfilment are the two fields worth correcting — a mistyped phone
+          number or a landmark the driver can't find. Both need a new <code>security definer</code> RPC;
+          <code>authenticated</code> has no UPDATE on <code>orders</code>. Line items are deliberately
+          <em>not</em> editable: changing them changes the total the customer agreed to at checkout, and
+          <code>complete_storefront_order</code> already refuses an order whose price has moved
+          (<code>order_total_changed</code>).</div></div>
+        <div class="an"><div class="no">3</div><div><b class="k">The reconciliation block closes finding 1
+          and 2 together.</b> It names the sale the order became and the account the fee went to, so a shop
+          reconciling by hand stops looking for $3.00 that was never missing. It renders only for a completed
+          order — there is nothing to reconcile before that.</div></div>
+        <div class="an"><div class="no">4</div><div>Everything else in the sheet — the shortfall lines, the
+          Goods / Delivery / Total breakdown, the cancellation-reason form, the POS-access note — is what
+          <code>order-detail.tsx</code> already renders today, unchanged.</div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════ AMEND ══════════════ -->
+    <div class="pane" id="p-amend" hidden>
+      <div class="frameHead"><b>Amending an order</b><i>the customer changed their mind, or the shelf is short</i></div>
+      <div class="pair">
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>1 · the shortfall now offers a way out</i></div>
+          <div class="frame doc w560" style="background:#dcdce4;padding:22px;">
+            <div class="sheet">
+              <div class="shead">
+                <div class="l"><h4>Order #1040</h4><span class="stage s-acc">Accepted</span></div>
+                <span class="btn">Close</span>
+              </div>
+
+              <p class="slab">What to collect</p>
+              <div class="lines" style="margin-bottom:14px;">
+                <div class="line"><span class="nm">Basmati rice 5kg</span><span class="q">×2</span><span class="pr">$24.00</span><span class="tt">$48.00</span></div>
+                <div class="line"><span class="nm">Cooking oil 3L</span><span class="q">×3</span><span class="pr">$18.00</span><span class="tt">$54.00</span></div>
+                <div class="line"><span class="nm">Sugar 2kg<span class="short">Short by 1 — has 0, needs 1</span></span><span class="q">×1</span><span class="pr">$21.00</span><span class="tt">$21.00</span></div>
+              </div>
+
+              <p style="font-size:12.5px;color:var(--loss);font-weight:650;margin:0 0 13px;line-height:1.45;">
+                This order cannot be filled in full right now.
+              </p>
+
+              <div class="choice">
+                <div class="opt">
+                  <span class="ob"><span class="ab s" style="padding:9px 14px;font-size:12.5px;">Reduce to what I have</span></span>
+                  <span class="oc"><b>Drop the sugar, send the rest</b>
+                    <span>Order becomes $107.00. The sugar is gone — tell the customer to reorder it.</span></span>
+                </div>
+                <div class="opt">
+                  <span class="ob"><span class="ab s" style="padding:9px 14px;font-size:12.5px;">Split the order</span></span>
+                  <span class="oc"><b>Send what you have, keep the rest</b>
+                    <span>#1040 becomes $107.00 and stays. The sugar moves to a new order #1051, waiting on stock.</span></span>
+                </div>
+                <div class="opt">
+                  <span class="ob"><span class="ab s" style="padding:9px 14px;font-size:12.5px;">Cancel order</span></span>
+                  <span class="oc"><b>None of it goes out</b>
+                    <span>Needs a reason. Nothing reaches the books.</span></span>
+                </div>
+              </div>
+
+              <p style="font-size:12px;color:var(--d-mut);margin:0;line-height:1.5;">
+                Today only the third of these exists.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>2 · the amend form, with what it costs stated</i></div>
+          <div class="frame doc w560" style="background:#dcdce4;padding:22px;">
+            <div class="sheet">
+              <div class="shead">
+                <div class="l"><h4>Amend order #1040</h4></div>
+                <span class="btn">Cancel</span>
+              </div>
+
+              <p class="slab">Lines</p>
+              <div class="lines" style="margin-bottom:6px;">
+                <div class="line edit">
+                  <span class="nm">Basmati rice 5kg<span class="short" style="color:var(--warn);">Price moved $24.00 → $25.50 since checkout</span></span>
+                  <span class="qty"><i>−</i><b>2</b><i>+</i></span>
+                  <span class="tt" style="width:80px;">$51.00</span>
+                </div>
+                <div class="line edit">
+                  <span class="nm">Cooking oil 3L</span>
+                  <span class="qty"><i>−</i><b>3</b><i>+</i></span>
+                  <span class="tt" style="width:80px;">$54.00</span>
+                </div>
+                <div class="line edit">
+                  <span class="nm">Sugar 2kg<span class="drop">Removed — out of stock</span></span>
+                  <span class="qty" style="opacity:.4;"><i>−</i><b>0</b><i>+</i></span>
+                  <span class="tt was" style="width:80px;">$21.00</span>
+                </div>
+                <div class="addline"><span>+</span><span>Add another product</span></div>
+              </div>
+
+              <div class="delta">
+                <div class="dt">What changes</div>
+                <div class="dl"><span>Goods, was $123.00</span><span class="v">$105.00</span></div>
+                <div class="dl"><span>Basmati rice re-priced at today's $25.50</span><span class="v">+$3.00</span></div>
+                <div class="dl"><span>Delivery, unchanged</span><span class="v">$5.00</span></div>
+                <div class="dl big"><span>Customer now pays</span><span class="v">$110.00 <span style="font-weight:600;opacity:.75;">(was $128.00)</span></span></div>
+              </div>
+
+              <div class="sect">
+                <p class="slab">Why — for your records</p>
+                <div class="linkbox" style="font-family:inherit;font-size:12.5px;">
+                  <span>Out of sugar; Amina agreed to drop it on the phone.</span>
+                </div>
+                <div class="smut" style="margin-top:6px;">Kept internal. The customer never sees this.</div>
+              </div>
+
+              <div class="sect">
+                <p class="slab">What to tell the customer — optional</p>
+                <div class="linkbox" style="font-family:inherit;font-size:12.5px;color:var(--d-mut2);">
+                  <span>Sorry, we're out of sugar today — everything else is ready.</span>
+                </div>
+              </div>
+
+              <div class="actions">
+                <span class="ab s">Never mind</span>
+                <span class="ab p">Save &amp; send link</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="frameHead" style="margin-top:30px;"><i>3 · back on the row, the order says it is waiting on someone else</i></div>
+      <div class="scroller">
+        <div class="frame doc w1280">
+          <div class="cardx tight">
+            <div class="tbl">
+              <table class="t">
+                <thead>
+                  <tr><th>Order</th><th>Status</th><th>Customer</th><th class="r">Items</th><th>Fulfilment</th><th class="r">Total</th><th class="r">Waiting</th><th class="r">Next</th></tr>
+                </thead>
+                <tbody>
+                  <tr class="hov">
+                    <td><span class="p">#1040</span><span class="m">amended 11:04</span></td>
+                    <td><span class="stage s-acc">Accepted</span><br /><span class="stage s-wait" style="margin-top:4px;">Awaiting customer</span></td>
+                    <td><span class="p">Yusuf Abdi</span><span class="m">063 220 8871</span></td>
+                    <td class="num">2</td>
+                    <td><span class="p">Deliver · Koodbuur</span></td>
+                    <td class="r"><span class="money">$110.00</span><span class="m was">was $128.00</span></td>
+                    <td class="r"><span class="age">1h</span></td>
+                    <td class="r"><span class="nextbtn">Mark ready</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="p">#1039</span><span class="m">amended 09:20</span></td>
+                    <td><span class="stage s-acc">Accepted</span><br /><span class="stage s-ready" style="margin-top:4px;">✓ Confirmed 09:31</span></td>
+                    <td><span class="p">Sagal Farah</span><span class="m">063 905 3312</span></td>
+                    <td class="num">2</td>
+                    <td><span class="p">Collect</span></td>
+                    <td class="r"><span class="money">$34.50</span></td>
+                    <td class="r"><span class="age">6h</span></td>
+                    <td class="r"><span class="nextbtn go">Mark ready</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">1</div><div><b class="k">Three buttons that each say what they do.</b>
+          A single "partial fulfilment" action with a keep-the-rest toggle is a thing people get wrong at
+          speed. Today only <em>Cancel order</em> exists, which is why a shortfall is currently a dead end.</div></div>
+        <div class="an"><div class="no">2</div><div><b class="k">The re-price is stated, never silent.</b>
+          <code>complete_sale</code> prices from today's <code>products.price_cents</code> and ignores the
+          checkout snapshot — so an amend that keeps the old figure builds an order that can never complete
+          (<code>order_total_changed</code>). Recomputing is mandatory; showing the delta is what makes it
+          honest, and the customer's link is where it gets agreed.</div></div>
+        <div class="an"><div class="no">3</div><div><b class="k">Two reasons, and only one of them travels.</b>
+          "Out of sugar; Amina agreed on the phone" is written for the shop weeks later — the same job
+          <code>cancellation_reason</code> already does, and real ones are blunt. It must never reach a
+          forwarded URL. The customer-facing line is separate, optional, and written to be read.</div></div>
+        <div class="an"><div class="no">4</div><div><b class="k">"Awaiting customer" is a flag, not a sixth
+          status.</b> A new word in the vocabulary would mean touching the <code>status</code> CHECK, the
+          permitted-moves table, <code>ORDERS_NEEDING_ACTION</code>, the tabs and the badge map — for
+          something orthogonal to where the order actually is. It rides alongside the stage instead.</div></div>
+        <div class="an"><div class="no">5</div><div><b class="k">It warns, it does not block.</b> #1040's
+          "Mark ready" is still live, just no longer the filled button. A shop that got a verbal yes must not
+          be locked out because the customer never tapped anything — that only teaches people to route
+          around the feature.</div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════ SHARE LINK ══════════════ -->
+    <div class="pane" id="p-share" hidden>
+      <div class="frameHead"><b>The customer's link</b><i>kaiibi.com/o/&lt;token&gt; · no login, works in any browser</i></div>
+      <div class="pair">
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>what the shop sends</i></div>
+          <div class="frame doc w380">
+            <div class="cardx">
+              <div class="crow"><h4 class="ctitle">Order #1040 amended</h4></div>
+              <div class="linkbox" style="margin-bottom:12px;">
+                <span>kaiibi.com/o/7Qk2mVx9…</span><span class="btn sm">Copy</span>
+              </div>
+              <span class="wa"><span class="g"></span> Send to Yusuf on WhatsApp</span>
+              <p style="font-size:11.5px;color:var(--d-mut);margin:12px 0 0;line-height:1.5;">
+                The same link works for the whole life of the order — send it once and every later change
+                shows up on it.
+              </p>
+            </div>
+          </div>
+
+          <div class="frameHead" style="margin:26px 0 8px;"><i>after they tap yes</i></div>
+          <div class="frame doc w380">
+            <div class="confirmed"><span>✓</span><span>Yusuf confirmed the change at 11:12.</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>what the customer opens</i></div>
+          <div class="frame doc w380" style="background:#dcdce4;">
+            <div class="cust">
+              <div class="shopname">Hodan Grocery</div>
+              <h5>Order #1040</h5>
+              <p class="lead">Placed 14 Aug, 10:20</p>
+
+              <div class="rail">
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Placed</span></div>
+                <div class="step now"><span class="dot"></span><span class="bar"></span><span class="sn">Accepted</span></div>
+                <div class="step"><span class="dot"></span><span class="bar"></span><span class="sn">Ready</span></div>
+                <div class="step"><span class="dot"></span><span class="sn">Done</span></div>
+              </div>
+
+              <div class="diffcard">
+                <div class="dh">Hodan Grocery changed this order and needs you to check it.</div>
+                <p style="font-size:12.5px;color:var(--d-ink2);margin:0 0 11px;line-height:1.45;">
+                  “Sorry, we're out of sugar today — everything else is ready.”
+                </p>
+                <div class="diffline">
+                  <span class="l"><b>Sugar 2kg</b><span>removed</span></span>
+                  <span class="r was">$21.00</span>
+                </div>
+                <div class="diffline">
+                  <span class="l"><b>Basmati rice 5kg</b><span>×2, price changed</span></span>
+                  <span class="r"><span class="was">$48.00</span> $51.00</span>
+                </div>
+                <div class="diffline">
+                  <span class="l"><b>Total</b><span>including $5.00 delivery</span></span>
+                  <span class="r"><span class="was">$128.00</span> <b>$110.00</b></span>
+                </div>
+              </div>
+
+              <div class="cbtns">
+                <span class="cbtn yes">Yes, that's fine</span>
+                <span class="cbtn no">Something's wrong — message the shop</span>
+              </div>
+              <p class="fine">Tapping yes just tells the shop to carry on. Anything else is a conversation —
+                the second button opens WhatsApp.</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead" style="margin-bottom:8px;"><i>the ordinary case — no amendment, just “where is it?”</i></div>
+          <div class="frame doc w380" style="background:#dcdce4;">
+            <div class="cust">
+              <div class="shopname">Hodan Grocery</div>
+              <h5>Order #1038</h5>
+              <p class="lead">Placed 14 Aug, 10:58</p>
+
+              <div class="rail">
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Placed</span></div>
+                <div class="step done"><span class="dot"></span><span class="bar"></span><span class="sn">Accepted</span></div>
+                <div class="step done now"><span class="dot"></span><span class="bar"></span><span class="sn">Ready</span></div>
+                <div class="step"><span class="dot"></span><span class="sn">Done</span></div>
+              </div>
+
+              <div class="confirmed" style="margin-bottom:18px;">
+                <span>◆</span><span>Ready for delivery to 26 June, next to Ganre Hotel.</span>
+              </div>
+
+              <p class="slab">Your order</p>
+              <div class="lines">
+                <div class="line"><span class="nm">Powdered milk 900g</span><span class="q">×2</span><span class="tt">$100.00</span></div>
+                <div class="line"><span class="nm">Tea leaves 500g</span><span class="q">×4</span><span class="tt">$36.00</span></div>
+                <div class="line"><span class="nm">Cooking oil 3L</span><span class="q">×1</span><span class="tt">$50.00</span></div>
+              </div>
+              <div style="margin-top:8px;">
+                <div class="srow"><span>Goods</span><span class="v">$186.00</span></div>
+                <div class="srow"><span>Delivery</span><span class="v">$4.00</span></div>
+                <div class="srow total"><span>To pay on delivery</span><span class="v">$190.00</span></div>
+              </div>
+
+              <span class="wa" style="margin-top:16px;width:100%;justify-content:center;"><span class="g"></span> Message Hodan Grocery</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">1</div><div><b class="k">This is the feature that pays for itself.</b>
+          Most opens will be the third frame — a customer asking "where is my order?" without phoning. The
+          amendment case is the reason to build it; the status case is the reason it gets used.</div></div>
+        <div class="an"><div class="no">2</div><div><b class="k">Yes writes; no doesn't.</b> "Yes, that's
+          fine" calls an anon RPC that stamps <code>customer_confirmed_at</code> and nothing else.
+          "Something's wrong" writes <em>nothing</em> — it opens WhatsApp. A link that has been forwarded,
+          screenshotted or leaked must never be able to cancel or alter an order, so the only anon write is
+          one that agrees with what the shop already proposed.</div></div>
+        <div class="an"><div class="no">3</div><div><b class="k">The token is random, never the order
+          number.</b> <code>assign_order_number</code> is sequential per shop — <code>#1042</code> tells you
+          <code>#1041</code> exists. A guessable URL would hand a stranger a name, a phone number and a
+          delivery landmark.</div></div>
+        <div class="an"><div class="no">4</div><div><b class="k">A fifth anon RPC, added deliberately.</b>
+          <code>71d0dcd</code> cut the anon surface from 74 functions to 4 on purpose, and the survivors are
+          exactly this family — the public storefront. <code>get_public_order(token)</code> belongs to it,
+          but it should arrive with the same argued header the other four carry, returning only what is
+          drawn here: stage, lines, totals, the customer-facing note. No cost prices, no stock levels, no
+          shortfall counts, no internal reason, no sale id.</div></div>
+        <div class="an"><div class="no">5</div><div><b class="k">Links expire.</b> A forwarded URL lives
+          forever otherwise. Some window after the order reaches a terminal state, plus a regenerate action
+          for when a shop knows one went astray — and the RPC answers "not found" identically for a bad
+          token and an expired one.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The loop, end to end</h2>
+    <p class="h2sub">What the shop does, what the customer does, and which of it the app is responsible for.</p>
+    <table class="dtbl">
+      <thead><tr><th>Step</th><th>Where it happens</th><th>What the app records</th></tr></thead>
+      <tbody>
+        <tr><td>Customer places the order</td><td>Storefront</td><td><code>place_storefront_order</code> — now also mints the share token and returns it</td></tr>
+        <tr><td>Shop accepts</td><td>Orders row, inline</td><td><code>transition_order</code>, unchanged</td></tr>
+        <tr><td>Shelf is short, or the customer changes their mind</td><td>Amend sheet</td><td><code>amend_order</code> — new lines, recomputed total, internal reason, customer note, <code>amended_at</code></td></tr>
+        <tr><td>Shop sends the link</td><td>WhatsApp, one tap</td><td>Nothing — the link is stable and already exists</td></tr>
+        <tr><td>Customer reads the diff, replies</td><td>The link, then WhatsApp</td><td><code>confirm_public_order</code> on yes. Nothing on no.</td></tr>
+        <tr><td>Shop carries on</td><td>Orders row, inline</td><td><code>transition_order</code> → ready → <code>complete_storefront_order</code></td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:16px;">
+      The one thing the app deliberately does <b class="k">not</b> do is broker the agreement. It records what
+      the shop proposed, shows the customer exactly that, and notes whether they said yes. The negotiation
+      itself stays on WhatsApp, which is where the order arrived from in the first place
+      (<code>placeOrderViaWhatsApp</code>).
+    </p>
+  </section>
+
+  <section>
+    <h2>What this costs</h2>
+    <p class="h2sub">Roughly, and honestly — the last row is the only one that isn't a screen change.</p>
+    <table class="dtbl">
+      <thead><tr><th>Piece</th><th>Where</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Stat strip + caveat</td><td><code>orders.tsx</code></td><td>Sums over rows already fetched. <code>StatTile variant="bento"</code>.</td></tr>
+        <tr><td>Search, sort, range</td><td><code>orders.tsx</code></td><td>Client-side over <code>listOrders</code>, same shape as Transactions. Range needs <code>listOrders</code> to take a window for the terminal states.</td></tr>
+        <tr><td>Waiting column + staleness</td><td><code>orders.tsx</code></td><td>Derived from <code>createdAt</code>. Needs a threshold decision — 3h is a guess.</td></tr>
+        <tr><td>Inline next action</td><td><code>orders.tsx</code></td><td>Reuses the existing <code>runAction</code> wrapper and the same guards the sheet uses.</td></tr>
+        <tr><td>Row shortfall flags</td><td><code>orders.tsx</code></td><td><code>checkOrderFulfilment</code> per visible open row — batched, or it is one query per row.</td></tr>
+        <tr><td>Delivery split on the row</td><td><code>orders.tsx</code></td><td>Already on <code>ShopOrder</code>; nothing new to fetch.</td></tr>
+        <tr><td>Stage rail</td><td><code>order-detail.tsx</code></td><td>Timestamps need somewhere to come from — <code>orders</code> stores no per-transition history. Either add columns, or the rail shows sequence without times.</td></tr>
+        <tr><td>Reconciliation block</td><td><code>order-detail.tsx</code></td><td>Reads <code>orders.sale_id</code>; the 4300 figure is <code>delivery_fee_cents</code>.</td></tr>
+        <tr><td>Amend: lines, quantities, contact, fulfilment</td><td><b class="k">new migration</b></td><td><code>amend_order</code>, <code>security definer</code>. <code>authenticated</code> has no UPDATE on <code>orders</code>, so none of this is a client change.</td></tr>
+        <tr><td>Amendment audit trail</td><td><b class="k">new migration</b></td><td><code>order_amendments</code> — before/after per line. Doubles as the customer's diff, so it is not overhead.</td></tr>
+        <tr><td>Split into a remainder order</td><td><b class="k">new migration</b></td><td><code>split_order</code> + <code>split_from_order_id</code>. The optional one.</td></tr>
+        <tr><td>Share token + public page</td><td><b class="k">new migration</b> + route</td><td>Random token column, <code>get_public_order(token)</code> as a fifth anon RPC, <code>/o/[token]</code>. <code>vercel.json</code> already rewrites every path to the SPA.</td></tr>
+        <tr><td>Customer confirmation</td><td><b class="k">new migration</b></td><td><code>confirm_public_order(token)</code> — an anon <em>write</em>, so it may only ever stamp agreement, never alter or cancel.</td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:16px;">
+      Four things in that table are real questions rather than work. <b class="k">The staleness threshold</b> —
+      what counts as "too long", and does it differ for collect vs deliver. <b class="k">Whether the rail shows
+      times at all</b> — no per-transition history is stored today, so honest times mean new columns and a
+      trigger, and the cheap version is sequence with no clock. <b class="k">How long a share link lives</b>
+      after an order finishes. And <b class="k">whether an amend may add a product the customer never ordered</b>
+      — drawn here as allowed, but "we substituted something" is a different conversation from "we sent you
+      less", and it may deserve to be refused outright rather than left to a shop's judgement.
+    </p>
+  </section>
+</div>
+
+<script>
+  const btns = [...document.querySelectorAll('.switch button')];
+  btns.forEach((b) => b.addEventListener('click', () => {
+    btns.forEach((o) => {
+      o.setAttribute('aria-selected', String(o === b));
+      document.getElementById(o.dataset.pane).hidden = o !== b;
+    });
+  }));
+</script>
