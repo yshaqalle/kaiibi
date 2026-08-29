@@ -8,6 +8,7 @@ import {
   CartButton, CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
+import { collectLocation } from '@/lib/storefront-collect';
 
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
@@ -56,6 +57,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
       <ConfirmationScreen
         order={checkout.order}
         shopName={storefront.shopName}
+        collectLocation={collectLocation(storefront.collectAddress, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
       />

@@ -485,12 +485,21 @@ export function CheckoutScreen({
 // order-placed.tsx's own header comment on what this trade can honestly
 // promise today.
 export function ConfirmationScreen({
-  order, shopName, colors, onDone,
-}: { order: PlacedOrder; shopName: string; colors: PaletteColors; onDone: () => void }) {
+  order, shopName, collectLocation, colors, onDone,
+}: {
+  order: PlacedOrder;
+  shopName: string;
+  // Composed by the caller from the storefront, the same way CheckoutScreen
+  // does it -- so the counter named on the confirmation is the one named at
+  // checkout. Optional so a caller that predates this still type-checks.
+  collectLocation?: string | null;
+  colors: PaletteColors;
+  onDone: () => void;
+}) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <ScrollView contentContainerStyle={styles.screenBody}>
-        <OrderPlaced order={order} shopName={shopName} colors={colors} />
+        <OrderPlaced order={order} shopName={shopName} collectLocation={collectLocation} colors={colors} />
         <Pressable
           testID="storefront-continue-shopping"
           accessibilityRole="button"
