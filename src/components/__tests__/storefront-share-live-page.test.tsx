@@ -8,7 +8,7 @@ import { ContentDrawer, type ContentDrawerValue } from '@/components/storefront/
 import { PublishBar } from '@/components/storefront/editor/publish-bar';
 import { copyText } from '@/lib/copy-text';
 import { openExternalUrl } from '@/lib/external-url';
-import { APP_DOMAIN, slugFromHostname, storefrontPath } from '@/lib/storefront-host';
+import { APP_DOMAIN, slugFromHostname, storefrontAddress, storefrontPath } from '@/lib/storefront-host';
 import { shareOnWhatsApp } from '@/lib/whatsapp';
 
 // The two seams this file is about, mocked at the module boundary on purpose:
@@ -28,7 +28,12 @@ jest.mock('@/lib/whatsapp', () => {
 });
 
 const SLUG = 'xamdi-electronics';
-const ADDRESS = `${SLUG}.${APP_DOMAIN}`;
+// Built by the app's own single source, not spelled out here. Which FORM that
+// is (`kaiibi.com/store/<slug>` today, because the subdomain has no DNS
+// record) is decided in one place and asserted against the router in
+// storefront-address-one-form.test.tsx; this file's business is that all three
+// share-surfaces emit whatever that one place says.
+const ADDRESS = storefrontAddress(SLUG);
 const SHOP_NAME = 'Xamdi Electronics';
 
 type PublishBarProps = ComponentProps<typeof PublishBar>;
@@ -100,15 +105,17 @@ async function pressAsync(tree: ReturnType<typeof create>, testID: string) {
 }
 
 // Every whitespace-separated word of a message, stripped of the punctuation a
-// sentence puts around a hostname, that ends in the app domain. Used to pull
-// the address back OUT of the WhatsApp message and put it through the router's
-// own parser -- a message carrying `kaiibi.com/xamdi-electronics` yields a
-// token slugFromHostname refuses, which is exactly the failure being guarded.
-function hostsIn(message: string): string[] {
+// sentence puts around an address, that names the app domain. Used to pull the
+// address back OUT of the WhatsApp message so it can be compared with what the
+// screen showed and what the clipboard got -- the three drifting apart is the
+// shape of the bug this file guards. Deliberately matches EITHER form, so a
+// message carrying the wrong one is still found and still fails the comparison
+// rather than yielding an empty list that quietly passes.
+function addressesIn(message: string): string[] {
   return message
     .split(/\s+/)
-    .map((word) => word.replace(/^[^a-z0-9]+/i, '').replace(/[^a-z0-9]+$/i, ''))
-    .filter((word) => word.toLowerCase().endsWith(APP_DOMAIN));
+    .map((word) => word.replace(/^[^a-z0-9]+/i, '').replace(/[^a-z0-9/]+$/i, ''))
+    .filter((word) => word.toLowerCase().includes(APP_DOMAIN));
 }
 
 describe('sharing a live page', () => {
@@ -126,7 +133,7 @@ describe('sharing a live page', () => {
 
   // A draft page has no working address. Offering to share it hands a
   // shopkeeper a link that 404s -- the same class of mistake as the
-  // `kaiibi.com/<slug>` path form this screen already shipped once.
+  // `<slug>.kaiibi.com` form this screen shipped for real, which failed DNS.
   it('offers nothing to share while the page is only a draft', () => {
     const tree = renderBar({ status: 'draft' });
     expect(has(tree, 'publish-bar-address')).toBe(false);
@@ -148,34 +155,34 @@ describe('sharing a live page', () => {
     expect(has(tree, 'publish-bar-share-whatsapp')).toBe(false);
   });
 
-  // The address is a SUBDOMAIN. Asserting it against the router's own parser
-  // -- the function that decides which shop a hostname resolves to -- is what
-  // stops the two drifting: `kaiibi.com/<slug>` parses to null here.
-  it('shows the subdomain form, and one the router actually resolves', () => {
+  // The address on screen is the one the app builds for everyone -- not a
+  // string this component assembled for itself. It shipped its own copy once,
+  // and that copy said `<slug>.kaiibi.com`, which no DNS record resolves.
+  it('shows the address the app builds, not one of its own', () => {
     const shown = textOf(renderBar({ status: 'live' }), 'publish-bar-address');
     expect(shown).toBe(ADDRESS);
-    expect(slugFromHostname(shown)).toBe(SLUG);
+    // And not the bare hostname form: that is what failed at the customer's
+    // end, and the router's own parser is what tells the two apart.
+    expect(slugFromHostname(shown)).toBeNull();
   });
 
   // THE WHOLE CHAIN, END TO END: the address a shop reads on screen and prints
-  // on a card -> the parser that decides which shop a hostname is ->
-  // the path the app redirects that shop's visitor to -> the route file that
-  // has to exist for the page to render at all.
+  // on a card -> the path a visitor to it lands on -> the route file that has
+  // to exist for the page to render at all.
   //
   // Each link was already covered somewhere; NONE of them was pinned to the
   // next. That is precisely how the segment rename could ship broken: the
-  // parser and the redirect could agree on `/store/` while `src/app/store/`
+  // builder and the redirect could agree on `/store/` while `src/app/store/`
   // was never created, and every test above would still pass while a customer
   // got "no shop at this address". The filesystem is the only assertion here
   // that cannot be satisfied by restating a constant.
   it('resolves, end to end, to a route file that actually exists', () => {
     const shown = textOf(renderBar({ status: 'live' }), 'publish-bar-address');
 
-    const slug = slugFromHostname(shown);
-    expect(slug).toBe(SLUG);
-
-    const servedPath = storefrontPath(slug!);
-    expect(servedPath.endsWith(`/${slug}`)).toBe(true);
+    expect(shown.startsWith(`${APP_DOMAIN}/`)).toBe(true);
+    const servedPath = shown.slice(APP_DOMAIN.length);
+    expect(servedPath).toBe(storefrontPath(SLUG));
+    expect(servedPath.endsWith(`/${SLUG}`)).toBe(true);
 
     const segment = servedPath.split('/').filter(Boolean)[0];
     const routeFile = path.join(__dirname, '..', '..', 'app', segment, '[slug].tsx');
@@ -189,8 +196,9 @@ describe('sharing a live page', () => {
     expect(shareOnWhatsApp).toHaveBeenCalledTimes(1);
     const message = (shareOnWhatsApp as jest.Mock).mock.calls[0][0] as string;
 
-    // Carries the address, in the form the router resolves.
-    expect(hostsIn(message).map((host) => slugFromHostname(host))).toEqual([SLUG]);
+    // Carries the address -- the SAME one the screen shows and the clipboard
+    // gets, not merely something domain-shaped.
+    expect(addressesIn(message)).toEqual([ADDRESS]);
     // ...and names the shop, because a forwarded message has no other context.
     expect(message).toContain(SHOP_NAME);
     // The link that actually opens is the one whatsapp.ts builds, not a
