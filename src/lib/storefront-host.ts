@@ -17,6 +17,32 @@ import { validateSlug } from '@/lib/storefront-slug';
 // does not work -- on the one screen whose output gets printed on a card.
 export const APP_DOMAIN = 'kaiibi.com';
 
+// The URL segment a shop's page lives under: `/store/<slug>`.
+//
+// Expo Router is file-based, so this string is not free to say whatever it
+// likes -- it has to be the name of the directory holding the route
+// (`src/app/store/[slug].tsx`). Changing one without the other produces a
+// build that redirects confidently to a page that does not exist, which is
+// why storefront-canonical-path.test.tsx resolves this constant to a file on
+// disk rather than merely comparing it to itself.
+export const STOREFRONT_SEGMENT = 'store';
+
+// The segment shops were given BEFORE the rename, kept alive as a redirect.
+//
+// It is not dead weight and it is not a nicety: `<slug>.kaiibi.com` was never
+// given a wildcard DNS record (docs/backlog/2026-08-27-storefront-wildcard-
+// dns.md), so `/s/<slug>` is the only address that has ever actually worked in
+// public. Every link a shop has printed on a card or sent on WhatsApp is one
+// of these. Deleting `src/app/s/[slug].tsx` turns all of them into 404s.
+export const LEGACY_STOREFRONT_SEGMENT = 's';
+
+// The one place a public storefront path is built. Both redirects go through
+// it -- the hostname one at app boot and the legacy-segment one -- so there is
+// no second copy of the segment to drift from this file's own constant.
+export function storefrontPath(slug: string): string {
+  return `/${STOREFRONT_SEGMENT}/${slug}`;
+}
+
 export function slugFromHostname(hostname: string, appDomain: string = APP_DOMAIN): string | null {
   if (typeof hostname !== 'string') return null;
   const host = hostname.trim().toLowerCase();

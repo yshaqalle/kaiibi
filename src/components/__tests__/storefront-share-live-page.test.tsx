@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import type { ComponentProps } from 'react';
 import { act, create } from 'react-test-renderer';
 
@@ -5,7 +8,7 @@ import { ContentDrawer, type ContentDrawerValue } from '@/components/storefront/
 import { PublishBar } from '@/components/storefront/editor/publish-bar';
 import { copyText } from '@/lib/copy-text';
 import { openExternalUrl } from '@/lib/external-url';
-import { APP_DOMAIN, slugFromHostname } from '@/lib/storefront-host';
+import { APP_DOMAIN, slugFromHostname, storefrontPath } from '@/lib/storefront-host';
 import { shareOnWhatsApp } from '@/lib/whatsapp';
 
 // The two seams this file is about, mocked at the module boundary on purpose:
@@ -152,6 +155,31 @@ describe('sharing a live page', () => {
     const shown = textOf(renderBar({ status: 'live' }), 'publish-bar-address');
     expect(shown).toBe(ADDRESS);
     expect(slugFromHostname(shown)).toBe(SLUG);
+  });
+
+  // THE WHOLE CHAIN, END TO END: the address a shop reads on screen and prints
+  // on a card -> the parser that decides which shop a hostname is ->
+  // the path the app redirects that shop's visitor to -> the route file that
+  // has to exist for the page to render at all.
+  //
+  // Each link was already covered somewhere; NONE of them was pinned to the
+  // next. That is precisely how the segment rename could ship broken: the
+  // parser and the redirect could agree on `/store/` while `src/app/store/`
+  // was never created, and every test above would still pass while a customer
+  // got "no shop at this address". The filesystem is the only assertion here
+  // that cannot be satisfied by restating a constant.
+  it('resolves, end to end, to a route file that actually exists', () => {
+    const shown = textOf(renderBar({ status: 'live' }), 'publish-bar-address');
+
+    const slug = slugFromHostname(shown);
+    expect(slug).toBe(SLUG);
+
+    const servedPath = storefrontPath(slug!);
+    expect(servedPath.endsWith(`/${slug}`)).toBe(true);
+
+    const segment = servedPath.split('/').filter(Boolean)[0];
+    const routeFile = path.join(__dirname, '..', '..', 'app', segment, '[slug].tsx');
+    expect(fs.existsSync(routeFile)).toBe(true);
   });
 
   it('sends the address to WhatsApp through the shared helper', () => {

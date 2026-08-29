@@ -6,7 +6,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider } from '@/hooks/use-auth';
 import { LocaleProvider } from '@/hooks/use-locale';
 import { useUnlockedOrientation } from '@/hooks/use-orientation';
-import { slugFromHostname } from '@/lib/storefront-host';
+import { STOREFRONT_SEGMENT, slugFromHostname, storefrontPath } from '@/lib/storefront-host';
 import { TillKeypad } from '@/components/till-keypad';
 
 SplashScreen.preventAutoHideAsync();
@@ -22,8 +22,15 @@ SplashScreen.preventAutoHideAsync();
 function storefrontRedirect(): string | null {
   if (Platform.OS !== 'web') return null;
   const slug = slugFromHostname(window.location.hostname);
-  if (slug && !window.location.pathname.startsWith('/s/')) {
-    return `/s/${slug}`;
+  // The guard is against the CANONICAL segment only, and deliberately not
+  // against the legacy one: a shop subdomain that arrives on `/s/<slug>` (an
+  // already-shared link, on a host that does resolve) should be moved onto the
+  // canonical path rather than left on the old one. `/s/` does not start with
+  // `/store/`, so that hop happens; `/store/` does, so the next render stops --
+  // which is the whole job of this check, since without it the redirect would
+  // resolve again on every render, forever.
+  if (slug && !window.location.pathname.startsWith(`/${STOREFRONT_SEGMENT}/`)) {
+    return storefrontPath(slug);
   }
   return null;
 }

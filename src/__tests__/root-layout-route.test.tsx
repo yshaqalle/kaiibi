@@ -93,7 +93,7 @@ describe('RootLayout: pre-render storefront redirect', () => {
 
     const redirects = tree!.root.findAllByType(Redirect);
     expect(redirects).toHaveLength(1);
-    expect(redirects[0].props.href).toBe('/s/xamdi');
+    expect(redirects[0].props.href).toBe('/store/xamdi');
     expect(tree!.root.findAllByType(Stack)).toHaveLength(0);
     // Proves the old post-mount `router.replace` path is gone, not merely
     // that a second mechanism was added alongside it.
@@ -115,6 +115,49 @@ describe('RootLayout: pre-render storefront redirect', () => {
     expect(tree!.root.findAllByType(Redirect)).toHaveLength(0);
     expect(tree!.root.findAllByType(Stack)).toHaveLength(1);
     expect(router.replace).not.toHaveBeenCalled();
+
+    act(() => {
+      tree.unmount();
+    });
+  });
+
+  // The loop guard. Once the redirect has landed, the very next render sees a
+  // shop hostname AND a storefront path -- redirecting again would be an
+  // infinite one. Untested before this segment rename, and the rename is
+  // exactly the edit that could break it: a guard still reading the OLD
+  // segment matches nothing on the new path and never stops.
+  it('does not redirect again once the browser is already on the canonical path', () => {
+    setLocation('xamdi.kaiibi.com', '/store/xamdi');
+
+    let tree: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<RootLayout />);
+    });
+
+    expect(tree!.root.findAllByType(Redirect)).toHaveLength(0);
+    expect(tree!.root.findAllByType(Stack)).toHaveLength(1);
+
+    act(() => {
+      tree.unmount();
+    });
+  });
+
+  // A shop subdomain carrying an ALREADY-SHARED old link. It must not be left
+  // sitting on the old segment: the canonical path is what the rest of the app
+  // shows and shares, and one page reachable at two addresses is how they
+  // drift. Redirecting here is safe -- `/store/` is not `/s/`, so the guard
+  // above still stops the loop one hop later.
+  it('sends a shop subdomain on the old path to the new one', () => {
+    setLocation('xamdi.kaiibi.com', '/s/xamdi');
+
+    let tree: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<RootLayout />);
+    });
+
+    const redirects = tree!.root.findAllByType(Redirect);
+    expect(redirects).toHaveLength(1);
+    expect(redirects[0].props.href).toBe('/store/xamdi');
 
     act(() => {
       tree.unmount();
