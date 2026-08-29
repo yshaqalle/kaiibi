@@ -401,7 +401,11 @@ Deno.serve(async (req) => {
         const base = before.trial_ends_at && new Date(before.trial_ends_at) > new Date() ? new Date(before.trial_ends_at) : new Date();
         const trialEnd = new Date(base.getTime() + body.days * 86_400_000);
         const { data: settings } = await adminClient.from('platform_settings').select('default_grace_days').eq('id', true).maybeSingle();
-        const graceDays = settings?.default_grace_days ?? 7;
+        // 30, matching platform_settings.default_grace_days (20260930000400).
+        // The fallback only fires if the singleton settings row cannot be
+        // read at all, and a wrong number here is invisible -- it writes a
+        // grace_until that looks deliberate.
+        const graceDays = settings?.default_grace_days ?? 30;
 
         const { data: after, error } = await adminClient
           .from('shop_subscriptions')
@@ -460,7 +464,8 @@ Deno.serve(async (req) => {
         let after = before;
         if (p.coversTo) {
           const graceRes = await adminClient.from('platform_settings').select('default_grace_days').eq('id', true).maybeSingle();
-          const graceDays = graceRes.data?.default_grace_days ?? 7;
+          // Same 30 as extend_trial above, and for the same reason.
+          const graceDays = graceRes.data?.default_grace_days ?? 30;
           const coversTo = new Date(p.coversTo);
           const { data: updated, error } = await adminClient
             .from('shop_subscriptions')

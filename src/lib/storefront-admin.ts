@@ -11,6 +11,19 @@ import type { StorefrontFlyerLinkKind, StorefrontProduct } from '@/types/models'
 // reasoning for why slug/whatsapp live on shops and the rest on storefronts),
 // so ShopStorefront below is a join, not a table.
 
+// WHY a page the shop did not unpublish is a draft. The 20260930000500 trigger
+// takes a page down whenever a shop crosses back out of a dark state, and it
+// records WHICH dark state -- because the two are not the same news:
+//
+//   'lapsed'    -- the plan ran past its grace month. A bill was missed.
+//   'suspended' -- an operator suspended the shop. The bill may have been fine;
+//                  the shop needs to know a person did this and to reach us.
+//
+// Kept as a union rather than a boolean so the editor cannot say one of these
+// about the other. Mirrors the two values storefronts_lapse_reason_matches_stamp
+// permits in the database.
+export type LapseReason = 'lapsed' | 'suspended';
+
 export type ShopStorefront = {
   shopId: string;
   slug: string | null;
@@ -30,6 +43,22 @@ export type ShopStorefront = {
   // even once, has chosen, whatever it chose, and is never told otherwise
   // again just because it later unpublished.
   firstPublishedAt: string | null;
+  // WHY the page is a draft, when the reason is not the shop's own doing.
+  //
+  // Set by the 20260930000500 trigger at the moment a lapsed shop comes back
+  // -- pays, is extended, or has its window widened -- because that is when
+  // its page is taken down. Once published_at is null nothing else could tell
+  // "the plan lapsed and we took it down" apart from "never published" or "the
+  // shop pulled it down itself", and the editor would have to leave the shop
+  // to guess.
+  //
+  // Cleared by publish_storefront, so the sentence cannot outlive its cause,
+  // and never set for a shop that had nothing published to take down.
+  lapseUnpublishedAt: string | null;
+  // WHICH of the two dark states took it down -- see LapseReason below. Null
+  // exactly when lapseUnpublishedAt is null; the database holds the two
+  // together with a check constraint, so this is never a half-record.
+  lapseUnpublishedReason: LapseReason | null;
   // Whether the shop has asked the flyer band to move on its own
   // (storefronts.auto_advance, 20260930000200). NOT in EditableFields below
   // and deliberately so: publish_storefront (20260925000200) copies a fixed
@@ -93,6 +122,8 @@ function mapStorefrontRow(
     offers_delivery?: boolean | null;
     published_at?: string | null;
     first_published_at?: string | null;
+    lapse_unpublished_at?: string | null;
+    lapse_unpublished_reason?: string | null;
     auto_advance?: boolean | null;
     draft?: Record<string, unknown> | null;
   }
@@ -109,6 +140,15 @@ function mapStorefrontRow(
     offersDelivery: Boolean(sf.offers_delivery),
     publishedAt: sf.published_at ?? null,
     firstPublishedAt: sf.first_published_at ?? null,
+    lapseUnpublishedAt: sf.lapse_unpublished_at ?? null,
+    // Narrowed rather than cast: the column is `text` on the wire, and a value
+    // outside the union would have to render as SOMETHING on screen. Anything
+    // unrecognised reads as "no explanation available", which shows the draft
+    // with no sentence -- the old behaviour -- instead of a wrong sentence.
+    lapseUnpublishedReason:
+      sf.lapse_unpublished_reason === 'lapsed' || sf.lapse_unpublished_reason === 'suspended'
+        ? sf.lapse_unpublished_reason
+        : null,
     autoAdvance: Boolean(sf.auto_advance),
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
@@ -121,7 +161,7 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   const { data, error } = await supabase
     .from('shops')
     .select(
-      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, auto_advance, draft)'
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, draft)'
     )
     .eq('id', shopId)
     .maybeSingle();

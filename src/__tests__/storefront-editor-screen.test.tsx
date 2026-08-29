@@ -117,6 +117,8 @@ const BASE = {
   headline: 'Everything for the house and the phone.', about: null,
   heroImageUrl: null, offersDelivery: false, publishedAt: null,
   firstPublishedAt: null,
+  lapseUnpublishedAt: null,
+  lapseUnpublishedReason: null,
   autoAdvance: false,
   draft: null,
 };
@@ -372,6 +374,84 @@ describe('storefront editor', () => {
 
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
     expect(texts).toContain('Chosen for you');
+  });
+
+  // T4 property 3: after paying, the editor shows the page as a draft AND
+  // SAYS WHY, rather than leaving the shop to guess.
+  //
+  // The state itself is invisible without this: published_at going null looks
+  // identical whether the plan lapsed, the shop unpublished on purpose, or it
+  // never published at all. storefronts.lapse_unpublished_reason
+  // (20260930000500) is the only thing that separates them, and it is cleared
+  // by publish_storefront so the sentence cannot outlive its cause.
+  it('says WHY the page is a draft when a lapse took it down, and offers to publish it again', async () => {
+    const row = { ...BASE, publishedAt: null, firstPublishedAt: '2026-01-01T00:00:00.000Z',
+                  lapseUnpublishedAt: '2026-08-01T00:00:00.000Z',
+                  lapseUnpublishedReason: 'lapsed' as const };
+    (getMyStorefront as jest.Mock).mockResolvedValue(row);
+    (ensureStorefront as jest.Mock).mockResolvedValue(row);
+    (countOnlineProducts as jest.Mock).mockResolvedValue(3);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Draft');
+    expect(texts).toContain('came down while your plan had lapsed');
+    // ...and NOT the other cause's sentence. Without this the two branches
+    // could be collapsed back onto one line and this test would still pass.
+    expect(texts).not.toContain('paused by us');
+
+    // A `wrong` caveat must always carry the action that removes its cause --
+    // here, publishing. caveatAction throws when nothing offers the label, so
+    // this is a real assertion that the button exists and not just that the
+    // words do.
+    const action = caveatAction(tree, 'Publish again');
+    await act(async () => { action.props.onPress(); });
+    expect(publishDraft).toHaveBeenCalledWith('s1');
+  });
+
+  // THE OTHER BRANCH. The same trigger takes the page down when an operator
+  // suspends a shop and then unsuspends it -- a shop that may have been
+  // current on its bill the whole time. Telling that shop its plan lapsed is
+  // false, and it sends it looking for a payment problem it does not have
+  // instead of getting in touch with us. So it gets its own sentence, and the
+  // negative assertion below is what keeps the two from being merged again.
+  it('says the shop was suspended, not that its plan lapsed, when a suspension took the page down', async () => {
+    const row = { ...BASE, publishedAt: null, firstPublishedAt: '2026-01-01T00:00:00.000Z',
+                  lapseUnpublishedAt: '2026-08-01T00:00:00.000Z',
+                  lapseUnpublishedReason: 'suspended' as const };
+    (getMyStorefront as jest.Mock).mockResolvedValue(row);
+    (ensureStorefront as jest.Mock).mockResolvedValue(row);
+    (countOnlineProducts as jest.Mock).mockResolvedValue(3);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Draft');
+    expect(texts).toContain('came down while your account was paused by us');
+    // The false sentence, specifically. This is the review finding.
+    expect(texts).not.toContain('your plan had lapsed');
+    // Who to talk to -- the half a suspended shop cannot get from a lapse
+    // message, and the reason a generic wording would not have been enough.
+    expect(texts).toContain('Get in touch with us');
+
+    // Same rule as above: a `wrong` caveat carries the action that removes its
+    // cause, on this branch too.
+    const action = caveatAction(tree, 'Publish again');
+    await act(async () => { action.props.onPress(); });
+    expect(publishDraft).toHaveBeenCalledWith('s1');
+  });
+
+  // The third case, and the one that keeps both sentences honest: a shop whose
+  // page is a draft for any OTHER reason must not be told either story.
+  // BASE has never published, which is the commonest case by far.
+  it('does not blame a lapse or a suspension for a draft that neither caused', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Draft');
+    expect(texts).not.toContain('came down while your plan had lapsed');
+    expect(texts).not.toContain('came down while your account was paused by us');
   });
 
   it('does not resurface "Chosen for you" once a shop has ever published, even after unpublishing', async () => {

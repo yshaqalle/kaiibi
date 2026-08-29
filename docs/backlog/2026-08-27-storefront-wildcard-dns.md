@@ -2,8 +2,8 @@
 
 **Status:** Backlog — the last unshipped piece of the storefront. All code works; no repo change is needed.
 
-Shops are reachable today at `kaiibi.com/s/<slug>` but **not** at `<slug>.kaiibi.com`, because no
-DNS for shop subdomains was ever created. Deferred twice on purpose:
+Shops are reachable today at `kaiibi.com/store/<slug>` but **not** at `<slug>.kaiibi.com`, because
+no DNS for shop subdomains was ever created. Deferred twice on purpose:
 
 - [`plans/2026-08-24-storefront-foundation.md:2140`](../superpowers/plans/2026-08-24-storefront-foundation.md) — *"the wildcard DNS record is not configured … an infrastructure step that belongs with Plan 2."*
 - [`plans/2026-08-25-storefront-editor.md:828`](../superpowers/plans/2026-08-25-storefront-editor.md) — *"Infrastructure, not code. Point `*.kaiibi.com` at the Vercel project once a shop can claim a slug."*
@@ -21,8 +21,29 @@ Plan 2 shipped slug claiming. This half never happened.
 
 Nameservers are Namecheap's (`dns1`/`dns2.registrar-servers.com`).
 
-`kaiibi.com/s/yusefshop` was loaded in a real browser and renders correctly — hero, three
-products with prices and stock, Add/Ask, WhatsApp and Basket. The storefront itself is sound.
+`kaiibi.com/s/yusefshop` was loaded in a real browser on **2026-08-27** and rendered correctly —
+hero, three products with prices and stock, Add/Ask, WhatsApp and Basket. The storefront itself is
+sound.
+
+That check is recorded exactly as it was run, at the address that existed on the day. **The path
+has since changed** (see below): the same page is now canonically `kaiibi.com/store/yusefshop`,
+and `/s/yusefshop` redirects to it. What was verified — that the storefront renders — still
+stands; the URL it was verified at is no longer the canonical one.
+
+## The path segment is `store`, and `/s/` still works (2026-08-29)
+
+`/s/<slug>` became `/store/<slug>`. `s` was a segment nobody could read aloud, and this address is
+the one shops print on cards.
+
+`/s/<slug>` was **not** removed. Because the subdomain form below never shipped, `/s/` is the only
+address any shop has ever actually been given — every printed card and forwarded WhatsApp link is
+one of those. [`src/app/s/[slug].tsx`](../../src/app/s/%5Bslug%5D.tsx) is now a redirect onto the
+canonical path, so those links still arrive. Both segments are named once, in
+[`src/lib/storefront-host.ts`](../../src/lib/storefront-host.ts), and the app-boot subdomain
+redirect in [`src/app/_layout.tsx`](../../src/app/_layout.tsx) now targets `/store/`.
+
+None of this changes the DNS position: the wildcard record is still missing, and `<slug>.kaiibi.com`
+still does not resolve. Everything below is unaffected.
 
 ## The address has no `www`
 
@@ -77,9 +98,15 @@ Routing, ImprovMX, and Zoho all have free tiers), adding its MX and SPF records 
 - Touches the live site's DNS and the published support address. Do the email migration **first**
   and confirm delivery before switching nameservers.
 
-### C. Do nothing — keep `kaiibi.com/s/<slug>`
+### C. Do nothing — keep `kaiibi.com/store/<slug>`
 
-Already works. No infrastructure, no cost, uglier URL.
+Already works. No infrastructure, no cost, longer URL — though `store` reads a good deal better on
+a card than the `s` this option was first written against.
+
+Worth knowing if C is chosen: the editor and the publish bar currently **show and copy
+`<slug>.kaiibi.com`**, the form that does not resolve — not the path form that does. Under A or B
+that resolves itself. Under C it does not, and those two screens would need to show
+`kaiibi.com/store/<slug>` instead. See "What the app tells shops their address is" below.
 
 **Suggested order:** A now to unblock shops, B later if shop count justifies the migration.
 
@@ -102,8 +129,29 @@ dig +short kaiibi.com MX                  # eforward1-5 must still be present (o
 Then open `https://yusefshop.kaiibi.com` in a browser: it must land on the storefront, and the URL
 bar must still read `yusefshop.kaiibi.com` afterwards.
 
+## What the app tells shops their address is
+
+**The one live consequence of this backlog item, and it is not cosmetic.** Both places a shop can
+read or send its own address build it as `<slug>.kaiibi.com` — the form that does not resolve:
+
+- [`publish-bar.tsx:166`](../../src/components/storefront/editor/publish-bar.tsx) — the address under
+  "Your page is at", the **Copy link** button, and the **Share on WhatsApp** message body.
+- [`content-drawer.tsx:357`](../../src/components/storefront/editor/content-drawer.tsx) — the claimed
+  address, its **Copy link** button, and the suffix shown beside the slug field.
+
+Neither has ever emitted `/s/<slug>`, so the segment rename did not touch them. That means a shop
+pressing Copy link today gets a link that fails DNS, while the address that works
+(`kaiibi.com/store/<slug>`) is never shown. Whichever option above is taken, this is the screen to
+check afterwards.
+
 ## Once it works
 
-The reserved-slug list ([`storefront-slug.ts`](../../src/lib/storefront-slug.ts)) already blocks
-`www`, `app`, `api`, `mail` and 20 others, so a shopkeeper cannot claim a label that would collide
-with infrastructure. No code follow-up is required.
+The reserved-slug list ([`storefront-slug.ts`](../../src/lib/storefront-slug.ts), mirrored in
+`public.reserved_slugs()`) already blocks `www`, `app`, `api`, `mail` and 20 others, so a shopkeeper
+cannot claim a label that would collide with infrastructure. No code follow-up is required.
+
+The `store` segment needs no addition to that list. A slug never occupies a top-level path segment —
+it only ever fills the dynamic half of `/store/<slug>` — so a shop slugged `store` resolves to
+`kaiibi.com/store/store` and collides with nothing. (`s` cannot be claimed at all: both
+`validateSlug` and the `shops_slug_is_a_dns_label` CHECK require three characters.) The list guards
+*subdomains*, which is a question for options A and B, not for the path.

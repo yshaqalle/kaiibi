@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { withModuleWall } from '@/components/module-wall';
 import { ScreenHeader } from '@/components/screen-header';
 import { ContentDrawer, type ContentDrawerFocusRequest, type ContentDrawerValue, type SlugState } from '@/components/storefront/editor/content-drawer';
 import { DeliveryEditor, type SavedArea } from '@/components/storefront/editor/delivery-editor';
@@ -93,7 +94,7 @@ function messageOf(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function StorefrontEditor() {
+function StorefrontEditor() {
   const { shop, locations, hasModule } = useAuth();
   const router = useRouter();
   const shopId = shop?.id ?? null;
@@ -714,6 +715,15 @@ export default function StorefrontEditor() {
         // once the page is live.
         slug={working.slug}
         shopName={shop?.name ?? ''}
+        // WHY the page is a draft, when the shop did not choose that. Set by
+        // the 20260930000500 trigger when a shop comes back out of a dark
+        // state, cleared by publish_storefront -- so this goes null the moment
+        // the shop publishes, and the sentence never outlives its cause.
+        //
+        // The CAUSE goes down, not a boolean: a lapse and a suspension both
+        // land here and the editor says a different thing for each, because
+        // telling a shop that paid on time that its plan lapsed is untrue.
+        unpublishedBy={working.lapseUnpublishedReason}
         onEdit={handleEdit}
         onFocusBlocker={focusBlocker}
         onGoToInventory={handleGoToInventory}
@@ -890,3 +900,8 @@ const styles = StyleSheet.create({
   sheetClose: { fontSize: 13.5, fontWeight: '800', color: theme.bentoAccentInk },
   sheetBody: { padding: 18, paddingBottom: 60 },
 });
+
+// Same wall, and it brings a `ScreenHeader` because this screen is pushed over
+// the admin shell rather than living inside it -- without one, a walled screen
+// would have no Back and no Home. See components/module-wall.tsx.
+export default withModuleWall('storefront', StorefrontEditor, { title: 'Storefront' });

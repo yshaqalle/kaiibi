@@ -22,6 +22,7 @@ import { TakingsHeroCard, type TakingsMethod } from '@/components/dashboard/taki
 import { SalesPaceCard } from '@/components/dashboard/sales-pace-card';
 import { TopMoverCard } from '@/components/dashboard/top-mover-card';
 import { DashboardPageHeader } from '@/components/dashboard/page-header';
+import { withModuleWall } from '@/components/module-wall';
 import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
@@ -185,7 +186,7 @@ type MoneySnapshot = {
   budgets: BudgetRow[];
 };
 
-export default function DashboardScreen() {
+function DashboardScreen() {
   const router = useRouter();
   const { shop, can, hasModule, locations, activeLocation } = useAuth();
   // Time and leave data is RLS-protected; without these the queries would just
@@ -1495,3 +1496,9 @@ const styles = StyleSheet.create({
   },
   error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });
+
+// Wrapped so a shop whose plan doesn't cover this screen gets the upgrade wall
+// HERE, in the slot the screen would have filled, rather than in place of the
+// whole `(admin)` navigator -- which is what used to happen, and what left a
+// lapsed shop with no rail, no ☰ and no tab bar. See components/module-wall.tsx.
+export default withModuleWall('dashboard', DashboardScreen);

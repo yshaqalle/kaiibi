@@ -50,6 +50,9 @@ jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
     shop: mockShop,
     can: (permission: string) => mockPermissions.has(permission),
+    // The screen's default export is wrapped in `withModuleWall` now, so the
+    // module gate is on the way in -- this fixture is a paying shop.
+    hasModule: () => true,
     locations: mockLocations,
     activeLocation: mockLocations[0],
     limitFor: () => null,

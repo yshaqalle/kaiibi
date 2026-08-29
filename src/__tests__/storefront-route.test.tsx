@@ -32,7 +32,7 @@ jest.mock('@/lib/storefront-order', () => ({
 
 import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
 import { placeOrder, placeOrderViaWhatsApp } from '@/lib/storefront-order';
-import StorefrontScreen from '@/app/s/[slug]';
+import StorefrontScreen from '@/app/store/[slug]';
 
 function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
   if (node == null) return [];

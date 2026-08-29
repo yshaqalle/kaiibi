@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Badge } from '@/components/badge';
 import { CategoryChip } from '@/components/category-chip';
+import { withModuleWall } from '@/components/module-wall';
 import { ORDER_STATUS_BADGE, OrderDetail } from '@/components/orders/order-detail';
 import { ScreenHeader } from '@/components/screen-header';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -115,7 +116,7 @@ const COLUMNS: Column<ShopOrder>[] = [
   { key: 'when', header: 'When', numeric: true, width: 130, render: (row) => <ValueCell value={whenLabel(row.createdAt)} tone="muted" /> },
 ];
 
-export default function OrdersScreen() {
+function OrdersScreen() {
   const { shop, can } = useAuth();
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -313,3 +314,8 @@ const styles = StyleSheet.create({
   // (building-bento-screens.md).
   tableBody: { paddingHorizontal: 10 },
 });
+
+// Same wall, and it brings a `ScreenHeader` because this screen is pushed over
+// the admin shell rather than living inside it -- without one, a walled screen
+// would have no Back and no Home. See components/module-wall.tsx.
+export default withModuleWall('storefront', OrdersScreen, { title: 'Orders' });

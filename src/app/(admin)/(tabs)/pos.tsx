@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
+import { withModuleWall } from '@/components/module-wall';
 import { OptionPicker } from '@/components/option-picker';
 import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel, CustomerBlock, PaymentBlock } from '@/components/checkout-panel';
@@ -72,7 +73,7 @@ type CustomerBalanceState = { owedCents: number; oldest: CustomerBalance | null;
 // fresh object each render, so nothing downstream re-runs on identity alone.
 const NO_BALANCE: CustomerBalanceState = { owedCents: 0, oldest: null, sales: [] };
 
-export default function PosScreen() {
+function PosScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile, refreshShop } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
@@ -1632,3 +1633,9 @@ const styles = StyleSheet.create({
   // customer and the one that gets a sale wrong if it is misread, so it does
   // not share a size with "Subtotal".
 });
+
+// Wrapped so a shop whose plan doesn't cover this screen gets the upgrade wall
+// HERE, in the slot the screen would have filled, rather than in place of the
+// whole `(admin)` navigator -- which is what used to happen, and what left a
+// lapsed shop with no rail, no ☰ and no tab bar. See components/module-wall.tsx.
+export default withModuleWall('pos', PosScreen);

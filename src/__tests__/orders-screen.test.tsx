@@ -13,7 +13,10 @@ jest.mock('@/lib/storefront-admin');
 // fetch of its own for WHICH shop it is showing orders for, same as every
 // other (admin) route.
 jest.mock('@/hooks/use-auth', () => ({
-  useAuth: jest.fn(() => ({ shop: { id: 'shop-1' }, can: () => true })),
+  // `hasModule` because the screen's default export is wrapped in
+  // `withModuleWall` now -- this fixture is a shop whose plan carries the
+  // storefront.
+  useAuth: jest.fn(() => ({ shop: { id: 'shop-1' }, can: () => true, hasModule: () => true })),
 }));
 
 import { OrderDetail } from '@/components/orders/order-detail';
@@ -96,7 +99,7 @@ const ORDER: ShopOrder = {
 describe('Orders screen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 'shop-1' }, can: () => true });
+    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 'shop-1' }, can: () => true, hasModule: () => true });
     (getOrderItems as jest.Mock).mockResolvedValue([]);
     (checkOrderFulfilment as jest.Mock).mockResolvedValue([]);
   });
@@ -420,6 +423,7 @@ describe('Orders screen', () => {
         (useAuth as jest.Mock).mockReturnValue({
           shop: { id: 'shop-1' },
           can: (permission: string) => permission !== 'pos.access',
+          hasModule: () => true,
         });
         (listOrders as jest.Mock).mockResolvedValue([ORDER]);
         const tree = await renderScreen();

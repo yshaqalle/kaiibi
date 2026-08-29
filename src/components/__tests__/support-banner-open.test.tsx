@@ -27,6 +27,10 @@ jest.mock('@/hooks/use-auth', () => ({
     canAny: () => true,
     myMembership: { active: true },
     hasModule: () => true,
+    // The rail asks whether a lapsed shop still has a `storefronts` row
+    // (use-storefront-nav.ts). This shop has the module, so it is never asked
+    // -- but the flag is read to decide that, so it has to be here.
+    entitlements: { resolved: true },
   }),
 }));
 jest.mock('@/hooks/use-shop-logo', () => ({ useShopLogo: () => ({ editLogo: jest.fn(), canEditLogo: true }) }));

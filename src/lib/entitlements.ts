@@ -163,6 +163,18 @@ const ROUTE_MODULES: { prefix: string; module: Module }[] = [
   { prefix: '/inventory', module: 'inventory' },
   { prefix: '/product', module: 'inventory' },
   { prefix: '/accounting', module: 'accounting' },
+  // Both halves of the storefront, gated together because they are one
+  // purchase: the page and the orders it takes. Listed here rather than
+  // checked ad hoc in the navs so a lapsed shop tapping the greyed row lands
+  // on the SAME upgrade wall Inventory and Accounting land on -- and so the
+  // navs' existing `moduleForPath(href) && !hasModule(...)` lock derivation
+  // covers these two rows with no second implementation of the treatment.
+  //
+  // Whether the row is OFFERED at all is a separate question this cannot
+  // answer, because it turns on a `storefronts` row existing rather than on
+  // the plan -- see hooks/use-storefront-nav.ts.
+  { prefix: '/storefront', module: 'storefront' },
+  { prefix: '/orders', module: 'storefront' },
 ];
 
 export function moduleForPath(pathname: string): Module | null {

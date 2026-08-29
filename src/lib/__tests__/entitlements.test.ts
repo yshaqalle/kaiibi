@@ -80,6 +80,15 @@ describe('moduleForPath', () => {
     expect(moduleForPath('/accounting')).toBe('accounting');
   });
 
+  // Both storefront routes are gated so a lapsed shop tapping the greyed row
+  // lands on the upgrade wall in (admin)/_layout.tsx -- which is also what
+  // makes the nav's own 🔒 derivation (moduleForPath + hasModule) light up for
+  // them with no second implementation of the lock treatment.
+  it('maps both storefront routes to the storefront module', () => {
+    expect(moduleForPath('/storefront')).toBe('storefront');
+    expect(moduleForPath('/orders')).toBe('storefront');
+  });
+
   it('resolves a nested route through its prefix', () => {
     expect(moduleForPath('/product/new')).toBe('inventory');
     expect(moduleForPath('/product/abc-123')).toBe('inventory');

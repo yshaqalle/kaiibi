@@ -6,11 +6,10 @@ import { SupportSheet } from '@/components/support/support-sheet';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
-import { moduleForPath, MODULES, type Module } from '@/lib/entitlements';
 import { firstAllowedRoute, permissionForPath } from '@/lib/permissions';
 
 export default function AdminLayout() {
-  const { loading, session, profile, permissions, can, myMembership, hasModule, entitlements } = useAuth();
+  const { loading, session, profile, permissions, can, myMembership } = useAuth();
   const pathname = usePathname();
 
   if (loading) {
@@ -56,20 +55,28 @@ export default function AdminLayout() {
     return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }
 
-  // The entitlement half of the same choke point. Checked AFTER permissions so
-  // the more specific answer wins: someone whose role doesn't grant a screen
-  // should be told that, not sold an upgrade for something they still couldn't
-  // open.
+  // The entitlement half of the same gate is NOT here, and that is deliberate.
+  // It used to be: this layout returned an upgrade wall in place of the Stack
+  // below whenever `moduleForPath(pathname)` named a module the shop's plan
+  // didn't carry. Returning it IN PLACE OF the navigator is what broke it --
+  // unmounting a navigator during a client-side transition tears its route out
+  // of the navigation state, so the pathname collapsed from `/storefront` to
+  // `/`, the Stack was rebuilt at its initial route, and `(tabs)/me`'s
+  // `<Redirect href="/people" />` bounced the shop onto Customers. The greyed
+  // 🔒 rows never reached the wall they advertise, and a lapsed shop's
+  // Dashboard was a paywall with no rail, no ☰ and no tab bar.
   //
-  // Renders in place rather than redirecting. A redirect would loop whenever
-  // the un-entitled route IS the landing tab -- and an upgrade wall is the
-  // whole point, since a screen the shop can't reach is exactly where telling
-  // them what it costs belongs.
-  const requiredModule = moduleForPath(pathname);
-  if (requiredModule && !hasModule(requiredModule)) {
-    return <UpgradeScreen module={requiredModule} resolved={entitlements.resolved} />;
-  }
-
+  // So the wall renders per screen instead, inside the shell each screen
+  // already has -- see `withModuleWall` in components/module-wall.tsx, and the
+  // test that fails if a module-gated route forgets it. Redirecting was never
+  // an option either: it would loop whenever the un-entitled route IS the
+  // landing tab.
+  //
+  // The ORDER the two gates answer in is unchanged, and still matters: this
+  // layout refuses on permissions above, before any screen renders, so someone
+  // whose role doesn't grant a screen is told that rather than sold an upgrade
+  // for something they still couldn't open.
+  //
   // `(tabs)` hosts the 5 tab-bar routes (dashboard/pos/inventory/customers/sales)
   // via AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
   // they're detail screens that should push on top of the tab bar, the same
@@ -120,77 +127,10 @@ function NoAccessScreen() {
   );
 }
 
-// A screen the shop's plan doesn't cover. Distinct from NoAccessScreen: that
-// one is about who you are and can only be fixed by the shop owner, this one is
-// about what the shop pays for and is fixed by upgrading.
-//
-// Says plainly that nothing has been lost. A shop that opens Accounting after a
-// lapse and sees only a paywall will assume its books are gone -- the most
-// damaging thing this screen could imply, and the least true.
-function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean }) {
-  const router = useRouter();
-  const meta = MODULES.find((m) => m.key === module);
-  const [supportOpen, setSupportOpen] = useState(false);
-  const [unresolvedSupportOpen, setUnresolvedSupportOpen] = useState(false);
-
-  // The lookup failed, so we genuinely don't know what this shop is entitled
-  // to. Access stays closed -- the server would refuse the writes anyway -- but
-  // telling a possibly-paid-up customer that this "isn't on your plan" would be
-  // a false accusation dressed up as an upsell.
-  //
-  // The copy calls this transient, but there is no retry: a failed entitlement
-  // fetch leaves `resolved` false until the next full auth reload, so this is
-  // as much a dead end as the other two branches and needs the same way out.
-  if (!resolved) {
-    return (
-      <View style={styles.noAccess}>
-        <Text style={styles.noAccessTitle}>Just a moment</Text>
-        <Text style={styles.noAccessBody}>
-          We couldn&apos;t check your plan just now, so this screen is on hold. This is a problem on our side, not
-          with your account.
-        </Text>
-        <Pressable
-          onPress={() => setUnresolvedSupportOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Contact support"
-        >
-          <Text style={styles.noAccessSupport}>Contact support</Text>
-        </Pressable>
-        <SupportSheet visible={unresolvedSupportOpen} onClose={() => setUnresolvedSupportOpen(false)} />
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.noAccess}>
-      <Text style={styles.upgradeLock}>🔒</Text>
-      <Text style={styles.noAccessTitle}>{meta?.label ?? 'This feature'} isn&apos;t on your plan</Text>
-      <Text style={styles.noAccessBody}>{meta?.description}</Text>
-      <Text style={styles.upgradeReassure}>
-        Anything you already added is safe and still here — it just can&apos;t be changed until your plan covers
-        this again.
-      </Text>
-      {/* This screen is the one place a shop can be completely stuck: the module
-          is walled off, so there is no shell, no ☰, and no other route out. */}
-      <Pressable onPress={() => setSupportOpen(true)} accessibilityRole="button" accessibilityLabel="Contact support">
-        <Text style={styles.noAccessSupport}>Contact support</Text>
-      </Pressable>
-      <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
-      <Pressable onPress={() => router.push('/settings')} style={styles.upgradeButton}>
-        <Text style={styles.upgradeButtonText}>See plans</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   noAccess: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, backgroundColor: '#FFFFFF' },
   noAccessTitle: { color: '#111111', fontSize: 18, fontWeight: '800', textAlign: 'center' },
   noAccessBody: { color: '#777777', fontSize: 13, textAlign: 'center', maxWidth: 320, lineHeight: 19 },
   noAccessSignOut: { color: '#111111', fontSize: 12, fontWeight: '800', marginTop: 8 },
   noAccessSupport: { fontSize: 13.5, fontWeight: '800', color: Colors.light.bentoAccentInk, marginBottom: 14 },
-  upgradeLock: { fontSize: 30, marginBottom: 2 },
-  upgradeReassure: { color: '#9A6412', fontSize: 12, textAlign: 'center', maxWidth: 320, lineHeight: 18, marginTop: 2 },
-  upgradeButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 11, marginTop: 10 },
-  upgradeButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
 });

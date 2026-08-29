@@ -21,8 +21,14 @@ jest.mock('expo-router', () => ({ useFocusEffect: () => {} }));
 // directly rather than a list of statuses to filter.
 let mockCount = 0;
 const mockCountOrdersNeedingAction = jest.fn((_shopId: string) => Promise.resolve(mockCount));
+// The badge now also asks whether a shop WITHOUT the module still has a
+// `storefronts` row -- a lapsed shop's orders are still waiting on it
+// (use-storefront-nav.ts). Stubbed at "never had one", which is what every
+// assertion in this file was written against.
+let mockHasStorefrontRow = false;
 jest.mock('@/lib/storefront-admin', () => ({
   countOrdersNeedingAction: (shopId: string) => mockCountOrdersNeedingAction(shopId),
+  getMyStorefront: () => Promise.resolve(mockHasStorefrontRow ? { shopId: 'shop-1' } : null),
 }));
 
 let mockHasModule = true;
@@ -31,10 +37,12 @@ const mockAuth = {
   locations: [],
   can: () => true,
   hasModule: (module: string) => (module === 'storefront' ? mockHasModule : true),
+  entitlements: { resolved: true },
 };
 jest.mock('@/hooks/use-auth', () => ({ useAuth: () => mockAuth }));
 
 import { SettingsNavList, SettingsSidebar } from '@/components/settings/settings-sidebar';
+import { resetStorefrontPresence } from '@/hooks/use-storefront-nav';
 
 // `@testing-library/react-native` is not installed in this repo -- flatten
 // the rendered tree to strings instead, the same pattern
@@ -49,6 +57,8 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
 beforeEach(() => {
   mockCount = 0;
   mockHasModule = true;
+  mockHasStorefrontRow = false;
+  resetStorefrontPresence();
   mockCountOrdersNeedingAction.mockClear();
 });
 
@@ -85,10 +95,26 @@ describe('SettingsSidebar — orders badge', () => {
     expect(texts).not.toContain('0');
   });
 
-  it('never fetches the count for a shop without the storefront module -- property 4', async () => {
+  // Both halves matter, and the name has to say so: "no module" alone is NOT
+  // enough to stay silent any more. A shop that lost the module but still has
+  // a `storefronts` row is a lapse, and the test below it is the one that
+  // pins what happens then.
+  it('never fetches the count for a shop with neither the storefront module nor a storefronts row -- property 4', async () => {
     mockHasModule = false;
+    mockHasStorefrontRow = false;
     await renderSidebar();
     expect(mockCountOrdersNeedingAction).not.toHaveBeenCalled();
+  });
+
+  // The lapse. The module is gone, the page and its orders are not: those
+  // customers are still waiting, and a count that drops to zero the moment
+  // somebody stops paying hides them (use-orders-needing-action-badge.ts).
+  it('still fetches the count for a shop that lost the module but kept its storefront row', async () => {
+    mockHasModule = false;
+    mockHasStorefrontRow = true;
+    mockCount = 2;
+    await renderSidebar();
+    expect(mockCountOrdersNeedingAction).toHaveBeenCalledWith('shop-1');
   });
 });
 

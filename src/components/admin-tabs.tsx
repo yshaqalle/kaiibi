@@ -15,6 +15,7 @@ import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { SupportSheet } from '@/components/support/support-sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { useOrdersNeedingActionBadge } from '@/hooks/use-orders-needing-action-badge';
+import { useStorefrontNavState } from '@/hooks/use-storefront-nav';
 import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
@@ -50,10 +51,11 @@ export default function AdminTabs() {
   const [supportOpen, setSupportOpen] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const canEditShop = can('settings.access');
-  // Identical to admin-sidebar.tsx's: the route guard's permission
-  // (permissions.ts:177,181) AND the module the settings sidebar already gates
-  // these two on. A nav must not offer a door that bounces straight back.
-  const storefrontEnabled = hasModule('storefront') && can('settings.access');
+  // Identical to admin-sidebar.tsx's, through the same hook: offer the rows,
+  // grey them, or show nothing. It carries the route guard's permission
+  // (permissions.ts:177,181) so this nav still never offers a door that would
+  // bounce straight back.
+  const storefront = useStorefrontNavState();
   const ordersBadge = useOrdersNeedingActionBadge();
 
   // Lets the shop logo be changed straight from the header avatar, not just
@@ -148,9 +150,22 @@ export default function AdminTabs() {
                 One tap from ☰ replaces four (☰ -> Settings -> the pane picker
                 -> Storefront, filed under Business between Vendors and
                 Receipt). Kept byte-for-byte in step with admin-sidebar.tsx's
-                menu so the two platforms do not drift. */}
-            {storefrontEnabled && (
+                menu so the two platforms do not drift.
+                This is the phone branch, and the ☰ is the only place these two
+                rows appear on it -- there is no rail here, and no trigger for
+                them below. The tablet branch above hands off to AdminSidebar,
+                whose rail does not carry them either: they are in its ☰ at
+                every width. So #102's rule -- each row once per SCREEN -- is
+                satisfied on both platforms the same way, by there being
+                nowhere else for them to appear at any width. */}
+            {storefront !== 'hidden' && (
               <>
+                {/* A lapsed shop keeps both rows, greyed and locked: the page
+                    and its orders are still there, and this is the only route
+                    back to paying. Tapping still pushes -- /storefront and
+                    /orders are module-gated in entitlements.ts and each route
+                    wraps itself in `withModuleWall`, so the push lands on the
+                    upgrade wall in components/module-wall.tsx. */}
                 <Pressable
                   onPress={() => {
                     setMenuOpen(false);
@@ -159,7 +174,15 @@ export default function AdminTabs() {
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>🌐</Text>
-                  <Text style={[styles.menuItemText, { color: colors.text }]}>Storefront</Text>
+                  {/* `bentoMuted` and NOT `bentoMuted2` for the locked label:
+                      this sheet paints with Colors.dark on a black ground (see
+                      `colors` above), where the second muted step is the DARKER
+                      one and a greyed row would sink into the sheet. Each side
+                      of the ramp is solved against its own ground -- see
+                      admin-sidebar.tsx, which takes `bentoMuted2` for the same
+                      row on white. */}
+                  <Text style={[styles.menuItemText, { color: storefront === 'locked' ? colors.bentoMuted : colors.text }]}>Storefront</Text>
+                  {storefront === 'locked' ? <Text style={styles.menuLock}>🔒</Text> : null}
                 </Pressable>
                 <Pressable
                   onPress={() => {
@@ -169,15 +192,19 @@ export default function AdminTabs() {
                   style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
                   <Text style={[styles.settingsIcon, { color: colors.text }]}>🛍</Text>
-                  <Text style={[styles.menuItemText, { color: colors.text }]}>Orders</Text>
+                  {/* `bentoMuted`, not `bentoMuted2` -- same dark ground, same
+                      reason as the Storefront label above. */}
+                  <Text style={[styles.menuItemText, { color: storefront === 'locked' ? colors.bentoMuted : colors.text }]}>Orders</Text>
                   {/* The count of customers waiting. Server-side, through the
                       one shared hook -- it used to render only inside the
-                      settings sidebar, four taps down. */}
+                      settings sidebar, four taps down. It survives a lapse:
+                      an unpaid plan does not un-order the orders. */}
                   {ordersBadge > 0 ? (
                     <View style={styles.menuBadgeSlot}>
                       <Badge label={ordersBadge > 9 ? '9+' : String(ordersBadge)} tone="danger" />
                     </View>
                   ) : null}
+                  {storefront === 'locked' ? <Text style={[styles.menuLock, ordersBadge > 0 && styles.menuLockAfterBadge]}>🔒</Text> : null}
                 </Pressable>
                 <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
               </>
@@ -320,6 +347,8 @@ const styles = StyleSheet.create({
   menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, paddingVertical: 6, overflow: 'hidden' },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
   menuItemText: { fontSize: 14, fontWeight: '700' },
+  menuLock: { fontSize: 11, marginLeft: 'auto' },
+  menuLockAfterBadge: { marginLeft: 6 },
   menuBadgeSlot: { marginLeft: 'auto' },
   menuDivider: { height: StyleSheet.hairlineWidth },
 });
