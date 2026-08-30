@@ -879,6 +879,35 @@ describe('Orders screen', () => {
     // replays the exact move that failed (Accept, on the same order), and a
     // successful retry clears the caveat rather than leaving a stale banner
     // up once the thing it complained about is no longer true.
+    // THE RETRY MUST NOT OUTLIVE THE ROW IT TARGETS. The banner sits above
+    // the table, outside anything the tab filter touches, so a failure on
+    // "New" used to follow the shop to "Ready" -- where "Try again" would
+    // replay Accept against an order that is not on screen, and succeed
+    // silently, because the row whose state changed is not rendered. A shop
+    // would see a banner clear and nothing else happen.
+    it('withdraws the retry when the row it targets is no longer on screen', async () => {
+      (orderErrorMessage as jest.Mock).mockReturnValue(undefined);
+      (acceptOrder as jest.Mock).mockRejectedValue(new Error('boom'));
+      const tree = await renderScreen([
+        makeOrder({ id: 'pending-1', number: 1042, status: 'pending' }),
+        makeOrder({ id: 'ready-1', number: 1043, status: 'ready' }),
+      ]);
+
+      await act(async () => {
+        press(findByLabel(tree, 'Accept order 1042')!);
+      });
+      expect(tree.root.findAllByType(Caveat).find((c) => c.props.tone === 'wrong')).toBeTruthy();
+
+      // Switch away: the failed order is not in this tab.
+      pressChip(tree, 'Done');
+      expect(tree.root.findAllByType(Caveat).find((c) => c.props.tone === 'wrong')).toBeUndefined();
+
+      // ...and it comes back on returning, rather than being thrown away --
+      // the failure is still true, it was only off screen.
+      pressChip(tree, 'New 1');
+      expect(tree.root.findAllByType(Caveat).find((c) => c.props.tone === 'wrong')).toBeTruthy();
+    });
+
     it('offers a retry on the failed-inline-action caveat that replays the same move and clears on success', async () => {
       (orderErrorMessage as jest.Mock).mockReturnValue(undefined);
       (acceptOrder as jest.Mock).mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(undefined);

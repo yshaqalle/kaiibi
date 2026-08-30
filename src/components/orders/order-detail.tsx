@@ -168,7 +168,21 @@ function RailStep({ label, state, last }: { label: string; state: RailStepState;
   // rule StatementRow's profit/loss colouring follows.
   const current = state === 'current' || state === 'cancelled';
   return (
-    <View style={styles.railStep} accessibilityLabel={current ? `Current stage: ${label}` : undefined}>
+    // `accessible` AND a role, not a bare label. A View is not an
+    // accessibility element on its own: React Native skips a label on one
+    // that has not opted in, and RN-Web renders a plain <div>, where
+    // aria-label on a roleless generic is ignored by screen readers. The
+    // label sat here doing nothing for both platforms -- the one signal a
+    // non-sighted shopkeeper had for which stage the order is at.
+    //
+    // Only the CURRENT step opts in. Marking every step accessible would
+    // announce four elements where the rail conveys one fact.
+    <View
+      style={styles.railStep}
+      accessible={current}
+      accessibilityRole={current ? 'text' : undefined}
+      accessibilityLabel={current ? `Current stage: ${label}` : undefined}
+    >
       <View style={styles.railStepHead}>
         <View
           style={[

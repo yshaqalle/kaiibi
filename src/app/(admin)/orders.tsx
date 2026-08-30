@@ -646,7 +646,20 @@ function OrdersScreen() {
             after runAction's own catch) and cleared together (a later
             success clears both), so this can only be non-null here for a
             failure that actually came from an inline row action. */}
-        {!selectedOrder && failedRowAction && actionError ? (
+        {/* GATED ON THE ROW STILL BEING ON SCREEN, not merely on a failure
+            having happened. This banner sits above the table, outside
+            everything the tab chips and the search box filter, so a failure
+            on New used to follow the shop to Ready -- where "Try again"
+            replayed Accept against an order that was not rendered, and
+            succeeded silently, because the row whose state changed was not
+            there to redraw. A banner clearing and nothing else happening is
+            worse than no banner.
+            `filteredOrders`, not `orders.filter(status)`: a search that
+            narrows the row off screen leaves the retry just as unanchored as
+            a tab switch does. It is withdrawn, not discarded -- come back to
+            the tab and it returns, because the failure is still true. */}
+        {!selectedOrder && failedRowAction && actionError
+          && filteredOrders.some((o) => o.id === failedRowAction.id) ? (
           <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => runRowAction(failedRowAction) }}>
             {actionError}
           </Caveat>

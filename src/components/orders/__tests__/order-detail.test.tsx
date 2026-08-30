@@ -143,7 +143,15 @@ describe('OrderDetail', () => {
 
     it('marks the current step for a reader who cannot rely on colour alone', () => {
       const tree = renderDetail({ order: { ...ORDER, status: 'accepted' } });
-      expect(find(tree, 'Current stage: Accepted')).toBeTruthy();
+      // ASSERTS IT IS AN ACCESSIBILITY ELEMENT, not merely that the prop is
+      // present. The old version checked only for the label -- which
+      // react-test-renderer happily reports on a bare View that neither RN
+      // nor the web would ever announce. Found by reading the platform rules,
+      // not by the suite, which stayed green through the whole defect.
+      const step = find(tree, 'Current stage: Accepted');
+      expect(step).toBeTruthy();
+      expect(step!.props.accessible).toBe(true);
+      expect(step!.props.accessibilityRole).toBe('text');
     });
 
     // Cancelled is an off-ramp, not a stop on the road -- showing it as a
