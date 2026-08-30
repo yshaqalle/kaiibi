@@ -8,7 +8,7 @@
 -- shop can now AMEND an order, and had no way to tell the customer what
 -- changed except to type it out.
 --
--- This is `get_public_order`, keyed on the capability token 20261013000000
+-- This is `get_public_order`, keyed on the capability token 20261016000000
 -- mints.
 --
 --

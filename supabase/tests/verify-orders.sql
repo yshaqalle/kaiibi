@@ -1161,7 +1161,7 @@ begin
     returning id into v_token_prod;
 
   --
-  -- Part 3 (20261013000000). The token is a CAPABILITY -- it is the only
+  -- Part 3 (20261016000000). The token is a CAPABILITY -- it is the only
   -- thing get_public_order accepts -- so the properties asserted here are the
   -- ones that make it safe to hand to a stranger over WhatsApp: it is not
   -- guessable from the order, it is not the same twice, and it is made of

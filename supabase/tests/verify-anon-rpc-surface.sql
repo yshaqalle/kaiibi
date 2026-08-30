@@ -50,7 +50,7 @@ declare
     'get_public_storefront',
     'get_public_storefront_products',
     'place_storefront_order',
-    -- ADDED BY 20261015000000, and this list going from four to five is a
+    -- ADDED BY 20261017000000, and this list going from four to five is a
     -- deliberate act rather than a consequence -- this check is what made it
     -- one, by going red the moment the function was granted.
     --
@@ -63,7 +63,7 @@ declare
     -- -- is asserted in verify-public-order.sql, against the whole
     -- serialised payload rather than field by field.
     'get_public_order',
-    -- ALSO 20261015000000, AND THIS ONE WRITES.
+    -- ALSO 20261017000000, AND THIS ONE WRITES.
     --
     -- Every other name on this list is a read. confirm_public_order is the
     -- first write this application has ever granted to anon, so it gets the

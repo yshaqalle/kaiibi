@@ -1,5 +1,20 @@
 -- An order carries its own link.
 --
+-- ## Numbered 20261016000000, and it was 20261013000000 first
+--
+-- 20261014000000 (the register-guard re-assert) reached production BEFORE
+-- this branch merged. `db push` applies a migration whose version is not yet
+-- recorded, but a version LOWER than the newest applied one is "out of
+-- order" and the CLI stops to ask for `--include-all`. At 13 this file would
+-- have triggered that prompt on every future deploy of this branch; at 16 it
+-- never does. 20261015000000 moved to 17 with it, to keep the pair in order.
+--
+-- 20261014000000's own header still refers to this file as 13. THAT COMMENT
+-- IS DELIBERATELY NOT CORRECTED: that migration is merged and applied on
+-- production, and editing an applied migration so the repo's copy no longer
+-- matches what ran is precisely the failure it was written to fix. A stale
+-- cross-reference is the cheaper of the two mistakes.
+--
 -- Part 3. A customer who has ordered has no way to find out what happened
 -- next: `orders` is shut to `anon` entirely (20260928000300), the only anon
 -- surface is the four storefront reads plus place_storefront_order, and the
