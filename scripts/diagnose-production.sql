@@ -13,6 +13,13 @@
 -- every file-based check said the database was correct while it was not. Only
 -- pg_proc knows what is actually deployed.
 
+-- PAGER OFF, and this line is load-bearing rather than tidy. Check 2 below
+-- was silently swallowed on three separate production runs: it was the only
+-- query here wide enough to trip psql's pager, and a paged result in a
+-- scripted run prints the \echo header, no rows, and carries on to the next
+-- check. The one answer this script exists to give was the one it never gave.
+\pset pager off
+
 \echo ''
 \echo '=== 1. The last ten migrations this database records as applied ==='
 \echo '    Compare against: ls supabase/migrations | tail -10'
@@ -28,10 +35,17 @@ select version
 \echo '    16 arguments -- under ANY name -- means any member with pos.access'
 \echo '    can defeat a shop''s require_open_register setting with one extra'
 \echo '    JSON field. That is the hole 20261011000000 closes.'
-select p.pronargs                                as argument_count,
-       array_to_string(p.proargnames, ', ')      as arguments,
-       case when p.pronargs = 15 then 'OK'
-            else 'EXPOSED -- push 20261011000000' end as verdict
+-- AGGREGATED, so this ALWAYS returns exactly one row. The previous version
+-- selected one row per overload and printed the full argument NAME LIST --
+-- a few hundred characters wide, which is what tripped the pager. It also
+-- meant "no output" was ambiguous between a swallowed result and a function
+-- that does not exist. Now silence is impossible and a missing function says
+-- so in words.
+select coalesce(string_agg(p.pronargs::text, ' + ' order by p.pronargs),
+                'NONE -- complete_sale is missing entirely')       as arg_counts,
+       case when count(*) = 1 and max(p.pronargs) = 15 then 'OK -- the register guard is not a parameter'
+            when count(*) = 0                          then 'BROKEN -- complete_sale does not exist'
+            else 'EXPOSED -- push 20261014000000' end              as verdict
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
  where n.nspname = 'public' and p.proname = 'complete_sale';
@@ -57,10 +71,16 @@ select p.proname,
 
 \echo ''
 \echo '=== 4. The intended anon RPC surface ==='
-\echo '    EXPECT EXACTLY FOUR: get_public_storefront,'
+\echo '    EXPECT EXACTLY SIX: get_public_storefront,'
 \echo '    get_public_storefront_products, get_public_delivery_areas,'
-\echo '    place_storefront_order. A fifth is a decision, not an accident --'
-\echo '    the surface was deliberately narrowed from 74 to 4.'
+\echo '    place_storefront_order, and -- since 20261017000000 --'
+\echo '    get_public_order and confirm_public_order, the customer''s own'
+\echo '    order link. A SEVENTH is a decision, not an accident: the surface'
+\echo '    was deliberately narrowed from 74 to 4, and every addition since'
+\echo '    has had to argue for itself in verify-anon-rpc-surface.sql.'
+\echo '    confirm_public_order is the only WRITE on this list. It stamps an'
+\echo '    agreement and nothing else -- it cannot alter a line, a total, a'
+\echo '    status, or cancel anything.'
 select p.proname
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
