@@ -22,6 +22,29 @@
 - **`DataTable` already scrolls horizontally inside the card.** Never wrap it in another `ScrollView horizontal`.
 - **A button that fails is worse than no button.** Every action offered is read from the permitted-moves table (`20260928000100`), the same guards `order-detail.tsx` already derives.
 - **Tests:** `npm test`. **Types:** `npx tsc --noEmit`. **Lint:** `npm run lint` — it currently reports pre-existing failures; your job is not to move that number, only not to add to it. Measure it before you start.
+
+- **⚠ THIS REPO HAS NO `@testing-library/react-native`.** *(Corrected 2026-08-29 after Task 2 hit it. The test snippets written in Tasks 3–6 below use `render`, `getByText`, `getByLabelText`, `getByPlaceholderText` and `fireEvent` — **none of those exist here.** Treat those snippets as a statement of what to assert, not as code to paste, and translate every one into the idiom below.)*
+
+  Component tests use `react-test-renderer` directly, and assert against **props on found components**, not rendered text. From `src/__tests__/orders-screen.test.tsx`:
+
+  ```tsx
+  // Mount: renderScreen(orders?) installs the listOrders mock and wraps in act().
+  const tree = await renderScreen([makeOrder({ status: 'pending' })]);
+
+  // Find a component by type, then read its props:
+  tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)
+  tree.root.findAllByType(StatTile).find((n) => n.props.label === 'Needs you now')
+
+  // Simulate interaction by CALLING THE PROP, there is no fireEvent:
+  tree.root.findByType(DataTable).props.onRowPress(ORDER);
+
+  // Text, when you genuinely need it, via the file's own helper:
+  textsIn(tree.toJSON())
+  ```
+
+  **Assert on props wherever you can.** `findByType(DataTable).props.rows` tells you exactly which orders survived a filter or a sort; scraping text tells you only that some string appeared somewhere. The former fails loudly when the logic breaks, which is the whole point.
+
+- **A fixture whose values do not DISCRIMINATE makes a test decorative.** Task 1 shipped three tests that could not fail — one asserted `toContain` on a *number* with an `?.` that silently skipped it; one checked "does not mutate" against a fixture already in sorted order; one checked "oldest **pending**" against a fixture where the oldest pending order was also the oldest order outright. All three passed under a mutated implementation. For every assertion, ask: **what change to the implementation would this catch?** If the answer is "none", it is a finding, not coverage — and say so rather than quietly patching it.
 - **Deliberately NOT in this part:** a date range over orders. `listOrders` fetches every order a shop has ever placed and the Done tab therefore grows without bound. That is real, and it needs `listOrders` to take a window — a data-layer change with its own test surface. Logged as a follow-up; do not add it here.
 
 ---
@@ -67,6 +90,12 @@
 **`now` is a parameter, never `new Date()` inside.** A function that reads the clock cannot be tested without freezing time, and the screen needs one consistent `now` across a render anyway — otherwise two rows compare against two different clocks.
 
 - [ ] **Step 1: Write the failing tests**
+
+> **⚠ The snippet below is written in `@testing-library` idiom, which THIS REPO DOES NOT HAVE.**
+> It states *what to assert*, not code to paste. Translate it to the `react-test-renderer`
+> idiom in Global Constraints — find components by type and assert on their **props**,
+> call prop handlers directly instead of `fireEvent`. See Task 2's tests for a worked example.
+
 
 Create `src/lib/__tests__/orders-reporting.test.ts`:
 
@@ -409,6 +438,12 @@ Four `StatTile variant="bento"` in a `BentoCard`, above the existing table, with
 
 - [ ] **Step 1: Write the failing tests**
 
+> **⚠ The snippet below is written in `@testing-library` idiom, which THIS REPO DOES NOT HAVE.**
+> It states *what to assert*, not code to paste. Translate it to the `react-test-renderer`
+> idiom in Global Constraints — find components by type and assert on their **props**,
+> call prop handlers directly instead of `fireEvent`. See Task 2's tests for a worked example.
+
+
 Add to `src/__tests__/orders-screen.test.tsx`, following its existing `renderScreen` helper and mock setup (`jest.mock('@/lib/storefront-admin')` is already in place at the top of that file):
 
 ```tsx
@@ -569,6 +604,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 Replaces the `When` column with `Waiting`, adds a search box above the table, and makes Order / Customer / Total / Waiting headers sortable. Mockup: *Redesigned · desktop*.
 
 - [ ] **Step 1: Write the failing tests**
+
+> **⚠ The snippet below is written in `@testing-library` idiom, which THIS REPO DOES NOT HAVE.**
+> It states *what to assert*, not code to paste. Translate it to the `react-test-renderer`
+> idiom in Global Constraints — find components by type and assert on their **props**,
+> call prop handlers directly instead of `fireEvent`. See Task 2's tests for a worked example.
+
 
 ```tsx
 describe('finding an order', () => {
@@ -741,6 +782,12 @@ The one legal next move, on the row. Mockup: *Redesigned · desktop*, `Next` col
 
 - [ ] **Step 1: Write the failing tests**
 
+> **⚠ The snippet below is written in `@testing-library` idiom, which THIS REPO DOES NOT HAVE.**
+> It states *what to assert*, not code to paste. Translate it to the `react-test-renderer`
+> idiom in Global Constraints — find components by type and assert on their **props**,
+> call prop handlers directly instead of `fireEvent`. See Task 2's tests for a worked example.
+
+
 ```tsx
 describe('the inline next action', () => {
   it('offers Accept on a new order', async () => {
@@ -912,6 +959,12 @@ A shop should see what it cannot fill while scanning, not one order at a time. M
 
 - [ ] **Step 1: Write the failing test**
 
+> **⚠ The snippet below is written in `@testing-library` idiom, which THIS REPO DOES NOT HAVE.**
+> It states *what to assert*, not code to paste. Translate it to the `react-test-renderer`
+> idiom in Global Constraints — find components by type and assert on their **props**,
+> call prop handlers directly instead of `fireEvent`. See Task 2's tests for a worked example.
+
+
 ```tsx
 describe('shortfall flags', () => {
   it('marks a row the shop cannot fill', async () => {
@@ -1021,6 +1074,12 @@ Mockup: *The order sheet*, both frames.
 **`ShopOrder` has no `saleId` today and `listOrders` does not select `sale_id`** — verified against `src/lib/storefront-admin.ts:671` and `:763`. The reconciliation block cannot be built without adding both. That is a widening of an existing `select`, not a migration.
 
 - [ ] **Step 1: Write the failing tests**
+
+> **⚠ The snippet below is written in `@testing-library` idiom, which THIS REPO DOES NOT HAVE.**
+> It states *what to assert*, not code to paste. Translate it to the `react-test-renderer`
+> idiom in Global Constraints — find components by type and assert on their **props**,
+> call prop handlers directly instead of `fireEvent`. See Task 2's tests for a worked example.
+
 
 ```tsx
 describe('the stage rail', () => {
