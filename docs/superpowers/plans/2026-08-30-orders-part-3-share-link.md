@@ -566,6 +566,27 @@ Two shapes:
 
 ---
 
+### Task 6b: the customer leaves checkout already holding the link
+
+**Files:** the checkout confirmation surface (find it: `grep -rn "place_storefront_order" src/`),
+plus its test.
+
+Decision 2. `place_storefront_order` returns `share_token` in the **same jsonb the confirmation
+screen already renders** (Task 2), so this is a render change and not a second query — no new RPC
+call, no loading state.
+
+- [ ] **Step 1: Write the failing tests** — the confirmation screen shows the address built by
+      `orderAddress(token)`; a response with **no** `share_token` (an older client, or a failure
+      path) renders no link rather than `kaiibi.com/o/undefined`; the string shown **equals**
+      `orderAddress(token)` and is not hand-built.
+- [ ] **Step 2-4:** run, watch fail, implement, `npx jest && npx tsc --noEmit`.
+- [ ] **Step 5: Mutation pass** — hand-build the URL (must redden); render the link when the token
+      is absent (must redden). **The second one matters most**: `undefined` in a URL is the exact
+      shape of the #108 bug, a link that looks real and goes nowhere.
+- [ ] **Step 6: Commit.**
+
+---
+
 ### Task 7: the shop's side
 
 **Files:** `src/app/(admin)/orders.tsx`, `src/components/orders/order-detail.tsx`, their tests.
@@ -612,15 +633,26 @@ Two shapes:
       which will not have these migrations. Either merge first or run a second Metro against the
       local stack.
 
-## Open questions this part must answer
+## Decisions taken before execution (2026-08-30)
 
-1. **How long is 90 days?** The expiry is a guess. A customer looking up a six-month-old order to
-   check what they paid is a real use; so is a token living forever in a leaked chat export. Decide
-   and write the reasoning into the migration header.
-2. **Should the link appear on the customer's confirmation screen at checkout**, or only be
-   copyable by the shop? The spec does not say. Showing it immediately is what makes it useful
-   without the shop doing anything; it also means the token is on screen before the shop has
-   decided to share it.
-3. **What does the page show for an order placed before Task 2** (no token)? It cannot be reached
+1. **The link lives 90 days.** Long enough to cover the whole life of an order a customer might
+   come back to, short enough that a token in a leaked chat export stops working within a season.
+   Write this reasoning into the migration header rather than leaving `90` as a bare number.
+2. **The link appears on the customer's checkout confirmation screen.** That is what makes it
+   useful with no action from the shop at all — the customer leaves checkout already holding it.
+   `place_storefront_order` returns `share_token` in the same jsonb the confirmation screen already
+   renders, so this is a render change and not a second query. **This adds a task — see Task 6b.**
+3. **`o` is the segment, and there is NO permanent-redirect commitment.** The spec argued from
+   `src/app/s/[slug].tsx`'s precedent that an order route "can be moved but never removed". That
+   guarantee is explicitly **not** being made here.
+
+   **The consequence, stated so nobody rediscovers it as a bug:** if the segment ever changes,
+   every link already sitting in a customer's WhatsApp history 404s rather than redirecting. That
+   is accepted. It also means `LEGACY_ORDER_SEGMENT` is NOT to be added "just in case" — an unused
+   redirect constant is how the next person concludes the guarantee exists.
+
+## Open questions that remain
+
+1. **What does the page show for an order placed before Task 2** (no token)? It cannot be reached
    by definition — but the shop's copy affordance must not render a broken link, which Task 7
    covers. Confirm there is no other surface that assumes a token exists.
