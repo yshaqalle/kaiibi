@@ -298,10 +298,17 @@ export function OrderDetail({
     setCustomerNote('');
   };
 
-  const setQuantity = (productName: string, next: number) => {
+  // Keyed by productId, NOT by productName. `products.name` carries no unique
+  // constraint (0001_init.sql), so one shop can hold two products called the
+  // same thing and an order can carry two identically-named lines -- and
+  // matching on the name moved BOTH of them, sending a quantity the
+  // shopkeeper never chose on an order the customer has already agreed to.
+  // Only a line with a product is ever adjustable, so a null id cannot reach
+  // this.
+  const setQuantity = (productId: string, next: number) => {
     setDraft((lines) =>
       (lines ?? []).map((line) =>
-        line.productName === productName ? { ...line, quantity: Math.max(0, next) } : line
+        line.productId === productId ? { ...line, quantity: Math.max(0, next) } : line
       )
     );
   };
@@ -319,6 +326,18 @@ export function OrderDetail({
       }),
     [draft, pricing, order.deliveryFeeCents, order.totalCents]
   );
+
+  // The names that appear MORE THAN ONCE on this order. `products.name` has no
+  // unique constraint, so two lines can read identically -- and two controls
+  // labelled "Decrease Rice 5kg" are two a screen reader cannot tell apart.
+  // Computed rather than always-on so the common case (every name distinct)
+  // keeps the plain label: suffixing every row with a fragment of a uuid
+  // would make the ordinary announcement worse to fix a rare collision.
+  const duplicateNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const line of draft ?? []) counts.set(line.productName, (counts.get(line.productName) ?? 0) + 1);
+    return new Set([...counts].filter(([, n]) => n > 1).map(([name]) => name));
+  }, [draft]);
 
   const amendReasonReady = amendReason.trim().length > 0;
   const canSaveAmend = amendReasonReady && summary.blocker === null && !submitting;
@@ -587,10 +606,21 @@ export function OrderDetail({
             {mode === 'amending' && draft ? (
               <>
                 <Section label="What they will get">
-                  {draft.map((line) => {
+                  {draft.map((line, index) => {
                     const gone = line.productId === null;
+                    // A deleted-product line has no id to key on and there can
+                    // be more than one, so it falls back to its position.
+                    // Every other line keys on the product itself -- see
+                    // setQuantity for why the name will not do.
+                    const key = line.productId ?? `gone-${index}`;
+                    // Disambiguated ONLY when this order really does carry the
+                    // name twice -- see duplicateNames above.
+                    const label =
+                      line.productId && duplicateNames.has(line.productName)
+                        ? `${line.productName} (${line.productId.slice(0, 6)})`
+                        : line.productName;
                     return (
-                      <View key={line.productName} style={styles.itemRow}>
+                      <View key={key} style={styles.itemRow}>
                         <View style={styles.itemNameCol}>
                           <Text style={styles.value}>{line.productName}</Text>
                           {gone ? (
@@ -606,9 +636,9 @@ export function OrderDetail({
                         {gone ? null : (
                           <>
                             <Pressable
-                              onPress={() => setQuantity(line.productName, line.quantity - 1)}
+                              onPress={() => setQuantity(line.productId!, line.quantity - 1)}
                               disabled={submitting || line.quantity === 0}
-                              accessibilityLabel={`Decrease ${line.productName}`}
+                              accessibilityLabel={`Decrease ${label}`}
                               accessibilityRole="button"
                               style={[styles.stepper, (submitting || line.quantity === 0) && styles.buttonDisabled]}
                             >
@@ -616,18 +646,18 @@ export function OrderDetail({
                             </Pressable>
                             <Text style={styles.itemQty}>×{line.quantity}</Text>
                             <Pressable
-                              onPress={() => setQuantity(line.productName, line.quantity + 1)}
+                              onPress={() => setQuantity(line.productId!, line.quantity + 1)}
                               disabled={submitting}
-                              accessibilityLabel={`Increase ${line.productName}`}
+                              accessibilityLabel={`Increase ${label}`}
                               accessibilityRole="button"
                               style={[styles.stepper, submitting && styles.buttonDisabled]}
                             >
                               <Text style={styles.stepperText}>+</Text>
                             </Pressable>
                             <Pressable
-                              onPress={() => setQuantity(line.productName, 0)}
+                              onPress={() => setQuantity(line.productId!, 0)}
                               disabled={submitting || line.quantity === 0}
-                              accessibilityLabel={`Remove ${line.productName}`}
+                              accessibilityLabel={`Remove ${label}`}
                               accessibilityRole="button"
                               style={[styles.pillButton, (submitting || line.quantity === 0) && styles.buttonDisabled]}
                             >

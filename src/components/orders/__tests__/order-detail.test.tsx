@@ -710,3 +710,93 @@ describe('OrderDetail — the amend form', () => {
     expect(texts(tree)).toMatch(/price/i);
   });
 });
+
+// ── Two products, one name ──────────────────────────────────────────────
+//
+// `products.name` carries NO unique constraint (0001_init.sql), so one shop
+// can hold two products called the same thing -- a re-added item, two
+// suppliers' versions, or a sloppy duplicate. order_items snapshots that name,
+// so an order can carry two lines reading identically.
+//
+// The original fixture here used 'Rice 5kg' and 'Oil 1L' and could never have
+// caught this: it is the same non-discriminating-fixture failure this series
+// has now found five times.
+describe('OrderDetail — lines are identified by product, not by name', () => {
+  const TWINS: OrderLine[] = [
+    { id: 'i1', productId: 'p1', productName: 'Rice 5kg', unitPriceCents: 1200, quantity: 4, lineTotalCents: 4800 },
+    // Same NAME, different product. This is the whole fixture.
+    { id: 'i2', productId: 'p2', productName: 'Rice 5kg', unitPriceCents: 1000, quantity: 2, lineTotalCents: 2000 },
+  ];
+  const TWIN_ORDER: ShopOrder = {
+    ...AMEND_ORDER,
+    subtotalCents: 6800,
+    totalCents: 6800,
+    itemCount: 6,
+  };
+
+  it('moves only the line whose stepper was pressed', () => {
+    const onAmend = jest.fn();
+    const tree = renderDetail({
+      order: TWIN_ORDER,
+      items: TWINS,
+      shortfalls: [],
+      currentPrices: { p1: 1200, p2: 1000 },
+      canAmend: true,
+      onAmend,
+    });
+    pressByLabel(tree, 'Amend order');
+
+    // There are two steppers with the same product name. Press the FIRST.
+    const decreasers = tree.root.findAll(
+      (n) => typeof n.props.accessibilityLabel === 'string'
+        && n.props.accessibilityLabel.startsWith('Decrease')
+        && typeof n.props.onPress === 'function'
+    );
+    expect(decreasers).toHaveLength(2);
+    act(() => decreasers[0].props.onPress());
+
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('one bag short'));
+    pressByLabel(tree, 'Save changes');
+
+    const [lines] = onAmend.mock.calls[0];
+    // p1 down to 3; p2 UNTOUCHED at 2. Keying the draft by product NAME moved
+    // both, sending 3 and 1 -- a quantity the shopkeeper never chose, on an
+    // order whose total the customer has already agreed to.
+    expect(lines).toEqual([
+      { productId: 'p1', quantity: 3 },
+      { productId: 'p2', quantity: 2 },
+    ]);
+  });
+
+  it('gives the two lines distinct accessibility labels', () => {
+    const tree = renderDetail({
+      order: TWIN_ORDER,
+      items: TWINS,
+      shortfalls: [],
+      currentPrices: { p1: 1200, p2: 1000 },
+      canAmend: true,
+    });
+    pressByLabel(tree, 'Amend order');
+    // Filtered to nodes that actually HANDLE a press. findAll walks the
+    // component and its host node both, so a bare label filter returns each
+    // control three times and `size === length` fails on the duplicates
+    // rather than on anything real.
+    const labels = tree.root
+      .findAll(
+        (n) =>
+          typeof n.props.accessibilityLabel === 'string' &&
+          n.props.accessibilityLabel.startsWith('Decrease') &&
+          typeof n.props.onPress === 'function'
+      )
+      .map((n) => n.props.accessibilityLabel as string);
+    // Two identical labels are two controls a screen reader cannot tell
+    // apart, and two controls this component's own tests cannot address.
+    expect(labels).toHaveLength(2);
+    expect(new Set(labels).size).toBe(2);
+    // ...and the ordinary case keeps the plain label, so the disambiguation
+    // is not paid for by every other order.
+    const plain = renderDetail({ order: AMEND_ORDER, items: AMEND_ITEMS, shortfalls: [], currentPrices: PRICES, canAmend: true });
+    pressByLabel(plain, 'Amend order');
+    expect(find(plain, 'Decrease Rice 5kg')).toBeDefined();
+  });
+});

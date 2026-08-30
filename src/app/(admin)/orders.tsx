@@ -407,7 +407,20 @@ function OrdersScreen() {
           // thing to keep in step.
           if (!UNCONFIRMED.includes(order.status)) return;
           const ids = items.map((i) => i.productId).filter((id): id is string => id !== null);
-          setCurrentPrices(await getCurrentPrices(ids));
+          // CAUGHT HERE, not by the shared .catch below. This lookup feeds one
+          // optional control -- the amend sheet's "use today's prices" choice
+          // -- and letting it reject would report "Could not load this order"
+          // over an order whose lines and shortfalls both arrived fine, hiding
+          // everything the shop came to see because a secondary query failed.
+          //
+          // Leaving the map empty is already a handled state: order-amendment
+          // reads a missing price as "cannot re-price this line" and blocks
+          // that one choice with its own sentence, which is the truth here.
+          try {
+            setCurrentPrices(await getCurrentPrices(ids));
+          } catch {
+            setCurrentPrices({});
+          }
         })
         .catch(() => {
           // Said rather than shown as an empty list, same reasoning as the
