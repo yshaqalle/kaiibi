@@ -2438,6 +2438,41 @@ end $$;
 --              statement about xact_id rather than about the mark being
 --              ignored altogether.
 --
+--   58.   AND THE CORRECTION SURVIVES THE DATABASE THAT ALREADY SHIPPED THE
+--         DEFECT. 57 was written on a branch where the parameter never
+--         reached production. It did reach production, from a second branch
+--         that implemented the same task and merged first, so
+--         20261011000000_the_register_guard_is_not_a_parameter.sql had to
+--         drop a sixteen-argument complete_sale that no local database has
+--         ever had. That migration makes three load-bearing decisions; two of
+--         them nothing here checked, and they fail differently:
+--
+--           a. THE ARGUMENT LIST ITSELF, spelled out in order. 57d greps
+--              proargnames for `%require_register%`, so it catches the
+--              parameter coming back under its old name and nothing else. A
+--              sixteenth argument called p_skip_register or p_force is the
+--              same off switch and 57d is blind to it. This is also the only
+--              check that would notice a REORDER.
+--           b. PUBLIC HAS NO EXECUTE. Postgres grants EXECUTE to PUBLIC on
+--              every newly created function and an ACL does not survive a
+--              drop -- so on production the recreated function starts
+--              world-callable, and `grant execute to authenticated` alone
+--              would have left it that way: a WIDER grant than the defective
+--              function it replaced. Nothing in this suite checked
+--              complete_sale's ACL at all before this line.
+--
+--         The third decision -- that complete_storefront_order is re-created
+--         WHOLE, as main's version, because production's calls
+--         `complete_sale(... p_require_register => false)` and that call
+--         resolves to nothing the moment the sixteen-argument overload is
+--         dropped -- deliberately has NO check of its own here. CHECK 54
+--         ALREADY IS THAT CHECK: it completes a real order at this very
+--         require_open_register location, so a call site left naming the
+--         parameter cannot get past it. A catalog grep for the name was
+--         written here and then removed, because it could not be made to fail
+--         without 54 failing first and it is not a check if nothing can make
+--         it the thing that goes red.
+--
 -- WHY THESE RAISE RATHER THAN PRINT. run-all.sh decides a script's verdict by
 -- grepping its whole output for `ALL CHECKS PASSED`; a `raise notice 'FAIL
 -- ...'` is printed and then ignored, and the suite goes green with the
@@ -2469,6 +2504,9 @@ declare
   v_count      integer;
   v_items      jsonb;
   v_pays       jsonb;
+  -- check 58
+  v_args       text[];  -- proargnames in order, so a sixteenth argument under
+                        -- ANY name is caught, not only one spelled like the old
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     values (v_owner_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -2747,13 +2785,61 @@ begin
     raise exception 'FAIL 57e: refused, but for the wrong reason: %', v_detail;
   end if;
 
+  -- ------------------------------------------------ 58. the correction survives a copy-forward
+  -- Catalog reads. They assert about the DEPLOYED function rather than
+  -- about a migration file, which is the only thing that would still have been
+  -- true on production while main's file sat unapplied. See the header.
+
+  -- (a) THE WHOLE ARGUMENT LIST, IN ORDER.
+  select p.proargnames into v_args
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'complete_sale';
+  if v_args is distinct from array[
+       'p_shop_id', 'p_items', 'p_payments', 'p_customer_name', 'p_customer_phone',
+       'p_customer_email', 'p_cashier_name', 'p_discount_cents', 'p_customer_id',
+       'p_created_at', 'p_location_id', 'p_points_redeemed', 'p_register_session_id',
+       'p_allow_balance', 'p_prices_include_tax']::text[] then
+    raise exception 'FAIL 58a: complete_sale takes (%) rather than the fifteen arguments it is pinned to -- a sixteenth is an off switch whatever it is named',
+      coalesce(array_to_string(v_args, ', '), '<none>');
+  end if;
+
+  -- (b) PUBLIC HAS NO EXECUTE. An aclitem whose grantee is empty -- `=X/owner`
+  --     -- is PUBLIC's entry, and that is what a bare `grant execute to
+  --     authenticated` after a drop leaves behind: verified by stripping this
+  --     file's revoke and re-running, which produced exactly `=X/postgres`.
+  --
+  --     The null-proacl test first is not decoration. A function nobody has
+  --     ever granted or revoked has proacl null, which IS execute-to-PUBLIC,
+  --     and `unnest(null)` yields no rows -- so without this line the test
+  --     below would pass vacuously on the one ACL state that is wide open.
+  --
+  --     Not paired here with a "and authenticated still has it" assertion:
+  --     revoking that breaks check 57a nine hundred lines earlier with a bare
+  --     `permission denied for function complete_sale`, so this could never be
+  --     the check that went red for it.
+  if not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'complete_sale' and p.proacl is not null) then
+    raise exception 'FAIL 58b: complete_sale has no ACL at all -- Postgres''s default is EXECUTE to PUBLIC, so every role can ring up a sale';
+  end if;
+  if exists (
+    select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace,
+           unnest(p.proacl) as acl
+     where n.nspname = 'public' and p.proname = 'complete_sale'
+       and acl::text like '=%') then
+    raise exception 'FAIL 58b: PUBLIC holds EXECUTE on complete_sale -- the revoke before the grant was dropped, and the grant alone is a no-op';
+  end if;
+
   raise notice 'PASS: fulfilment needs no register, and uses one when there is one';
   raise notice 'PASS: and no client can say it is a fulfilment when it is not';
+  raise notice 'PASS: and the parameter cannot come back under another name, nor PUBLIC hold execute';
   raise exception 'rollback_marker';
 exception
   when others then
     if sqlerrm = 'rollback_marker' then
-      raise notice 'verify-order-transitions: ALL CHECKS PASSED (1-57), rolled back';
+      raise notice 'verify-order-transitions: ALL CHECKS PASSED (1-58), rolled back';
     else
       raise;
     end if;
