@@ -195,6 +195,24 @@ describe('OrderDetail', () => {
       const t = texts(renderDetail({ order: { ...ORDER, status: 'ready', saleId: null } }));
       expect(t).not.toMatch(/in Transactions/i);
     });
+
+    // `status === 'completed' && saleId === null` is not a legacy state from
+    // before this column existed -- enforce_order_transition
+    // (20260928000200_complete_storefront_order.sql) permits `ready ->
+    // completed` only in the same statement that sets a non-null sale_id, so
+    // this order DID have a sale once. It is reachable today by exactly one
+    // route: the sale was deleted (delete_sale, 20260908000900, reachable
+    // from Accounting -> Transactions with no storefront exemption), which
+    // reverses the sale's journal entries and never touches orders.status.
+    // The old fallback ('Goods, in Transactions') and an unconditional
+    // delivery-fee line both claimed money was sitting in Transactions that
+    // is, in fact, gone -- false on the one screen a shop reconciles from.
+    it('says the sale was deleted, not that the goods are in Transactions, when a completed order has no sale', () => {
+      const t = texts(renderDetail({ order: { ...completed, saleId: null, deliveryFeeCents: 400 } }));
+      expect(t).not.toMatch(/in Transactions/i);
+      expect(t).not.toMatch(/4300 Delivery Income/);
+      expect(t).toMatch(/deleted/i);
+    });
   });
 
   it("shows the customer's name and phone", () => {

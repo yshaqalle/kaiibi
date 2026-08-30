@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { Badge, type BadgeTone } from '@/components/badge';
 import { AppModal } from '@/components/ui/app-modal';
+import { Caveat } from '@/components/ui/caveat';
 import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
@@ -263,17 +264,30 @@ export function OrderDetail({
                 Income (20260928000200's own header). A $47.50 delivered
                 order therefore reaches Transactions for $44.50 with nothing
                 on screen to say why; this names both halves of the split.
-                Renders only once there IS a reconciliation to show -- an
-                order that has not been completed has not yet become a sale. */}
-            {order.status === 'completed' ? (
+
+                Gated on order.saleId, not `order.status === 'completed'`
+                alone, and there is deliberately no third branch for
+                "completed with no sale, treat it as pre-sale_id legacy data"
+                -- that state cannot exist going forward.
+                enforce_order_transition (20260928000200_complete_storefront_
+                order.sql) permits `ready -> completed` ONLY in the same
+                statement that attaches a non-null sale_id, so a completed
+                order with saleId === null was never completed without a
+                sale; its sale was DELETED after the fact. orders.sale_id is
+                `on delete set null`, and delete_sale (20260908000900) --
+                reachable from Accounting -> Transactions
+                (transactions-tab.tsx, no storefront exemption) -- reverses
+                every journal entry that sale posted and never touches
+                orders.status. Naming a sale that no longer exists, or
+                showing a delivery-fee line that was reversed back to zero,
+                would be false on the one screen a shop reconciles from, so
+                a completed-but-unsold order gets its own honest sentence
+                (below) instead of a guess dressed as a fact. */}
+            {order.status === 'completed' && order.saleId ? (
               <Section label="Where this order's money went">
                 <View style={styles.breakdown}>
                   <StatementRow
-                    label={
-                      order.saleId
-                        ? `Goods → Sale #${order.saleId.slice(0, 6)}, in Transactions`
-                        : 'Goods, in Transactions'
-                    }
+                    label={`Goods → Sale #${order.saleId.slice(0, 6)}, in Transactions`}
                     amountCents={order.subtotalCents}
                     variant="item"
                     last={order.deliveryFeeCents === 0}
@@ -287,6 +301,19 @@ export function OrderDetail({
                     <StatementRow label="Delivery fee → 4300 Delivery Income" amountCents={order.deliveryFeeCents} variant="item" last />
                   ) : null}
                 </View>
+              </Section>
+            ) : null}
+
+            {/* `context`, not `wrong`: the missing breakdown above is not an
+                error to fix, it is what a deleted sale actually looks like,
+                and there is no action this screen can offer a shop to bring
+                a deleted sale back -- caveat.tsx's own rule for when `wrong`
+                is the wrong tone. */}
+            {order.status === 'completed' && !order.saleId ? (
+              <Section label="Where this order's money went">
+                <Caveat tone="context">
+                  The sale this order became has since been deleted, so nothing here is on the books any more.
+                </Caveat>
               </Section>
             ) : null}
 

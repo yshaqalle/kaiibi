@@ -791,6 +791,15 @@ describe('Orders screen', () => {
       expect(labelsMatching(tree, /cancel/i)).toEqual([]);
     });
 
+    // `expect(...OrderDetail).toHaveLength(0)` taken AFTER awaiting the
+    // action to completion cannot fail here: runAction calls closeDetail()
+    // on every success (orders.tsx), which nulls selectedOrder whether or
+    // not openDetail ever ran it up in the first place. Patching
+    // runRowAction to call openDetail(order) unconditionally still passed
+    // both of these tests under the old assertion. getOrderItems is called
+    // from exactly one place (openDetail) -- asserting it was never called
+    // is the property "without opening the sheet" actually means, and it
+    // does fail under that same patch.
     it('accepts the order without opening the sheet', async () => {
       (acceptOrder as jest.Mock).mockResolvedValue(undefined);
       const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
@@ -798,7 +807,7 @@ describe('Orders screen', () => {
         press(findByLabel(tree, 'Accept order 1042')!);
       });
       expect(acceptOrder).toHaveBeenCalledWith('order-1');
-      expect(tree.root.findAllByType(OrderDetail)).toHaveLength(0);
+      expect(getOrderItems).not.toHaveBeenCalled();
     });
 
     it('marks an accepted order ready without opening the sheet', async () => {
@@ -810,7 +819,7 @@ describe('Orders screen', () => {
       });
       expect(markOrderReady).toHaveBeenCalledWith('order-1');
       expect(acceptOrder).not.toHaveBeenCalled();
-      expect(tree.root.findAllByType(OrderDetail)).toHaveLength(0);
+      expect(getOrderItems).not.toHaveBeenCalled();
     });
 
     // Completing needs a payment method, and that form already lives in the

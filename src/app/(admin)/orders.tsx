@@ -477,9 +477,13 @@ function OrdersScreen() {
   );
   const activeTab = TABS.find((tab) => tab.key === statusFilter) ?? TABS[0];
 
-  const unconfirmedOrders = orders.filter((order) => UNCONFIRMED.includes(order.status));
-  const unconfirmedTotalCents = unconfirmedOrders.reduce((sum, order) => sum + order.totalCents, 0);
-  const unconfirmedCountLabel = unconfirmedOrders.length === 1 ? '1 order' : `${unconfirmedOrders.length} orders`;
+  // stats.openCount / stats.openCents ARE this sum -- orderStats (
+  // orders-reporting.ts) filters on the same isOpen predicate UNCONFIRMED
+  // names here (ORDERS_NEEDING_ACTION). A second `orders.filter(...)` here
+  // was a second implementation of that one sum: it agreed with `stats` today
+  // only because both read isOpen, and would silently stop agreeing the day
+  // either definition moved without the other.
+  const unconfirmedCountLabel = stats.openCount === 1 ? '1 order' : `${stats.openCount} orders`;
 
   const emptyLabel = loading
     ? 'Loading…'
@@ -625,9 +629,9 @@ function OrdersScreen() {
             caveat's own claim false if they were still added in. `context`,
             not `wrong` -- the figure is correct, it just needs the one
             sentence that keeps it from being misread as revenue. */}
-        {!error && unconfirmedOrders.length > 0 ? (
+        {!error && stats.openCount > 0 ? (
           <Caveat tone="context">
-            {`${formatCents(unconfirmedTotalCents)} across ${unconfirmedCountLabel} still open is what customers have asked for, not money the shop has taken -- none of it has reached the books.`}
+            {`${formatCents(stats.openCents)} across ${unconfirmedCountLabel} still open is what customers have asked for, not money the shop has taken -- none of it has reached the books.`}
           </Caveat>
         ) : null}
       </ScrollView>

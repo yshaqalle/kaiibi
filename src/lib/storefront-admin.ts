@@ -710,7 +710,17 @@ export type ShopOrder = {
   /**
    * The sale this order became, or null until it is completed. Set by
    * complete_storefront_order in the same statement as the status
-   * (20260928000200), so the two can never disagree.
+   * (20260928000200), so the two can never disagree AT THE MOMENT OF
+   * COMPLETION.
+   *
+   * They can still disagree LATER: `on delete set null` means this goes back
+   * to null if the sale is ever deleted (delete_sale, 20260908000900,
+   * reachable from Accounting -> Transactions with no storefront exemption),
+   * and delete_sale never touches orders.status. So `status === 'completed'
+   * && saleId === null` is a real, reachable state -- a completed order
+   * whose sale was later voided -- not a legacy case from before this column
+   * existed. order-detail.tsx's reconciliation block is gated on saleId
+   * itself for exactly this reason, not on status alone.
    *
    * The link runs ONE WAY only -- there is no sales.order_id -- which is why
    * a completed order is indistinguishable from a walk-in once it reaches the
