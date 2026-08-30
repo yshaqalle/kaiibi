@@ -128,6 +128,12 @@ design, which makes this less anomalous than it was.
 
 ### D1. Native has never been seen on a phone
 
+> **Partly closed 2026-08-29 (#109).** The nav was driven on an iPhone simulator
+> for the first time, which found two defects a green suite and a browser both
+> missed — see `HANDOFF-2026-08-29-storefront-and-orders.md`. The port problem
+> that blocked this is fixed, so it is now cheap. **Still unseen:** the lapse
+> flow, the editor, order fulfilment, iPad, and Android.
+
 The nav rows (#93), the share block (#95) and the ☰ badge (#100) are Jest-verified on
 native and browser-verified on web. **Not passed, not failed — not exercised.**
 
@@ -156,6 +162,12 @@ something that looked exactly like a defect:
 - Metro on 8081 serving another worktree's branch **against production data**
 - The port needed for native testing being held by another session
 - The shared local Supabase being wiped mid-verification, twice
+
+> **Half done 2026-08-29 (#109).** The **Metro port** half is fixed —
+> `expo-dev-client` means each worktree serves its own simulator. The **shared
+> database** half is not: it was wiped mid-run at least four more times during
+> that session, and one session pushed migrations to production without the other
+> knowing. That half is now the whole of this entry.
 
 **Reconsider: a per-worktree database and Metro port.** If several sessions routinely run
 at once, this would likely pay for itself faster than anything in section C.
