@@ -7,6 +7,35 @@ recalled. It follows `HANDOFF-2026-08-27-storefront.md` and
 
 ---
 
+## Start here — the three things to do before anything else
+
+**1. Apply the migrations. They are on `main` and NOT applied to production.**
+
+```
+npx supabase db push          # plain — NOT --include-all
+```
+
+`20261010000000_fulfilment_needs_no_register.sql` and
+`20261010000100_a_storefront_says_where_to_collect.sql` sort after main's newest,
+so a plain push applies them in order. Run it from a checkout that is **up to date
+with main** — if it reports *"Remote database is up to date"*, the files are not on
+disk, which is what happened once already.
+
+**2. Do not merge the other session's duplicate.** Branch `orders-amend-and-share`
+(local only, in the main checkout) holds its own
+`20261010000000_fulfilment_needs_no_register.sql` — **same filename, different
+body**. Main already has the correct one via #110. Theirs keeps
+`p_require_register` as a parameter on `complete_sale`, which is the
+client-settable bypass described below. Its *plan-doc correction* commit is good
+and worth keeping; the migration commit is not.
+
+**3. Read `docs/design/sharing-journey-status.html`** before planning storefront or
+orders work. It is the eight-step journey with each step marked works / not built,
+and it is the fastest way to see that the shop→customer link is finished and the
+customer→order link does not exist.
+
+---
+
 ## The one-paragraph version
 
 Three PRs merged (#107, #108, #109) and one is open (#110). A lapsed shop now
@@ -26,7 +55,8 @@ share link that could not resolve.
 | #107 | A lapsed storefront keeps its work — a month of grace, then the data stays, the page comes down, the nav greys | **merged, migrations applied** |
 | #108 | Shops are shown an address that resolves; a gated route cannot render without its wall; four filed minors | **merged** |
 | #109 | `expo-dev-client`, so a worktree can serve its own port — plus the two native defects that unblocking it immediately found | **merged** |
-| #110 | Orders Part 0 — fulfilment needs no till, and pick-up is visible | **open, rebased, green** |
+| #110 | Orders Part 0 — fulfilment needs no till, and pick-up is visible | **merged — migrations NOT yet applied** |
+| #111 | This handoff, the journey mockup, and corrections to two claims that became false | merged |
 
 ---
 
@@ -226,17 +256,47 @@ backfilled for **every** shop and is literally the where-to-find-us field
 
 ## Recommendation
 
-1. **Read `20261010000000_fulfilment_needs_no_register.sql` before merging #110.**
-   It rewrites `complete_sale` — the function every sale runs through. It is the
-   most verified thing in the queue and still the one worth ten minutes of human
-   attention. Then `npx supabase db push` (plain — these sort after main's newest).
-2. **Settle the DNS question.** It is the cheapest thing that might move the
-   number.
+1. **Apply the migrations** (see Start here). Nothing else is blocked on them, but
+   Part 0's two fixes are inert until they run.
+2. **If you build one thing, build bulk product listing** (~half a day, specified
+   at the end of `plans/2026-08-28-storefront-lapse-and-grace.md`). Reasoning: 4
+   products are listed across 11 shops. A customer cannot order what is not
+   listed, so this is the top of the funnel. **Orders Parts 1+ is the better-specified
+   work and the wrong order** — every part of it improves what happens *after* an
+   order exists, and there have been none.
 3. **Talk to one shopkeeper.** Six sessions have made this feature more correct.
-   None has made it used, and the code can no longer tell you why.
-4. **Build nothing further on the storefront until a shop uses it.** Lapse and
-   grace, the agreed price, flyers, the carousel, the address, and now Part 0 are
-   all correct, all shipped, and none has been used by a customer.
+   None has made it used, and the code can no longer tell you why. The 1-of-11
+   number no longer has a technical explanation now that the share link resolves.
+4. **DNS is deferred deliberately, and that is now cheap.** Before #108 the app
+   showed an address that did not resolve, so deferring meant shipping a broken
+   button. It now shows `kaiibi.com/store/<slug>`, which works. The open question
+   is only how the address *reads*.
 
 The number to watch is unchanged from two handoffs ago: **a second published
 storefront, and then a first order.**
+
+---
+
+## If you are an agent picking this up cold
+
+Read in this order, then stop and ask before writing code:
+
+1. **`docs/design/sharing-journey-status.html`** — the eight-step journey, what
+   works, what does not.
+2. **This file's "Start here"** — three actions, one of them a trap to avoid.
+3. **`GAPS-2026-08-28-storefront.md`** — what is deferred and what is only safe
+   while an assumption holds. Corrected in two places today; the corrections are
+   marked inline.
+4. **`specs/2026-08-29-orders-amend-and-share-design.md`** — only if you are
+   picking up Orders Parts 1+, and read the plan-defect warnings above first.
+
+**The working habits that earned their keep on this project**, and which every
+session that skipped them paid for:
+
+- **Mutation-test every check.** Perturb the *implementation*, confirm the test
+  fails naming itself, restore. Five separate defects this session were found this
+  way, each of which passed a fully green suite.
+- **Walk the app before trusting a green suite.** Six defects across this series
+  were caught only by looking, and none by tests. Native is now cheap — use it.
+- **Verify pointers, never trust a document's file/line references** — including
+  this one. Three of this session's near-misses were documents that were wrong.

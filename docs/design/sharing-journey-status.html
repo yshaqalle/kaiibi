@@ -1,0 +1,324 @@
+<title>The shareable link — what works, what doesn't</title>
+<style>
+  :root {
+    --ground:      #F6F7F5;
+    --panel:       #FFFFFF;
+    --ink:         #171C19;
+    --ink-soft:    #5A635C;
+    --ink-faint:   #8A928B;
+    --rule:        #DDE2DD;
+    --done:        #2F6B4A;
+    --done-bg:     #E6EFE8;
+    --missing:     #A33A2A;
+    --missing-bg:  #F6E7E3;
+    --pending:     #8A6A16;
+    --pending-bg:  #F6EEDC;
+    --mono-bg:     #EEF1EE;
+    --shadow:      0 1px 2px rgba(23,28,25,.06), 0 8px 24px -12px rgba(23,28,25,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:     #12150F;
+      --panel:      #1A1E19;
+      --ink:        #E8EDE7;
+      --ink-soft:   #A2AAA2;
+      --ink-faint:  #6E766E;
+      --rule:       #2A302A;
+      --done:       #7FBE97;
+      --done-bg:    #1D2A22;
+      --missing:    #E08A76;
+      --missing-bg: #2E1E1A;
+      --pending:    #D8B76A;
+      --pending-bg: #2B2517;
+      --mono-bg:    #222722;
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#12150F; --panel:#1A1E19; --ink:#E8EDE7; --ink-soft:#A2AAA2;
+    --ink-faint:#6E766E; --rule:#2A302A; --done:#7FBE97; --done-bg:#1D2A22;
+    --missing:#E08A76; --missing-bg:#2E1E1A; --pending:#D8B76A; --pending-bg:#2B2517;
+    --mono-bg:#222722; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground:#F6F7F5; --panel:#FFFFFF; --ink:#171C19; --ink-soft:#5A635C;
+    --ink-faint:#8A928B; --rule:#DDE2DD; --done:#2F6B4A; --done-bg:#E6EFE8;
+    --missing:#A33A2A; --missing-bg:#F6E7E3; --pending:#8A6A16; --pending-bg:#F6EEDC;
+    --mono-bg:#EEF1EE; --shadow:0 1px 2px rgba(23,28,25,.06), 0 8px 24px -12px rgba(23,28,25,.18);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: 3rem 1.25rem 5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 60rem; margin: 0 auto; }
+
+  .eyebrow {
+    font-size: .74rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 .6rem;
+  }
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: clamp(1.9rem, 4.5vw, 2.9rem);
+    line-height: 1.1; margin: 0 0 .7rem; text-wrap: balance; font-weight: 600;
+  }
+  .standfirst {
+    font-size: 1.06rem; color: var(--ink-soft); max-width: 42rem; margin: 0 0 1.6rem;
+  }
+
+  .counts {
+    display: flex; flex-wrap: wrap; gap: 0;
+    border: 1px solid var(--rule); border-radius: 10px;
+    background: var(--panel); box-shadow: var(--shadow);
+    overflow: hidden; margin-bottom: 3rem;
+  }
+  .count { flex: 1 1 8rem; padding: .9rem 1.1rem; border-right: 1px solid var(--rule); }
+  .count:last-child { border-right: 0; }
+  .count b {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .count span { font-size: .78rem; color: var(--ink-faint); }
+  .count.zero b { color: var(--missing); }
+
+  h2 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 1.35rem; font-weight: 600; margin: 0 0 .3rem; text-wrap: balance;
+  }
+  .section-note { color: var(--ink-soft); margin: 0 0 1.4rem; max-width: 44rem; font-size: .95rem; }
+  section { margin-bottom: 3.2rem; }
+
+  /* the journey rail */
+  ol.rail { list-style: none; margin: 0; padding: 0; }
+  ol.rail > li {
+    position: relative; padding: 0 0 1.5rem 3.2rem;
+  }
+  ol.rail > li::before {
+    content: attr(data-n);
+    position: absolute; left: 0; top: 0;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%;
+    display: grid; place-items: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .8rem; font-variant-numeric: tabular-nums;
+    background: var(--done-bg); color: var(--done);
+    border: 1px solid var(--done); font-weight: 600;
+  }
+  ol.rail > li::after {
+    content: ""; position: absolute; left: .93rem; top: 1.9rem; bottom: 0;
+    border-left: 2px solid var(--done);
+  }
+  ol.rail > li:last-child::after { display: none; }
+  ol.rail > li.broken::before {
+    background: var(--missing-bg); color: var(--missing); border-color: var(--missing);
+  }
+  /* the break: the rail entering a missing step goes dashed */
+  ol.rail > li.last-good::after { border-left-style: dashed; border-color: var(--missing); }
+  ol.rail > li.broken::after { border-left: 2px dashed var(--missing); }
+
+  .step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem; }
+  .step-head h3 { font-size: 1.02rem; margin: 0; font-weight: 600; }
+  .chip {
+    font-size: .68rem; letter-spacing: .09em; text-transform: uppercase;
+    padding: .16rem .5rem; border-radius: 999px; font-weight: 600; white-space: nowrap;
+  }
+  .chip.done    { background: var(--done-bg);    color: var(--done); }
+  .chip.missing { background: var(--missing-bg); color: var(--missing); }
+  .chip.pending { background: var(--pending-bg); color: var(--pending); }
+  .step p { margin: .35rem 0 0; color: var(--ink-soft); font-size: .93rem; max-width: 44rem; }
+
+  code, .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .86em; background: var(--mono-bg);
+    padding: .12em .38em; border-radius: 4px;
+  }
+  .screen {
+    margin-top: .7rem; background: var(--panel); border: 1px solid var(--rule);
+    border-radius: 8px; padding: .8rem .95rem; max-width: 30rem; box-shadow: var(--shadow);
+  }
+  .screen .label {
+    font-size: .68rem; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: .35rem;
+  }
+  .screen .line {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .88rem; word-break: break-all;
+  }
+  .screen .line.dead { color: var(--missing); text-decoration: line-through; }
+  .screen .after { color: var(--done); }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; }
+  th, td { text-align: left; padding: .7rem .9rem; border-bottom: 1px solid var(--rule); font-size: .92rem; vertical-align: top; }
+  th { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.what { font-weight: 600; }
+  td.why { color: var(--ink-soft); }
+
+  .callout {
+    border-left: 3px solid var(--missing); background: var(--missing-bg);
+    padding: .9rem 1.1rem; border-radius: 0 8px 8px 0; margin-top: 1.2rem;
+  }
+  .callout p { margin: 0; font-size: .94rem; }
+  .callout strong { color: var(--missing); }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 1.2rem; color: var(--ink-faint); font-size: .84rem; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">kaiibi · storefront &amp; orders · 29 August 2026</p>
+  <h1>The shareable link — what works, what doesn&rsquo;t</h1>
+  <p class="standfirst">
+    There are two links in this product and only one of them exists. The link a shop sends
+    to bring customers in works, as of today. The link a customer would use to follow the
+    order they placed has never been built.
+  </p>
+
+  <div class="counts">
+    <div class="count"><b>11</b><span>shops</span></div>
+    <div class="count"><b>1</b><span>published page</span></div>
+    <div class="count"><b>4</b><span>products online</span></div>
+    <div class="count zero"><b>0</b><span>orders, ever</span></div>
+  </div>
+
+  <section>
+    <h2>Link A — the shop&rsquo;s address</h2>
+    <p class="section-note">
+      What a shop sends to a customer to say &ldquo;this is my shop&rdquo;. Fixed today. Until this
+      morning the app displayed and copied an address that could not resolve, so a shop that
+      published, pressed Share and sent the link watched it fail.
+    </p>
+
+    <ol class="rail">
+      <li data-n="1" class="step">
+        <div class="step-head"><h3>The shop publishes its page</h3><span class="chip done">works</span></div>
+        <p>Editor, theme, flyers, delivery areas. One shop of eleven has done this.</p>
+      </li>
+
+      <li data-n="2" class="step">
+        <div class="step-head"><h3>The shop copies its link</h3><span class="chip done">fixed today</span></div>
+        <p>Seven places built this address; they now route through one function, so changing
+           its form later is a single edit.</p>
+        <div class="screen">
+          <div class="label">Copy link · Share on WhatsApp</div>
+          <div class="line dead">yusefshop.kaiibi.com</div>
+          <div class="line after">kaiibi.com/store/yusefshop</div>
+        </div>
+      </li>
+
+      <li data-n="3" class="step">
+        <div class="step-head"><h3>The customer opens it</h3><span class="chip done">verified live</span></div>
+        <p>Loaded in a real browser against production: the shop renders with its products,
+           prices, stock, basket and WhatsApp button.</p>
+      </li>
+
+      <li data-n="4" class="step">
+        <div class="step-head"><h3>The customer places an order</h3><span class="chip done">works</span></div>
+        <p>Delivery or store pick-up. Pick-up used to be invisible when it was the only
+           option — a customer was never told the order was a collection, or where to collect.
+           Fixed today.</p>
+        <div class="screen">
+          <div class="label">Checkout · collect-only shop</div>
+          <div class="line dead">(no fulfilment choice shown at all)</div>
+          <div class="line after">Store pick-up — Collect from Jigjiga Yar, near the main road, Hargeisa</div>
+        </div>
+      </li>
+
+      <li data-n="5" class="step">
+        <div class="step-head"><h3>The shop is told</h3><span class="chip done">works</span></div>
+        <p>A count rides the ☰ button, so it reaches whoever is standing at the till rather
+           than only someone already looking at the orders screen.</p>
+      </li>
+
+      <li data-n="6" class="step last-good">
+        <div class="step-head"><h3>The shop fulfils it</h3><span class="chip done">unblocked today</span></div>
+        <p>A shop whose till requires an open register could not complete <em>any</em> online
+           order. A driver collecting cash across town has no drawer, so requiring one refused
+           the sale and protected nothing.</p>
+      </li>
+
+      <li data-n="7" class="step broken">
+        <div class="step-head"><h3>The customer follows their order</h3><span class="chip missing">not built</span></div>
+        <p>There is no route, no token, and no way to read an order back. Once an order is
+           placed the customer is blind to it, and every &ldquo;where is my order?&rdquo; is a phone call.</p>
+        <div class="screen">
+          <div class="label">Would be</div>
+          <div class="line">kaiibi.com/o/&lt;token&gt;</div>
+        </div>
+      </li>
+
+      <li data-n="8" class="step broken">
+        <div class="step-head"><h3>The shop amends it</h3><span class="chip missing">not built</span></div>
+        <p>A shop short on stock has exactly one move: cancel the whole order. There is no way
+           to reduce it to what is on the shelf, change a quantity, or fix a mistyped phone
+           number. Not a missing screen — a missing capability.</p>
+        <div class="callout">
+          <p><strong>Why it is not a small change.</strong> Signed-in users have <em>no</em> write
+             privilege on orders at all, completion is all-or-nothing, and one order may produce
+             only one sale. So &ldquo;send some now, the rest Thursday&rdquo; cannot be two sales
+             against one order.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Link B — the customer&rsquo;s order</h2>
+    <p class="section-note">
+      Steps 7 and 8 are one feature, not three asks: partial fulfilment <em>is</em> amending,
+      and the link is what makes amending safe — it is how the customer sees what changed
+      without a phone call. It is designed and specified; none of it is built.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Left to do</th><th>Size</th><th>Why it is not done</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="what">The order link itself</td>
+            <td><span class="chip missing">not built</span></td>
+            <td class="why">Needs a token that cannot be guessed — order numbers are sequential per shop, so <code>#1042</code> proves <code>#1041</code> exists and no public address may use them.</td>
+          </tr>
+          <tr>
+            <td class="what">Amending an order</td>
+            <td><span class="chip missing">not built</span></td>
+            <td class="why">Every change must go through a privileged function, and prices must be recomputed at today&rsquo;s prices — an amend that trusts the frozen snapshot builds an order that can never be completed.</td>
+          </tr>
+          <tr>
+            <td class="what">The Orders screen redesign</td>
+            <td><span class="chip missing">not built</span></td>
+            <td class="why">Today it is a chip row and one bare table; a shop cannot tell which of seven orders is urgent without opening seven sheets.</td>
+          </tr>
+          <tr>
+            <td class="what">Which address form is canonical</td>
+            <td><span class="chip pending">deferred</span></td>
+            <td class="why">Deliberately parked. Cheap now that the address shown actually works — it is a preference about how the link reads, not a defect.</td>
+          </tr>
+          <tr>
+            <td class="what">Bulk &ldquo;list online&rdquo;</td>
+            <td><span class="chip pending">half a day</span></td>
+            <td class="why">Four products across eleven shops. A customer cannot order what is not listed, and the per-product toggle is the likeliest reason so little is.</td>
+          </tr>
+          <tr>
+            <td class="what">Native beyond the ☰ menu</td>
+            <td><span class="chip pending">now cheap</span></td>
+            <td class="why">The lapse flow, the editor and order fulfilment have never run on a phone. The port problem that blocked this is fixed.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Every state above was checked against the repo, the database or a running app today —
+    not recalled. Link A step 3 was loaded against production in a real browser; steps 7 and 8
+    were confirmed absent by searching for the route, the token and the read function.
+  </footer>
+</div>
