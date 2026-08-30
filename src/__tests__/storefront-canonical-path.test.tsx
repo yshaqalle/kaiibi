@@ -27,7 +27,18 @@ jest.mock('expo-router', () => {
   };
 });
 
-import { LEGACY_STOREFRONT_SEGMENT, STOREFRONT_SEGMENT, storefrontPath } from '@/lib/storefront-host';
+import {
+  APP_DOMAIN,
+  LEGACY_STOREFRONT_SEGMENT,
+  ORDER_SEGMENT,
+  orderAddress,
+  orderPath,
+  STOREFRONT_SEGMENT,
+  storefrontPath,
+} from '@/lib/storefront-host';
+
+// A real 26-character Crockford token shape -- no i, l, o or u.
+const TOKEN = 'a1b2c3d4e5f6g7h8j9k0mnpqrs';
 
 // Required lazily, inside the one test that renders it, rather than imported
 // at the top. A top-level import of a route that has been DELETED takes the
@@ -44,9 +55,9 @@ const APP_DIR = path.join(__dirname, '..', 'app');
 // file-based convention. `/store/xamdi` is served by `src/app/store/[slug].tsx`
 // -- the concrete slug is whatever fills the dynamic segment, so it is the
 // segment plus `[slug]` that has to exist on disk.
-function routeFileFor(publicPath: string): string {
+function routeFileFor(publicPath: string, param = 'slug'): string {
   const segment = publicPath.split('/').filter(Boolean)[0];
-  return path.join(APP_DIR, segment, '[slug].tsx');
+  return path.join(APP_DIR, segment, `[${param}].tsx`);
 }
 
 describe('the canonical public address is a route that exists', () => {
@@ -81,5 +92,51 @@ describe('the canonical public address is a route that exists', () => {
     act(() => {
       tree.unmount();
     });
+  });
+});
+
+// ── The order link (Part 3) ─────────────────────────────────────────────
+//
+// Same file, same reasoning, second address. An order link is the other
+// public URL this app hands out, and it is handed out in a form that is
+// harder to take back than a storefront address: it is sent to ONE customer
+// over WhatsApp and sits in their chat history.
+//
+// #108's post-mortem is why these assertions look like this rather than
+// comparing a constant to itself: the old tests pinned each surface to its
+// own literal, so all of them could be -- and were -- wrong together, and
+// shops copied `<slug>.kaiibi.com`, for which no wildcard DNS record has ever
+// existed. The test that would have caught it is the one that ends at the
+// filesystem.
+describe('the order link is a route that exists', () => {
+  it('serves /o/<token> from a real route file', () => {
+    const built = orderPath(TOKEN);
+    expect(fs.existsSync(routeFileFor(built, 'token'))).toBe(true);
+    expect(built).toBe(`/${ORDER_SEGMENT}/${TOKEN}`);
+  });
+
+  it('builds the address from APP_DOMAIN, so settling path-vs-subdomain stays a one-file change', () => {
+    expect(orderAddress(TOKEN)).toBe(`${APP_DOMAIN}${orderPath(TOKEN)}`);
+    // Not two independent literals that happen to agree today -- the address
+    // CONTAINS the path, so a change to one cannot leave the other behind.
+    expect(orderAddress(TOKEN)).toContain(orderPath(TOKEN));
+  });
+
+  // The token comes off gen_random_bytes through a fixed alphabet, so this is
+  // belt and braces rather than a live risk -- but `orderPath` is the single
+  // place a URL is built, and a URL builder that does not escape is a defect
+  // waiting for the first input that is not what it expected.
+  it('escapes a token that somehow contains a URL-significant character', () => {
+    expect(orderPath('a/b')).toBe(`/${ORDER_SEGMENT}/a%2Fb`);
+  });
+
+  // Decision 3, asserted so it cannot be quietly reversed: there is NO
+  // legacy order segment and no redirect promise. An unused
+  // LEGACY_ORDER_SEGMENT constant is exactly how the next person concludes
+  // the guarantee exists -- so its absence is the thing under test.
+  it('makes no permanent-redirect promise, unlike the storefront address', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const host = require('@/lib/storefront-host');
+    expect(host.LEGACY_ORDER_SEGMENT).toBeUndefined();
   });
 });

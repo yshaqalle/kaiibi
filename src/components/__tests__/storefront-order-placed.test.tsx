@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer, type ReactTestRendererJSON } from 
 
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { paletteColors } from '@/lib/storefront-catalog';
+import { orderAddress } from '@/lib/storefront-host';
 import type { PlacedOrder } from '@/lib/storefront-order';
 
 // `@testing-library/react-native` is not installed in this repo -- flatten the
@@ -31,6 +32,7 @@ const placedOrder: PlacedOrder = {
   subtotalCents: 2200,
   deliveryFeeCents: 0,
   totalCents: 2200,
+  shareToken: null,
   items: [{ productId: 'p1', name: 'Soap', unitPriceCents: 500, quantity: 2, lineTotalCents: 1000 }],
 };
 
@@ -94,5 +96,35 @@ describe('OrderPlaced', () => {
     const t = texts(tree);
     expect(t.some((s) => /Bakaaro Market/.test(s))).toBe(false);
     expect(t.some((s) => /arrange delivery to Koodbuur/.test(s))).toBe(true);
+  });
+});
+
+// ── The customer leaves checkout holding the link (Part 3) ──────────────
+//
+// This screen's own header used to say "no tracking page exists to link to,
+// because plan 4 owns fulfilment state and has not built one yet." That is
+// no longer true: 20261016000000 mints a share token on every order and
+// place_storefront_order returns it in the same payload this screen already
+// renders, so showing the link costs no second query and no loading state.
+describe('OrderPlaced — the order link', () => {
+  it('shows the address built by orderAddress, never a hand-built string', () => {
+    const t = texts(renderPlaced({ order: { shareToken: 'a1b2c3d4e5f6g7h8j9k0mnpqrs' } })).join(' ');
+    expect(t).toContain(orderAddress('a1b2c3d4e5f6g7h8j9k0mnpqrs'));
+  });
+
+  // THE #108 FAILURE, in the one place it would recur. An order placed before
+  // the token existed -- or any response that did not carry one -- must render
+  // NO link rather than `kaiibi.com/o/undefined`, which is a link that looks
+  // real and goes nowhere.
+  it('shows no link at all when the response carried no token', () => {
+    const t = texts(renderPlaced({ order: { shareToken: null } })).join(' ');
+    expect(t).not.toContain('/o/');
+    expect(t).not.toContain('undefined');
+    expect(t).not.toMatch(/kaiibi\.com/);
+  });
+
+  it('says what the link is for, so it is worth keeping', () => {
+    const t = texts(renderPlaced({ order: { shareToken: 'a1b2c3d4e5f6g7h8j9k0mnpqrs' } })).join(' ');
+    expect(t).toMatch(/check|track|follow|where/i);
   });
 });

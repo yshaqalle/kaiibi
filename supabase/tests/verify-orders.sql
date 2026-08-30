@@ -115,6 +115,12 @@ declare
   v_shop_id    uuid;
   v_shop2_id   uuid;
   v_product_id uuid;
+  v_text       text;
+  v_expires    timestamptz;
+  v_confirmed  timestamptz;
+  v_stored     text;
+  v_token_shop uuid;
+  v_token_prod uuid;
   v_order1_id  uuid;
   v_number     integer;
   v_payment_mode text;
@@ -1135,6 +1141,116 @@ begin
     raise exception 'FAIL 34: a shop with neither address nor neighbourhood answered % -- expected null, not another branch''s',
       quote_literal(v_collect_hood);
   end if;
+
+  -- ------------------------------------------------ 35. every new order carries its own link
+  --
+  -- ITS OWN SHOP, for the reason check 34 has its own: check 33 above moves
+  -- v_store_id onto the Free plan to prove a de-entitled shop stops taking
+  -- orders, and place_storefront_order answers `shop_unavailable` for it
+  -- afterwards. A check that borrowed that shop would be asserting against a
+  -- refusal. (Discovered by borrowing it.)
+  insert into public.shops (owner_id, name) values (v_user_id, 'Token Shop')
+    returning id into v_token_shop;
+  update public.shops set slug = 'token-shop' where id = v_token_shop;
+  insert into public.storefronts (shop_id, offers_delivery, published_at)
+    values (v_token_shop, false, now());
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_token_shop, 'Main', true);
+  insert into public.products (shop_id, name, price_cents, stock, is_listed_online)
+    values (v_token_shop, 'Token Product', 1000, 5, true)
+    returning id into v_token_prod;
+
+  --
+  -- Part 3 (20261016000000). The token is a CAPABILITY -- it is the only
+  -- thing get_public_order accepts -- so the properties asserted here are the
+  -- ones that make it safe to hand to a stranger over WhatsApp: it is not
+  -- guessable from the order, it is not the same twice, and it is made of
+  -- characters a customer can read down a phone line without ambiguity.
+  set local role anon;
+  v_result := public.place_storefront_order(
+    'token-shop',
+    jsonb_build_object('name', 'Token Customer', 'phone', '063 400 0777', 'fulfilment', 'collect'),
+    jsonb_build_array(jsonb_build_object('product_id', v_token_prod, 'quantity', 1)));
+  reset role;
+
+  v_text := v_result->>'share_token';
+  if v_text is null then
+    raise exception 'FAIL 35: place_storefront_order returned no share_token -- the confirmation screen has no link to show';
+  end if;
+  if length(v_text) <> 26 then
+    raise exception 'FAIL 35: the token is % characters, expected 26', length(v_text);
+  end if;
+  -- THE ALPHABET IS THE POINT, not decoration. i/l/o/u are the characters
+  -- misheard and mistyped as 1/1/0/v, and this token gets read aloud. The
+  -- class below is Crockford's: digits, and a-z minus i, l, o, u.
+  if v_text !~ '^[0-9a-hjkmnp-tv-z]{26}$' then
+    raise exception 'FAIL 35: the token % contains a character outside the spoken-safe alphabet', quote_literal(v_text);
+  end if;
+
+  -- THE LINK HANDED OUT IS THE LINK STORED. Asserted as an equality against
+  -- the returned value, not merely as "the column is not numeric" -- the
+  -- weaker form let a mutation that wrote NULL to the column pass, because a
+  -- null fails every `~` test silently while the customer is handed a token
+  -- that opens nothing. Found by mutation.
+  select share_token, number into v_stored, v_number
+    from public.orders where shop_id = v_token_shop and customer_name = 'Token Customer';
+  if v_stored is null then
+    raise exception 'FAIL 35: the order stored no share_token -- the link the customer was handed opens nothing';
+  end if;
+  if v_stored <> v_text then
+    raise exception 'FAIL 35: the token returned to the customer (%) is not the one stored on the order (%)',
+      quote_literal(v_text), quote_literal(v_stored);
+  end if;
+  -- Not the order number, and not the order id. The number is sequential per
+  -- shop and starts at 1, so a customer holding a real link could walk their
+  -- neighbours' orders by changing one digit.
+  if v_stored = v_number::text or v_stored ~ '^[0-9]+$' then
+    raise exception 'FAIL 35: the token is derived from the order number -- it is guessable';
+  end if;
+
+  -- ------------------------------------------------ 36. two orders, two different tokens
+  set local role anon;
+  v_result := public.place_storefront_order(
+    'token-shop',
+    jsonb_build_object('name', 'Second Token Customer', 'phone', '063 400 0778', 'fulfilment', 'collect'),
+    jsonb_build_array(jsonb_build_object('product_id', v_token_prod, 'quantity', 1)));
+  reset role;
+  if (v_result->>'share_token') = v_text then
+    raise exception 'FAIL 36: two orders were minted the SAME token -- one customer can read the other''s order';
+  end if;
+
+  -- ------------------------------------------------ 37. the link expires, and starts unconfirmed
+  select share_expires_at, customer_confirmed_at
+    into v_expires, v_confirmed
+    from public.orders where shop_id = v_token_shop and customer_name = 'Token Customer';
+  if v_expires is null then
+    raise exception 'FAIL 37: the order has no share_expires_at -- a leaked link would work forever';
+  end if;
+  -- 90 days, asserted as a WINDOW rather than an equality so a few seconds of
+  -- clock drift between now() and the insert cannot make it flap. 89/91 is
+  -- tight enough that any other interval fails.
+  if v_expires < now() + interval '89 days' or v_expires > now() + interval '91 days' then
+    raise exception 'FAIL 37: share_expires_at is %, expected roughly 90 days out', v_expires;
+  end if;
+  if v_confirmed is not null then
+    raise exception 'FAIL 37: a brand new order is already marked customer-confirmed';
+  end if;
+
+  -- ------------------------------------------------ 38. the token changes nothing about the lockdown
+  --
+  -- New columns on `orders` must not have re-opened it. anon reading the
+  -- table directly would make the whole capability design pointless: it could
+  -- simply select every token.
+  set local role anon;
+  begin
+    perform 1 from public.orders limit 1;
+    raise exception 'FAIL 38: anon can read orders directly -- it could harvest every share_token';
+  exception
+    when insufficient_privilege then null;
+    when others then
+      if sqlerrm like 'FAIL 38%' then raise; end if;
+  end;
+  reset role;
 
   raise notice 'PASS: orders schema';
   raise exception 'rollback_marker';

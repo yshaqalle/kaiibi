@@ -32,6 +32,16 @@ export type PlacedOrder = {
   deliveryFeeCents: number;
   totalCents: number;
   items: OrderLine[];
+  /**
+   * The customer's own link to this order, minted by place_storefront_order
+   * (20261016000000) and returned in this same payload -- so the confirmation
+   * screen shows it with no second query and no loading state.
+   *
+   * Null for a response that carried none: an older client, or any path that
+   * did not mint one. Callers must render NOTHING in that case rather than a
+   * link with `undefined` in it, which is the #108 defect exactly.
+   */
+  shareToken: string | null;
 };
 
 function mapOrder(data: Record<string, unknown>): PlacedOrder {
@@ -52,6 +62,7 @@ function mapOrder(data: Record<string, unknown>): PlacedOrder {
     subtotalCents: data.subtotal_cents as number,
     deliveryFeeCents: data.delivery_fee_cents as number,
     totalCents: data.total_cents as number,
+    shareToken: (data.share_token as string | null) ?? null,
     items,
   };
 }

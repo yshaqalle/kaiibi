@@ -728,6 +728,21 @@ export type ShopOrder = {
    */
   saleId: string | null;
   createdAt: string;
+  /**
+   * The customer's own link to this order (20261016000000). Null for any
+   * order placed before that migration -- such an order simply has no link to
+   * share, and the sheet must render nothing rather than a broken address.
+   */
+  shareToken: string | null;
+  /** When the customer agreed to the latest amendment, if they have. */
+  confirmedAt: string | null;
+  /**
+   * When this order was last amended, or null if it never has been. Paired
+   * with confirmedAt by isAwaitingCustomer (order-amendment.ts) -- the two are
+   * compared rather than null-checked, because an order amended AGAIN after an
+   * agreement is awaiting a new one.
+   */
+  lastAmendedAt: string | null;
 };
 
 function mapOrderRow(row: {
@@ -746,6 +761,9 @@ function mapOrderRow(row: {
   total_cents: number;
   sale_id: string | null;
   created_at: string;
+  share_token: string | null;
+  customer_confirmed_at: string | null;
+  order_amendments: { amended_at: string }[] | null;
   order_items: { quantity: number }[] | null;
 }): ShopOrder {
   return {
@@ -765,6 +783,21 @@ function mapOrderRow(row: {
     totalCents: row.total_cents,
     saleId: row.sale_id ?? null,
     createdAt: row.created_at,
+    shareToken: row.share_token ?? null,
+    confirmedAt: row.customer_confirmed_at ?? null,
+    // The LATEST amendment. PostgREST returns the nested rows unordered, so
+    // the max is taken here rather than trusting position -- reading [0]
+    // would flag the wrong thing on an order amended twice.
+    // Compared as DATES, not as strings. Lexicographic ordering happens to be
+    // right for the ISO-8601-with-fixed-offset form PostgREST returns today,
+    // which is exactly why it is the kind of thing that breaks quietly if that
+    // ever changes -- and isAwaitingCustomer, the only consumer, already
+    // parses these to Date. One comparison rule for one value.
+    lastAmendedAt: (row.order_amendments ?? []).reduce<string | null>(
+      (latest, a) =>
+        latest === null || new Date(a.amended_at).getTime() > new Date(latest).getTime() ? a.amended_at : latest,
+      null
+    ),
   };
 }
 
@@ -782,7 +815,7 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, order_items(quantity)'
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, share_token, customer_confirmed_at, order_items(quantity), order_amendments(amended_at)'
     )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
@@ -1213,17 +1246,51 @@ export function orderErrorMessage(err: unknown): string | null {
 // The comparison itself is delegated to findShortfalls (order-fulfilment.ts)
 // so the "never auto-resolve a shortfall" rule lives in exactly one place,
 // provable without a database.
-export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
+/**
+ * What a shop cannot currently fill, for MANY orders at once.
+ *
+ * THREE QUERIES, WHATEVER N IS -- one location lookup, one for every order's
+ * lines, one for every product's stock. That is the whole reason this exists.
+ * The single-order form below re-resolved the shop's primary location on every
+ * call and ran two more queries, so the orders screen -- which asks once per
+ * visible open row -- spent roughly 3N round trips, about 120 for 40 open
+ * orders, on mount, on tab switch and after every action. It degraded past
+ * 20-30 open orders.
+ *
+ * orders.tsx could not fix it from where it sat: primaryLocation is private to
+ * this module and checkOrderFulfilment took no pre-resolved location, so there
+ * was no way to hoist the shared lookup without changing this contract. Its
+ * own comment recorded that and left the cost measured for whoever could.
+ *
+ * Returns an entry for EVERY id asked about, including orders with no lines,
+ * so a caller never has to tell "nothing short" apart from "never answered".
+ *
+ * Location, stock table and comparison are unchanged from the single form --
+ * see its comment for why product_location_stock and never products.stock, and
+ * why a deleted product counts as fully unavailable rather than being skipped.
+ */
+export async function checkOrdersFulfilment(
+  shopId: string,
+  orderIds: string[]
+): Promise<Record<string, OrderShortfall[]>> {
+  if (orderIds.length === 0) return {};
+
   const location = await primaryLocation(shopId);
   if (!location) throw new Error(`shop ${shopId} has no location to check stock against`);
 
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('product_id, product_name, quantity')
-    .eq('order_id', orderId);
+    .select('order_id, product_id, product_name, quantity')
+    .in('order_id', orderIds);
   if (itemsError) throw itemsError;
 
-  const rows = (items ?? []) as { product_id: string | null; product_name: string; quantity: number }[];
+  const rows = (items ?? []) as {
+    order_id: string;
+    product_id: string | null;
+    product_name: string;
+    quantity: number;
+  }[];
+
   const productIds = [...new Set(rows.map((row) => row.product_id).filter((id): id is string => id !== null))];
 
   const stockByProduct = new Map<string, number>();
@@ -1239,12 +1306,39 @@ export async function checkOrderFulfilment(shopId: string, orderId: string): Pro
     }
   }
 
-  return findShortfalls(
-    rows.map((row) => ({
+  // Seeded with every id FIRST, so an order whose lines came back empty still
+  // gets an answer rather than being absent from the map.
+  const byOrder: Record<string, OrderShortfall[]> = {};
+  for (const id of orderIds) byOrder[id] = [];
+
+  const linesByOrder = new Map<string, { productId: string | null; productName: string; quantity: number; available: number }[]>();
+  for (const row of rows) {
+    const list = linesByOrder.get(row.order_id) ?? [];
+    list.push({
       productId: row.product_id,
       productName: row.product_name,
       quantity: row.quantity,
       available: row.product_id ? stockByProduct.get(row.product_id) ?? 0 : 0,
-    }))
-  );
+    });
+    linesByOrder.set(row.order_id, list);
+  }
+
+  // findShortfalls PER ORDER, never over the pooled lines: two orders sharing
+  // a product are two separate questions, and pooling them would report both
+  // short or neither.
+  for (const [orderId, lines] of linesByOrder) {
+    byOrder[orderId] = findShortfalls(lines);
+  }
+
+  return byOrder;
+}
+
+/**
+ * The same question for ONE order, and now a thin call through the batched
+ * form above rather than a second implementation of it. One code path means
+ * the detail sheet and the list can never disagree about what "short" means.
+ */
+export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
+  const byOrder = await checkOrdersFulfilment(shopId, [orderId]);
+  return byOrder[orderId] ?? [];
 }

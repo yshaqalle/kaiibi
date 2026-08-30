@@ -2,6 +2,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer, type React
 
 import { OrderDetail } from '@/components/orders/order-detail';
 import { StatementRow } from '@/components/ui/statement-row';
+import { orderAddress } from '@/lib/storefront-host';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
 import type { OrderLine, PaymentMethod, ShopOrder } from '@/lib/storefront-admin';
 
@@ -30,6 +31,9 @@ const ORDER: ShopOrder = {
   totalCents: 2500,
   saleId: null,
   createdAt: '2026-08-20T10:00:00.000Z',
+  shareToken: null,
+  confirmedAt: null,
+  lastAmendedAt: null,
 };
 
 const ITEMS: OrderLine[] = [
@@ -139,7 +143,15 @@ describe('OrderDetail', () => {
 
     it('marks the current step for a reader who cannot rely on colour alone', () => {
       const tree = renderDetail({ order: { ...ORDER, status: 'accepted' } });
-      expect(find(tree, 'Current stage: Accepted')).toBeTruthy();
+      // ASSERTS IT IS AN ACCESSIBILITY ELEMENT, not merely that the prop is
+      // present. The old version checked only for the label -- which
+      // react-test-renderer happily reports on a bare View that neither RN
+      // nor the web would ever announce. Found by reading the platform rules,
+      // not by the suite, which stayed green through the whole defect.
+      const step = find(tree, 'Current stage: Accepted');
+      expect(step).toBeTruthy();
+      expect(step!.props.accessible).toBe(true);
+      expect(step!.props.accessibilityRole).toBe('text');
     });
 
     // Cancelled is an off-ramp, not a stop on the road -- showing it as a
@@ -798,5 +810,58 @@ describe('OrderDetail — lines are identified by product, not by name', () => {
     const plain = renderDetail({ order: AMEND_ORDER, items: AMEND_ITEMS, shortfalls: [], currentPrices: PRICES, canAmend: true });
     pressByLabel(plain, 'Amend order');
     expect(find(plain, 'Decrease Rice 5kg')).toBeDefined();
+  });
+});
+
+// ── The shop's side of the customer's link (Part 3 Task 7) ─────────────
+describe('OrderDetail — awaiting the customer', () => {
+  const AMENDED_UNCONFIRMED: ShopOrder = {
+    ...AMEND_ORDER,
+    status: 'accepted',
+    lastAmendedAt: '2026-08-30T10:00:00Z',
+    confirmedAt: null,
+  };
+
+  it('shows an Awaiting customer chip once amended and not yet agreed', () => {
+    const t = texts(renderDetail({ order: AMENDED_UNCONFIRMED, items: AMEND_ITEMS, canAmend: true }));
+    expect(t).toMatch(/awaiting customer/i);
+  });
+
+  it('shows no chip on an order that was never amended', () => {
+    const t = texts(renderDetail({ order: AMEND_ORDER, items: AMEND_ITEMS, canAmend: true }));
+    expect(t).not.toMatch(/awaiting customer/i);
+  });
+
+  it('shows no chip once the customer has agreed', () => {
+    const t = texts(
+      renderDetail({ order: { ...AMENDED_UNCONFIRMED, confirmedAt: '2026-08-30T10:05:00Z' }, items: AMEND_ITEMS, canAmend: true })
+    );
+    expect(t).not.toMatch(/awaiting customer/i);
+  });
+
+  // IT WARNS, IT DOES NOT BLOCK. A shop that phoned and got a verbal yes must
+  // not be locked out because the customer never tapped anything -- blocking
+  // only teaches people to route around the feature. Same posture the sheet
+  // already takes with blockedOnPosAccess: say why, don't silently fail.
+  it('leaves every action live while the chip is showing', () => {
+    const tree = renderDetail({ order: AMENDED_UNCONFIRMED, items: AMEND_ITEMS, canAmend: true });
+    expect(find(tree, 'Mark ready')?.props.disabled).toBe(false);
+    expect(find(tree, 'Amend order')?.props.disabled).toBe(false);
+  });
+});
+
+describe('OrderDetail — the copy link', () => {
+  it('shows the address built by orderAddress, never a hand-built string', () => {
+    const t = texts(renderDetail({ order: { ...AMEND_ORDER, shareToken: 'a1b2c3d4e5f6g7h8j9k0mnpqrs' }, items: AMEND_ITEMS }));
+    expect(t).toContain(orderAddress('a1b2c3d4e5f6g7h8j9k0mnpqrs'));
+  });
+
+  // An order placed before the token existed has none. Rendering
+  // `kaiibi.com/o/undefined` is #108 exactly: a link that looks real and goes
+  // nowhere.
+  it('renders no link at all for an order that has no token', () => {
+    const t = texts(renderDetail({ order: { ...AMEND_ORDER, shareToken: null }, items: AMEND_ITEMS }));
+    expect(t).not.toContain('/o/');
+    expect(t).not.toContain('undefined');
   });
 });

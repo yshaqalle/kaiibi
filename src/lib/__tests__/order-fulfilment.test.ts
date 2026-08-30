@@ -56,7 +56,7 @@ jest.mock('@/lib/supabase', () => {
 const { __state: fake } = jest.requireMock('@/lib/supabase') as { __state: FulfilmentFakeState };
 
 import { findShortfalls, type OrderFulfilmentLine } from '@/lib/order-fulfilment';
-import { checkOrderFulfilment } from '@/lib/storefront-admin';
+import { checkOrderFulfilment, checkOrdersFulfilment } from '@/lib/storefront-admin';
 
 beforeEach(() => {
   fake.results = {};
@@ -168,7 +168,7 @@ describe('checkOrderFulfilment', () => {
   it('resolves the primary location, reads stock there, and reports a satisfiable order as empty', async () => {
     fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
     fake.results.order_items = {
-      data: [{ product_id: 'p1', product_name: 'Kettle', quantity: 3 }],
+      data: [{ order_id: 'order-1', product_id: 'p1', product_name: 'Kettle', quantity: 3 }],
       error: null,
     };
     fake.results.product_location_stock = {
@@ -204,7 +204,7 @@ describe('checkOrderFulfilment', () => {
   it('reports a line short by two units against real product_location_stock', async () => {
     fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
     fake.results.order_items = {
-      data: [{ product_id: 'p1', product_name: 'Kettle', quantity: 5 }],
+      data: [{ order_id: 'order-1', product_id: 'p1', product_name: 'Kettle', quantity: 5 }],
       error: null,
     };
     fake.results.product_location_stock = {
@@ -221,7 +221,7 @@ describe('checkOrderFulfilment', () => {
   it('surfaces a deleted product as fully short, and stays readable rather than throwing', async () => {
     fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
     fake.results.order_items = {
-      data: [{ product_id: null, product_name: 'Discontinued mug', quantity: 2 }],
+      data: [{ order_id: 'order-1', product_id: null, product_name: 'Discontinued mug', quantity: 2 }],
       error: null,
     };
     // No product_location_stock lookup should even be attempted for a null
@@ -238,7 +238,7 @@ describe('checkOrderFulfilment', () => {
   it('does not flag a line sitting at exactly the available quantity', async () => {
     fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
     fake.results.order_items = {
-      data: [{ product_id: 'p1', product_name: 'Kettle', quantity: 4 }],
+      data: [{ order_id: 'order-1', product_id: 'p1', product_name: 'Kettle', quantity: 4 }],
       error: null,
     };
     fake.results.product_location_stock = {
@@ -252,7 +252,7 @@ describe('checkOrderFulfilment', () => {
 
   it('throws when the shop has no location to check stock against', async () => {
     fake.results.shop_locations = { data: null, error: null };
-    fake.results.order_items = { data: [{ product_id: 'p1', product_name: 'Kettle', quantity: 1 }], error: null };
+    fake.results.order_items = { data: [{ order_id: 'order-1', product_id: 'p1', product_name: 'Kettle', quantity: 1 }], error: null };
     await expect(checkOrderFulfilment('shop-1', 'order-1')).rejects.toThrow(/no location/);
   });
 
@@ -270,8 +270,8 @@ describe('checkOrderFulfilment', () => {
     fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
     fake.results.order_items = {
       data: [
-        { product_id: 'p1', product_name: 'Kettle', quantity: 3 },
-        { product_id: 'p1', product_name: 'Kettle', quantity: 4 },
+        { order_id: 'order-1', product_id: 'p1', product_name: 'Kettle', quantity: 3 },
+        { order_id: 'order-1', product_id: 'p1', product_name: 'Kettle', quantity: 4 },
       ],
       error: null,
     };
@@ -284,5 +284,107 @@ describe('checkOrderFulfilment', () => {
     expect(shortfalls).toEqual([
       { productId: 'p1', productName: 'Kettle', quantity: 7, available: 5, shortBy: 2 },
     ]);
+  });
+});
+
+// ── The batched form ────────────────────────────────────────────────────
+//
+// THE COST THIS EXISTS TO REMOVE, measured and recorded in orders.tsx's own
+// comment before it could be fixed there: checkOrderFulfilment re-resolves
+// the shop's primary location on EVERY call, then runs two more queries. The
+// orders screen calls it once per visible open row, so N open rows cost ~3N
+// round trips -- roughly 120 for 40 open orders, fired on mount, on tab
+// switch and after every action. It degrades past 20-30 open orders.
+//
+// It could not be fixed from orders.tsx: primaryLocation is private to
+// storefront-admin.ts and checkOrderFulfilment takes no pre-resolved
+// location, so there was no way to hoist the shared lookup without changing
+// this module's own contract. This is that change.
+//
+// THE ASSERTIONS ARE ABOUT QUERY COUNT, because that is the entire point. A
+// batched function that quietly looped would satisfy every value assertion
+// below and none of the counts.
+describe('checkOrdersFulfilment', () => {
+  it('asks three questions for three orders, not nine', async () => {
+    fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
+    fake.results.order_items = {
+      data: [
+        { order_id: 'o1', product_id: 'p1', product_name: 'Kettle', quantity: 5 },
+        { order_id: 'o2', product_id: 'p1', product_name: 'Kettle', quantity: 1 },
+        { order_id: 'o3', product_id: 'p2', product_name: 'Rice', quantity: 4 },
+      ],
+      error: null,
+    };
+    fake.results.product_location_stock = {
+      data: [{ product_id: 'p1', stock: 3 }, { product_id: 'p2', stock: 10 }],
+      error: null,
+    };
+
+    await checkOrdersFulfilment('shop-1', ['o1', 'o2', 'o3']);
+
+    // ONE of each, for three orders. Nine would be the old behaviour.
+    expect(fake.queries.filter((q) => q.table === 'shop_locations')).toHaveLength(1);
+    expect(fake.queries.filter((q) => q.table === 'order_items')).toHaveLength(1);
+    expect(fake.queries.filter((q) => q.table === 'product_location_stock')).toHaveLength(1);
+    expect(fake.queries).toHaveLength(3);
+
+    // ...and the lines were fetched for all three at once.
+    const items = fake.queries.find((q) => q.table === 'order_items');
+    expect(items?.calls).toContainEqual(['in', 'order_id', ['o1', 'o2', 'o3']]);
+  });
+
+  it('keeps each order own shortfalls apart', async () => {
+    fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
+    fake.results.order_items = {
+      data: [
+        { order_id: 'o1', product_id: 'p1', product_name: 'Kettle', quantity: 5 },
+        { order_id: 'o2', product_id: 'p1', product_name: 'Kettle', quantity: 1 },
+      ],
+      error: null,
+    };
+    fake.results.product_location_stock = { data: [{ product_id: 'p1', stock: 3 }], error: null };
+
+    const byOrder = await checkOrdersFulfilment('shop-1', ['o1', 'o2']);
+    // o1 wants 5 of a product with 3 on the shelf; o2 wants 1 and is fine.
+    // Sharing a product between the two is deliberate -- an implementation
+    // that pooled the lines would report both short, or neither.
+    expect(byOrder.o1).toEqual([
+      { productId: 'p1', productName: 'Kettle', quantity: 5, available: 3, shortBy: 2 },
+    ]);
+    expect(byOrder.o2).toEqual([]);
+  });
+
+  it('returns an entry for every order asked about, even one with no lines', async () => {
+    fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
+    fake.results.order_items = { data: [], error: null };
+    fake.results.product_location_stock = { data: [], error: null };
+
+    // A caller keying off the result must not have to distinguish "no
+    // shortfalls" from "this order was never answered".
+    expect(await checkOrdersFulfilment('shop-1', ['o1', 'o2'])).toEqual({ o1: [], o2: [] });
+  });
+
+  it('asks nothing at all for an empty list', async () => {
+    expect(await checkOrdersFulfilment('shop-1', [])).toEqual({});
+    expect(fake.queries).toEqual([]);
+  });
+
+  it('treats a deleted product as fully unavailable, per order', async () => {
+    fake.results.shop_locations = { data: { id: 'loc-primary' }, error: null };
+    fake.results.order_items = {
+      data: [{ order_id: 'o1', product_id: null, product_name: 'Discontinued', quantity: 2 }],
+      error: null,
+    };
+    fake.results.product_location_stock = { data: [], error: null };
+
+    const byOrder = await checkOrdersFulfilment('shop-1', ['o1']);
+    expect(byOrder.o1).toEqual([
+      { productId: null, productName: 'Discontinued', quantity: 2, available: 0, shortBy: 2 },
+    ]);
+  });
+
+  it('throws rather than reporting a shop with no location as fully stocked', async () => {
+    fake.results.shop_locations = { data: null, error: null };
+    await expect(checkOrdersFulfilment('shop-1', ['o1'])).rejects.toThrow(/location/i);
   });
 });

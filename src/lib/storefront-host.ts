@@ -27,6 +27,27 @@ export const APP_DOMAIN = 'kaiibi.com';
 // disk rather than merely comparing it to itself.
 export const STOREFRONT_SEGMENT = 'store';
 
+// The segment a CUSTOMER's own order lives under: `/o/<token>`.
+//
+// Short on purpose. This one gets read aloud over a phone and typed by hand,
+// which is also why the token itself uses an alphabet with no i, l, o or u
+// (see mint_order_share_token in the migration).
+//
+// Same file-based-routing constraint STOREFRONT_SEGMENT is under: this string
+// has to be the name of the directory holding the route
+// (`src/app/o/[token].tsx`), and storefront-canonical-path.test.tsx resolves
+// it to that file on disk rather than comparing it to itself.
+//
+// THERE IS DELIBERATELY NO `LEGACY_ORDER_SEGMENT`, and its absence is under
+// test. The storefront address kept its old segment alive as a redirect
+// because "a link like that is out of our hands the moment it is sent"; the
+// same is true of an order link, but no such promise is being made here (plan
+// decision 3). If this segment ever changes, links already sitting in
+// customers' WhatsApp histories 404 rather than redirecting. That is accepted
+// -- and adding an unused legacy constant "just in case" is exactly how the
+// next reader would conclude otherwise.
+export const ORDER_SEGMENT = 'o';
+
 // The segment shops were given BEFORE the rename, kept alive as a redirect.
 //
 // It is not dead weight and it is not a nicety: `<slug>.kaiibi.com` was never
@@ -90,4 +111,24 @@ export function slugFromHostname(hostname: string, appDomain: string = APP_DOMAI
   // an unparseable label behaves exactly like an unknown host.
   if (validateSlug(label) !== null) return null;
   return label;
+}
+
+// The path a customer's order link points at, and the address a shop copies.
+//
+// A pair, not two independent builders: `orderAddress` is `APP_DOMAIN` plus
+// whatever `orderPath` says, so the two cannot drift and settling
+// path-vs-subdomain later (docs/backlog/2026-08-27-storefront-wildcard-dns.md,
+// options A/B/C) stays a one-file change. This is the storefrontPath /
+// storefrontAddress pair above, for the other public URL this app hands out.
+//
+// encodeURIComponent because this is the single place an order URL is built.
+// A token off gen_random_bytes through a fixed alphabet can never need it, so
+// it is belt and braces -- but a URL builder that does not escape is a defect
+// waiting for the first input that is not what it expected.
+export function orderPath(token: string): string {
+  return `/${ORDER_SEGMENT}/${encodeURIComponent(token)}`;
+}
+
+export function orderAddress(token: string): string {
+  return `${APP_DOMAIN}${orderPath(token)}`;
 }

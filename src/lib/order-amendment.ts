@@ -156,3 +156,32 @@ export function amendmentLines(lines: AmendLineDraft[]): OrderAmendmentLine[] {
     .filter((line): line is AmendLineDraft & { productId: string } => line.productId !== null)
     .map((line) => ({ productId: line.productId, quantity: Math.max(0, Math.trunc(line.quantity)) }));
 }
+
+/**
+ * Has the shop changed this order without the customer having agreed yet?
+ *
+ * A FLAG, NOT A SIXTH STATUS. A new word in the status vocabulary would mean
+ * touching the CHECK, the permitted-moves table in the transition trigger,
+ * ORDERS_NEEDING_ACTION, the tabs and ORDER_STATUS_BADGE -- for something
+ * ORTHOGONAL to where the order actually is. An order can be awaiting the
+ * customer's agreement at pending, accepted OR ready.
+ *
+ * A COMPARISON, not a null check, and the difference is a real case: a shop
+ * amends, the customer agrees, and then the shop amends AGAIN. The first
+ * agreement does not cover the second change, so the flag has to come back.
+ * Equal timestamps count as covering -- a customer cannot have agreed before
+ * the change happened, so the pair belongs together.
+ *
+ * IT WARNS, IT DOES NOT BLOCK. Nothing gated on this may disable an action:
+ * a shop that phoned and got a verbal yes must not be locked out because the
+ * customer never tapped anything, and blocking only teaches people to route
+ * around the feature.
+ */
+export function isAwaitingCustomer(input: {
+  lastAmendedAt: string | null;
+  confirmedAt: string | null;
+}): boolean {
+  if (!input.lastAmendedAt) return false;
+  if (!input.confirmedAt) return true;
+  return new Date(input.confirmedAt).getTime() < new Date(input.lastAmendedAt).getTime();
+}

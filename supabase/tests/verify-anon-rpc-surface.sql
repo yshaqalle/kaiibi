@@ -44,12 +44,48 @@ do $$
 declare
   v_expected text[] := array[
     -- The deliberate public storefront: a logged-out customer browses a shop
-    -- and places an order. These four carry an EXPLICIT anon grant, not the
+    -- and places an order. These carry an EXPLICIT anon grant, not the
     -- PUBLIC default, and are the entire legitimate anonymous RPC surface.
     'get_public_delivery_areas',
     'get_public_storefront',
     'get_public_storefront_products',
-    'place_storefront_order'
+    'place_storefront_order',
+    -- ADDED BY 20261017000000, and this list going from four to five is a
+    -- deliberate act rather than a consequence -- this check is what made it
+    -- one, by going red the moment the function was granted.
+    --
+    -- A customer who has ordered can read THEIR OWN order and nothing else.
+    -- It is a READ, its only input is a capability token the shop chose to
+    -- hand out (130 bits, scoped to one order, expiring), and an unknown
+    -- token and an expired one answer identically so it cannot be used to
+    -- discover which tokens are real. What it may never return -- cost,
+    -- stock, the internal amendment reason, the cancellation reason, any id
+    -- -- is asserted in verify-public-order.sql, against the whole
+    -- serialised payload rather than field by field.
+    'get_public_order',
+    -- ALSO 20261017000000, AND THIS ONE WRITES.
+    --
+    -- Every other name on this list is a read. confirm_public_order is the
+    -- first write this application has ever granted to anon, so it gets the
+    -- longest note here rather than the shortest.
+    --
+    -- It is safe not because the token is hard to guess -- an order link is
+    -- sent over WhatsApp and will eventually be forwarded, screenshotted and
+    -- backed up -- but because THERE IS NOTHING HARMFUL IT CAN DO. It stamps
+    -- customer_confirmed_at and nothing else: it cannot change a line, a
+    -- quantity, a total, a status, an address or the token, and it cannot
+    -- cancel. Whoever holds a leaked link can agree with something the shop
+    -- itself proposed, and that is the whole of it.
+    --
+    -- "Something's wrong" is deliberately NOT an RPC. It writes nothing and
+    -- opens WhatsApp, so the destructive conversation stays in the human
+    -- channel where the shop can ask who it is talking to.
+    --
+    -- verify-public-order check 13 is the assertion that keeps it true: the
+    -- WHOLE order row is captured before and after with the timestamp
+    -- stripped, and compared entire -- so a future edit that also touches a
+    -- column no test names still fails.
+    'confirm_public_order'
   ];
   v_actual  text[];
   v_added   text[];
