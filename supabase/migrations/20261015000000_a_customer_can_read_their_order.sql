@@ -157,3 +157,103 @@ $$;
 -- both use, and check 9 is what goes red if the revoke is dropped.
 revoke execute on function public.get_public_order(text) from public;
 grant execute on function public.get_public_order(text) to anon, authenticated;
+
+
+-- ── confirm_public_order: the first anon WRITE this application has ─────
+--
+-- ## The asymmetry IS the security argument
+--
+-- Everything above is a read. This one writes, as `anon`, and it is the
+-- first time this application has granted that. The reason it is safe is not
+-- that the token is hard to guess -- it is that THERE IS NOTHING HARMFUL
+-- THIS FUNCTION CAN DO.
+--
+-- An order link is sent to one customer over WhatsApp and lives in their
+-- chat history forever. It will be forwarded, screenshotted, pasted into a
+-- family group, and eventually turn up in an exported backup. So the design
+-- question is not "how do we stop the link leaking" -- it will -- but "what
+-- is the worst thing someone holding a leaked link can do?"
+--
+-- The answer is: agree with something the shop itself proposed. That is all.
+-- It stamps `customer_confirmed_at` and NOTHING else. It cannot change a
+-- line, a quantity, a total, a status, an address, or the token. It cannot
+-- cancel. verify-public-order check 13 is that property asserted the only
+-- way worth asserting it -- the WHOLE row is captured before and after with
+-- the timestamp stripped, and compared entire, so an edit that also touched
+-- a column no test names still fails.
+--
+-- "Something's wrong" is deliberately NOT a code path here. It writes
+-- nothing at all: the page opens WhatsApp to the shop. The destructive
+-- conversation stays in the human channel, which is where it already lives
+-- and where the shop can ask who it is talking to.
+--
+--
+-- ## Idempotent, and why that is not just tidiness
+--
+-- A customer taps twice. A flaky connection retries. A forwarded link is
+-- opened by three relatives. None of that may move the timestamp, because
+-- the timestamp is the shop's record of WHEN the customer agreed -- and on
+-- an amended order that is the record of when they accepted a changed
+-- total. Silently rewriting it would quietly re-date an agreement about
+-- money. So the stamp is written only when it is absent, and check 12
+-- asserts EQUALITY against the first value rather than merely "still set".
+--
+--
+-- ## A cancelled order cannot be agreed to
+--
+-- It is still READABLE -- the customer is owed that news -- but there is
+-- nothing left to agree with, and a confirmation stamped on a cancelled
+-- order would show the shop an "awaiting customer" flag resolving on an
+-- order that is over.
+--
+-- ## Unknown and expired, again identically
+--
+-- Same as the read, and for the same reason: a different answer for the two
+-- tells a stranger which tokens are real. Both simply fail to match.
+create or replace function public.confirm_public_order(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id     uuid;
+  v_status text;
+  v_at     timestamptz;
+begin
+  -- FOR UPDATE, so two taps from two devices queue instead of both reading a
+  -- null stamp and both writing one. The second wakes up, sees the stamp,
+  -- and leaves it alone.
+  select o.id, o.status, o.customer_confirmed_at
+    into v_id, v_status, v_at
+    from public.orders o
+   where o.share_token = p_token
+     and btrim(coalesce(p_token, '')) <> ''
+     and (o.share_expires_at is null or o.share_expires_at > now())
+   for update;
+
+  -- Unknown, or expired. Indistinguishable, on purpose.
+  if v_id is null then
+    return null;
+  end if;
+
+  -- Readable, but there is nothing left to agree with.
+  if v_status = 'cancelled' then
+    return public.get_public_order(p_token);
+  end if;
+
+  -- ONLY WHEN ABSENT. See the header: this is the shop's record of when the
+  -- customer agreed, and a retry must not re-date it.
+  if v_at is null then
+    update public.orders
+       set customer_confirmed_at = now()
+     where id = v_id;
+  end if;
+
+  -- The same projection the read uses, so this cannot become a second,
+  -- looser place where the payload is decided.
+  return public.get_public_order(p_token);
+end $$;
+
+revoke execute on function public.confirm_public_order(text) from public;
+grant execute on function public.confirm_public_order(text) to anon, authenticated;

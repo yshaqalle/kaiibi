@@ -62,7 +62,30 @@ declare
     -- stock, the internal amendment reason, the cancellation reason, any id
     -- -- is asserted in verify-public-order.sql, against the whole
     -- serialised payload rather than field by field.
-    'get_public_order'
+    'get_public_order',
+    -- ALSO 20261015000000, AND THIS ONE WRITES.
+    --
+    -- Every other name on this list is a read. confirm_public_order is the
+    -- first write this application has ever granted to anon, so it gets the
+    -- longest note here rather than the shortest.
+    --
+    -- It is safe not because the token is hard to guess -- an order link is
+    -- sent over WhatsApp and will eventually be forwarded, screenshotted and
+    -- backed up -- but because THERE IS NOTHING HARMFUL IT CAN DO. It stamps
+    -- customer_confirmed_at and nothing else: it cannot change a line, a
+    -- quantity, a total, a status, an address or the token, and it cannot
+    -- cancel. Whoever holds a leaked link can agree with something the shop
+    -- itself proposed, and that is the whole of it.
+    --
+    -- "Something's wrong" is deliberately NOT an RPC. It writes nothing and
+    -- opens WhatsApp, so the destructive conversation stays in the human
+    -- channel where the shop can ask who it is talking to.
+    --
+    -- verify-public-order check 13 is the assertion that keeps it true: the
+    -- WHOLE order row is captured before and after with the timestamp
+    -- stripped, and compared entire -- so a future edit that also touches a
+    -- column no test names still fails.
+    'confirm_public_order'
   ];
   v_actual  text[];
   v_added   text[];

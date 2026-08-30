@@ -68,6 +68,11 @@ declare
   c_secret_reason constant text := 'ZZQ-internal-she-always-argues-about-the-price';
 
   v_payload  jsonb;
+  v_before_row jsonb;
+  v_after_row  jsonb;
+  v_confirmed_at    timestamptz;
+  v_confirmed_again timestamptz;
+  v_lines_before    integer;
   v_unknown  jsonb;
   v_expired  jsonb;
   v_text     text;
@@ -312,6 +317,114 @@ begin
   exception
     when insufficient_privilege then null;
     when others then if sqlerrm like 'FAIL 10%' then raise; end if;
+  end;
+  reset role;
+
+  -- ══════════════════ confirm_public_order ═══════════════════════════════
+  --
+  -- THE FIRST WRITE THIS APPLICATION HAS EVER GRANTED TO anon. The whole
+  -- security argument for the feature is its asymmetry: a link that has been
+  -- forwarded, screenshotted or leaked must never be able to HARM an order,
+  -- so the only thing an anonymous caller may do is AGREE with what the shop
+  -- itself proposed. "Something's wrong" writes nothing at all -- it opens
+  -- WhatsApp on the client, and there is deliberately no RPC for it.
+
+  -- ------------------------------------------------ 16. anon holds EXECUTE, and no table write
+  if not has_function_privilege('anon', 'public.confirm_public_order(text)', 'EXECUTE') then
+    raise exception 'FAIL 16: anon cannot execute confirm_public_order';
+  end if;
+
+  -- ------------------------------------------------ 13. NOTHING BUT THE TIMESTAMP MOVES
+  --
+  -- The check this function exists to satisfy. The entire row is captured
+  -- before and after, with customer_confirmed_at stripped from both, and the
+  -- two are compared whole -- so a mutation that also touched status, a
+  -- total, or the token itself fails here even though nothing in this file
+  -- names those columns.
+  select to_jsonb(o) - 'customer_confirmed_at' into v_before_row
+    from public.orders o where o.id = v_collect_id;
+  select count(*) into v_lines_before from public.order_items where order_id = v_collect_id;
+
+  set local role anon;
+  v_payload := public.confirm_public_order(c_collect_token);
+  reset role;
+
+  select to_jsonb(o) - 'customer_confirmed_at' into v_after_row
+    from public.orders o where o.id = v_collect_id;
+  select count(*) into v_count from public.order_items where order_id = v_collect_id;
+
+  if v_after_row <> v_before_row then
+    raise exception 'FAIL 13: confirming changed something other than the timestamp. before % / after %',
+      v_before_row::text, v_after_row::text;
+  end if;
+  if v_count <> v_lines_before then
+    raise exception 'FAIL 13: confirming changed the order''s lines -- % before, % after', v_lines_before, v_count;
+  end if;
+
+  -- ------------------------------------------------ 11. it stamps the agreement
+  select customer_confirmed_at into v_confirmed_at from public.orders where id = v_collect_id;
+  if v_confirmed_at is null then
+    raise exception 'FAIL 11: confirming did not stamp customer_confirmed_at';
+  end if;
+
+  -- ------------------------------------------------ 12. and it is idempotent
+  --
+  -- THE EXISTING STAMP IS BACKDATED FIRST, and that is what makes this check
+  -- able to fail at all. Both confirmations happen inside this one DO block,
+  -- and `now()` is TRANSACTION time -- so a function that re-stamps on every
+  -- call writes the identical value and no comparison of the two can tell.
+  -- Found by mutation: replacing `if v_at is null` with `if true` left this
+  -- check green until the seeded value below made the two distinguishable.
+  --
+  -- Backdating also states the property more honestly than "the timestamp
+  -- did not move": what matters is that an EXISTING agreement is never
+  -- overwritten, whenever it was made.
+  update public.orders
+     set customer_confirmed_at = timestamptz '2026-08-01 09:15:00+00'
+   where id = v_collect_id;
+
+  set local role anon;
+  perform public.confirm_public_order(c_collect_token);
+  reset role;
+  select customer_confirmed_at into v_confirmed_again from public.orders where id = v_collect_id;
+  if v_confirmed_again is distinct from timestamptz '2026-08-01 09:15:00+00' then
+    raise exception 'FAIL 12: a second confirmation rewrote the customer''s agreement from 2026-08-01 09:15:00+00 to % -- the shop''s record of WHEN they agreed is not the app''s to re-date',
+      v_confirmed_again;
+  end if;
+
+  -- ------------------------------------------------ 15. a cancelled order cannot be agreed to
+  set local role anon;
+  perform public.confirm_public_order(c_cancel_token);
+  reset role;
+  select customer_confirmed_at into v_confirmed_at from public.orders where id = v_cancel_id;
+  if v_confirmed_at is not null then
+    raise exception 'FAIL 15: a CANCELLED order was marked as agreed by the customer';
+  end if;
+
+  -- ------------------------------------------------ 14. unknown and expired confirm nothing
+  set local role anon;
+  v_unknown := public.confirm_public_order('zzzzzzzzzzzzzzzzzzzzzzzzzz');
+  v_expired := public.confirm_public_order(c_expired_token);
+  reset role;
+  if v_unknown is not null and v_unknown <> 'null'::jsonb then
+    raise exception 'FAIL 14: an unknown token confirmed something: %', v_unknown;
+  end if;
+  if v_expired is distinct from v_unknown then
+    raise exception 'FAIL 14: an expired token answers differently from an unknown one -- an oracle';
+  end if;
+  select customer_confirmed_at into v_confirmed_at from public.orders where id = v_expired_id;
+  if v_confirmed_at is not null then
+    raise exception 'FAIL 14: an EXPIRED link still stamped the order';
+  end if;
+
+  -- ------------------------------------------------ 16b. anon still cannot write orders directly
+  set local role anon;
+  begin
+    update public.orders set customer_confirmed_at = now() where id = v_collect_id;
+    raise exception 'FAIL 16: anon can update orders directly -- the RPC is not the only door';
+  exception
+    when insufficient_privilege then null;
+    when others then if sqlerrm like 'FAIL 16%' then raise; end if;
   end;
   reset role;
 
