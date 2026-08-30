@@ -96,6 +96,26 @@ otherwise look reasonable.
     call you when your order is ready to collect" and gives no address. The shop's address never
     reaches the customer on a collect order.
 
+11. **A default is not an enforcement.** *Learned the hard way in Part 0, and it binds every RPC
+    below.* Part 0's first draft gave `complete_sale` a `p_require_register boolean default true`
+    parameter, on the argument that the default left every existing caller unchanged. That was the
+    mistake. A function granted to `authenticated` is exposed over PostgREST, so **every parameter
+    it declares is a field the client can put in a JSON body** — `p_require_register => false`
+    defeated the setting, and `=> null` also defeated it, because `if NULL and …` is NULL and the
+    `if` never fires. Both were one extra JSON field, reproduced against the live database with a
+    real JWT.
+
+    A default decides what happens when the client says *nothing*. It decides nothing about what
+    happens when the client *speaks*. Where the property wanted is "only function X may do this,"
+    that is a **provenance** question, not a parameter — answered by a `security definer` write to
+    a table with no grants, stamped `pg_current_xact_id()`, as `storefront_order_completions`
+    (`20260928000500`) and now `storefront_order_fulfilments` (`20261010000000`) both do.
+
+    **This binds `amend_order`, `split_order`, `get_public_order` and `confirm_public_order`
+    below.** Any flag on any of them that decides who may do what is settable by whoever calls it.
+
+---
+
 ## The through-line
 
 > A shop cannot fill an order in full, so it amends it down, sends the customer a link showing
@@ -306,6 +326,31 @@ it returns no order id because "the caller has no privilege that would let them 
 one" — a token is the inverse of a bare id: it *carries* its own privilege. This extends that
 reasoning rather than reversing it.
 
+### The URL is derived, never assembled
+
+**Added 2026-08-29 after #108 (`9f23ae9`) landed on main.** That PR fixed exactly the defect this
+part would otherwise have recreated: two surfaces each hand-built `<slug>.kaiibi.com`, no wildcard
+DNS record was ever created for it, and shops were copying an address that returned a DNS failure
+while `kaiibi.com/store/<slug>` — which works — was shown nowhere. The fix made
+`src/lib/storefront-host.ts` the single source: `APP_DOMAIN`, `storefrontPath(slug)`,
+`storefrontAddress(slug)`, `STOREFRONT_ADDRESS_PREFIX`.
+
+So the order link is **not** written as `kaiibi.com/o/<token>` anywhere. `storefront-host.ts` gains
+a sibling pair — `orderPath(token)` and `orderAddress(token)` — built from the same `APP_DOMAIN`
+and an `ORDER_SEGMENT` constant, and every surface that shows, copies or sends the link calls
+them. The route file is named from `ORDER_SEGMENT` too, so the address and the thing that serves
+it cannot drift.
+
+The test follows #108's pattern rather than inventing one, because that PR's own post-mortem names
+why the bug shipped: the old tests pinned each surface to a literal constant, so all of them could
+be wrong together. The new test collects what each surface shows, copies and sends, asserts they
+**collapse to one string**, and asserts that string **resolves to a route file on disk**.
+
+Which form is canonical — path or subdomain — is not settled here. That is options A/B/C in
+[`docs/backlog/2026-08-27-storefront-wildcard-dns.md`](../../backlog/2026-08-27-storefront-wildcard-dns.md),
+deferred on purpose. Deriving from `APP_DOMAIN` is what makes settling it later a one-file change
+instead of a hunt.
+
 The token is 128 bits of `gen_random_bytes`, base32-encoded to 26 URL-safe characters with no
 mixed case — it gets read aloud over a phone and typed by hand. Generated in a retry loop against
 the unique index. **Never the order number, and never the order id** (constraint 5).
@@ -338,11 +383,16 @@ agrees with what the shop itself proposed. "Something's wrong" writes nothing at
 WhatsApp to the shop. The destructive path stays in the human channel, which is where it already
 lives.
 
-### The page — `src/app/o/[token].tsx`
+### The page — the route named by `ORDER_SEGMENT`
 
 No login. `vercel.json` already rewrites every path to the SPA, so no hosting change.
 `app.json` has scheme `kaiibi` but no `associatedDomains`, so the link opens the **web** page rather
 than deep-linking into an app the customer has never installed — which is what we want.
+
+Note the precedent from `src/app/s/[slug].tsx`: the *old* storefront address was kept as a redirect
+rather than deleted, because "a link like that is out of our hands the moment it is sent." An order
+link is sent to a customer over WhatsApp and lives in their chat history forever. Whatever the
+route is called on day one, it can be moved but never removed.
 
 Two shapes:
 

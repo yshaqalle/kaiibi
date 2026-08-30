@@ -236,6 +236,37 @@
   .cust .fine{font-size:11.5px;color:var(--d-mut2);text-align:center;margin-top:13px;line-height:1.5;}
   .confirmed{background:var(--upw);border-radius:14px;padding:13px 15px;font-size:13px;color:var(--upi);font-weight:750;display:flex;gap:9px;align-items:center;}
 
+  /* ── the storefront (a shop's own palette, NOT bento) ─────────── */
+  .sf{--s-ink:#241c14;--s-mut:#8a7b6c;--s-soft:#efe7dd;--s-acc:#8c4a2f;--s-grd:#fffdfa;--s-dan:#b3261e;
+      background:var(--s-grd);border-radius:20px;padding:20px 18px 22px;color:var(--s-ink);}
+  .sf h6{margin:0 0 3px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--s-mut);}
+  .sf .lbl{font-size:12.5px;font-weight:750;margin:15px 0 7px;display:block;}
+  .sf .fld{border:1px solid var(--s-soft);border-radius:11px;padding:11px 12px;font-size:13px;color:var(--s-mut);background:#fff;}
+  .sf .fld.filled{color:var(--s-ink);font-weight:650;}
+  .seg{display:flex;gap:8px;}
+  .seg span{flex:1;border:1px solid var(--s-soft);border-radius:11px;padding:11px 8px;text-align:center;font-size:13px;font-weight:750;color:var(--s-ink);background:#fff;}
+  .seg span.on{background:var(--s-acc);border-color:var(--s-acc);color:#fff;}
+  .seg.one span{flex:0 1 auto;min-width:150px;}
+  .sf .addr{font-size:12.5px;color:var(--s-mut);margin-top:9px;line-height:1.45;}
+  .sf .addr b{color:var(--s-ink);font-weight:700;}
+  .sf .sum{border-top:1px solid var(--s-soft);margin-top:17px;padding-top:12px;}
+  .sf .sumrow{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;}
+  .sf .sumrow.tot{font-weight:800;font-size:14.5px;border-top:1px solid var(--s-soft);margin-top:7px;padding-top:10px;}
+  .sf .cta{background:var(--s-acc);color:#fff;border-radius:12px;padding:13px;text-align:center;font-weight:800;font-size:14px;margin-top:15px;}
+  .sf .gap{border:1.5px dashed var(--s-dan);border-radius:11px;padding:11px 12px;font-size:12px;color:var(--s-dan);font-weight:700;line-height:1.45;}
+  .sf .conf{border-top:1px solid var(--s-soft);margin-top:15px;padding-top:14px;}
+  .sf .conf .n{font-size:26px;font-weight:800;letter-spacing:-.02em;}
+  .sf .conf .next{font-size:13px;margin-top:9px;line-height:1.5;}
+
+  .badlabel{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;margin-bottom:9px;}
+  .badlabel.now{background:rgba(215,43,62,.13);color:#b21f30;}
+  .badlabel.fix{background:rgba(0,131,64,.14);color:#0b7a44;}
+
+  .errbar{background:var(--dnw);border-radius:14px;padding:12px 14px;font-size:12.5px;color:var(--dni);
+    font-weight:650;line-height:1.45;display:flex;gap:9px;}
+  .errbar code{background:rgba(215,43,62,.10);padding:1px 5px;border-radius:4px;font-size:11.5px;}
+
   .annot{margin-top:14px;display:grid;gap:9px;}
   .an{display:flex;gap:9px;font-size:12.5px;color:var(--ink2);line-height:1.45;}
   .an .no{flex:0 0 20px;height:20px;border-radius:50%;background:var(--ink);color:var(--pg);font-size:11px;font-weight:800;
@@ -252,10 +283,17 @@
     part of one</b>, and <b class="k">a link the customer can open</b> — which turn out to be one feature wearing
     three hats.
   </p>
-  <p class="note" style="max-width:70ch;margin-bottom:26px;">
+  <p class="note" style="max-width:70ch;margin-bottom:10px;">
     The through-line: a shop cannot fill an order in full, so it amends it down, sends the customer a link
     showing exactly what changed, settles the rest on WhatsApp, and carries on. Every piece below exists to
     serve that one sentence.
+  </p>
+  <p class="note" style="max-width:70ch;margin-bottom:26px;">
+    <b class="k">Updated 2026-08-29.</b> Two things arrived after the first draft. <b class="k">Part 0</b>
+    is now drawn — the two defects that block this journey before any of it matters, and the only one of
+    them with a customer-facing screen. And the share link is <b class="k">derived, not written</b>, after
+    #108 landed on main: two surfaces had each hand-built <code>&lt;slug&gt;.kaiibi.com</code>, which has
+    no DNS record, so shops were copying an address that failed for every customer they sent it to.
   </p>
 
   <section>
@@ -349,6 +387,7 @@
       <button role="tab" aria-selected="false" data-pane="p-sheet">The order sheet</button>
       <button role="tab" aria-selected="false" data-pane="p-amend">Amend &amp; partial fill</button>
       <button role="tab" aria-selected="false" data-pane="p-share">The customer's link</button>
+      <button role="tab" aria-selected="false" data-pane="p-part0">Pick-up &amp; the till</button>
     </div>
 
     <!-- ══════════════ AFTER · 1280 ══════════════ -->
@@ -995,6 +1034,13 @@
                 The same link works for the whole life of the order — send it once and every later change
                 shows up on it.
               </p>
+              <p style="font-size:11px;color:var(--d-mut2);margin:9px 0 0;line-height:1.5;">
+                That string is <b style="color:var(--d-ink2);">not written anywhere</b>. It comes from
+                <code style="font-size:10.5px;">orderAddress(token)</code> in
+                <code style="font-size:10.5px;">storefront-host.ts</code>, built from the same
+                <code style="font-size:10.5px;">APP_DOMAIN</code> the storefront address uses, and the
+                route file is named from the same constant.
+              </p>
             </div>
           </div>
 
@@ -1098,6 +1144,17 @@
           number.</b> <code>assign_order_number</code> is sequential per shop — <code>#1042</code> tells you
           <code>#1041</code> exists. A guessable URL would hand a stranger a name, a phone number and a
           delivery landmark.</div></div>
+        <div class="an"><div class="no">4</div><div><b class="k">The address on this page depends on
+          which way the order is going.</b> A delivery shows the landmark the customer themselves gave
+          (above: "26 June, next to Ganre Hotel"). A <em>collection</em> shows the SHOP's address,
+          which is the same gap Part 0b fixes at checkout — a rail that says "Ready" without saying
+          where to go is the defect, not the feature.</div></div>
+        <div class="an"><div class="no">5</div><div><b class="k">The URL is derived, never assembled.</b>
+          #108 landed on main while this was being designed: two surfaces each hand-built
+          <code>&lt;slug&gt;.kaiibi.com</code>, which has <em>no wildcard DNS record</em>, so shops
+          copied a link that gave customers a DNS failure. This page's link is built from the same
+          <code>APP_DOMAIN</code> single source, and its test follows #108's: assert every surface
+          collapses to one string, and that the string resolves to a route file on disk.</div></div>
         <div class="an"><div class="no">4</div><div><b class="k">A fifth anon RPC, added deliberately.</b>
           <code>71d0dcd</code> cut the anon surface from 74 functions to 4 on purpose, and the survivors are
           exactly this family — the public storefront. <code>get_public_order(token)</code> belongs to it,
@@ -1108,6 +1165,217 @@
           forever otherwise. Some window after the order reaches a terminal state, plus a regenerate action
           for when a shop knows one went astray — and the RPC answers "not found" identically for a bad
           token and an expired one.</div></div>
+      </div>
+    </div>
+    <!-- ══════════════ PART 0 ══════════════ -->
+    <div class="pane" id="p-part0" hidden>
+      <div class="frameHead"><b>Two defects that block the journey before any of the above matters</b><i>Part 0 · ships first</i></div>
+
+      <h3 style="font-size:17px;margin:26px 0 4px;">0b · Store pick-up is invisible exactly when it is the only option</h3>
+      <p class="note" style="margin-bottom:16px;">
+        In <code>checkout-form.tsx</code> the <em>whole</em> fulfilment block — the heading and
+        <em>both</em> buttons — sits inside <code>{canDeliver ? … : null}</code>, where
+        <code>canDeliver = offersDelivery &amp;&amp; areas.length &gt; 0</code>. A shop that does not
+        deliver shows the customer no choice at all.
+      </p>
+
+      <div class="pair">
+        <div>
+          <span class="badlabel now">Today · a collect-only shop</span>
+          <div class="frame doc w380" style="background:#e6ddd2;">
+            <div class="sf">
+              <h6>Hodan Grocery</h6>
+              <span class="lbl">Your name</span>
+              <div class="fld filled">Amina Warsame</div>
+              <span class="lbl">Phone</span>
+              <div class="fld filled">063 441 2290</div>
+
+              <div style="margin-top:16px;">
+                <div class="gap">Nothing renders here.<br />No choice, no heading, no address —
+                  the order is filed as a collection the customer was never told about.</div>
+              </div>
+
+              <div class="sum">
+                <div class="sumrow"><span>Goods</span><span>$47.50</span></div>
+                <div class="sumrow tot"><span>Total</span><span>$47.50</span></div>
+              </div>
+              <div class="cta">Place order</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <span class="badlabel fix">Fixed · the choice always renders</span>
+          <div class="frame doc w380" style="background:#e6ddd2;">
+            <div class="sf">
+              <h6>Hodan Grocery</h6>
+              <span class="lbl">Your name</span>
+              <div class="fld filled">Amina Warsame</div>
+              <span class="lbl">Phone</span>
+              <div class="fld filled">063 441 2290</div>
+
+              <span class="lbl">How will you get your order?</span>
+              <div class="seg one"><span class="on">Store pick-up</span></div>
+              <div class="addr">Collect from <b>Shop 12, Bakaaro Market</b></div>
+
+              <div class="sum">
+                <div class="sumrow"><span>Goods</span><span>$47.50</span></div>
+                <div class="sumrow tot"><span>Total</span><span>$47.50</span></div>
+              </div>
+              <div class="cta">Place order</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <span class="badlabel fix">Fixed · a shop that also delivers</span>
+          <div class="frame doc w380" style="background:#e6ddd2;">
+            <div class="sf">
+              <h6>Hodan Grocery</h6>
+              <span class="lbl">Your name</span>
+              <div class="fld filled">Yusuf Abdi</div>
+              <span class="lbl">Phone</span>
+              <div class="fld filled">063 220 8871</div>
+
+              <span class="lbl">How will you get your order?</span>
+              <div class="seg"><span class="on">Store pick-up</span><span>Deliver</span></div>
+              <div class="addr">Collect from <b>Shop 12, Bakaaro Market</b></div>
+
+              <div class="sum">
+                <div class="sumrow"><span>Goods</span><span>$128.00</span></div>
+                <div class="sumrow tot"><span>Total</span><span>$128.00</span></div>
+              </div>
+              <div class="cta">Place order</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">1</div><div><b class="k">"Deliver" is omitted, never disabled.</b>
+          The rule the current code was reaching for is right and survives — a dead "Deliver" choice
+          would claim delivery exists when it does not. It was just applied to the whole block
+          instead of to the one option it concerns.</div></div>
+        <div class="an"><div class="no">2</div><div><b class="k">"Store pick-up", not "Collect".</b>
+          The word has to read as a place you go, because for most of these shops it is the only
+          option and the customer has never been told there was a decision to make.</div></div>
+        <div class="an"><div class="no">3</div><div><b class="k">The address is the actual fix.</b>
+          It lives on <code>shop_locations</code>, not <code>shops</code> — deliberately, since
+          "a business doesn't have a street, its branches do". <code>get_public_storefront</code>
+          simply never returned it. It comes from <code>sl</code>, the primary-location join that
+          function already has and already reads <code>city</code> from.</div></div>
+      </div>
+
+      <div class="frameHead" style="margin-top:34px;"><i>and the confirmation, which never said where either</i></div>
+      <div class="pair">
+        <div>
+          <span class="badlabel now">Today</span>
+          <div class="frame doc w380" style="background:#e6ddd2;">
+            <div class="sf">
+              <h6>Order placed</h6>
+              <div class="conf" style="border-top:none;margin-top:6px;padding-top:0;">
+                <div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--s-mut);">Order number</div>
+                <div class="n">#1042</div>
+                <div class="next">Hodan Grocery will call you when your order is ready to collect.</div>
+                <div class="sum"><div class="sumrow tot"><span>Pay on collection</span><span>$47.50</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span class="badlabel fix">Fixed</span>
+          <div class="frame doc w380" style="background:#e6ddd2;">
+            <div class="sf">
+              <h6>Order placed</h6>
+              <div class="conf" style="border-top:none;margin-top:6px;padding-top:0;">
+                <div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--s-mut);">Order number</div>
+                <div class="n">#1042</div>
+                <div class="next">Hodan Grocery will call you when your order is ready.
+                  <b>Collect from Shop 12, Bakaaro Market.</b></div>
+                <div class="sum"><div class="sumrow tot"><span>Pay on collection</span><span>$47.50</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="max-width:34ch;">
+          <div class="annot" style="margin-top:34px;">
+            <div class="an"><div class="no">·</div><div>The fallback survives: a shop with no address
+              on file still gets the old sentence, which is at least true. Null is a real answer, not
+              an empty line.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="font-size:17px;margin:40px 0 4px;">0a · A shop with an open-register rule cannot complete an online order at all</h3>
+      <p class="note" style="margin-bottom:16px;">
+        Not "must open a register first" — <code>complete_storefront_order</code> passes
+        <code>p_register_session_id =&gt; null</code> unconditionally and there is <em>no parameter
+        to pass one through</em>. It is a dead end, and it was known: the migration's own header
+        called it "correct".
+      </p>
+
+      <div class="pair">
+        <div>
+          <span class="badlabel now">Today · pressing Complete</span>
+          <div class="frame doc w560" style="background:#dcdce4;padding:20px;">
+            <div class="sheet">
+              <div class="shead">
+                <div class="l"><h4>Order #1038</h4><span class="stage s-ready">Ready</span></div>
+                <span class="btn">Close</span>
+              </div>
+              <div class="errbar">
+                <span>✕</span>
+                <span><code>this store requires an open register before a sale can be rung up</code><br />
+                  <span style="font-weight:600;">Raised with no error code, so nothing maps it — the raw
+                  sentence reaches the phone, telling a driver in Koodbuur about a till.</span></span>
+              </div>
+              <div class="actions" style="margin-top:16px;">
+                <span class="ab s">Cancel order</span>
+                <span class="ab p" style="opacity:.5;">Complete</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span class="badlabel fix">Fixed · it just completes</span>
+          <div class="frame doc w560" style="background:#dcdce4;padding:20px;">
+            <div class="sheet">
+              <div class="shead">
+                <div class="l"><h4>Order #1038</h4><span class="stage s-done">Done</span></div>
+                <span class="btn">Close</span>
+              </div>
+              <p class="slab">Where this order's money went</p>
+              <div class="recon">
+                <div class="rl"><span class="a">Goods, paid by cash</span><span class="b">$186.00</span></div>
+                <div class="rl"><span class="a">→ Sale <span class="lnk">#c81f04</span>, in Transactions</span><span class="b">$186.00</span></div>
+                <div class="rl"><span class="a">Delivery fee → <span class="lnk">4300 Delivery Income</span></span><span class="b">$4.00</span></div>
+                <div class="rl" style="border-top:1px solid var(--d-ln);margin-top:5px;padding-top:10px;">
+                  <span class="a">Drawer</span><span class="b" style="font-weight:600;color:var(--d-mut);">none — handed to a driver</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">1</div><div><b class="k">A register session reconciles one
+          physical drawer.</b> That is the whole of what it is for: so the cash in that till can be
+          counted against what was rung into it. An order handed over at a door, or given to a driver,
+          has no drawer to reconcile against. Requiring one protects nothing and refuses the sale.</div></div>
+        <div class="an"><div class="no">2</div><div><b class="k">The POS guard does not move.</b>
+          <code>complete_sale</code> gains <code>p_require_register</code> defaulting <b>true</b>, so
+          every caller that existed before is untouched. <code>complete_storefront_order</code> is the
+          single caller passing false, and it says why at the call site. A DB check asserts the counter
+          guard still refuses.</div></div>
+        <div class="an"><div class="no">3</div><div><b class="k">But a drawer IS used when there is
+          one.</b> Passing null unconditionally — today's behaviour — is wrong in the other direction:
+          a handover at the counter by someone with a till open <em>is</em> a drawer transaction.
+          The completion now asks <code>my_open_session_at</code> for the member's own open session and
+          attaches it when there is one. Counter handovers reconcile; motorbikes do not; neither is
+          refused.</div></div>
+        <div class="an"><div class="no">4</div><div>Nothing above is a screen change — 0a is a guard
+          that stops firing. The only visible difference is that a button which always failed now
+          works, which is why it is drawn as the error it removes.</div></div>
       </div>
     </div>
   </section>
