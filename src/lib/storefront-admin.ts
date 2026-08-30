@@ -728,6 +728,21 @@ export type ShopOrder = {
    */
   saleId: string | null;
   createdAt: string;
+  /**
+   * The customer's own link to this order (20261016000000). Null for any
+   * order placed before that migration -- such an order simply has no link to
+   * share, and the sheet must render nothing rather than a broken address.
+   */
+  shareToken: string | null;
+  /** When the customer agreed to the latest amendment, if they have. */
+  confirmedAt: string | null;
+  /**
+   * When this order was last amended, or null if it never has been. Paired
+   * with confirmedAt by isAwaitingCustomer (order-amendment.ts) -- the two are
+   * compared rather than null-checked, because an order amended AGAIN after an
+   * agreement is awaiting a new one.
+   */
+  lastAmendedAt: string | null;
 };
 
 function mapOrderRow(row: {
@@ -746,6 +761,9 @@ function mapOrderRow(row: {
   total_cents: number;
   sale_id: string | null;
   created_at: string;
+  share_token: string | null;
+  customer_confirmed_at: string | null;
+  order_amendments: { amended_at: string }[] | null;
   order_items: { quantity: number }[] | null;
 }): ShopOrder {
   return {
@@ -765,6 +783,15 @@ function mapOrderRow(row: {
     totalCents: row.total_cents,
     saleId: row.sale_id ?? null,
     createdAt: row.created_at,
+    shareToken: row.share_token ?? null,
+    confirmedAt: row.customer_confirmed_at ?? null,
+    // The LATEST amendment. PostgREST returns the nested rows unordered, so
+    // the max is taken here rather than trusting position -- reading [0]
+    // would flag the wrong thing on an order amended twice.
+    lastAmendedAt: (row.order_amendments ?? []).reduce<string | null>(
+      (latest, a) => (latest === null || a.amended_at > latest ? a.amended_at : latest),
+      null
+    ),
   };
 }
 
@@ -782,7 +809,7 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, order_items(quantity)'
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, share_token, customer_confirmed_at, order_items(quantity), order_amendments(amended_at)'
     )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });

@@ -161,6 +161,9 @@ const ORDER: ShopOrder = {
   totalCents: 4599,
   saleId: null,
   createdAt: '2026-08-20T10:00:00.000Z',
+  shareToken: null,
+  confirmedAt: null,
+  lastAmendedAt: null,
 };
 
 // "4h ago", relative to whenever the test runs -- for the stat strip, which

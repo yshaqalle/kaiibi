@@ -7,8 +7,9 @@ import { Caveat } from '@/components/ui/caveat';
 import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
-import { amendmentLines, summariseAmendment, type AmendLineDraft } from '@/lib/order-amendment';
+import { amendmentLines, isAwaitingCustomer, summariseAmendment, type AmendLineDraft } from '@/lib/order-amendment';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
+import { orderAddress } from '@/lib/storefront-host';
 import type {
   OrderAmendmentLine,
   OrderAmendmentOptions,
@@ -225,6 +226,13 @@ export function OrderDetail({
   const [customerNote, setCustomerNote] = useState('');
 
   const badge = ORDER_STATUS_BADGE[order.status];
+  // A FLAG, NOT A SIXTH STATUS -- see isAwaitingCustomer's own comment. It
+  // sits beside the badge because an order can be awaiting agreement AT
+  // pending, accepted or ready; it is orthogonal to where the order is.
+  const awaitingCustomer = isAwaitingCustomer({
+    lastAmendedAt: order.lastAmendedAt,
+    confirmedAt: order.confirmedAt,
+  });
   // N1: a shortfall is what the shop still cannot fill -- it stops meaning
   // that the moment the order is completed or cancelled. A just-completed
   // order shows this for the exact stock its own completion decremented, and
@@ -363,6 +371,12 @@ export function OrderDetail({
               <View style={styles.headText}>
                 <Text style={styles.title}>Order #{order.number}</Text>
                 <Badge label={badge.label} tone={badge.tone} variant="bento" />
+                {/* IT WARNS, IT DOES NOT BLOCK. Nothing below is disabled
+                    because of this: a shop that phoned and got a verbal yes
+                    must not be locked out because the customer never tapped
+                    anything, and blocking only teaches people to route around
+                    the feature. Same posture blockedOnPosAccess takes. */}
+                {awaitingCustomer ? <Badge label="Awaiting customer" tone="warning" variant="bento" /> : null}
               </View>
               <Pressable onPress={onClose} accessibilityLabel="Close" style={styles.pillButton}>
                 <Text style={styles.pillButtonText}>Close</Text>
@@ -370,6 +384,25 @@ export function OrderDetail({
             </View>
 
             <StageRail status={order.status} />
+
+            {/* THE LINK THE CUSTOMER WAS GIVEN, built by orderAddress and
+                never assembled here -- #108 shipped because two surfaces each
+                hand-built one and both were wrong together.
+                An order placed before 20261016000000 has no token, and
+                renders NOTHING rather than an address with `undefined` in the
+                middle of it. */}
+            {order.shareToken ? (
+              <Section label="The customer's link">
+                <Text style={styles.value} selectable>
+                  {orderAddress(order.shareToken)}
+                </Text>
+                <Text style={styles.valueMuted}>
+                  {awaitingCustomer
+                    ? 'They have not agreed to your change yet. This is the page they see.'
+                    : 'Where the customer can check this order themselves.'}
+                </Text>
+              </Section>
+            ) : null}
 
             <Section label="Customer">
               <Text style={styles.value}>{order.customerName}</Text>

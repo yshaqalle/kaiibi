@@ -402,7 +402,7 @@ describe('listOrders', () => {
       {
         table: 'orders',
         columns:
-          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, order_items(quantity)',
+          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, share_token, customer_confirmed_at, order_items(quantity), order_amendments(amended_at)',
       },
     ]);
     expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
@@ -425,6 +425,9 @@ describe('listOrders', () => {
         totalCents: 4599,
         saleId: null,
         createdAt: '2026-08-20T10:00:00Z',
+        shareToken: null,
+        confirmedAt: null,
+        lastAmendedAt: null,
       },
     ]);
   });

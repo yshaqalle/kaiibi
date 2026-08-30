@@ -1,4 +1,4 @@
-import { amendmentLines, summariseAmendment, type AmendLineDraft } from '@/lib/order-amendment';
+import { amendmentLines, isAwaitingCustomer, summariseAmendment, type AmendLineDraft } from '@/lib/order-amendment';
 
 // 5 bags agreed at 2500, today's shelf 3000. The two prices are deliberately
 // far apart so no assertion below can pass by arithmetic coincidence.
@@ -152,5 +152,37 @@ describe('amendmentLines', () => {
       quantity: 1,
     };
     expect(amendmentLines([RICE, gone])).toEqual([{ productId: 'prod-rice', quantity: 5 }]);
+  });
+});
+
+describe('isAwaitingCustomer', () => {
+  const AMENDED = '2026-08-30T10:00:00Z';
+
+  it('is false for an order that was never amended', () => {
+    expect(isAwaitingCustomer({ lastAmendedAt: null, confirmedAt: null })).toBe(false);
+    expect(isAwaitingCustomer({ lastAmendedAt: null, confirmedAt: AMENDED })).toBe(false);
+  });
+
+  it('is true once amended and not yet agreed to', () => {
+    expect(isAwaitingCustomer({ lastAmendedAt: AMENDED, confirmedAt: null })).toBe(true);
+  });
+
+  it('is false once the customer has agreed', () => {
+    expect(isAwaitingCustomer({ lastAmendedAt: AMENDED, confirmedAt: '2026-08-30T10:05:00Z' })).toBe(false);
+  });
+
+  // THE CASE THE COMPARISON EXISTS FOR, and the reason this is not just a
+  // null check: a shop amends, the customer agrees, and then the shop amends
+  // AGAIN. The old agreement does not cover the new change, so the chip has
+  // to come back.
+  it('is true again when the order is amended after an agreement', () => {
+    expect(isAwaitingCustomer({ lastAmendedAt: '2026-08-30T11:00:00Z', confirmedAt: '2026-08-30T10:05:00Z' })).toBe(true);
+  });
+
+  // An agreement stamped in the same instant as the amendment counts as
+  // covering it -- the customer cannot have agreed before it happened, so
+  // equal timestamps mean the pair belongs together.
+  it('treats an agreement at the same instant as covering the amendment', () => {
+    expect(isAwaitingCustomer({ lastAmendedAt: AMENDED, confirmedAt: AMENDED })).toBe(false);
   });
 });
