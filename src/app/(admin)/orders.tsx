@@ -7,12 +7,13 @@ import { CategoryChip } from '@/components/category-chip';
 import { withModuleWall } from '@/components/module-wall';
 import { ORDER_STATUS_BADGE, OrderDetail } from '@/components/orders/order-detail';
 import { ScreenHeader } from '@/components/screen-header';
+import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { formatCents } from '@/lib/currency';
+import { formatCents, formatCompactCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
 // The states a shop still has something to do about -- what "unconfirmed"
@@ -25,6 +26,7 @@ import type { OrderShortfall } from '@/lib/order-fulfilment';
 // (`jest.mock('@/lib/storefront-admin')`, no factory), which would silently
 // replace a plain array export with an empty one.
 import { ORDERS_NEEDING_ACTION as UNCONFIRMED } from '@/lib/order-status';
+import { orderStats } from '@/lib/orders-reporting';
 import {
   acceptOrder,
   cancelOrder,
@@ -78,6 +80,13 @@ function whenLabel(createdAt: string): string {
   const date = when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   const time = when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return `${date} · ${time}`;
+}
+
+// "4h", "35m" -- an age, not a duration in words. Short because it sits inside
+// a tile's hint line and beside it in a table cell.
+function ageLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h`;
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -221,6 +230,12 @@ function OrdersScreen() {
     [reload, closeDetail]
   );
 
+  // ONE clock for the whole render: two rows measured against two `new
+  // Date()` calls can disagree, and the tiles would then disagree with the
+  // column below them.
+  const now = new Date();
+  const stats = orderStats(orders, now);
+
   const filteredOrders = orders.filter((order) => order.status === statusFilter);
   const activeTab = TABS.find((tab) => tab.key === statusFilter) ?? TABS[0];
 
@@ -254,6 +269,41 @@ function OrdersScreen() {
             );
           })}
         </View>
+
+        <BentoCard title="Where these orders stand" scope={`${stats.openCount} open`}>
+          <View style={styles.metricRow}>
+            {/* First, because it is the only figure here a shop must act on
+                within the hour. No `tone="accent"` -- StatTile's tone union
+                is 'default' | 'warning' | 'positive' only, and being first
+                in the row already carries the emphasis. */}
+            <StatTile
+              variant="bento"
+              value={String(stats.needsAttention)}
+              label="Needs you now"
+              hint={stats.oldestWaitingMinutes === null ? 'nothing new' : `oldest waiting ${ageLabel(stats.oldestWaitingMinutes)}`}
+            />
+            {/* Deliberately not "revenue" -- the caveat below says why in
+                words, and this label must not contradict it. */}
+            <StatTile
+              variant="bento"
+              value={formatCompactCents(stats.openCents)}
+              label="Promised"
+              hint={`across ${stats.openCount} open ${stats.openCount === 1 ? 'order' : 'orders'}`}
+            />
+            <StatTile
+              variant="bento"
+              value={formatCompactCents(stats.readyCents)}
+              label="Ready to hand over"
+              hint={`${stats.readyCount} prepped, uncollected`}
+            />
+            <StatTile
+              variant="bento"
+              value={formatCompactCents(stats.convertedCents)}
+              label="Converted"
+              hint="reached the books as sales"
+            />
+          </View>
+        </BentoCard>
 
         <BentoCard title="Orders" scope={`${filteredOrders.length} order${filteredOrders.length === 1 ? '' : 's'}`} bodyStyle={styles.tableBody}>
           {error ? (
@@ -310,6 +360,7 @@ const styles = StyleSheet.create({
   title: { color: theme.bentoInk, fontSize: 26, fontWeight: '800', letterSpacing: -1 },
   blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3 },
   tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   // 10, not the card's usual 18 -- the table brings its own gutters
   // (building-bento-screens.md).
   tableBody: { paddingHorizontal: 10 },

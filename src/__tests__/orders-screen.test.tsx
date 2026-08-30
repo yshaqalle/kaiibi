@@ -20,6 +20,7 @@ jest.mock('@/hooks/use-auth', () => ({
 }));
 
 import { OrderDetail } from '@/components/orders/order-detail';
+import { StatTile } from '@/components/stat-tile';
 import { DataTable } from '@/components/ui/data-table';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -47,7 +48,12 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
   return textsIn(node.children as ReactTestRendererJSON[] | null);
 }
 
-async function renderScreen(): Promise<ReactTestRenderer> {
+// `orders`, when given, is installed on the `listOrders` mock before the
+// screen mounts -- every pre-existing call site sets that mock up itself and
+// calls this with no argument, so the branch below is a pure addition, not a
+// change to how those ~20 tests already behave.
+async function renderScreen(orders?: ShopOrder[]): Promise<ReactTestRenderer> {
+  if (orders) (listOrders as jest.Mock).mockResolvedValue(orders);
   let tree: ReactTestRenderer | undefined;
   await act(async () => {
     tree = create(
@@ -61,6 +67,18 @@ async function renderScreen(): Promise<ReactTestRenderer> {
 
 function texts(tree: ReactTestRenderer): string {
   return textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+}
+
+// `@testing-library/react-native` is not installed in this repo (see
+// storefront-theme-counter.test.tsx for the same note) -- rather than match
+// on flattened, concatenated page text (where a bare digit like "2" collides
+// with a phone number, a date or an order number), find the actual `StatTile`
+// instance by its label and assert on its real props. That is also a
+// STRONGER check than text-matching would give: it reads the exact value and
+// hint the screen handed the component, not a substring of everything on
+// the page.
+function statTile(tree: ReactTestRenderer, label: string): ReactTestInstance | undefined {
+  return tree.root.findAllByType(StatTile).find((n) => n.props.label === label);
 }
 
 // Matches the exact text of a tab chip (CategoryChip renders its whole label
@@ -95,6 +113,15 @@ const ORDER: ShopOrder = {
   totalCents: 4599,
   createdAt: '2026-08-20T10:00:00.000Z',
 };
+
+// "4h ago", relative to whenever the test runs -- for the stat strip, which
+// measures waiting time off the real clock (see orders-reporting.ts's own
+// `now` parameter).
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+
+function makeOrder(over: Partial<ShopOrder> = {}): ShopOrder {
+  return { ...ORDER, ...over };
+}
 
 describe('Orders screen', () => {
   beforeEach(() => {
@@ -195,6 +222,52 @@ describe('Orders screen', () => {
       const tree = await renderScreen();
       pressChip(tree, 'Cancelled');
       expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['o-cancelled']);
+    });
+  });
+
+  // The stat strip above the table (orders-reporting.ts's `orderStats`,
+  // wired but not recomputed here) -- Property 1's tabs answer "how many are
+  // in each state"; this answers "which of them needs me right now".
+  describe('the stat strip', () => {
+    it('leads with what nobody has looked at yet, and how long it has waited', async () => {
+      const tree = await renderScreen([
+        makeOrder({ id: 'a', status: 'pending', createdAt: hoursAgo(4) }),
+        makeOrder({ id: 'b', status: 'pending', createdAt: hoursAgo(1) }),
+        makeOrder({ id: 'c', status: 'ready' }),
+      ]);
+      const tile = statTile(tree, 'Needs you now');
+      expect(tile).toBeTruthy();
+      expect(tile?.props.value).toBe('2');
+      expect(tile?.props.hint).toMatch(/oldest waiting 4h/i);
+    });
+
+    // The default tab is "New" (pending only). A wiring that fed the
+    // FILTERED rows into orderStats instead of the full list would still
+    // pass the test above -- both extra orders there are pending too -- but
+    // would silently zero out any figure that depends on a status the open
+    // tab is not showing. This fixture is built so that swap changes what
+    // is on screen.
+    it('counts every order the shop has, not just the ones on the open tab', async () => {
+      const tree = await renderScreen([
+        makeOrder({ id: 'p', status: 'pending', totalCents: 1000 }),
+        makeOrder({ id: 'r', status: 'ready', totalCents: 2500 }),
+        makeOrder({ id: 'done', status: 'completed', totalCents: 8000 }),
+      ]);
+      expect(statTile(tree, 'Ready to hand over')?.props.value).toBe('$25');
+      expect(statTile(tree, 'Converted')?.props.value).toBe('$80');
+    });
+
+    it('never calls open order value revenue', async () => {
+      const tree = await renderScreen([makeOrder({ status: 'pending', totalCents: 4750 })]);
+      const tile = statTile(tree, 'Promised');
+      expect(tile).toBeTruthy();
+      expect(tile?.props.value).toBe('$48');
+      expect(texts(tree)).not.toMatch(/revenue/i);
+    });
+
+    it('shows no waiting hint when nothing is pending', async () => {
+      const tree = await renderScreen([makeOrder({ status: 'ready' })]);
+      expect(statTile(tree, 'Needs you now')?.props.hint).not.toMatch(/oldest waiting/i);
     });
   });
 
