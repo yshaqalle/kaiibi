@@ -28,6 +28,13 @@ export type Column<T> = {
   numeric?: boolean;
   /** Fixed width; otherwise the column takes an even share of the rest. */
   width?: number;
+  /**
+   * Marks this header pressable and eligible for the sort indicator.
+   * Optional and defaulted off -- a column that omits it renders exactly the
+   * plain header text it always has. Only meaningful alongside the table's
+   * own `sort` and `onSortChange`.
+   */
+  sortable?: boolean;
   render: (row: T) => ReactNode;
 };
 
@@ -38,6 +45,8 @@ export function DataTable<T>({
   onRowPress,
   emptyLabel,
   minWidth = 560,
+  sort,
+  onSortChange,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -46,6 +55,15 @@ export function DataTable<T>({
   emptyLabel: string;
   /** Below this the table scrolls sideways rather than crushing its columns. */
   minWidth?: number;
+  /**
+   * Which column key currently drives row order, and which way. Optional --
+   * omitted by every caller except the one that also sets `sortable` columns
+   * and `onSortChange`, so the other tables get the header row they always
+   * had.
+   */
+  sort?: { key: string; direction: 'asc' | 'desc' };
+  /** Called with a `sortable` column's key when its header is pressed. */
+  onSortChange?: (key: string) => void;
 }) {
   if (rows.length === 0) {
     return <Text style={styles.empty}>{emptyLabel}</Text>;
@@ -55,13 +73,26 @@ export function DataTable<T>({
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
       <View style={{ minWidth }}>
         <View style={styles.headerRow}>
-          {columns.map((column) => (
-            <View key={column.key} style={[styles.cell, cellWidth(column)]}>
+          {columns.map((column) => {
+            const active = column.sortable && sort?.key === column.key;
+            const label = (
               <Text style={[styles.headerText, column.numeric && styles.alignRight]} numberOfLines={1}>
                 {column.header.toUpperCase()}
+                {active ? (sort!.direction === 'asc' ? ' ▲' : ' ▼') : ''}
               </Text>
-            </View>
-          ))}
+            );
+            return (
+              <View key={column.key} style={[styles.cell, cellWidth(column)]}>
+                {column.sortable && onSortChange ? (
+                  <Pressable onPress={() => onSortChange(column.key)} accessibilityRole="button">
+                    {label}
+                  </Pressable>
+                ) : (
+                  label
+                )}
+              </View>
+            );
+          })}
         </View>
 
         {rows.map((row) => {

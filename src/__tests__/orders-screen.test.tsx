@@ -1,4 +1,4 @@
-import { Text } from 'react-native';
+import { Text, TextInput } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -92,6 +92,14 @@ function pressChip(tree: ReactTestRenderer, label: string) {
   while (owner && typeof owner.props.onPress !== 'function') owner = owner.parent;
   if (!owner) throw new Error(`chip "${label}" has no pressable ancestor`);
   act(() => owner!.props.onPress());
+}
+
+// The search box is the one TextInput on this screen while no order is
+// selected -- OrderDetail (cancel reason, etc.) only mounts once a row is
+// pressed, so this never collides with it in the tests below.
+function searchInput(tree: ReactTestRenderer): ReactTestInstance {
+  const node = tree.root.findByType(TextInput);
+  return node;
 }
 
 // A real order a customer placed off the storefront -- fields drawn from
@@ -514,6 +522,145 @@ describe('Orders screen', () => {
         });
         expect(tree.root.findByType(OrderDetail).props.hasPosAccess).toBe(true);
       });
+    });
+  });
+
+  // Task 3: a search box, sortable headers, and a Waiting column that
+  // replaces When. orders-reporting.ts (Task 1) owns every bit of the
+  // filtering/sorting/age arithmetic these tests exercise -- searchOrders,
+  // sortOrders, waitedMinutes, isStale -- so what is under test here is only
+  // the screen's WIRING to those functions, never the arithmetic itself.
+  describe('finding an order', () => {
+    const AMINA = makeOrder({ id: 'a', number: 1042, customerName: 'Amina Warsame', customerPhone: '+252611110000' });
+    const KHADRA = makeOrder({ id: 'b', number: 1041, customerName: 'Khadra Ismail', customerPhone: '+252622220000' });
+
+    it('has a discoverable search box', async () => {
+      const tree = await renderScreen([AMINA, KHADRA]);
+      expect(searchInput(tree).props.placeholder).toMatch(/search/i);
+    });
+
+    it('narrows the visible rows to the one matching what was typed, and leaves the other out', async () => {
+      const tree = await renderScreen([AMINA, KHADRA]);
+      await act(async () => {
+        searchInput(tree).props.onChangeText('khadra');
+      });
+      expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['b']);
+    });
+
+    it('says nothing matched, rather than showing an empty table with no explanation', async () => {
+      const tree = await renderScreen([AMINA]);
+      await act(async () => {
+        searchInput(tree).props.onChangeText('zzz-does-not-exist');
+      });
+      expect(tree.root.findByType(DataTable).props.rows).toEqual([]);
+      expect(tree.root.findByType(DataTable).props.emptyLabel).toMatch(/no orders match/i);
+    });
+  });
+
+  describe('the waiting column', () => {
+    function waitingColumn(tree: ReactTestRenderer) {
+      const column = tree.root.findByType(DataTable).props.columns.find((c: { key: string }) => c.key === 'waiting');
+      if (!column) throw new Error('no "waiting" column on the table');
+      return column;
+    }
+
+    it('shows how long a still-open order has waited, quietly, under the stale threshold', async () => {
+      const tree = await renderScreen([makeOrder({ status: 'pending', createdAt: hoursAgo(2) })]);
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      const cell = waitingColumn(tree).render(row);
+      expect(cell.props.value).toBe('2h');
+      expect(cell.props.tone).toBe('muted');
+      expect(cell.props.strong).toBeFalsy();
+    });
+
+    // STALE_AFTER_MINUTES is 180 (orders-reporting.ts); 4h = 240 minutes is
+    // well past it. The screen must not leave a genuinely stale order
+    // looking exactly like a fresh one.
+    it('flags an order past the stale threshold instead of leaving it looking ordinary', async () => {
+      const tree = await renderScreen([makeOrder({ status: 'pending', createdAt: hoursAgo(4) })]);
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      const cell = waitingColumn(tree).render(row);
+      expect(cell.props.value).toBe('4h');
+      expect(cell.props.tone).toBe('warning');
+      expect(cell.props.strong).toBe(true);
+    });
+
+    // A finished order is not waiting for anything -- an age here would read
+    // as overdue forever, which is how a signal stops being trusted.
+    it('shows an em dash, never an age, once an order is done', async () => {
+      const tree = await renderScreen([makeOrder({ id: 'done', status: 'completed', createdAt: hoursAgo(200) })]);
+      pressChip(tree, 'Done');
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      expect(row.id).toBe('done');
+      const cell = waitingColumn(tree).render(row);
+      expect(cell.props.value).toBe('—');
+      expect(cell.props.tone).toBe('muted');
+      expect(cell.props.strong).toBeFalsy();
+    });
+
+    it('shows an em dash for a cancelled order too', async () => {
+      const tree = await renderScreen([
+        makeOrder({ id: 'x', status: 'cancelled', cancellationReason: 'Out of stock', createdAt: hoursAgo(500) }),
+      ]);
+      pressChip(tree, 'Cancelled');
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      const cell = waitingColumn(tree).render(row);
+      expect(cell.props.value).toBe('—');
+    });
+  });
+
+  // DataTable itself gained an optional, defaulted-off `sort`/`onSortChange`
+  // pair (src/components/ui/data-table.tsx) so the other ~19 callers are
+  // unaffected -- see `npx jest src/components` in the task report. These
+  // tests are about THIS screen's wiring: which columns it marks sortable,
+  // what it opens sorted by, and what pressing a header does to row order.
+  describe('sortable headers', () => {
+    const LOW = makeOrder({ id: 'low', number: 10, customerName: 'Amina', totalCents: 500, createdAt: hoursAgo(1) });
+    const HIGH = makeOrder({ id: 'high', number: 20, customerName: 'Zeynab', totalCents: 5000, createdAt: hoursAgo(5) });
+
+    it('marks only Order, Customer, Total and Waiting sortable -- Status, Items and Fulfilment stay plain', async () => {
+      const tree = await renderScreen([LOW]);
+      const columns: { key: string; sortable?: boolean }[] = tree.root.findByType(DataTable).props.columns;
+      const sortableKeys = columns.filter((c) => c.sortable).map((c) => c.key);
+      expect(sortableKeys.sort()).toEqual(['customer', 'number', 'total', 'waiting']);
+    });
+
+    // Waiting, longest-waiting first, is the default -- it is the whole
+    // reason this screen exists, per Task 3's brief.
+    it('opens sorted by Waiting, longest-waiting order first', async () => {
+      const tree = await renderScreen([LOW, HIGH]);
+      const dataTable = tree.root.findByType(DataTable);
+      expect(dataTable.props.sort).toEqual({ key: 'waiting', direction: 'desc' });
+      expect(dataTable.props.rows.map((r: ShopOrder) => r.id)).toEqual(['high', 'low']);
+    });
+
+    it('sorts by Order ascending on the first press of that header', async () => {
+      const tree = await renderScreen([HIGH, LOW]);
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onSortChange('number');
+      });
+      expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['low', 'high']);
+    });
+
+    it('flips direction on a second press of the same header, rather than doing nothing', async () => {
+      const tree = await renderScreen([HIGH, LOW]);
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onSortChange('number');
+      });
+      expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['low', 'high']);
+
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onSortChange('number');
+      });
+      expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['high', 'low']);
+    });
+
+    it('sorts by Total when that header is pressed', async () => {
+      const tree = await renderScreen([HIGH, LOW]);
+      await act(async () => {
+        tree.root.findByType(DataTable).props.onSortChange('total');
+      });
+      expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['low', 'high']);
     });
   });
 });

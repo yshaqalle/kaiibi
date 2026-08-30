@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Badge } from '@/components/badge';
@@ -26,7 +26,7 @@ import type { OrderShortfall } from '@/lib/order-fulfilment';
 // (`jest.mock('@/lib/storefront-admin')`, no factory), which would silently
 // replace a plain array export with an empty one.
 import { ORDERS_NEEDING_ACTION as UNCONFIRMED } from '@/lib/order-status';
-import { orderStats } from '@/lib/orders-reporting';
+import { isStale, orderStats, searchOrders, sortOrders, waitedMinutes, type OrderSortField } from '@/lib/orders-reporting';
 import {
   acceptOrder,
   cancelOrder,
@@ -72,16 +72,6 @@ function fulfilmentLabel(order: ShopOrder): string {
   return order.fulfilment === 'deliver' ? `Deliver · ${order.deliveryArea ?? '—'}` : 'Collect';
 }
 
-// Fixed at render time from each row's own `createdAt`, not the wall clock --
-// unlike an age ("3h ago") this never needs to be rebuilt on a timer, so
-// there is nothing here for a stale render to get wrong.
-function whenLabel(createdAt: string): string {
-  const when = new Date(createdAt);
-  const date = when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  const time = when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${date} · ${time}`;
-}
-
 // "4h", "35m" -- an age, not a duration in words. Short because it sits inside
 // a tile's hint line and beside it in a table cell.
 function ageLabel(minutes: number): string {
@@ -96,34 +86,64 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-const COLUMNS: Column<ShopOrder>[] = [
-  { key: 'number', header: 'Order', width: 66, render: (row) => <ValueCell value={`#${row.number}`} strong /> },
-  {
-    key: 'status',
-    header: 'Status',
-    width: 92,
-    render: (row) => {
-      const badge = ORDER_STATUS_BADGE[row.status];
-      return <Badge label={badge.label} tone={badge.tone} variant="bento" />;
+// A function, not a module-scope constant, because the Waiting column needs
+// `now` -- and `now` must be the ONE clock the whole render uses (see the
+// comment beside `orderStats(orders, now)` below), never `new Date()` read
+// fresh inside a cell. Defined at module scope, called once per render with
+// the screen's own `now`: not a component, so it never becomes a component
+// defined inside another component's render.
+function columnsFor(now: Date): Column<ShopOrder>[] {
+  return [
+    { key: 'number', header: 'Order', width: 66, sortable: true, render: (row) => <ValueCell value={`#${row.number}`} strong /> },
+    {
+      key: 'status',
+      header: 'Status',
+      width: 92,
+      render: (row) => {
+        const badge = ORDER_STATUS_BADGE[row.status];
+        return <Badge label={badge.label} tone={badge.tone} variant="bento" />;
+      },
     },
-  },
-  { key: 'customer', header: 'Customer', render: (row) => <NameCell title={row.customerName} meta={row.customerPhone} /> },
-  { key: 'items', header: 'Items', numeric: true, width: 56, render: (row) => <ValueCell value={String(row.itemCount)} tone="muted" /> },
-  {
-    key: 'fulfilment',
-    header: 'Fulfilment',
-    // B4: the landmark, not just the priced area -- "Hargeisa addresses are
-    // landmarks, not street numbers" is checkout's whole delivery premise
-    // (checkout-form.tsx), and without it here the shop still has to phone
-    // the customer to find out where to actually go. NameCell's own meta
-    // line already exists for exactly this "the thing, then what qualifies
-    // it" shape; collect orders carry no landmark, so nothing renders below
-    // the label for them.
-    render: (row) => <NameCell title={fulfilmentLabel(row)} meta={row.fulfilment === 'deliver' ? row.deliveryLandmark ?? undefined : undefined} />,
-  },
-  { key: 'total', header: 'Total', numeric: true, width: 90, render: (row) => <ValueCell value={formatCents(row.totalCents)} strong /> },
-  { key: 'when', header: 'When', numeric: true, width: 130, render: (row) => <ValueCell value={whenLabel(row.createdAt)} tone="muted" /> },
-];
+    { key: 'customer', header: 'Customer', sortable: true, render: (row) => <NameCell title={row.customerName} meta={row.customerPhone} /> },
+    { key: 'items', header: 'Items', numeric: true, width: 56, render: (row) => <ValueCell value={String(row.itemCount)} tone="muted" /> },
+    {
+      key: 'fulfilment',
+      header: 'Fulfilment',
+      // B4: the landmark, not just the priced area -- "Hargeisa addresses are
+      // landmarks, not street numbers" is checkout's whole delivery premise
+      // (checkout-form.tsx), and without it here the shop still has to phone
+      // the customer to find out where to actually go. NameCell's own meta
+      // line already exists for exactly this "the thing, then what qualifies
+      // it" shape; collect orders carry no landmark, so nothing renders below
+      // the label for them.
+      render: (row) => <NameCell title={fulfilmentLabel(row)} meta={row.fulfilment === 'deliver' ? row.deliveryLandmark ?? undefined : undefined} />,
+    },
+    { key: 'total', header: 'Total', numeric: true, width: 90, sortable: true, render: (row) => <ValueCell value={formatCents(row.totalCents)} strong /> },
+    {
+      key: 'waiting',
+      header: 'Waiting',
+      numeric: true,
+      width: 90,
+      sortable: true,
+      render: (row) => {
+        // A finished order is not waiting for anything. An age here would
+        // read as overdue forever, which is how a signal stops being
+        // trusted -- so a completed or cancelled row gets a dash, never a
+        // number of hours.
+        if (row.status === 'completed' || row.status === 'cancelled') {
+          return <ValueCell value="—" tone="muted" />;
+        }
+        const minutes = waitedMinutes(row, now);
+        const stale = isStale(row, now);
+        // The digits are always there; tone/weight are the second signal,
+        // never the only one -- a shop scanning quickly should not have to
+        // parse a number to notice a problem, but a colourblind or greyscale
+        // read must still see the age itself.
+        return <ValueCell value={ageLabel(minutes)} tone={stale ? 'warning' : 'muted'} strong={stale} />;
+      },
+    },
+  ];
+}
 
 function OrdersScreen() {
   const { shop, can } = useAuth();
@@ -131,6 +151,11 @@ function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<OrderStatus>('pending');
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<OrderSortField>('waiting');
+  // Longest-waiting first by default -- the reason this screen exists (see
+  // the header comment).
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   const [selectedOrder, setSelectedOrder] = useState<ShopOrder | null>(null);
   const [detailItems, setDetailItems] = useState<OrderLine[]>([]);
@@ -236,14 +261,42 @@ function OrdersScreen() {
   const now = new Date();
   const stats = orderStats(orders, now);
 
-  const filteredOrders = orders.filter((order) => order.status === statusFilter);
+  // Search and sort apply only within the open tab -- searching "khadra" on
+  // the New tab must not surface her completed order from last week, and a
+  // shop switching tabs mid-search keeps looking for the same thing.
+  const filteredOrders = sortOrders(
+    searchOrders(
+      orders.filter((order) => order.status === statusFilter),
+      search
+    ),
+    sortField,
+    sortDirection
+  );
   const activeTab = TABS.find((tab) => tab.key === statusFilter) ?? TABS[0];
 
   const unconfirmedOrders = orders.filter((order) => UNCONFIRMED.includes(order.status));
   const unconfirmedTotalCents = unconfirmedOrders.reduce((sum, order) => sum + order.totalCents, 0);
   const unconfirmedCountLabel = unconfirmedOrders.length === 1 ? '1 order' : `${unconfirmedOrders.length} orders`;
 
-  const emptyLabel = loading ? 'Loading…' : orders.length === 0 ? 'No orders yet.' : `No ${activeTab.label.toLowerCase()} orders.`;
+  const emptyLabel = loading
+    ? 'Loading…'
+    : orders.length === 0
+      ? 'No orders yet.'
+      : search.trim()
+        ? 'No orders match your search.'
+        : `No ${activeTab.label.toLowerCase()} orders.`;
+
+  // Pressing the header already driving the order flips direction; pressing
+  // any other sortable header adopts it fresh, ascending -- the ordinary
+  // convention, and the one the tests below hold it to.
+  const handleSortChange = useCallback(
+    (key: string) => {
+      const field = key as OrderSortField;
+      setSortDirection((current) => (field === sortField ? (current === 'asc' ? 'desc' : 'asc') : 'asc'));
+      setSortField(field);
+    },
+    [sortField]
+  );
 
   return (
     <SafeAreaView style={styles.page} edges={['bottom', 'left', 'right']}>
@@ -305,13 +358,30 @@ function OrdersScreen() {
           </View>
         </BentoCard>
 
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search order #, customer, phone or landmark"
+          placeholderTextColor={theme.bentoMuted}
+          style={styles.search}
+          accessibilityLabel="Search orders"
+        />
+
         <BentoCard title="Orders" scope={`${filteredOrders.length} order${filteredOrders.length === 1 ? '' : 's'}`} bodyStyle={styles.tableBody}>
           {error ? (
             <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => { reload(); } }}>
               {error}
             </Caveat>
           ) : (
-            <DataTable columns={COLUMNS} rows={filteredOrders} keyExtractor={(row) => row.id} emptyLabel={emptyLabel} onRowPress={openDetail} />
+            <DataTable
+              columns={columnsFor(now)}
+              rows={filteredOrders}
+              keyExtractor={(row) => row.id}
+              emptyLabel={emptyLabel}
+              onRowPress={openDetail}
+              sort={{ key: sortField, direction: sortDirection }}
+              onSortChange={handleSortChange}
+            />
           )}
         </BentoCard>
 
@@ -364,6 +434,7 @@ const styles = StyleSheet.create({
   // 10, not the card's usual 18 -- the table brings its own gutters
   // (building-bento-screens.md).
   tableBody: { paddingHorizontal: 10 },
+  search: { backgroundColor: theme.bentoSoft, borderRadius: 12, height: 42, paddingHorizontal: 13, color: theme.bentoInk, fontSize: 13 },
 });
 
 // Same wall, and it brings a `ScreenHeader` because this screen is pushed over
