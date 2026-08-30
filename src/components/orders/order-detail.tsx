@@ -87,6 +87,88 @@ function shortfallFor(shortfalls: OrderShortfall[], productId: string | null): O
   return shortfalls.find((s) => s.productId === productId);
 }
 
+// Task 6: derived from `order.status` ALONE -- `orders` stores no
+// per-transition history (no accepted_at, no ready_at), so this is the
+// exhaustive account of what the table can honestly say. No timestamps are
+// rendered for the same reason: inventing one from `createdAt` would show
+// the same instant against every step, which is worse than showing none.
+//
+// `cancelled` is deliberately NOT a fifth entry appended after 'completed'
+// -- see StageRail below for why.
+const RAIL_STEPS: { key: 'pending' | 'accepted' | 'ready' | 'completed'; label: string }[] = [
+  { key: 'pending', label: 'Placed' },
+  { key: 'accepted', label: 'Accepted' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'completed', label: 'Done' },
+];
+
+type RailStepState = 'done' | 'current' | 'upcoming' | 'cancelled';
+
+// A word in the header badge says where an order IS; this says where it has
+// BEEN and what is left, off the same four-word vocabulary
+// enforce_order_transition permits (20260928000100/20260928000200).
+//
+// Cancelled renders as a terminal step REPLACING whatever step was next, not
+// a fifth stop appended after Done -- that would claim a cancelled order was
+// nearly finished. It also cannot honestly claim the order ever reached
+// Accepted or Ready: `status` alone does not say which state it was
+// cancelled FROM, so only 'Placed' (true of every order that exists at all)
+// is shown as done before it.
+function StageRail({ status }: { status: OrderStatus }) {
+  if (status === 'cancelled') {
+    return (
+      <View style={styles.rail}>
+        <RailStep label="Placed" state="done" />
+        <RailStep label="Cancelled" state="cancelled" last />
+      </View>
+    );
+  }
+  const currentIndex = RAIL_STEPS.findIndex((step) => step.key === status);
+  return (
+    <View style={styles.rail}>
+      {RAIL_STEPS.map((step, i) => (
+        <RailStep
+          key={step.key}
+          label={step.label}
+          state={i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'upcoming'}
+          last={i === RAIL_STEPS.length - 1}
+        />
+      ))}
+    </View>
+  );
+}
+
+function RailStep({ label, state, last }: { label: string; state: RailStepState; last?: boolean }) {
+  // The dot's fill is reinforced by the label itself (bold ink, or the word
+  // "Cancelled") rather than carrying the state on colour alone -- the same
+  // rule StatementRow's profit/loss colouring follows.
+  const current = state === 'current' || state === 'cancelled';
+  return (
+    <View style={styles.railStep} accessibilityLabel={current ? `Current stage: ${label}` : undefined}>
+      <View style={styles.railStepHead}>
+        <View
+          style={[
+            styles.railDot,
+            state === 'done' && styles.railDotDone,
+            state === 'current' && styles.railDotCurrent,
+            state === 'cancelled' && styles.railDotCancelled,
+          ]}
+        />
+        {!last ? <View style={[styles.railBar, state === 'done' && styles.railBarDone]} /> : null}
+      </View>
+      <Text
+        style={[
+          styles.railLabel,
+          (state === 'done' || state === 'current') && styles.railLabelActive,
+          state === 'cancelled' && styles.railLabelCancelled,
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 export function OrderDetail({
   order,
   items,
@@ -158,6 +240,8 @@ export function OrderDetail({
               </Pressable>
             </View>
 
+            <StageRail status={order.status} />
+
             <Section label="Customer">
               <Text style={styles.value}>{order.customerName}</Text>
               <Text style={styles.valueMuted}>{order.customerPhone}</Text>
@@ -171,6 +255,40 @@ export function OrderDetail({
                 <Text style={styles.valueMuted}>{order.deliveryLandmark}</Text>
               ) : null}
             </Section>
+
+            {/* Task 6: complete_storefront_order pays complete_sale the goods
+                subtotal ONLY -- complete_sale would refuse the delivery fee
+                as an over-payment against a total it computes from items
+                alone, so the fee is posted separately to 4300 Delivery
+                Income (20260928000200's own header). A $47.50 delivered
+                order therefore reaches Transactions for $44.50 with nothing
+                on screen to say why; this names both halves of the split.
+                Renders only once there IS a reconciliation to show -- an
+                order that has not been completed has not yet become a sale. */}
+            {order.status === 'completed' ? (
+              <Section label="Where this order's money went">
+                <View style={styles.breakdown}>
+                  <StatementRow
+                    label={
+                      order.saleId
+                        ? `Goods → Sale #${order.saleId.slice(0, 6)}, in Transactions`
+                        : 'Goods, in Transactions'
+                    }
+                    amountCents={order.subtotalCents}
+                    variant="item"
+                    last={order.deliveryFeeCents === 0}
+                  />
+                  {/* Same rule the Goods/Delivery/Total breakdown below
+                      already follows: a collect order's deliveryFeeCents is
+                      always 0 (orders_delivery_matches_fulfilment,
+                      20260926000050_orders.sql), and a $0.00 line here would
+                      promise a fee this order never had. */}
+                  {order.deliveryFeeCents > 0 ? (
+                    <StatementRow label="Delivery fee → 4300 Delivery Income" amountCents={order.deliveryFeeCents} variant="item" last />
+                  ) : null}
+                </View>
+              </Section>
+            ) : null}
 
             {order.note ? (
               <Section label="Note">
@@ -413,6 +531,19 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
   pillButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 },
   pillButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
+
+  rail: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: theme.bentoSoft, borderRadius: 18, paddingHorizontal: 14, paddingTop: 14, paddingBottom: 12, marginBottom: 16 },
+  railStep: { flex: 1, minWidth: 0 },
+  railStepHead: { flexDirection: 'row', alignItems: 'center' },
+  railDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: theme.bentoSurface, borderWidth: 2, borderColor: theme.bentoLine },
+  railDotDone: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  railDotCurrent: { backgroundColor: theme.bentoAccentInk, borderColor: theme.bentoAccentInk },
+  railDotCancelled: { backgroundColor: theme.bentoLoss, borderColor: theme.bentoLoss },
+  railBar: { flex: 1, height: 2, backgroundColor: theme.bentoLine, marginHorizontal: 4 },
+  railBarDone: { backgroundColor: theme.bentoInk },
+  railLabel: { fontSize: 11, fontWeight: '700', color: theme.bentoMuted, marginTop: 6 },
+  railLabelActive: { color: theme.bentoInk, fontWeight: '800' },
+  railLabelCancelled: { color: theme.bentoLoss, fontWeight: '800' },
 
   section: { marginBottom: 16 },
   sectionLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: theme.bentoMuted, marginBottom: 6 },

@@ -327,7 +327,7 @@ function OrdersScreen() {
   // (Modify: orders.tsx only) and Part 2's territory, not this one's.
   useEffect(() => {
     if (!shop) return;
-    const open = orders.filter((o) => o.status === statusFilter && UNCONFIRMED.includes(o.status));
+    const open = UNCONFIRMED.includes(statusFilter) ? orders.filter((o) => o.status === statusFilter) : [];
     if (open.length === 0) {
       setShortBy({});
       return;
@@ -349,7 +349,6 @@ function OrdersScreen() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop, statusFilter, orders]);
 
   const closeDetail = useCallback(() => {

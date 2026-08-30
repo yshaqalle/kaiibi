@@ -11,7 +11,7 @@ function order(over: Partial<ShopOrder> = {}): ShopOrder {
     fulfilment: 'collect', deliveryArea: null, deliveryLandmark: null, note: null,
     status: 'pending', cancellationReason: null, itemCount: 3,
     subtotalCents: 4450, deliveryFeeCents: 0, totalCents: 4450,
-    createdAt: '2026-08-29T10:00:00Z', ...over,
+    saleId: null, createdAt: '2026-08-29T10:00:00Z', ...over,
   };
 }
 

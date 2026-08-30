@@ -159,6 +159,7 @@ const ORDER: ShopOrder = {
   subtotalCents: 4499,
   deliveryFeeCents: 100,
   totalCents: 4599,
+  saleId: null,
   createdAt: '2026-08-20T10:00:00.000Z',
 };
 
