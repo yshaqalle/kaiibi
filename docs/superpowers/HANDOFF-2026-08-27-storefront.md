@@ -124,7 +124,11 @@ produced a screen that looked exactly like a broken feature three separate times
     git -C <tree> branch --show-current      # which branch
     cat <tree>/.env                          # which database
 
-**2. `--port` cannot route a simulator build.** `expo-dev-client` is not a
+**2. `--port` cannot route a simulator build.** — **FIXED 2026-08-29 (#109).**
+`expo-dev-client` is now a dependency, so `expo run:ios --port N` connects to N
+and each worktree can serve its own simulator. The paragraph below describes why
+it used to be true; see `HANDOFF-2026-08-29-storefront-and-orders.md`.
+`expo-dev-client` is not a
 dependency, so an installed debug build has no launcher: it carries no
 `main.jsbundle` and fetches JS from `localhost:8081` at runtime whatever URL it
 was launched with. `expo run:ios --port 8082` builds, installs, and still loads
