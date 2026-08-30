@@ -909,6 +909,109 @@ export async function completeOrder(orderId: string, paymentMethod: PaymentMetho
   if (error) throw error;
 }
 
+// ── Amending ────────────────────────────────────────────────────────────
+//
+// One line of an order, as it should now stand. `quantity: 0` REMOVES the
+// line -- it is not an error, and it is the same instruction as leaving the
+// line out entirely. A sheet that draws a stepper per line sends the zero.
+export type OrderAmendmentLine = { productId: string; quantity: number };
+
+/**
+ * Which price an amended line carries.
+ *
+ * 'agreed' keeps `order_items.unit_price_cents` -- the figure the customer was
+ * quoted at checkout. 'current' re-prices from today's `products.price_cents`.
+ *
+ * BOTH COMPLETE. The often-repeated claim that an amend must re-price to be
+ * completable stopped being true at 20260929000000: complete_sale resolves a
+ * line as `coalesce(v_agreed_price, v_product.price_cents)` and
+ * complete_storefront_order supplies an agreed price for every line, so the
+ * quoted figure survives to the till. Which one a shop wants is therefore a
+ * question about what it owes the customer, and `amend_order` records the
+ * answer on the amendment row rather than choosing for them.
+ */
+export type OrderPricing = 'agreed' | 'current';
+
+export type OrderAmendmentOptions = {
+  /** Optional, and the ONLY prose a customer may ever see. Never the reason. */
+  customerNote?: string | null;
+  /** Omitted means the server's own default, which is 'agreed'. */
+  pricing?: OrderPricing;
+  fulfilment?: {
+    fulfilment: 'collect' | 'deliver';
+    deliveryArea?: string | null;
+    deliveryLandmark?: string | null;
+  } | null;
+  contact?: { customerName: string; customerPhone: string } | null;
+};
+
+/**
+ * Change an order instead of cancelling it.
+ *
+ * `reason` is internal and required -- `amend_order` refuses a blank one and
+ * `order_amendments_reason_required` refuses it again at the table. It is
+ * written for the shop to read weeks later and must never reach a customer;
+ * `options.customerNote` is the separate field for that.
+ *
+ * An optional argument this function was not given is OMITTED from the RPC
+ * payload rather than sent as null, so the SQL defaults stay the single
+ * definition of each default. That matters most for `p_pricing`: sent wrong it
+ * charges a different price, and sent not at all it charges the agreed one.
+ *
+ * There is no way to ADD a product here, deliberately -- `amend_order` refuses
+ * a line that is not already on the order (`order_line_not_in_order`). See its
+ * migration header for why.
+ */
+export async function amendOrder(
+  orderId: string,
+  lines: OrderAmendmentLine[],
+  reason: string,
+  options?: OrderAmendmentOptions
+): Promise<ShopOrder> {
+  const params: Record<string, unknown> = {
+    p_order_id: orderId,
+    p_lines: lines.map((line) => ({ product_id: line.productId, quantity: line.quantity })),
+    p_reason: reason,
+  };
+  if (options?.pricing !== undefined) params.p_pricing = options.pricing;
+  if (options?.customerNote !== undefined && options.customerNote !== null) {
+    params.p_customer_note = options.customerNote;
+  }
+  if (options?.fulfilment) {
+    const f: Record<string, unknown> = { fulfilment: options.fulfilment.fulfilment };
+    if (options.fulfilment.deliveryArea !== undefined) f.delivery_area = options.fulfilment.deliveryArea;
+    if (options.fulfilment.deliveryLandmark !== undefined) f.delivery_landmark = options.fulfilment.deliveryLandmark;
+    params.p_fulfilment = f;
+  }
+  if (options?.contact) {
+    params.p_contact = {
+      customer_name: options.contact.customerName,
+      customer_phone: options.contact.customerPhone,
+    };
+  }
+
+  const { data, error } = await supabase.rpc('amend_order', params);
+  if (error) throw error;
+
+  // `returns public.orders` is a composite, which PostgREST answers as one
+  // object; the array branch is defensive about a client or version that wraps
+  // it, not a case seen in practice.
+  const row = (Array.isArray(data) ? data[0] : data) as Parameters<typeof mapOrderRow>[0];
+
+  // itemCount cannot come from the response -- the row carries no nested
+  // order_items -- so it comes from the lines that were just SENT. That is not
+  // a guess: amend_order rebuilds order_items from exactly this array, drops
+  // the zeros, and raises rather than deviating from it. Reading it back with
+  // a second round trip would cost a query to learn something already known.
+  //
+  // The dropped lines are NOT filtered out first, and deliberately not:
+  // itemCount is a sum of quantities, a dropped line's quantity is 0, and 0
+  // adds nothing. A filter here would read as a safeguard while being
+  // incapable of changing any answer -- a mutation pass caught exactly that,
+  // removing the filter and leaving every test green.
+  return mapOrderRow({ ...row, order_items: lines.map((line) => ({ quantity: line.quantity })) });
+}
+
 // The sentence a shopkeeper reads when an order move is refused.
 //
 // transition_order and complete_storefront_order (20260928000100 /
@@ -1009,6 +1112,49 @@ export function orderErrorMessage(err: unknown): string | null {
 
     case 'pos_access_required':
       return "Completing an order needs POS access, which your account doesn't have. Ask an owner or manager to complete it, or to grant you POS access.";
+
+    // ── amend_order's refusals (20261012000000) ────────────────────────
+    case 'amendment_reason_required':
+      return 'Enter a reason for this change before saving it. It is for your own records and the customer never sees it.';
+
+    case 'order_not_amendable': {
+      // Naming the status matters: "completed" and "cancelled" call for
+      // different next moves, and the sheet may be showing a stale copy of
+      // either while someone else on the team acts on the real one.
+      const status = typeof detail?.status === 'string' ? detail.status : null;
+      if (status === 'completed') {
+        return "This order has already been completed and can't be changed. If the sale was wrong, edit or refund the sale itself from Transactions.";
+      }
+      if (status === 'cancelled') {
+        return "This order has been cancelled and can't be changed. Ask the customer to place a new one.";
+      }
+      return "This order can't be changed as it stands -- it has most likely been completed or cancelled since this screen loaded. Close this and check its current status.";
+    }
+
+    case 'sales_edit_required':
+      return "Changing an order needs the 'Edit/delete sales' permission, which your account doesn't have. Ask an owner or manager to make the change, or to grant you that permission.";
+
+    case 'order_line_not_in_order':
+      // The one refusal that is a deliberate product decision rather than a
+      // guard, so the sentence says what to do instead of only what failed.
+      return "You can only reduce or remove what the customer already ordered, not add something new to it. To sell them something else, take it as a separate order.";
+
+    case 'invalid_contact':
+      return "That phone number isn't in a form we can use. Enter it in full international form, starting with + and the country code.";
+
+    case 'unknown_delivery_area': {
+      const area = typeof detail?.area === 'string' ? `"${detail.area}"` : 'That delivery area';
+      return `${area} isn't one of your delivery areas any more. Pick one from your storefront's list, or add it back in Storefront settings.`;
+    }
+
+    case 'delivery_unavailable':
+      return "Your storefront has delivery switched off, so this order can't be moved to delivery. Turn delivery on in Storefront settings first, or keep it as a pick-up.";
+
+    case 'order_total_out_of_range':
+      // Distinct from order_line_out_of_range above: that one is a single line
+      // too big to ring up, this is the whole order past what an order total
+      // can hold. Same advice, different cause, so a bug report says which.
+      return "This order's total is too large to store as one order. Reduce the quantities, or split it into more than one order.";
 
     default:
       return null;
