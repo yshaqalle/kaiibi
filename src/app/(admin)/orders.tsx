@@ -30,8 +30,10 @@ import { isStale, orderStats, searchOrders, sortOrders, waitedMinutes, type Orde
 import {
   acceptOrder,
   cancelOrder,
+  amendOrder,
   checkOrderFulfilment,
   completeOrder,
+  getCurrentPrices,
   getOrderItems,
   listOrders,
   markOrderReady,
@@ -250,6 +252,11 @@ function OrdersScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [shortfalls, setShortfalls] = useState<OrderShortfall[]>([]);
+  // Today's shelf price per productId, for the amend sheet's pricing choice.
+  // Empty until the detail load resolves, and empty for an order that cannot
+  // be amended at all -- the sheet reads a missing entry as "cannot re-price
+  // this line" rather than as free.
+  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -264,6 +271,11 @@ function OrdersScreen() {
   // the detail sheet -- OrderDetail owns no query of its own, and neither
   // does the row.
   const hasPosAccess = can('pos.access');
+  // Part 2: amend_order gates on `sales.edit` (20261012000000 -- the nearest
+  // existing analogue to "change what a customer owes", since there is no
+  // orders.* permission at all). Read here and passed through, exactly as
+  // hasPosAccess is, so the sheet draws no button that can only fail.
+  const canAmendOrders = can('sales.edit');
 
   // Which row (by id) has an accept/ready call in flight -- global across
   // the whole table, not just its own row: two rows firing at once would
@@ -366,6 +378,7 @@ function OrdersScreen() {
       setDetailItems([]);
       setDetailError(null);
       setShortfalls([]);
+      setCurrentPrices({});
       setActionError(null);
       setDetailLoading(true);
       // N1: a shortfall check is only meaningful while the order still needs
@@ -378,9 +391,36 @@ function OrdersScreen() {
         ? checkOrderFulfilment(shop.id, order.id)
         : Promise.resolve([]);
       Promise.all([getOrderItems(order.id), fulfilmentCheck])
-        .then(([items, shortfallRows]) => {
+        .then(async ([items, shortfallRows]) => {
           setDetailItems(items);
           setShortfalls(shortfallRows);
+          // Part 2: today's prices, for the amend sheet's "use today's
+          // prices" choice. Fetched only for an order that can still BE
+          // amended -- a completed or cancelled one offers no amend button,
+          // so the query would buy nothing. Chained after the lines rather
+          // than run beside them because it needs their product ids.
+          //
+          // UNCONFIRMED is the right list by coincidence of definition, not
+          // by luck: amend_order refuses `completed` and `cancelled`
+          // (order_not_amendable), and ORDERS_NEEDING_ACTION is exactly the
+          // other three. A second list naming the same statuses is a second
+          // thing to keep in step.
+          if (!UNCONFIRMED.includes(order.status)) return;
+          const ids = items.map((i) => i.productId).filter((id): id is string => id !== null);
+          // CAUGHT HERE, not by the shared .catch below. This lookup feeds one
+          // optional control -- the amend sheet's "use today's prices" choice
+          // -- and letting it reject would report "Could not load this order"
+          // over an order whose lines and shortfalls both arrived fine, hiding
+          // everything the shop came to see because a secondary query failed.
+          //
+          // Leaving the map empty is already a handled state: order-amendment
+          // reads a missing price as "cannot re-price this line" and blocks
+          // that one choice with its own sentence, which is the truth here.
+          try {
+            setCurrentPrices(await getCurrentPrices(ids));
+          } catch {
+            setCurrentPrices({});
+          }
         })
         .catch(() => {
           // Said rather than shown as an empty list, same reasoning as the
@@ -644,11 +684,16 @@ function OrdersScreen() {
           itemsError={detailError}
           shortfalls={shortfalls}
           hasPosAccess={hasPosAccess}
+          canAmend={canAmendOrders}
+          currentPrices={currentPrices}
           onClose={closeDetail}
           onAccept={() => runAction(() => acceptOrder(selectedOrder.id), 'Could not accept this order.')}
           onMarkReady={() => runAction(() => markOrderReady(selectedOrder.id), 'Could not mark this order ready.')}
           onCancel={(reason) => runAction(() => cancelOrder(selectedOrder.id, reason), 'Could not cancel this order.')}
           onComplete={(method: PaymentMethod) => runAction(() => completeOrder(selectedOrder.id, method), 'Could not complete this order.')}
+          onAmend={(lines, reason, options) =>
+            runAction(() => amendOrder(selectedOrder.id, lines, reason, options).then(() => undefined), 'Could not change this order.')
+          }
           submitting={actionSubmitting}
           actionError={actionError}
         />

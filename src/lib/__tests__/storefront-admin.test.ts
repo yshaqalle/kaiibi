@@ -117,7 +117,9 @@ import {
   deleteFlyer,
   discardDraft,
   FLYER_LIMIT,
+  amendOrder,
   flyerErrorMessage,
+  getCurrentPrices,
   getOrderItems,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
@@ -990,5 +992,234 @@ describe('flyerErrorMessage', () => {
     expect(flyerErrorMessage(new Error('network request failed'))).toBeNull();
     expect(flyerErrorMessage({ message: 'module_not_included' })).toBeNull();
     expect(flyerErrorMessage(null)).toBeNull();
+  });
+});
+
+// ── amendOrder ──────────────────────────────────────────────────────────
+//
+// The RPC's argument NAMES are the contract, not their order: PostgREST calls
+// by name, and a renamed one is a silent no-op that falls back to the SQL
+// default. p_pricing defaulting to 'agreed' server-side is the reason that
+// matters here more than usual -- a dropped p_pricing does not fail, it
+// quietly charges the customer the agreed price when the shop asked for
+// today's.
+const AMENDED_ROW = {
+  id: 'order-1',
+  number: 7,
+  customer_name: 'Hodan',
+  customer_phone: '+252634300001',
+  fulfilment: 'collect',
+  delivery_area: null,
+  delivery_landmark: null,
+  note: null,
+  status: 'pending',
+  cancellation_reason: null,
+  subtotal_cents: 7500,
+  delivery_fee_cents: 0,
+  total_cents: 7500,
+  sale_id: null,
+  created_at: '2026-08-30T09:00:00Z',
+};
+
+describe('amendOrder', () => {
+  it('calls amend_order with the argument names the function declares', async () => {
+    fake.rpcResult = { data: AMENDED_ROW, error: null };
+    await amendOrder('order-1', [{ productId: 'prod-1', quantity: 3 }], 'only three bags on the shelf');
+    expect(fake.rpcCalls).toEqual([
+      [
+        'amend_order',
+        {
+          p_order_id: 'order-1',
+          p_lines: [{ product_id: 'prod-1', quantity: 3 }],
+          p_reason: 'only three bags on the shelf',
+        },
+      ],
+    ]);
+  });
+
+  it('omits every optional argument it was not given, so the SQL defaults stay the single source of them', async () => {
+    fake.rpcResult = { data: AMENDED_ROW, error: null };
+    await amendOrder('order-1', [{ productId: 'prod-1', quantity: 3 }], 'reason');
+    const params = fake.rpcCalls[0][1] as Record<string, unknown>;
+    expect(Object.keys(params).sort()).toEqual(['p_lines', 'p_order_id', 'p_reason']);
+  });
+
+  it('sends the pricing mode, the customer note, the fulfilment and the contact when given', async () => {
+    fake.rpcResult = { data: AMENDED_ROW, error: null };
+    await amendOrder('order-1', [{ productId: 'prod-1', quantity: 2 }], 'short by one', {
+      pricing: 'current',
+      customerNote: "we'll have the rest Thursday",
+      fulfilment: { fulfilment: 'deliver', deliveryArea: 'Xero Awr', deliveryLandmark: 'Blue gate' },
+      contact: { customerName: 'Hodan A', customerPhone: '+252634399999' },
+    });
+    expect(fake.rpcCalls[0][1]).toEqual({
+      p_order_id: 'order-1',
+      p_lines: [{ product_id: 'prod-1', quantity: 2 }],
+      p_reason: 'short by one',
+      p_pricing: 'current',
+      p_customer_note: "we'll have the rest Thursday",
+      p_fulfilment: { fulfilment: 'deliver', delivery_area: 'Xero Awr', delivery_landmark: 'Blue gate' },
+      p_contact: { customer_name: 'Hodan A', customer_phone: '+252634399999' },
+    });
+  });
+
+  it('maps the returned row through the same shape listOrders produces', async () => {
+    fake.rpcResult = { data: AMENDED_ROW, error: null };
+    const order = await amendOrder('order-1', [{ productId: 'prod-1', quantity: 3 }], 'reason');
+    expect(order.id).toBe('order-1');
+    expect(order.number).toBe(7);
+    expect(order.subtotalCents).toBe(7500);
+    expect(order.totalCents).toBe(7500);
+    expect(order.status).toBe('pending');
+    expect(order.customerName).toBe('Hodan');
+  });
+
+  // amend_order returns the orders row alone -- there is no nested
+  // order_items on it -- so itemCount cannot come from the response. It comes
+  // from the lines that were SENT, which is not a guess: the function rebuilds
+  // order_items from exactly that array, drops the zeros, and raises rather
+  // than deviating from it. Without this the sheet would render "0 items"
+  // straight after a successful amend, so the assertion is against the row's
+  // OWN itemCount being wrong, not merely present.
+  it('counts the units it just asked for rather than reading the response', async () => {
+    fake.rpcResult = { data: AMENDED_ROW, error: null };
+    const order = await amendOrder(
+      'order-1',
+      [
+        { productId: 'prod-1', quantity: 3 },
+        { productId: 'prod-2', quantity: 0 },
+        { productId: 'prod-3', quantity: 4 },
+      ],
+      'reason'
+    );
+    // 7, not 0 (the response carries no order_items) and not 2 (a count of
+    // surviving lines rather than of units).
+    expect(order.itemCount).toBe(7);
+  });
+
+  it('throws when the RPC refuses, so the caller can translate the code', async () => {
+    fake.rpcResult = { data: null, error: { message: 'order_not_amendable' } };
+    await expect(amendOrder('order-1', [{ productId: 'prod-1', quantity: 1 }], 'reason')).rejects.toMatchObject({
+      message: 'order_not_amendable',
+    });
+  });
+});
+
+describe('orderErrorMessage — the amend refusals', () => {
+  it('maps amendment_reason_required to a sentence naming the field, not the code', () => {
+    const msg = orderErrorMessage({ message: 'amendment_reason_required' });
+    expect(msg).not.toBe('amendment_reason_required');
+    expect(msg).toMatch(/reason/i);
+  });
+
+  // ASSERTED AGAINST THE FALLBACK, not against the word "completed". The
+  // no-detail sentence necessarily says "completed or cancelled" itself, so
+  // `toMatch(/completed/i)` passed even with the status lookup stubbed out to
+  // null -- found by mutation. What actually distinguishes the branches is the
+  // NEXT MOVE each one names, so that is what these assert.
+  it('maps order_not_amendable for a completed order to the sale-side remedy', () => {
+    const msg = orderErrorMessage({
+      message: 'order_not_amendable',
+      details: JSON.stringify({ status: 'completed' }),
+    });
+    const generic = orderErrorMessage({ message: 'order_not_amendable' });
+    expect(msg).toMatch(/transactions|refund/i);
+    expect(msg).not.toBe(generic);
+    expect(msg).not.toBe('order_not_amendable');
+  });
+
+  it('maps order_not_amendable for a cancelled order to a different remedy again', () => {
+    const cancelled = orderErrorMessage({
+      message: 'order_not_amendable',
+      details: JSON.stringify({ status: 'cancelled' }),
+    });
+    const completed = orderErrorMessage({
+      message: 'order_not_amendable',
+      details: JSON.stringify({ status: 'completed' }),
+    });
+    expect(cancelled).toMatch(/new one|place a new/i);
+    expect(cancelled).not.toBe(completed);
+  });
+
+  it('maps order_not_amendable with no parseable detail', () => {
+    expect(orderErrorMessage({ message: 'order_not_amendable' })).toMatch(/can't be changed|cannot be changed/i);
+  });
+
+  // The permission sentence must name what to ask for. A shopkeeper who reads
+  // "you don't have permission" and nothing else has to guess which one.
+  it('maps sales_edit_required to a sentence naming the permission to ask for', () => {
+    const msg = orderErrorMessage({ message: 'sales_edit_required' });
+    expect(msg).toMatch(/permission|owner|manager/i);
+    expect(msg).not.toBe('sales_edit_required');
+  });
+
+  it('maps order_line_not_in_order to the reason adding is refused, naming no code', () => {
+    const msg = orderErrorMessage({ message: 'order_line_not_in_order' });
+    expect(msg).toMatch(/add/i);
+    expect(msg).not.toBe('order_line_not_in_order');
+  });
+
+  it('maps invalid_contact to a sentence about the phone number', () => {
+    const msg = orderErrorMessage({ message: 'invalid_contact' });
+    expect(msg).toMatch(/phone|number/i);
+  });
+
+  it('maps unknown_delivery_area and delivery_unavailable to different, actionable sentences', () => {
+    const unknown = orderErrorMessage({ message: 'unknown_delivery_area', details: JSON.stringify({ area: 'Atlantis' }) });
+    const unavailable = orderErrorMessage({ message: 'delivery_unavailable' });
+    expect(unknown).toMatch(/area/i);
+    expect(unavailable).toMatch(/delivery/i);
+    expect(unknown).not.toBe(unavailable);
+  });
+
+  it('maps order_total_out_of_range to a size sentence, distinct from the per-line one', () => {
+    const total = orderErrorMessage({ message: 'order_total_out_of_range' });
+    const line = orderErrorMessage({ message: 'order_line_out_of_range' });
+    expect(total).toMatch(/large|big|too/i);
+    expect(total).not.toBe(line);
+  });
+
+  // These four are programming errors -- the sheet cannot produce them -- and
+  // they stay unmapped ON PURPOSE, per this function's own header: a code it
+  // does not recognise must reach the caller's fallback intact rather than be
+  // swallowed into a sentence that tells a shopkeeper they did something
+  // wrong when the app did.
+  it('leaves the client-bug codes unmapped so they surface in a bug report', () => {
+    expect(orderErrorMessage({ message: 'invalid_lines' })).toBeNull();
+    expect(orderErrorMessage({ message: 'invalid_quantity' })).toBeNull();
+    expect(orderErrorMessage({ message: 'duplicate_line' })).toBeNull();
+    expect(orderErrorMessage({ message: 'invalid_pricing' })).toBeNull();
+  });
+});
+
+// The amend sheet's pricing choice needs today's shelf price per line, which
+// the order's own snapshot cannot answer. Read as its own small query rather
+// than widened onto getOrderItems: an order that is never amended must not
+// pay for it.
+describe('getCurrentPrices', () => {
+  it('reads price_cents for exactly the products asked about', async () => {
+    fake.selectResult = { data: [{ id: 'p1', price_cents: 1500 }, { id: 'p2', price_cents: 1000 }], error: null };
+    expect(await getCurrentPrices(['p1', 'p2'])).toEqual({ p1: 1500, p2: 1000 });
+    expect(fake.selectCalls).toEqual([{ table: 'products', columns: 'id, price_cents', options: undefined }]);
+    expect(fake.inCalls).toEqual([['id', ['p1', 'p2']]]);
+  });
+
+  it('asks nothing at all for an empty list', async () => {
+    expect(await getCurrentPrices([])).toEqual({});
+    expect(fake.selectCalls).toEqual([]);
+  });
+
+  // A missing product is an ABSENT key, never a zero: order-amendment.ts
+  // treats absent as "cannot re-price this" and zero as "free".
+  it('leaves a product it got no row for out of the map entirely', async () => {
+    fake.selectResult = { data: [{ id: 'p1', price_cents: 1500 }], error: null };
+    const prices = await getCurrentPrices(['p1', 'p2']);
+    expect(prices).toEqual({ p1: 1500 });
+    expect('p2' in prices).toBe(false);
+  });
+
+  it('throws rather than answering with a partial map', async () => {
+    fake.selectResult = { data: null, error: { message: 'nope' } };
+    await expect(getCurrentPrices(['p1'])).rejects.toEqual({ message: 'nope' });
   });
 });

@@ -1,6 +1,7 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { OrderDetail } from '@/components/orders/order-detail';
+import { StatementRow } from '@/components/ui/statement-row';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
 import type { OrderLine, PaymentMethod, ShopOrder } from '@/lib/storefront-admin';
 
@@ -58,6 +59,9 @@ function renderDetail(props: Partial<Parameters<typeof OrderDetail>[0]> = {}): R
         onMarkReady={jest.fn()}
         onCancel={jest.fn()}
         onComplete={jest.fn()}
+        onAmend={jest.fn()}
+        canAmend={false}
+        currentPrices={{}}
         submitting={false}
         actionError={null}
         {...props}
@@ -470,5 +474,329 @@ describe('OrderDetail', () => {
   it('surfaces an action error', () => {
     const t = texts(renderDetail({ actionError: 'Could not accept this order.' }));
     expect(t).toContain('Could not accept this order.');
+  });
+});
+
+// ── Amending ────────────────────────────────────────────────────────────
+//
+// Part 2. Before this, a shortfall dead-ended in one sentence -- "source more
+// stock, or cancel it below" -- and the only button under it binned the whole
+// order. The sheet now offers the three moves that actually exist.
+//
+// Every assertion here drives the component's own props, not a rendered
+// string, wherever the two disagree: `onAmend`'s ARGUMENTS are the contract
+// with storefront-admin.ts, and text can say the right thing while the payload
+// is wrong.
+
+const AMEND_ITEMS: OrderLine[] = [
+  { id: 'i1', productId: 'p1', productName: 'Rice 5kg', unitPriceCents: 1200, quantity: 5, lineTotalCents: 6000 },
+  { id: 'i2', productId: 'p2', productName: 'Oil 1L', unitPriceCents: 1000, quantity: 2, lineTotalCents: 2000 },
+];
+
+const AMEND_ORDER: ShopOrder = {
+  ...ORDER,
+  fulfilment: 'collect',
+  deliveryArea: null,
+  deliveryLandmark: null,
+  deliveryFeeCents: 0,
+  subtotalCents: 8000,
+  totalCents: 8000,
+  itemCount: 7,
+};
+
+// Rice is short by 2 (has 3, needs 5); oil is fine.
+const RICE_SHORT: OrderShortfall[] = [
+  { productId: 'p1', productName: 'Rice 5kg', quantity: 5, available: 3, shortBy: 2 },
+];
+
+// Today's shelf: rice has gone UP since the customer agreed to $12.00.
+const PRICES: Record<string, number> = { p1: 1500, p2: 1000 };
+
+function renderAmend(props: Partial<Parameters<typeof OrderDetail>[0]> = {}) {
+  return renderDetail({
+    order: AMEND_ORDER,
+    items: AMEND_ITEMS,
+    shortfalls: RICE_SHORT,
+    currentPrices: PRICES,
+    canAmend: true,
+    ...props,
+  });
+}
+
+describe('OrderDetail — the shortfall is no longer a dead end', () => {
+  it('offers all three moves, not just cancelling', () => {
+    const tree = renderAmend();
+    expect(find(tree, 'Reduce to what I have')).toBeDefined();
+    expect(find(tree, 'Split the order')).toBeDefined();
+    expect(find(tree, 'Cancel order')).toBeDefined();
+  });
+
+  // Part 4 builds the RPC. Drawn now so the shop can see the move exists,
+  // disabled so it cannot fail -- "a button that fails is worse than no
+  // button", and a button that silently does nothing is worse again.
+  it('draws Split the order disabled, and says why', () => {
+    const tree = renderAmend();
+    const split = find(tree, 'Split the order');
+    expect(split?.props.disabled).toBe(true);
+    expect(texts(tree)).toMatch(/coming|not yet|soon/i);
+  });
+
+  it('does not offer to amend at all without the permission to do it', () => {
+    const tree = renderAmend({ canAmend: false });
+    expect(find(tree, 'Reduce to what I have')).toBeUndefined();
+    expect(find(tree, 'Amend order')).toBeUndefined();
+    // ...and says why, rather than leaving a blank space where the moves were.
+    expect(texts(tree)).toMatch(/permission/i);
+  });
+
+  it('offers amending on an order with no shortfall at all -- a wrong quantity is not a stock problem', () => {
+    const tree = renderAmend({ shortfalls: [] });
+    expect(find(tree, 'Amend order')).toBeDefined();
+  });
+
+  it.each(['completed', 'cancelled'] as const)('offers no amend on a %s order', (status) => {
+    const tree = renderAmend({ order: { ...AMEND_ORDER, status }, shortfalls: [] });
+    expect(find(tree, 'Amend order')).toBeUndefined();
+    expect(find(tree, 'Reduce to what I have')).toBeUndefined();
+  });
+});
+
+describe('OrderDetail — the amend form', () => {
+  const openAmend = (props: Partial<Parameters<typeof OrderDetail>[0]> = {}) => {
+    const tree = renderAmend(props);
+    pressByLabel(tree, 'Amend order');
+    return tree;
+  };
+
+  it('will not save while the internal reason is blank', () => {
+    const tree = openAmend();
+    expect(find(tree, 'Save changes')?.props.disabled).toBe(true);
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('only three bags'));
+    expect(find(tree, 'Save changes')?.props.disabled).toBe(false);
+  });
+
+  it('will not save an amend that empties the order', () => {
+    const tree = openAmend();
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('reason'));
+    pressByLabel(tree, 'Remove Rice 5kg');
+    pressByLabel(tree, 'Remove Oil 1L');
+    expect(find(tree, 'Save changes')?.props.disabled).toBe(true);
+    expect(texts(tree)).toMatch(/nothing left|cancel/i);
+  });
+
+  // THE DELTA PANEL. Re-pricing can change what the customer owes without
+  // anyone asking them, so both figures have to be on screen before saving --
+  // the old one is what makes the new one mean anything.
+  //
+  // ASSERTED ON StatementRow's PROPS, not on page text, and that is not
+  // style. `$80.00` is ALSO the order's own "Amount to collect" further up
+  // the same sheet, so a text assertion passed with the "Was" row deleted
+  // outright -- found by mutation. The label/amount pair is the only thing
+  // that distinguishes this panel from the breakdown above it.
+  it('shows the old total and the new one side by side', () => {
+    const tree = openAmend();
+    pressByLabel(tree, 'Decrease Rice 5kg');
+    pressByLabel(tree, 'Decrease Rice 5kg');
+    const rows = tree.root.findAllByType(StatementRow).map((n) => [n.props.label, n.props.amountCents]);
+    expect(rows).toContainEqual(['Was', 8000]);
+    expect(rows).toContainEqual(['Now', 5600]); // 3 x 12.00 + 2 x 10.00
+    expect(rows).toContainEqual(['Customer pays less', 2400]);
+  });
+
+  it('says which way the money moved when an amend costs the customer more', () => {
+    const tree = openAmend();
+    pressByLabel(tree, "Use today's prices");
+    const rows = tree.root.findAllByType(StatementRow).map((n) => [n.props.label, n.props.amountCents]);
+    // 5 x 15.00 + 2 x 10.00 = 95.00, against the agreed 80.00.
+    expect(rows).toContainEqual(['Now', 9500]);
+    expect(rows).toContainEqual(['Customer pays more', 1500]);
+  });
+
+  it('names the line whose quantity moved, with both quantities', () => {
+    const tree = openAmend();
+    pressByLabel(tree, 'Decrease Rice 5kg');
+    const t = texts(tree);
+    expect(t).toContain('Rice 5kg');
+    expect(t).toMatch(/5\s*→\s*4|5 to 4/);
+  });
+
+  it('re-prices only when the shop asks, and shows the difference that makes', () => {
+    const tree = openAmend();
+    // Untouched quantities: at the agreed price the total cannot move.
+    expect(texts(tree)).not.toContain('$95.00');
+    pressByLabel(tree, "Use today's prices");
+    // 5 x 15.00 + 2 x 10.00 = 95.00, against the agreed 80.00.
+    expect(texts(tree)).toContain('$95.00');
+    expect(texts(tree)).toMatch(/Rice 5kg/);
+  });
+
+  it('sends the quantities, the reason and the pricing mode it was showing', () => {
+    const onAmend = jest.fn();
+    const tree = renderAmend({ onAmend });
+    pressByLabel(tree, 'Amend order');
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('  only three bags  '));
+    pressByLabel(tree, 'Decrease Rice 5kg');
+    pressByLabel(tree, 'Decrease Rice 5kg');
+    pressByLabel(tree, 'Save changes');
+
+    expect(onAmend).toHaveBeenCalledTimes(1);
+    const [lines, reason, options] = onAmend.mock.calls[0];
+    expect(lines).toEqual([
+      { productId: 'p1', quantity: 3 },
+      { productId: 'p2', quantity: 2 },
+    ]);
+    expect(reason).toBe('only three bags');
+    expect(options.pricing).toBe('agreed');
+  });
+
+  // TWO REASONS, AND ONLY ONE TRAVELS. The internal one is blunt and written
+  // for the shop; the customer's note is separate and optional. A sheet that
+  // sent the internal reason as the customer's message would forward
+  // "customer always argues about the price" to the customer.
+  it('never sends the internal reason as the customer note', () => {
+    const onAmend = jest.fn();
+    const tree = renderAmend({ onAmend });
+    pressByLabel(tree, 'Amend order');
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('she always argues about the price'));
+    pressByLabel(tree, 'Save changes');
+
+    const [, reason, options] = onAmend.mock.calls[0];
+    expect(reason).toBe('she always argues about the price');
+    expect(options.customerNote ?? null).toBeNull();
+  });
+
+  it('sends the customer note only when one was actually typed', () => {
+    const onAmend = jest.fn();
+    const tree = renderAmend({ onAmend });
+    pressByLabel(tree, 'Amend order');
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('internal'));
+    act(() => find(tree, 'Message for the customer')!.props.onChangeText("we'll have the rest Thursday"));
+    pressByLabel(tree, 'Save changes');
+
+    const [, reason, options] = onAmend.mock.calls[0];
+    expect(options.customerNote).toBe("we'll have the rest Thursday");
+    expect(options.customerNote).not.toBe(reason);
+  });
+
+  it('labels the two fields so it is obvious which one the customer reads', () => {
+    const tree = openAmend();
+    const t = texts(tree);
+    expect(t).toMatch(/never see|not shown|your records|internal/i);
+  });
+
+  // The shortcut the whole part exists for: one tap sets every short line to
+  // what is actually on the shelf.
+  it('Reduce to what I have fills the quantities in from the shortfall', () => {
+    const onAmend = jest.fn();
+    const tree = renderAmend({ onAmend });
+    pressByLabel(tree, 'Reduce to what I have');
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('three on the shelf'));
+    pressByLabel(tree, 'Save changes');
+
+    const [lines] = onAmend.mock.calls[0];
+    // Rice down to the 3 available; oil, which was never short, untouched.
+    expect(lines).toEqual([
+      { productId: 'p1', quantity: 3 },
+      { productId: 'p2', quantity: 2 },
+    ]);
+  });
+
+  it('refuses to re-price when a line has no current price to read', () => {
+    const tree = renderAmend({ currentPrices: { p2: 1000 } });
+    pressByLabel(tree, 'Amend order');
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('reason'));
+    pressByLabel(tree, "Use today's prices");
+    expect(find(tree, 'Save changes')?.props.disabled).toBe(true);
+    expect(texts(tree)).toMatch(/price/i);
+  });
+});
+
+// ── Two products, one name ──────────────────────────────────────────────
+//
+// `products.name` carries NO unique constraint (0001_init.sql), so one shop
+// can hold two products called the same thing -- a re-added item, two
+// suppliers' versions, or a sloppy duplicate. order_items snapshots that name,
+// so an order can carry two lines reading identically.
+//
+// The original fixture here used 'Rice 5kg' and 'Oil 1L' and could never have
+// caught this: it is the same non-discriminating-fixture failure this series
+// has now found five times.
+describe('OrderDetail — lines are identified by product, not by name', () => {
+  const TWINS: OrderLine[] = [
+    { id: 'i1', productId: 'p1', productName: 'Rice 5kg', unitPriceCents: 1200, quantity: 4, lineTotalCents: 4800 },
+    // Same NAME, different product. This is the whole fixture.
+    { id: 'i2', productId: 'p2', productName: 'Rice 5kg', unitPriceCents: 1000, quantity: 2, lineTotalCents: 2000 },
+  ];
+  const TWIN_ORDER: ShopOrder = {
+    ...AMEND_ORDER,
+    subtotalCents: 6800,
+    totalCents: 6800,
+    itemCount: 6,
+  };
+
+  it('moves only the line whose stepper was pressed', () => {
+    const onAmend = jest.fn();
+    const tree = renderDetail({
+      order: TWIN_ORDER,
+      items: TWINS,
+      shortfalls: [],
+      currentPrices: { p1: 1200, p2: 1000 },
+      canAmend: true,
+      onAmend,
+    });
+    pressByLabel(tree, 'Amend order');
+
+    // There are two steppers with the same product name. Press the FIRST.
+    const decreasers = tree.root.findAll(
+      (n) => typeof n.props.accessibilityLabel === 'string'
+        && n.props.accessibilityLabel.startsWith('Decrease')
+        && typeof n.props.onPress === 'function'
+    );
+    expect(decreasers).toHaveLength(2);
+    act(() => decreasers[0].props.onPress());
+
+    act(() => find(tree, 'Why this is changing')!.props.onChangeText('one bag short'));
+    pressByLabel(tree, 'Save changes');
+
+    const [lines] = onAmend.mock.calls[0];
+    // p1 down to 3; p2 UNTOUCHED at 2. Keying the draft by product NAME moved
+    // both, sending 3 and 1 -- a quantity the shopkeeper never chose, on an
+    // order whose total the customer has already agreed to.
+    expect(lines).toEqual([
+      { productId: 'p1', quantity: 3 },
+      { productId: 'p2', quantity: 2 },
+    ]);
+  });
+
+  it('gives the two lines distinct accessibility labels', () => {
+    const tree = renderDetail({
+      order: TWIN_ORDER,
+      items: TWINS,
+      shortfalls: [],
+      currentPrices: { p1: 1200, p2: 1000 },
+      canAmend: true,
+    });
+    pressByLabel(tree, 'Amend order');
+    // Filtered to nodes that actually HANDLE a press. findAll walks the
+    // component and its host node both, so a bare label filter returns each
+    // control three times and `size === length` fails on the duplicates
+    // rather than on anything real.
+    const labels = tree.root
+      .findAll(
+        (n) =>
+          typeof n.props.accessibilityLabel === 'string' &&
+          n.props.accessibilityLabel.startsWith('Decrease') &&
+          typeof n.props.onPress === 'function'
+      )
+      .map((n) => n.props.accessibilityLabel as string);
+    // Two identical labels are two controls a screen reader cannot tell
+    // apart, and two controls this component's own tests cannot address.
+    expect(labels).toHaveLength(2);
+    expect(new Set(labels).size).toBe(2);
+    // ...and the ordinary case keeps the plain label, so the disambiguation
+    // is not paid for by every other order.
+    const plain = renderDetail({ order: AMEND_ORDER, items: AMEND_ITEMS, shortfalls: [], currentPrices: PRICES, canAmend: true });
+    pressByLabel(plain, 'Amend order');
+    expect(find(plain, 'Decrease Rice 5kg')).toBeDefined();
   });
 });
