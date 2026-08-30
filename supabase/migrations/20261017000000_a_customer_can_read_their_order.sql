@@ -30,6 +30,27 @@
 -- records what one extra parameter cost the last time.
 --
 --
+-- ## NO MODULE GATE, and that is deliberate
+--
+-- All four existing anon RPCs refuse a shop whose plan no longer includes
+-- the storefront: get_public_storefront returns nothing, and
+-- place_storefront_order answers `shop_unavailable`. THIS ONE DOES NOT, and
+-- the divergence is a decision rather than an oversight -- which is worth
+-- saying plainly, because a reader comparing the five otherwise sees four
+-- with a gate and one without.
+--
+-- The other four are the SHOP'S marketing surface: browsing a catalogue and
+-- placing a new order are things a lapsed shop should stop doing. This is a
+-- receipt for a trade that ALREADY HAPPENED. The customer is owed goods, or
+-- news that they are not coming, and a shop downgrading its plan is not a
+-- reason to take that away from them -- it punishes the wrong person, and
+-- the shop keeps its own record of the order either way.
+--
+-- Nothing is exposed by it. The payload is the same narrow projection, still
+-- keyed on a token the shop chose to hand out, still expiring.
+-- verify-public-order pins the behaviour so a future edit that "fixes the
+-- inconsistency" has to come past a check that says why.
+
 -- ## What it returns, and what it must never return
 --
 -- RETURNS: the shop's name, the order number, status, when it was placed,

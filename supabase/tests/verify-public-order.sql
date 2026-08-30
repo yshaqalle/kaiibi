@@ -428,6 +428,51 @@ begin
   end;
   reset role;
 
+  -- ------------------------------------------------ 17. a lapsed shop's link keeps working, but cannot be agreed to
+  --
+  -- PINNED BECAUSE IT DIVERGES FROM EVERY SIBLING. The other four anon RPCs
+  -- refuse a shop whose plan no longer carries the storefront; this one does
+  -- not, on purpose -- see the migration header. Those four are the shop's
+  -- marketing surface; this is a receipt for a trade that already happened,
+  -- and a customer owed goods should not lose their link because the shop
+  -- downgraded.
+  --
+  -- Asserted against get_public_storefront in the same breath, so the check
+  -- shows the difference rather than just one half of it.
+  delete from public.shop_subscriptions where shop_id = v_shop_id;
+  if public.shop_has_module(v_shop_id, 'storefront') then
+    raise exception 'FAIL 17: the fixture still has the module -- this check proves nothing';
+  end if;
+  if (select count(*) from public.get_public_storefront('link-shop')) <> 0 then
+    raise exception 'FAIL 17: a lapsed shop still serves its public page -- the sibling gate is gone';
+  end if;
+  set local role anon;
+  v_payload := public.get_public_order(c_collect_token);
+  reset role;
+  if v_payload is null then
+    raise exception 'FAIL 17: a lapsed shop took its customers'' order links away with it';
+  end if;
+
+  -- ...and the WRITE is refused, which is a different answer and worth
+  -- pinning separately. enforce_shop_module guards every update to `orders`
+  -- shop-wide, so confirm_public_order cannot stamp an agreement for a shop
+  -- whose plan has lapsed. Reading a receipt is the customer's; changing a
+  -- row belongs to a shop that is still trading. The page reports it as
+  -- "Could not send your reply", which is true.
+  -- The DELIVER order, which no earlier check agreed to. The collect one is
+  -- already confirmed by check 11, so confirm_public_order would take its
+  -- idempotent branch, never reach the update, and never meet the trigger --
+  -- the check would pass having tested nothing. (It did, once.)
+  set local role anon;
+  begin
+    perform public.confirm_public_order(c_deliver_token);
+    raise exception 'FAIL 17: a lapsed shop still accepted a customer agreement';
+  exception
+    when others then
+      if sqlerrm like 'FAIL 17%' then raise; end if;
+  end;
+  reset role;
+
   raise notice 'PASS: public order link';
   raise exception 'rollback_marker';
 exception

@@ -788,8 +788,14 @@ function mapOrderRow(row: {
     // The LATEST amendment. PostgREST returns the nested rows unordered, so
     // the max is taken here rather than trusting position -- reading [0]
     // would flag the wrong thing on an order amended twice.
+    // Compared as DATES, not as strings. Lexicographic ordering happens to be
+    // right for the ISO-8601-with-fixed-offset form PostgREST returns today,
+    // which is exactly why it is the kind of thing that breaks quietly if that
+    // ever changes -- and isAwaitingCustomer, the only consumer, already
+    // parses these to Date. One comparison rule for one value.
     lastAmendedAt: (row.order_amendments ?? []).reduce<string | null>(
-      (latest, a) => (latest === null || a.amended_at > latest ? a.amended_at : latest),
+      (latest, a) =>
+        latest === null || new Date(a.amended_at).getTime() > new Date(latest).getTime() ? a.amended_at : latest,
       null
     ),
   };
