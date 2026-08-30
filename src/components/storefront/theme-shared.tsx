@@ -9,6 +9,7 @@ import { waLink } from '@/lib/storefront';
 import {
   addLine, cartItemCount, cartSubtotalCents, loadCart, saveCart, setQuantity, type StorefrontCart,
 } from '@/lib/storefront-cart';
+import { collectLocation } from '@/lib/storefront-collect';
 import { placeOrder, placeOrderViaWhatsApp, type PlacedOrder } from '@/lib/storefront-order';
 import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
@@ -466,6 +467,12 @@ export function CheckoutScreen({
           areas={areas}
           submitting={submitting}
           whatsappE164={storefront.whatsappE164}
+          // Composed here, not in the form: `collectAddress` is null for
+          // nearly every shop (see storefront-collect.ts), and
+          // `collectNeighborhood` then `city` are the fallbacks that actually
+          // are populated. The form receives a line worth printing or nothing
+          // at all.
+          collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
           onSubmit={onSubmit}
         />
         {submitting ? <Text style={[styles.screenHint, { color: colors.muted }]}>Placing your order…</Text> : null}
@@ -479,12 +486,21 @@ export function CheckoutScreen({
 // order-placed.tsx's own header comment on what this trade can honestly
 // promise today.
 export function ConfirmationScreen({
-  order, shopName, colors, onDone,
-}: { order: PlacedOrder; shopName: string; colors: PaletteColors; onDone: () => void }) {
+  order, shopName, collectLocation, colors, onDone,
+}: {
+  order: PlacedOrder;
+  shopName: string;
+  // Composed by the caller from the storefront, the same way CheckoutScreen
+  // does it -- so the counter named on the confirmation is the one named at
+  // checkout. Optional so a caller that predates this still type-checks.
+  collectLocation?: string | null;
+  colors: PaletteColors;
+  onDone: () => void;
+}) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <ScrollView contentContainerStyle={styles.screenBody}>
-        <OrderPlaced order={order} shopName={shopName} colors={colors} />
+        <OrderPlaced order={order} shopName={shopName} collectLocation={collectLocation} colors={colors} />
         <Pressable
           testID="storefront-continue-shopping"
           accessibilityRole="button"

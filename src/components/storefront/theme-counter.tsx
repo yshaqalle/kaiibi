@@ -6,6 +6,7 @@ import {
   CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, ProductActions,
   WhatsAppButton, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
+import { collectLocation } from '@/lib/storefront-collect';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -75,6 +76,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
       <ConfirmationScreen
         order={checkout.order}
         shopName={storefront.shopName}
+        collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
       />

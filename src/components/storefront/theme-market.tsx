@@ -8,6 +8,7 @@ import {
   CartButton, CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
+import { collectLocation } from '@/lib/storefront-collect';
 
 export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeProps) {
   const { width } = useWindowDimensions();
@@ -58,6 +59,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
       <ConfirmationScreen
         order={checkout.order}
         shopName={storefront.shopName}
+        collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
       />

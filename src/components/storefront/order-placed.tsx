@@ -7,6 +7,16 @@ import type { PlacedOrder } from '@/lib/storefront-order';
 type Props = {
   order: PlacedOrder;
   shopName: string;
+  // Where to come and get it, ALREADY COMPOSED by collectLocation
+  // (storefront-collect.ts) -- not the raw shop_locations.address column,
+  // which no automated path has ever written and which is therefore empty for
+  // nearly every shop. That helper joins the typed address to the city and
+  // degrades to the city alone.
+  //
+  // Null only when the shop has neither on file, in which case the sentence
+  // falls back to exactly what it said before: a promise of a phone call,
+  // which is at least true. Never an empty "Collect from".
+  collectLocation?: string | null;
   colors: PaletteColors;
 };
 
@@ -17,11 +27,13 @@ type Props = {
 // phone call before there was an app, so that is the whole confirmation: the
 // number the shop will read back, what happens next, and what to have ready
 // to pay -- nothing this screen cannot honestly promise today.
-export function OrderPlaced({ order, shopName, colors }: Props) {
+export function OrderPlaced({ order, shopName, collectLocation, colors }: Props) {
   const nextStep =
     order.fulfilment === 'deliver'
       ? `${shopName} will call you to arrange delivery${order.deliveryArea ? ` to ${order.deliveryArea}` : ''}.`
-      : `${shopName} will call you when your order is ready to collect.`;
+      : collectLocation
+        ? `${shopName} will call you when your order is ready. Collect from ${collectLocation}.`
+        : `${shopName} will call you when your order is ready to collect.`;
 
   return (
     <View style={[styles.card, { backgroundColor: colors.ground }]}>

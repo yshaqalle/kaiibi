@@ -386,6 +386,44 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // header states the whole of what is and is not enforced.
   ['20260929000200', 'the exemption covers only the product and price that order quoted',
     'and oi.product_id = v_product.id\n              and oi.unit_price_cents = v_agreed_price'],
+
+  // ── 20261010000000 ───────────────────────────────────────────────────────
+  //
+  // A fulfilment is not refused for want of a till -- and the thing that
+  // excuses it is a fact this function LOOKS UP, never a flag a caller SENDS.
+  //
+  // THIS ENTRY PAIR REPLACED AN EARLIER ONE, and why is the whole point. The
+  // first version of this migration gave complete_sale a sixteenth argument,
+  // `p_require_register boolean default true`, and pinned it here by the bare
+  // token `'p_require_register boolean default true'`. complete_sale is granted
+  // to `authenticated` and exposed over PostgREST, so that parameter was an off
+  // switch on the client's side of a setting whose own guard comment says "the
+  // client is the party it is meant to constrain" -- `p_require_register =>
+  // false` and `p_require_register => null` each defeated it from a real JWT,
+  // and the bare parameter-name token was green against both. The parameter is
+  // gone; the exemption is now read off the storefront_order_fulfilments mark.
+  //
+  // TWO ENTRIES, because the two halves fail differently and silently.
+  //
+  // Lose the `not exists` and a fulfilment at a require_open_register shop is
+  // refused again -- the dead end this migration exists to remove, restored.
+  // Lose the xact_id/shop pair and the guard is skipped by ANY mark lying
+  // around, which is the bypass in the other direction.
+  //
+  // NEITHER TOKEN IS PRESENCE-ONLY, and neither may be. complete_sale reads
+  // this same table a second time, for the agreed-price exemption a screen
+  // below, so a token like `from public.storefront_order_fulfilments f` alone
+  // would be satisfied by that other block with this guard thrown away
+  // entirely. Both tokens are anchored to text that appears once: the
+  // require_open_register lookup above, and the `) then` that closes this
+  // guard's own condition at this guard's own indentation.
+  ['20261010000000', 'the open-register guard is skipped only for a fulfilment in flight',
+    'if p_register_session_id is null\n'
+      + '     and (select require_open_register from public.shop_locations where id = v_location_id)\n'
+      + '     and not exists ('],
+  ['20261010000000', "...and only this transaction's own mark, at this sale's own shop, is one",
+    '        where f.xact_id = pg_current_xact_id()\n'
+      + '          and o.shop_id = p_shop_id) then'],
 ];
 
 // complete_storefront_order joins this file at its FIFTH full reproduction,
@@ -512,6 +550,12 @@ const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
   // Lose it and a re-priced order is refused, at a shop whose prices are its
   // own, with a message about shelf prices that names neither orders nor
   // discounting.
+  //
+  // SINCE 20261010000000 THIS ROW CARRIES A SECOND EXEMPTION, so losing it now
+  // costs two things rather than one: it is also what tells complete_sale to
+  // skip the open-register guard, and without it a shop with
+  // require_open_register set on its primary location cannot complete a single
+  // online order.
   ['20260929000200', 'the fulfilment marks itself, so complete_sale can see the quote is the shop\'s own',
     'insert into public.storefront_order_fulfilments (order_id)\n    values (p_order_id)'],
   // ...AND THE MARK COMES STRAIGHT BACK DOWN. THE ONE THE REVIEW PROVED WAS
@@ -532,9 +576,17 @@ const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
   // complete_sale adds the tax on top of the quote and then refuses the quoted
   // payment against its own larger total, which came back as
   // `order_total_changed`: a sentence about prices moving, given to a shop
-  // whose prices had not moved. The token is the argument as it is passed,
-  // trailing `);` and all, so it pins the flag actually REACHING complete_sale
-  // rather than being mentioned in the comment above the call.
+  // whose prices had not moved. The token is the argument as it is passed --
+  // `=>` and a trailing delimiter -- so it pins the flag actually REACHING
+  // complete_sale rather than being mentioned in the comment above the call.
+  //
+  // THE DELIMITER IS `);` AGAIN. It was briefly narrowed to `,` while the first
+  // version of 20261010000000 passed a sixteenth argument, p_require_register,
+  // after this one. That argument was removed -- it was a client-assertable off
+  // switch on the open-register guard, see that migration's header -- so this
+  // is once more complete_sale's final argument and the original, stricter
+  // token is restored rather than left loosened for a call shape that no longer
+  // exists.
   ['20260929000200', 'a storefront sale is filed at prices that already include tax',
     'p_prices_include_tax  => true);'],
   // ...and what order_total_changed narrowed TO. It now fires only when the
@@ -562,6 +614,32 @@ const COMPLETE_STOREFRONT_ORDER_EDITS: Edit[] = [
     "v_msg like 'agreed price for % is out of range%' then"],
   ['20260929000250', 'and refused with a code a client can turn into a sentence',
     "raise exception 'order_line_out_of_range'"],
+
+  // ── 20261010000000 ───────────────────────────────────────────────────────
+  //
+  // TWO ENTRIES, and each one is a different way to be wrong.
+  //
+  // A THIRD ONE USED TO SIT HERE, pinning `p_require_register    => false` --
+  // this function's opt-out of complete_sale's open-register guard. That
+  // parameter is gone (it was assertable by any client, see 20261010000000's
+  // header) and the opt-out is now carried by the fulfilment mark this function
+  // already inserts and deletes around the call. Nothing is unpinned by its
+  // removal: the insert and the delete are pinned by 20260929000200's own
+  // entries above, and the guard that reads them by this migration's two
+  // entries in COMPLETE_SALE_EDITS.
+  //
+  // Drop the my_open_session_at lookup and every fulfilment files against no
+  // drawer, so a handover taken at the counter goes missing from the count the
+  // person at that counter has to sign off. Nothing fails; the money is simply
+  // in the wrong place.
+  //
+  // Drop the session off the CALL while keeping the lookup and the effect is
+  // identical with a variable left over to make it look intended -- which is
+  // why the argument is pinned separately from the lookup that feeds it.
+  ['20261010000000', "the completing member's open session at the resolved location is looked up",
+    'v_session_id := public.my_open_session_at(v_register_location);'],
+  ['20261010000000', '...and is what the sale is filed against',
+    'p_register_session_id => v_session_id,'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
