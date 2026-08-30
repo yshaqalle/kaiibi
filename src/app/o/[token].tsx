@@ -1,9 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Linking } from 'react-native';
 
 import { PublicOrderView } from '@/components/storefront/public-order-view';
 import { confirmPublicOrder, getPublicOrder, type PublicOrder } from '@/lib/public-order';
+import { openWhatsApp } from '@/lib/whatsapp';
 
 // THE CUSTOMER'S ORDER PAGE. No login, no session, no shop context -- the
 // token in the URL is the whole of their authority.
@@ -89,11 +89,13 @@ export default function PublicOrderRoute() {
   const onMessageShop = useCallback(() => {
     const order = result?.order;
     if (!order) return;
-    const text = `Hello ${order.shopName}, I have a question about order #${order.number}.`;
-    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`).catch(() => {
-      // A device with no WhatsApp is not an error worth a screen: the page
-      // still shows the order, which is what they came for.
-    });
+    if (!order.shopWhatsapp) return;
+    // openWhatsApp (lib/whatsapp.ts), not a hand-built wa.me URL. This one
+    // place used to build its own -- with NO RECIPIENT -- so the button
+    // opened WhatsApp on an empty chat and left the customer to find the
+    // shop. That is the same class of defect #108 was: a link assembled
+    // beside the helper that exists to assemble it.
+    openWhatsApp(order.shopWhatsapp, `Hello ${order.shopName}, I have a question about order #${order.number}.`);
   }, [result]);
 
   return (

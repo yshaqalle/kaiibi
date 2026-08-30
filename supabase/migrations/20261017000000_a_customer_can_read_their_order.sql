@@ -106,6 +106,14 @@ set search_path = public
 as $$
   select jsonb_build_object(
     'shop_name',          s.name,
+    -- THE NUMBER THE "something is wrong" BUTTON DIALS. Without it that
+    -- button opens WhatsApp with a prefilled message and NO RECIPIENT, and
+    -- the customer has to go and find the shop themselves -- which quietly
+    -- undoes the design it exists to serve: the destructive conversation is
+    -- supposed to stay in the human channel, and a channel nobody is at the
+    -- other end of is not one. get_public_storefront already publishes this
+    -- same column (20261010000100:112), so it exposes nothing new.
+    'shop_whatsapp',      s.whatsapp_e164,
     'number',             o.number,
     'status',             o.status,
     'placed_at',          o.created_at,

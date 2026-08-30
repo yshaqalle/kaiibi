@@ -31,6 +31,12 @@ export type PublicOrderAmendment = {
 
 export type PublicOrder = {
   shopName: string;
+  /**
+   * The shop's own WhatsApp number, so "something is wrong" reaches THEM.
+   * Null for a shop that has not set one -- the caller must then not offer a
+   * button that opens an empty chat.
+   */
+  shopWhatsapp: string | null;
   number: number;
   status: OrderStatus;
   placedAt: string;
@@ -54,6 +60,7 @@ export type PublicOrder = {
 type LineRow = { product_name: string; quantity: number; line_total_cents: number };
 type OrderRow = {
   shop_name: string;
+  shop_whatsapp: string | null;
   number: number;
   status: string;
   placed_at: string;
@@ -82,6 +89,7 @@ const mapLine = (row: LineRow): PublicOrderLine => ({
 function mapOrder(row: OrderRow): PublicOrder {
   return {
     shopName: row.shop_name,
+    shopWhatsapp: row.shop_whatsapp ?? null,
     number: row.number,
     status: row.status as OrderStatus,
     placedAt: row.placed_at,

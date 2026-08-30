@@ -18,6 +18,7 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
 
 const ORDINARY: PublicOrder = {
   shopName: 'Xamdi Stores',
+  shopWhatsapp: '+252634456789',
   number: 7,
   status: 'ready',
   placedAt: '2026-08-30T09:00:00Z',
@@ -105,6 +106,22 @@ describe('PublicOrderView — the ordinary order', () => {
 
   it('always offers a way to reach the shop', () => {
     expect(find(render(), 'Something is wrong — message the shop')).toBeDefined();
+  });
+
+  // A BUTTON THAT OPENS AN EMPTY CHAT IS WORSE THAN NO BUTTON. The whole
+  // "the destructive conversation stays in the human channel" design needs
+  // the channel to have someone at the other end of it; a shop that has set
+  // no WhatsApp number has none, so the offer is withdrawn rather than made
+  // and broken.
+  it('offers no message button when the shop has published no number', () => {
+    const tree = render({ order: { ...ORDINARY, shopWhatsapp: null } });
+    expect(find(tree, 'Something is wrong — message the shop')).toBeUndefined();
+  });
+
+  it('still shows the order itself when the shop has no number', () => {
+    const t = texts(render({ order: { ...ORDINARY, shopWhatsapp: null } }));
+    expect(t).toContain('Xamdi Stores');
+    expect(t).toContain('$75.00');
   });
 });
 

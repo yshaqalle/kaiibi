@@ -37,6 +37,14 @@
 --        Postgres hands EXECUTE to PUBLIC by default, so a `grant to anon`
 --        with no `revoke from public` in front of it is a no-op that looks
 --        like a decision. This is what goes red when the revoke is missing.
+-- EVERY `->>` COMPARISON BELOW USES `is distinct from`, NEVER `<>`. An
+-- absent key makes `->>` null, and `null <> 'x'` is NULL rather than true --
+-- so an `if` on it never fires and the check passes against a payload that
+-- dropped the field entirely. One assertion here really did survive a
+-- mutation deleting its field before this was fixed. It is the same
+-- null-logic trap 20261011000000's header records, where `if NULL and ...`
+-- meant a security guard never ran.
+--
 --   10.  anon still cannot select orders, order_items or order_amendments
 --        directly. If it could, the capability design would be pointless --
 --        it could read every order and harvest every token.
@@ -82,7 +90,8 @@ begin
     values (v_owner_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
             'verify-public-order-' || v_owner_id || '@example.test', '', now(), now(), now());
 
-  insert into public.shops (owner_id, name, slug) values (v_owner_id, 'Link Shop', 'link-shop')
+  insert into public.shops (owner_id, name, slug, whatsapp_e164)
+    values (v_owner_id, 'Link Shop', 'link-shop', '+252634456789')
     returning id into v_shop_id;
   insert into public.storefronts (shop_id, offers_delivery, published_at)
     values (v_shop_id, true, now());
@@ -181,21 +190,35 @@ begin
   if (v_payload->>'number')::integer <> 1 then
     raise exception 'FAIL 1: number is %, expected 1', v_payload->>'number';
   end if;
-  if v_payload->>'status' <> 'pending' then
+  if v_payload->>'status' is distinct from 'pending' then
     raise exception 'FAIL 1: status is %', v_payload->>'status';
   end if;
   if (v_payload->>'total_cents')::integer <> 7500 then
     raise exception 'FAIL 1: total is %, expected 7500', v_payload->>'total_cents';
   end if;
-  if v_payload->>'shop_name' <> 'Link Shop' then
+  if v_payload->>'shop_name' is distinct from 'Link Shop' then
     raise exception 'FAIL 1: shop_name is %', quote_literal(v_payload->>'shop_name');
+  end if;
+  -- THE NUMBER THE "something is wrong" BUTTON DIALS. Without it the page
+  -- opens WhatsApp with a message and no recipient, and the one channel this
+  -- design deliberately keeps the destructive conversation in has nobody at
+  -- the other end. get_public_storefront already publishes the same column.
+  -- `is distinct from`, NOT `<>`. An ABSENT key makes `->>` null, and
+  -- `null <> '...'` is NULL rather than true -- so the `if` never fires and
+  -- the check passes against a payload missing the field entirely. That is
+  -- the same null-logic trap 20261011000000's header records (`if NULL and
+  -- ...` never firing), and it made this exact assertion survive a mutation
+  -- that deleted the field.
+  if v_payload->>'shop_whatsapp' is distinct from '+252634456789' then
+    raise exception 'FAIL 1: shop_whatsapp is % -- the message button has no recipient',
+      coalesce(quote_literal(v_payload->>'shop_whatsapp'), 'null');
   end if;
 
   -- ------------------------------------------------ 2. the lines
   if jsonb_array_length(v_payload->'lines') <> 1 then
     raise exception 'FAIL 2: % lines, expected 1', jsonb_array_length(v_payload->'lines');
   end if;
-  if v_payload->'lines'->0->>'product_name' <> 'Basmati rice'
+  if v_payload->'lines'->0->>'product_name' is distinct from 'Basmati rice'
      or (v_payload->'lines'->0->>'quantity')::integer <> 3
      or (v_payload->'lines'->0->>'line_total_cents')::integer <> 7500 then
     raise exception 'FAIL 2: the line reads %', v_payload->'lines'->0;
@@ -205,7 +228,7 @@ begin
   --
   -- A collect order gets the shop's PRIMARY address. The decoy Warehouse row
   -- was inserted first, so this is red if `is_primary desc` is dropped.
-  if v_payload->>'where_to_go' <> 'Shop 12, Bakaaro Market' then
+  if v_payload->>'where_to_go' is distinct from 'Shop 12, Bakaaro Market' then
     raise exception 'FAIL 3: a collect order says where_to_go = % -- expected the shop''s primary address',
       coalesce(quote_literal(v_payload->>'where_to_go'), 'null');
   end if;
@@ -215,7 +238,7 @@ begin
   reset role;
   -- A deliver order gets the CUSTOMER's own landmark. Sending a delivery
   -- customer to the shop's counter is the opposite of useful.
-  if v_payload->>'where_to_go' <> 'Behind the blue gate' then
+  if v_payload->>'where_to_go' is distinct from 'Behind the blue gate' then
     raise exception 'FAIL 3: a deliver order says where_to_go = % -- expected the customer''s landmark',
       coalesce(quote_literal(v_payload->>'where_to_go'), 'null');
   end if;
@@ -233,7 +256,7 @@ begin
   v_payload := public.get_public_order(c_collect_token);
   reset role;
 
-  if v_payload->'amendment'->>'customer_note' <> 'We will have the rest on Thursday' then
+  if v_payload->'amendment'->>'customer_note' is distinct from 'We will have the rest on Thursday' then
     raise exception 'FAIL 4: the customer note is %', coalesce(quote_literal(v_payload->'amendment'->>'customer_note'), 'null');
   end if;
   if (v_payload->'amendment'->>'was_cents')::integer <> 12500
@@ -271,7 +294,7 @@ begin
   if v_payload is null then
     raise exception 'FAIL 8: a cancelled order returned nothing -- the customer is owed that news';
   end if;
-  if v_payload->>'status' <> 'cancelled' then
+  if v_payload->>'status' is distinct from 'cancelled' then
     raise exception 'FAIL 8: status reads %', v_payload->>'status';
   end if;
   if v_payload::text like '%ZZQ-never-showed-up%' then

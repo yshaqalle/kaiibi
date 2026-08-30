@@ -204,10 +204,14 @@ export function PublicOrderView({
           </Pressable>
         ) : null}
 
-        {/* ALWAYS OFFERED, and it writes NOTHING. There is no RPC behind this
-            -- it opens WhatsApp. A link that has been forwarded or leaked must
-            never be able to alter an order, so the destructive conversation
-            stays in the channel where the shop can ask who it is talking to. */}
+        {/* It writes NOTHING -- there is no RPC behind this, it opens
+            WhatsApp. A link that has been forwarded or leaked must never be
+            able to alter an order, so the destructive conversation stays in
+            the channel where the shop can ask who it is talking to.
+            Offered only when the shop has published a number: that channel
+            needs someone at the other end of it, and a button opening an
+            empty chat is worse than no button. */}
+        {order.shopWhatsapp ? (
         <Pressable
           onPress={onMessageShop}
           accessibilityLabel="Something is wrong — message the shop"
@@ -216,6 +220,7 @@ export function PublicOrderView({
         >
           <Text style={[styles.secondaryText, { color: colors.ink }]}>Something is wrong — message the shop</Text>
         </Pressable>
+        ) : null}
       </View>
     </ScrollView>
   );

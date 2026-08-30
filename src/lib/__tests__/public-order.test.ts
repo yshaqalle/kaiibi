@@ -29,6 +29,7 @@ const { __state: fake } = jest.requireMock('@/lib/supabase') as { __state: FakeS
 // fixture is the thing that should have to change.
 const PAYLOAD = {
   shop_name: 'Link Shop',
+  shop_whatsapp: '+252634456789',
   number: 7,
   status: 'ready',
   placed_at: '2026-08-30T09:00:00Z',
@@ -69,6 +70,7 @@ describe('getPublicOrder', () => {
     const order = await getPublicOrder('tok');
     expect(order).toEqual({
       shopName: 'Link Shop',
+      shopWhatsapp: '+252634456789',
       number: 7,
       status: 'ready',
       placedAt: '2026-08-30T09:00:00Z',
