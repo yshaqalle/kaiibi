@@ -141,7 +141,7 @@ describe('Orders screen', () => {
 
   // Property: "Each row shows what a shop needs to act: number, customer
   // name and phone, item count, collect-or-deliver with the area, total, and
-  // when it arrived."
+  // how long it's been waiting."
   it('shows what a shop needs to act on an order', async () => {
     (listOrders as jest.Mock).mockResolvedValue([ORDER]);
     const tree = await renderScreen();

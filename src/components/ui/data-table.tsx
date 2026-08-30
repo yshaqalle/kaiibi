@@ -75,20 +75,34 @@ export function DataTable<T>({
         <View style={styles.headerRow}>
           {columns.map((column) => {
             const active = column.sortable && sort?.key === column.key;
+            // A bare string child, same as every non-sortable header always
+            // had -- see customer-table-row.tsx's HeaderCell, whose arrow is
+            // its own conditionally-mounted sibling Text rather than a second
+            // expression stuffed inside the label's Text. table-headers.test
+            // .tsx's `texts()` helper only reads children when they're a
+            // plain string, so a `[label, arrow]` array inside one Text would
+            // silently vanish under it.
             const label = (
               <Text style={[styles.headerText, column.numeric && styles.alignRight]} numberOfLines={1}>
                 {column.header.toUpperCase()}
-                {active ? (sort!.direction === 'asc' ? ' ▲' : ' ▼') : ''}
               </Text>
+            );
+            const heading = active ? (
+              <View style={[styles.headerActive, column.numeric && styles.headerActiveRight]}>
+                {label}
+                <Text style={styles.headerArrow}>{sort!.direction === 'asc' ? '▲' : '▼'}</Text>
+              </View>
+            ) : (
+              label
             );
             return (
               <View key={column.key} style={[styles.cell, cellWidth(column)]}>
                 {column.sortable && onSortChange ? (
                   <Pressable onPress={() => onSortChange(column.key)} accessibilityRole="button">
-                    {label}
+                    {heading}
                   </Pressable>
                 ) : (
-                  label
+                  heading
                 )}
               </View>
             );
@@ -188,6 +202,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   alignRight: { textAlign: 'right' },
+  headerActive: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerActiveRight: { justifyContent: 'flex-end' },
+  headerArrow: { fontSize: 9.5, color: theme.bentoMuted, fontWeight: '700' },
 
   nameCell: { minWidth: 0 },
   nameTitle: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
