@@ -137,7 +137,9 @@ describe('sortOrders', () => {
 
   it('does not mutate the array it is given', () => {
     const before = orders.map((o) => o.id);
-    sortOrders(orders, 'total', 'asc');
+    // Sort by a field whose correct order differs from the fixture's existing order,
+    // so an in-place sort would visibly reorder the caller's array.
+    sortOrders(orders, 'number', 'asc');
     expect(orders.map((o) => o.id)).toEqual(before);
   });
 
