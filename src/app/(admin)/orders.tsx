@@ -32,6 +32,7 @@ import {
   cancelOrder,
   amendOrder,
   checkOrderFulfilment,
+  checkOrdersFulfilment,
   completeOrder,
   getCurrentPrices,
   getOrderItems,
@@ -325,18 +326,17 @@ function OrdersScreen() {
   // own completion already decremented the exact stock a check would report
   // on, and a cancelled order was never going to be filled at all.
   //
-  // COST: checkOrderFulfilment has no batch form, and its own first line
-  // (primaryLocation, storefront-admin.ts) re-resolves the shop's primary
-  // location on every single call, plus its own two more queries
-  // (order_items, product_location_stock) -- three Supabase round trips per
-  // order, not one. N visible open rows is therefore ~3N round trips here,
-  // fired concurrently via Promise.all rather than serialised, but not
-  // reduced in COUNT by that. primaryLocation is a private, unexported
-  // function of storefront-admin.ts and checkOrderFulfilment takes no
-  // pre-resolved location -- there is no way to hoist or share that one
-  // lookup across calls from this file without changing
-  // checkOrderFulfilment's own contract, which is out of this task's scope
-  // (Modify: orders.tsx only) and Part 2's territory, not this one's.
+  // COST, AND IT IS NOW PAID ONCE. This used to call checkOrderFulfilment
+  // per visible open row, and that function re-resolved the shop's primary
+  // location on every call plus two more queries -- ~3N round trips, about
+  // 120 for 40 open orders, on mount, on tab switch and after every action.
+  // It degraded past 20-30 open orders.
+  //
+  // checkOrdersFulfilment answers the whole list in THREE queries whatever N
+  // is. The fix had to land in storefront-admin.ts rather than here, which is
+  // why the cost sat measured in this comment for two parts: primaryLocation
+  // is private to that module and the single-order form took no pre-resolved
+  // location, so there was no way to hoist the shared lookup from this file.
   useEffect(() => {
     if (!shop) return;
     const open = UNCONFIRMED.includes(statusFilter) ? orders.filter((o) => o.status === statusFilter) : [];
@@ -345,19 +345,29 @@ function OrdersScreen() {
       return;
     }
     let cancelled = false;
-    Promise.all(
-      open.map((o) =>
-        checkOrderFulfilment(shop.id, o.id)
-          .then((rows) => [o.id, rows.reduce((n, r) => n + r.shortBy, 0)] as const)
-          // One row's failed check must not blank the whole column -- 0 here
-          // reads as "nothing to flag", same as a genuinely fillable order,
-          // rather than an error banner for what is a per-row enhancement,
-          // not the row's reason for existing.
-          .catch(() => [o.id, 0] as const)
-      )
-    ).then((pairs) => {
-      if (!cancelled) setShortBy(Object.fromEntries(pairs.filter(([, n]) => n > 0)));
-    });
+    checkOrdersFulfilment(
+      shop.id,
+      open.map((o) => o.id)
+    )
+      .then((byOrder) => {
+        if (cancelled) return;
+        const totals = Object.entries(byOrder).map(
+          ([id, rows]) => [id, rows.reduce((n, r) => n + r.shortBy, 0)] as const
+        );
+        setShortBy(Object.fromEntries(totals.filter(([, n]) => n > 0)));
+      })
+      // A failed check must not blank the column with an error banner -- an
+      // absent flag reads as "nothing to flag", the same as a genuinely
+      // fillable order. This is a per-row enhancement, not the row's reason
+      // for existing.
+      //
+      // It is now ALL rows rather than one, which is the one thing the batch
+      // costs: a single failure used to lose one row's flag and now loses the
+      // lot. Worth it against 3N round trips, and the failure mode is
+      // identical in kind -- flags missing, never wrong.
+      .catch(() => {
+        if (!cancelled) setShortBy({});
+      });
     return () => {
       cancelled = true;
     };
