@@ -21,6 +21,7 @@ jest.mock('@/hooks/use-auth', () => ({
 
 import { OrderDetail } from '@/components/orders/order-detail';
 import { StatTile } from '@/components/stat-tile';
+import { Caveat } from '@/components/ui/caveat';
 import { DataTable } from '@/components/ui/data-table';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -52,8 +53,21 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
 // screen mounts -- every pre-existing call site sets that mock up itself and
 // calls this with no argument, so the branch below is a pure addition, not a
 // change to how those ~20 tests already behave.
-async function renderScreen(orders?: ShopOrder[]): Promise<ReactTestRenderer> {
+//
+// `options.posAccess`, when explicitly `false`, overrides the default
+// `useAuth` mock (see beforeEach) the same way the existing "pos.access
+// reaches OrderDetail" tests already do by hand -- `can` returns false for
+// `pos.access` and true for everything else, so a screen gated on
+// `settings.access` (the module wall) is unaffected.
+async function renderScreen(orders?: ShopOrder[], options?: { posAccess?: boolean }): Promise<ReactTestRenderer> {
   if (orders) (listOrders as jest.Mock).mockResolvedValue(orders);
+  if (options?.posAccess === false) {
+    (useAuth as jest.Mock).mockReturnValue({
+      shop: { id: 'shop-1' },
+      can: (permission: string) => permission !== 'pos.access',
+      hasModule: () => true,
+    });
+  }
   let tree: ReactTestRenderer | undefined;
   await act(async () => {
     tree = create(
@@ -100,6 +114,32 @@ function pressChip(tree: ReactTestRenderer, label: string) {
 function searchInput(tree: ReactTestRenderer): ReactTestInstance {
   const node = tree.root.findByType(TextInput);
   return node;
+}
+
+// A row's inline action carries an accessibilityLabel and an onPress, same
+// idiom stock-actions-sheet.tsx's own rows use (see
+// inventory-stock-door.test.tsx's doorRowLabels/pressDoorRow) -- this needs
+// no knowledge of Pressable vs. any other pressable primitive.
+function findByLabel(tree: ReactTestRenderer, label: string): ReactTestInstance | undefined {
+  return tree.root.findAll((node) => node.props.accessibilityLabel === label && typeof node.props.onPress === 'function')[0];
+}
+
+// The row action's own onPress calls `event.stopPropagation()` first (so the
+// tap does not also reach the row's "open detail" press) -- a fake event
+// with nothing else on it is enough for that call to be a no-op here.
+function press(node: ReactTestInstance) {
+  node.props.onPress({ stopPropagation: () => {} });
+}
+
+function labelsMatching(tree: ReactTestRenderer, pattern: RegExp): string[] {
+  return tree.root
+    .findAll(
+      (node) =>
+        typeof node.props.accessibilityLabel === 'string' &&
+        typeof node.props.onPress === 'function' &&
+        pattern.test(node.props.accessibilityLabel)
+    )
+    .map((node) => node.props.accessibilityLabel as string);
 }
 
 // A real order a customer placed off the storefront -- fields drawn from
@@ -661,6 +701,146 @@ describe('Orders screen', () => {
         tree.root.findByType(DataTable).props.onSortChange('total');
       });
       expect(tree.root.findByType(DataTable).props.rows.map((r: ShopOrder) => r.id)).toEqual(['low', 'high']);
+    });
+  });
+
+  // Task 4: one legal next move on the row, read from the same guards
+  // order-detail.tsx already derives (canAccept/canMarkReady/canComplete),
+  // which are themselves read off 20260928000100_order_transitions.sql's own
+  // permitted-moves table -- so a shop working the counter accepts four
+  // orders without opening four sheets.
+  describe('the inline next action', () => {
+    it('offers Accept on a new order', async () => {
+      const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
+      expect(findByLabel(tree, 'Accept order 1042')).toBeTruthy();
+    });
+
+    it('offers Mark ready on an accepted order', async () => {
+      const tree = await renderScreen([makeOrder({ number: 1040, status: 'accepted' })]);
+      pressChip(tree, 'Accepted 1');
+      expect(findByLabel(tree, 'Mark order 1040 ready')).toBeTruthy();
+    });
+
+    // A member who cannot ring up a sale cannot complete an order either --
+    // complete_storefront_order delegates to complete_sale, which requires
+    // pos.access -- order-detail.tsx's own canComplete folds this in for the
+    // same reason. A button that always failed would be worse than none.
+    it('offers no Complete button to a member without pos access', async () => {
+      const tree = await renderScreen([makeOrder({ number: 1038, status: 'ready' })], { posAccess: false });
+      pressChip(tree, 'Ready 1');
+      expect(labelsMatching(tree, /complete/i)).toEqual([]);
+    });
+
+    it('offers Complete to a member who does have pos access', async () => {
+      const tree = await renderScreen([makeOrder({ number: 1038, status: 'ready' })]);
+      pressChip(tree, 'Ready 1');
+      expect(findByLabel(tree, 'Complete order 1038')).toBeTruthy();
+    });
+
+    it('offers nothing on a completed or cancelled order', async () => {
+      const tree = await renderScreen([
+        makeOrder({ id: 'o-done', number: 1037, status: 'completed' }),
+        makeOrder({ id: 'o-cancelled', number: 1036, status: 'cancelled', cancellationReason: 'Out of stock' }),
+      ]);
+      pressChip(tree, 'Done');
+      expect(labelsMatching(tree, /accept|ready|complete/i)).toEqual([]);
+      pressChip(tree, 'Cancelled');
+      expect(labelsMatching(tree, /accept|ready|complete/i)).toEqual([]);
+    });
+
+    it('never offers Cancel inline, because cancelling needs a typed reason', async () => {
+      const tree = await renderScreen([makeOrder({ status: 'pending' })]);
+      expect(labelsMatching(tree, /cancel/i)).toEqual([]);
+    });
+
+    it('accepts the order without opening the sheet', async () => {
+      (acceptOrder as jest.Mock).mockResolvedValue(undefined);
+      const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
+      await act(async () => {
+        press(findByLabel(tree, 'Accept order 1042')!);
+      });
+      expect(acceptOrder).toHaveBeenCalledWith('order-1');
+      expect(tree.root.findAllByType(OrderDetail)).toHaveLength(0);
+    });
+
+    it('marks an accepted order ready without opening the sheet', async () => {
+      (markOrderReady as jest.Mock).mockResolvedValue(undefined);
+      const tree = await renderScreen([makeOrder({ number: 1040, status: 'accepted' })]);
+      pressChip(tree, 'Accepted 1');
+      await act(async () => {
+        press(findByLabel(tree, 'Mark order 1040 ready')!);
+      });
+      expect(markOrderReady).toHaveBeenCalledWith('order-1');
+      expect(acceptOrder).not.toHaveBeenCalled();
+      expect(tree.root.findAllByType(OrderDetail)).toHaveLength(0);
+    });
+
+    // Completing needs a payment method, and that form already lives in the
+    // sheet (order-detail.tsx's "Paid with" chips) -- the row's job is to
+    // get the shop there in one tap, not to duplicate the form.
+    it('opens the detail sheet for Complete, rather than firing on its own', async () => {
+      const tree = await renderScreen([makeOrder({ number: 1038, status: 'ready' })]);
+      pressChip(tree, 'Ready 1');
+      await act(async () => {
+        press(findByLabel(tree, 'Complete order 1038')!);
+      });
+      expect(completeOrder).not.toHaveBeenCalled();
+      expect(tree.root.findAllByType(OrderDetail)).toHaveLength(1);
+      expect(tree.root.findByType(OrderDetail).props.order.id).toBe('order-1');
+    });
+
+    // orders.tsx's `runAction` wrapper sets `actionError` and closes the
+    // detail sheet on success -- but an inline Accept/Mark-ready action never
+    // opens that sheet at all, so the ONLY place `actionError` is rendered
+    // (order-detail.tsx) never mounts for this failure. Without a caveat
+    // here, a failed inline action fails SILENTLY: the shop taps Accept,
+    // nothing visibly happens, no explanation.
+    it('surfaces a failed inline action on the screen, since no sheet is open to show it', async () => {
+      // jest.clearAllMocks() (beforeEach) resets calls, not a mockReturnValue
+      // set by an earlier test -- "uses orderErrorMessage's mapped
+      // sentence..." above leaves one in place. Reset it explicitly so this
+      // test proves the FALLBACK message (extractErrorMessage), not whatever
+      // the previous test happened to configure.
+      (orderErrorMessage as jest.Mock).mockReturnValue(undefined);
+      (acceptOrder as jest.Mock).mockRejectedValue(new Error('boom'));
+      const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
+      await act(async () => {
+        press(findByLabel(tree, 'Accept order 1042')!);
+      });
+      expect(tree.root.findAllByType(OrderDetail)).toHaveLength(0);
+      const caveat = tree.root.findAllByType(Caveat).find((c) => c.props.tone === 'wrong');
+      expect(caveat).toBeTruthy();
+      // extractErrorMessage (orders.tsx) passes a real Error's own .message
+      // straight through rather than the per-action fallback -- the fallback
+      // is only for an error with no .message at all. Whichever string
+      // reaches `actionError`, the point under test is that it reaches the
+      // SCREEN, not just the (unmounted) sheet.
+      expect(caveat?.props.children).toBe('boom');
+    });
+
+    // M4: a fast double-tap must not fire the underlying move twice.
+    it('ignores a second tap while the first call for that row is still in flight', async () => {
+      let resolveAccept: () => void = () => {};
+      (acceptOrder as jest.Mock).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveAccept = resolve;
+        })
+      );
+      const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
+
+      act(() => {
+        press(findByLabel(tree, 'Accept order 1042')!);
+      });
+      act(() => {
+        press(findByLabel(tree, 'Accept order 1042')!);
+      });
+
+      await act(async () => {
+        resolveAccept();
+        await Promise.resolve();
+      });
+
+      expect(acceptOrder).toHaveBeenCalledTimes(1);
     });
   });
 });

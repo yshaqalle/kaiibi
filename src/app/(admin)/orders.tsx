@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Badge } from '@/components/badge';
@@ -92,7 +92,12 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 // fresh inside a cell. Defined at module scope, called once per render with
 // the screen's own `now`: not a component, so it never becomes a component
 // defined inside another component's render.
-function columnsFor(now: Date): Column<ShopOrder>[] {
+//
+// Task 4 adds `hasPosAccess`, `onAction` and `busyId` for the row's own
+// action column -- the same permitted-moves table order-detail.tsx's own
+// canAccept/canMarkReady/canComplete already read from
+// (20260928000100_order_transitions.sql), not a second guess at it.
+function columnsFor(now: Date, hasPosAccess: boolean, onAction: (order: ShopOrder) => void, busyId: string | null): Column<ShopOrder>[] {
   return [
     { key: 'number', header: 'Order', width: 66, sortable: true, render: (row) => <ValueCell value={`#${row.number}`} strong /> },
     {
@@ -142,6 +147,60 @@ function columnsFor(now: Date): Column<ShopOrder>[] {
         return <ValueCell value={ageLabel(minutes)} tone={stale ? 'warning' : 'muted'} strong={stale} />;
       },
     },
+    {
+      key: 'next',
+      header: 'Next',
+      numeric: true,
+      width: 108,
+      render: (row) => {
+        // Read straight off the permitted-moves table
+        // (20260928000100_order_transitions.sql), the same one
+        // order-detail.tsx's own canAccept/canMarkReady/canComplete already
+        // derive from -- 'ready' also needs pos.access, because completing
+        // delegates to complete_sale (see that component's own comment).
+        const label =
+          row.status === 'pending'
+            ? 'Accept'
+            : row.status === 'accepted'
+              ? 'Mark ready'
+              : row.status === 'ready' && hasPosAccess
+                ? 'Complete'
+                : null;
+        // An em dash, never a disabled button: a control that can never
+        // work must not be drawn as one that might.
+        if (!label) return <ValueCell value="—" tone="muted" />;
+        return (
+          <Pressable
+            onPress={(event) => {
+              // Without this, the tap reaches the row's own onPress too (the
+              // "open this order's detail sheet" press) -- same fix as
+              // promotions-tab.tsx's row toggle and date-input.tsx's inner
+              // sheet, both nested inside a Pressable row of their own.
+              event.stopPropagation();
+              // `busyId` here is THIS render's own value -- columnsFor is
+              // called fresh on every render (never memoized), so this
+              // closure can never go stale the way one captured inside a
+              // useCallback with an incomplete dependency list could. A
+              // second tap landing while a move is already in flight is a
+              // no-op, not a second call to acceptOrder/markOrderReady.
+              if (busyId !== null) return;
+              onAction(row);
+            }}
+            disabled={busyId !== null}
+            accessibilityLabel={
+              row.status === 'pending'
+                ? `Accept order ${row.number}`
+                : row.status === 'accepted'
+                  ? `Mark order ${row.number} ready`
+                  : `Complete order ${row.number}`
+            }
+            style={[styles.rowAction, busyId !== null && styles.rowActionBusy]}
+          >
+            <Text style={styles.rowActionText}>{busyId === row.id ? '…' : label}</Text>
+          </Pressable>
+        );
+      },
+    },
   ];
 }
 
@@ -164,6 +223,17 @@ function OrdersScreen() {
   const [shortfalls, setShortfalls] = useState<OrderShortfall[]>([]);
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // B2's own gate, read once and shared by the row's own action column and
+  // the detail sheet -- OrderDetail owns no query of its own, and neither
+  // does the row.
+  const hasPosAccess = can('pos.access');
+
+  // Which row (by id) has an accept/ready call in flight -- global across
+  // the whole table, not just its own row: two rows firing at once would
+  // both reload the list and race each other's close-and-reopen. `null`
+  // means nothing is mid-flight and every row's action is live.
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -253,6 +323,31 @@ function OrdersScreen() {
       }
     },
     [reload, closeDetail]
+  );
+
+  // The row's own one-tap move -- Accept or Mark ready fire straight
+  // through runAction above, same as the sheet's own onAccept/onMarkReady
+  // do; Complete does not, because completing needs a payment method and
+  // that form already lives in the sheet (order-detail.tsx's "Paid with"
+  // chips) -- the row's job is to get the shop there in one tap, not to
+  // duplicate the form. Cancel is never offered here at all (see the
+  // 'next' column above), so there is no third branch to guard.
+  const runRowAction = useCallback(
+    (order: ShopOrder) => {
+      if (order.status === 'ready') {
+        openDetail(order);
+        return;
+      }
+      // The 'next' column's own onPress already refuses a second tap while
+      // busyId is set (see its comment) -- by the time this runs, this is
+      // the only in-flight row action.
+      setBusyId(order.id);
+      const move = order.status === 'pending' ? () => acceptOrder(order.id) : () => markOrderReady(order.id);
+      runAction(move, order.status === 'pending' ? 'Could not accept this order.' : 'Could not mark this order ready.').finally(() => {
+        setBusyId(null);
+      });
+    },
+    [openDetail, runAction]
   );
 
   // ONE clock for the whole render: two rows measured against two `new
@@ -367,6 +462,18 @@ function OrdersScreen() {
           accessibilityLabel="Search orders"
         />
 
+        {/* orders.tsx's `runAction` wrapper (below) sets `actionError` and
+            renders it inside OrderDetail -- but Accept and Mark ready, fired
+            from the row via `runRowAction`, never open that sheet at all
+            (that's the whole point: four orders without opening four
+            sheets). Without this, a failed inline action would fail
+            SILENTLY -- the shop taps Accept, nothing visibly happens, no
+            explanation. Gated on `!selectedOrder` so a failure that DOES
+            happen with the sheet open (Cancel, Complete, or Accept/Mark
+            ready pressed from inside the sheet itself) is not shown twice --
+            OrderDetail already renders that copy of `actionError`. */}
+        {!selectedOrder && actionError ? <Caveat tone="wrong">{actionError}</Caveat> : null}
+
         <BentoCard title="Orders" scope={`${filteredOrders.length} order${filteredOrders.length === 1 ? '' : 's'}`} bodyStyle={styles.tableBody}>
           {error ? (
             <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => { reload(); } }}>
@@ -374,7 +481,7 @@ function OrdersScreen() {
             </Caveat>
           ) : (
             <DataTable
-              columns={columnsFor(now)}
+              columns={columnsFor(now, hasPosAccess, runRowAction, busyId)}
               rows={filteredOrders}
               keyExtractor={(row) => row.id}
               emptyLabel={emptyLabel}
@@ -408,7 +515,7 @@ function OrdersScreen() {
           itemsLoading={detailLoading}
           itemsError={detailError}
           shortfalls={shortfalls}
-          hasPosAccess={can('pos.access')}
+          hasPosAccess={hasPosAccess}
           onClose={closeDetail}
           onAccept={() => runAction(() => acceptOrder(selectedOrder.id), 'Could not accept this order.')}
           onMarkReady={() => runAction(() => markOrderReady(selectedOrder.id), 'Could not mark this order ready.')}
@@ -435,6 +542,9 @@ const styles = StyleSheet.create({
   // (building-bento-screens.md).
   tableBody: { paddingHorizontal: 10 },
   search: { backgroundColor: theme.bentoSoft, borderRadius: 12, height: 42, paddingHorizontal: 13, color: theme.bentoInk, fontSize: 13 },
+  rowAction: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
+  rowActionBusy: { opacity: 0.5 },
+  rowActionText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 },
 });
 
 // Same wall, and it brings a `ScreenHeader` because this screen is pushed over
