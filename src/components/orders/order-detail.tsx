@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Badge, type BadgeTone } from '@/components/badge';
@@ -7,8 +7,17 @@ import { Caveat } from '@/components/ui/caveat';
 import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
+import { amendmentLines, summariseAmendment, type AmendLineDraft } from '@/lib/order-amendment';
 import type { OrderShortfall } from '@/lib/order-fulfilment';
-import type { OrderLine, OrderStatus, PaymentMethod, ShopOrder } from '@/lib/storefront-admin';
+import type {
+  OrderAmendmentLine,
+  OrderAmendmentOptions,
+  OrderLine,
+  OrderPricing,
+  OrderStatus,
+  PaymentMethod,
+  ShopOrder,
+} from '@/lib/storefront-admin';
 
 // Pinned to the light palette for now -- no dark-mode switching yet.
 const theme = Colors.light;
@@ -53,6 +62,19 @@ export type OrderDetailProps = {
   onMarkReady: () => void;
   onCancel: (reason: string) => void;
   onComplete: (method: PaymentMethod) => void;
+  // Part 2. `sales.edit`, read by orders.tsx and passed through, exactly as
+  // hasPosAccess is: amend_order gates on that permission
+  // (20261012000000), so a member without it must not be shown a button that
+  // can only fail. Its absence is EXPLAINED rather than left as a gap where
+  // three buttons should be -- the same reasoning blockedOnPosAccess follows.
+  canAmend: boolean;
+  // Today's shelf price per productId, for the one thing the snapshot in
+  // `items` cannot answer: what re-pricing this order would actually cost the
+  // customer. A missing entry is not zero -- it is "unknown", and it BLOCKS
+  // re-pricing rather than falling back to the agreed price, which would
+  // charge one price on a line the shop believes it re-priced.
+  currentPrices: Record<string, number>;
+  onAmend: (lines: OrderAmendmentLine[], reason: string, options: OrderAmendmentOptions) => void;
   // True while orders.tsx has an accept/ready/cancel/complete call in
   // flight. Every action is disabled for the duration -- a second tap during
   // that window must not fire a second call.
@@ -177,19 +199,30 @@ export function OrderDetail({
   itemsError,
   shortfalls,
   hasPosAccess,
+  canAmend,
+  currentPrices,
   onClose,
   onAccept,
   onMarkReady,
   onCancel,
   onComplete,
+  onAmend,
   submitting,
   actionError,
 }: OrderDetailProps) {
   // Which inline form, if any, is open -- mutually exclusive, and closed by
   // default so Cancel/Complete never fire on the tap that reveals them.
-  const [mode, setMode] = useState<'idle' | 'cancelling' | 'completing'>('idle');
+  const [mode, setMode] = useState<'idle' | 'cancelling' | 'completing' | 'amending'>('idle');
   const [reason, setReason] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+
+  // The amend form's own state. `draft` is null until amending opens, so the
+  // quantities are taken from `items` AT THAT MOMENT rather than tracked
+  // against a list that is still loading when the sheet first mounts.
+  const [draft, setDraft] = useState<AmendLineDraft[] | null>(null);
+  const [pricing, setPricing] = useState<OrderPricing>('agreed');
+  const [amendReason, setAmendReason] = useState('');
+  const [customerNote, setCustomerNote] = useState('');
 
   const badge = ORDER_STATUS_BADGE[order.status];
   // N1: a shortfall is what the shop still cannot fill -- it stops meaning
@@ -223,6 +256,82 @@ export function OrderDetail({
   const confirmComplete = () => {
     if (!paymentMethod) return;
     onComplete(paymentMethod);
+  };
+
+  // ── Amending ──────────────────────────────────────────────────────────
+  //
+  // An amend rewrites the lines of an order that has not been settled yet.
+  // A completed one has a sale posted against it and a cancelled one is
+  // finished -- amend_order refuses both with `order_not_amendable`, and this
+  // is that same rule read forward so no button is drawn for it.
+  const canAmendNow = canAmend && orderNeedsAction;
+
+  // Built from `items`, not from a running copy of them: the sheet's picture
+  // of the order is whatever was last loaded, and an amend is always against
+  // that. Quantities are seeded either at what the order says, or -- for
+  // "Reduce to what I have" -- at what is actually on the shelf.
+  const startAmending = (reduceToAvailable: boolean) => {
+    setDraft(
+      items.map((item) => {
+        const short = shortfallFor(shortfalls, item.productId);
+        const available = short ? short.available : item.quantity;
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          agreedUnitPriceCents: item.unitPriceCents,
+          currentUnitPriceCents: item.productId ? currentPrices[item.productId] ?? null : null,
+          originalQuantity: item.quantity,
+          quantity: reduceToAvailable ? Math.max(0, Math.min(item.quantity, available)) : item.quantity,
+        };
+      })
+    );
+    setPricing('agreed');
+    setAmendReason('');
+    setCustomerNote('');
+    setMode('amending');
+  };
+
+  const closeAmending = () => {
+    setMode('idle');
+    setDraft(null);
+    setAmendReason('');
+    setCustomerNote('');
+  };
+
+  const setQuantity = (productName: string, next: number) => {
+    setDraft((lines) =>
+      (lines ?? []).map((line) =>
+        line.productName === productName ? { ...line, quantity: Math.max(0, next) } : line
+      )
+    );
+  };
+
+  // The whole of the sheet's arithmetic, and it is not done here --
+  // order-amendment.ts owns it so the figure a shop reads before agreeing to
+  // change what a customer owes is provable without rendering anything.
+  const summary = useMemo(
+    () =>
+      summariseAmendment({
+        lines: draft ?? [],
+        pricing,
+        deliveryFeeCents: order.deliveryFeeCents,
+        previousTotalCents: order.totalCents,
+      }),
+    [draft, pricing, order.deliveryFeeCents, order.totalCents]
+  );
+
+  const amendReasonReady = amendReason.trim().length > 0;
+  const canSaveAmend = amendReasonReady && summary.blocker === null && !submitting;
+
+  const confirmAmend = () => {
+    if (!draft || !canSaveAmend) return;
+    const note = customerNote.trim();
+    onAmend(amendmentLines(draft), amendReason.trim(), {
+      pricing,
+      // Omitted, not sent empty: the note is the ONLY prose a customer may
+      // see, and an empty one is not a message.
+      ...(note ? { customerNote: note } : {}),
+    });
   };
 
   return (
@@ -378,14 +487,58 @@ export function OrderDetail({
               )}
             </Section>
 
-            {/* Not a Caveat: the fix on offer is only ever "cancel this order",
-                so it is offered directly rather than dressed as an action on
-                a Caveat this component cannot itself judge is the right one --
-                a shop might still choose to source more or part-fill by hand. */}
-            {shortfalls.length > 0 && orderNeedsAction ? (
-              <Text style={styles.shortfallSummary}>
-                This order cannot be filled in full right now. Source more stock, or cancel it below.
-              </Text>
+            {/* PART 2 TURNED THIS FROM A SENTENCE INTO A CHOICE. It used to
+                read "source more stock, or cancel it below", and the only
+                button under it binned the whole order -- so a customer who
+                ordered five bags when there are three got nothing. The three
+                moves that actually exist are now named, each saying what it
+                does.
+
+                Still not a Caveat: `wrong` needs an action or a dismiss, and
+                the actions ARE the block, so wrapping them in one would put a
+                tone around its own buttons. */}
+            {shortfalls.length > 0 && orderNeedsAction && mode === 'idle' ? (
+              <View style={styles.shortfallBlock}>
+                <Text style={styles.shortfallSummary}>
+                  This order cannot be filled in full right now.
+                </Text>
+                {canAmendNow ? (
+                  <View style={styles.chipRow}>
+                    <Pressable
+                      onPress={() => startAmending(true)}
+                      disabled={submitting}
+                      accessibilityLabel="Reduce to what I have"
+                      accessibilityRole="button"
+                      style={[styles.primaryButton, submitting && styles.buttonDisabled]}
+                    >
+                      <Text style={styles.primaryButtonText}>Reduce to what I have</Text>
+                    </Pressable>
+                    {/* Part 4 builds split_order. Drawn so the shop can see
+                        the move exists and disabled so it cannot fail: a
+                        button that fails is worse than no button, and one
+                        that silently does nothing is worse again. */}
+                    <Pressable
+                      disabled
+                      accessibilityLabel="Split the order"
+                      accessibilityRole="button"
+                      style={[styles.secondaryButton, styles.buttonDisabled]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Split the order</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={styles.posAccessNote}>
+                    Reducing this order to what you have needs the &quot;Edit/delete sales&quot; permission, which your
+                    account doesn&apos;t have. Ask an owner or manager, or cancel the order below.
+                  </Text>
+                )}
+                {canAmendNow ? (
+                  <Text style={styles.valueMuted}>
+                    Splitting an order — filling part of it now and the rest later — is coming soon. For now, reduce
+                    it and take the remainder as a new order.
+                  </Text>
+                ) : null}
+              </View>
             ) : null}
 
             {order.status === 'cancelled' && order.cancellationReason ? (
@@ -429,6 +582,198 @@ export function OrderDetail({
                   </Pressable>
                 </View>
               </Section>
+            ) : null}
+
+            {mode === 'amending' && draft ? (
+              <>
+                <Section label="What they will get">
+                  {draft.map((line) => {
+                    const gone = line.productId === null;
+                    return (
+                      <View key={line.productName} style={styles.itemRow}>
+                        <View style={styles.itemNameCol}>
+                          <Text style={styles.value}>{line.productName}</Text>
+                          {gone ? (
+                            <Text style={styles.shortfallText}>
+                              No longer in your catalogue — this line has to come off.
+                            </Text>
+                          ) : (
+                            <Text style={styles.valueMuted}>
+                              was ×{line.originalQuantity} at {formatCents(line.agreedUnitPriceCents)}
+                            </Text>
+                          )}
+                        </View>
+                        {gone ? null : (
+                          <>
+                            <Pressable
+                              onPress={() => setQuantity(line.productName, line.quantity - 1)}
+                              disabled={submitting || line.quantity === 0}
+                              accessibilityLabel={`Decrease ${line.productName}`}
+                              accessibilityRole="button"
+                              style={[styles.stepper, (submitting || line.quantity === 0) && styles.buttonDisabled]}
+                            >
+                              <Text style={styles.stepperText}>−</Text>
+                            </Pressable>
+                            <Text style={styles.itemQty}>×{line.quantity}</Text>
+                            <Pressable
+                              onPress={() => setQuantity(line.productName, line.quantity + 1)}
+                              disabled={submitting}
+                              accessibilityLabel={`Increase ${line.productName}`}
+                              accessibilityRole="button"
+                              style={[styles.stepper, submitting && styles.buttonDisabled]}
+                            >
+                              <Text style={styles.stepperText}>+</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => setQuantity(line.productName, 0)}
+                              disabled={submitting || line.quantity === 0}
+                              accessibilityLabel={`Remove ${line.productName}`}
+                              accessibilityRole="button"
+                              style={[styles.pillButton, (submitting || line.quantity === 0) && styles.buttonDisabled]}
+                            >
+                              <Text style={styles.pillButtonText}>Remove</Text>
+                            </Pressable>
+                          </>
+                        )}
+                      </View>
+                    );
+                  })}
+                </Section>
+
+                {/* THE CHOICE THIS FEATURE REFUSED TO MAKE FOR THE SHOP.
+                    Both modes complete -- complete_sale honours an agreed
+                    price (20261011000000:640) -- so which one is right is a
+                    question about what the shop owes the customer, and only
+                    the shop can answer it. The default keeps the promise. */}
+                <Section label="Price these at">
+                  <View style={styles.chipRow}>
+                    {(
+                      [
+                        { key: 'agreed', label: 'Keep agreed prices' },
+                        { key: 'current', label: "Use today's prices" },
+                      ] as { key: OrderPricing; label: string }[]
+                    ).map((choice) => {
+                      const active = choice.key === pricing;
+                      return (
+                        <Pressable
+                          key={choice.key}
+                          onPress={() => setPricing(choice.key)}
+                          disabled={submitting}
+                          accessibilityLabel={choice.label}
+                          accessibilityRole="button"
+                          style={[styles.chip, active && styles.chipActive]}
+                        >
+                          <Text style={[styles.chipText, active && styles.chipTextActive]}>{choice.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.valueMuted}>
+                    {pricing === 'agreed'
+                      ? 'The customer pays what they were quoted when they ordered.'
+                      : 'The customer pays your current shelf prices, which may not be what they agreed to.'}
+                  </Text>
+                </Section>
+
+                {/* THE DELTA PANEL, and it is not decoration. An amend can
+                    change what the customer owes without anyone asking them,
+                    so both figures sit here, together, before it is saved --
+                    the old total is what makes the new one mean anything. */}
+                <Section label="What changes">
+                  <View style={styles.breakdown}>
+                    <StatementRow label="Was" amountCents={summary.previousTotalCents} variant="item" />
+                    <StatementRow
+                      label="Now"
+                      amountCents={summary.nextTotalCents}
+                      variant="item"
+                      last={summary.differenceCents === 0}
+                    />
+                    {summary.differenceCents !== 0 ? (
+                      <StatementRow
+                        label={summary.differenceCents < 0 ? 'Customer pays less' : 'Customer pays more'}
+                        amountCents={Math.abs(summary.differenceCents)}
+                        variant="total"
+                      />
+                    ) : null}
+                  </View>
+                  {summary.changes.length === 0 ? (
+                    <Text style={styles.valueMuted}>Nothing has changed yet.</Text>
+                  ) : (
+                    summary.changes.map((change, index) => (
+                      <Text key={`${change.kind}-${change.productName}-${index}`} style={styles.changeLine}>
+                        {change.kind === 'quantity'
+                          ? `${change.productName}: ${change.from} → ${change.to}`
+                          : change.kind === 'removed'
+                            ? change.reason === 'product_deleted'
+                              ? `${change.productName}: removed — no longer in your catalogue`
+                              : `${change.productName}: removed`
+                            : `${change.productName}: re-priced ${formatCents(change.fromCents)} → ${formatCents(change.toCents)}`}
+                      </Text>
+                    ))
+                  )}
+                  {summary.blocker === 'no_items' ? (
+                    <Text style={styles.shortfallSummary}>
+                      That would leave nothing on the order. Put something back, or cancel the order instead.
+                    </Text>
+                  ) : null}
+                  {summary.blocker === 'price_unknown' ? (
+                    <Text style={styles.shortfallSummary}>
+                      Today&apos;s price for one of these lines could not be read, so this order cannot be re-priced
+                      right now. Keep the agreed prices, or close this and try again.
+                    </Text>
+                  ) : null}
+                </Section>
+
+                {/* TWO REASONS, AND ONLY ONE OF THEM TRAVELS. The first is
+                    blunt, internal and written for the shop to read weeks
+                    later; the second is the only prose a customer may ever
+                    see. They are separate fields, separately labelled, so the
+                    honest one cannot become the forwarded one. */}
+                <Section label="Why this is changing">
+                  <TextInput
+                    value={amendReason}
+                    onChangeText={setAmendReason}
+                    placeholder="Only three bags on the shelf"
+                    placeholderTextColor={theme.bentoMuted}
+                    multiline
+                    textAlignVertical="top"
+                    accessibilityLabel="Why this is changing"
+                    style={styles.input}
+                  />
+                  <Text style={styles.valueMuted}>
+                    For your records only. The customer never sees this.
+                  </Text>
+                </Section>
+
+                <Section label="Message for the customer">
+                  <TextInput
+                    value={customerNote}
+                    onChangeText={setCustomerNote}
+                    placeholder="Optional — what you'd tell them on the phone"
+                    placeholderTextColor={theme.bentoMuted}
+                    multiline
+                    textAlignVertical="top"
+                    accessibilityLabel="Message for the customer"
+                    style={styles.input}
+                  />
+                  <Text style={styles.valueMuted}>Optional, and the only part they may be shown.</Text>
+                </Section>
+
+                <View style={styles.formRow}>
+                  <Pressable onPress={closeAmending} accessibilityLabel="Never mind" style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Never mind</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={confirmAmend}
+                    disabled={!canSaveAmend}
+                    accessibilityLabel="Save changes"
+                    accessibilityRole="button"
+                    style={[styles.primaryButton, !canSaveAmend && styles.buttonDisabled]}
+                  >
+                    <Text style={styles.primaryButtonText}>{submitting ? 'Saving…' : 'Save changes'}</Text>
+                  </Pressable>
+                </View>
+              </>
             ) : null}
 
             {mode === 'completing' ? (
@@ -495,6 +840,23 @@ export function OrderDetail({
                 ) : (
                   <View />
                 )}
+
+                {/* Not gated on a shortfall: a mistyped phone number, a
+                    landmark the driver cannot find and a quantity the
+                    customer changed their mind about are all amends, and none
+                    of them is a stock problem. The shortfall block above is a
+                    shortcut into this same form, not the only way in. */}
+                {canAmendNow ? (
+                  <Pressable
+                    onPress={() => startAmending(false)}
+                    disabled={submitting}
+                    accessibilityLabel="Amend order"
+                    accessibilityRole="button"
+                    style={[styles.secondaryButton, submitting && styles.buttonDisabled]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Amend order</Text>
+                  </Pressable>
+                ) : null}
 
                 {canAccept ? (
                   <Pressable
@@ -585,6 +947,21 @@ const styles = StyleSheet.create({
   breakdown: { marginTop: 6 },
   shortfallText: { fontSize: 11.5, color: theme.bentoLoss, marginTop: 2, fontWeight: '600' },
   shortfallSummary: { fontSize: 12.5, color: theme.bentoLoss, fontWeight: '600', marginBottom: 16, lineHeight: 18 },
+  shortfallBlock: { gap: 10, marginBottom: 16 },
+  // Square-ish rather than the pill the Remove affordance uses: a stepper is
+  // pressed repeatedly and wants a bigger, steadier target than a label.
+  stepper: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    backgroundColor: theme.bentoSurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperText: { fontSize: 16, fontWeight: '800', color: theme.bentoInk2, lineHeight: 18 },
+  changeLine: { fontSize: 12.5, color: theme.bentoInk2, fontWeight: '600', marginTop: 4, lineHeight: 18 },
   posAccessNote: { fontSize: 12.5, color: theme.bentoMuted, fontWeight: '600', marginBottom: 16, lineHeight: 18 },
 
   errorText: { fontSize: 12.5, color: theme.bentoLoss, fontWeight: '600', marginBottom: 12 },

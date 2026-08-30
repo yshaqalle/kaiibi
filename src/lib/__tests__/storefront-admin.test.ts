@@ -119,6 +119,7 @@ import {
   FLYER_LIMIT,
   amendOrder,
   flyerErrorMessage,
+  getCurrentPrices,
   getOrderItems,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
@@ -1188,5 +1189,37 @@ describe('orderErrorMessage — the amend refusals', () => {
     expect(orderErrorMessage({ message: 'invalid_quantity' })).toBeNull();
     expect(orderErrorMessage({ message: 'duplicate_line' })).toBeNull();
     expect(orderErrorMessage({ message: 'invalid_pricing' })).toBeNull();
+  });
+});
+
+// The amend sheet's pricing choice needs today's shelf price per line, which
+// the order's own snapshot cannot answer. Read as its own small query rather
+// than widened onto getOrderItems: an order that is never amended must not
+// pay for it.
+describe('getCurrentPrices', () => {
+  it('reads price_cents for exactly the products asked about', async () => {
+    fake.selectResult = { data: [{ id: 'p1', price_cents: 1500 }, { id: 'p2', price_cents: 1000 }], error: null };
+    expect(await getCurrentPrices(['p1', 'p2'])).toEqual({ p1: 1500, p2: 1000 });
+    expect(fake.selectCalls).toEqual([{ table: 'products', columns: 'id, price_cents', options: undefined }]);
+    expect(fake.inCalls).toEqual([['id', ['p1', 'p2']]]);
+  });
+
+  it('asks nothing at all for an empty list', async () => {
+    expect(await getCurrentPrices([])).toEqual({});
+    expect(fake.selectCalls).toEqual([]);
+  });
+
+  // A missing product is an ABSENT key, never a zero: order-amendment.ts
+  // treats absent as "cannot re-price this" and zero as "free".
+  it('leaves a product it got no row for out of the map entirely', async () => {
+    fake.selectResult = { data: [{ id: 'p1', price_cents: 1500 }], error: null };
+    const prices = await getCurrentPrices(['p1', 'p2']);
+    expect(prices).toEqual({ p1: 1500 });
+    expect('p2' in prices).toBe(false);
+  });
+
+  it('throws rather than answering with a partial map', async () => {
+    fake.selectResult = { data: null, error: { message: 'nope' } };
+    await expect(getCurrentPrices(['p1'])).rejects.toEqual({ message: 'nope' });
   });
 });

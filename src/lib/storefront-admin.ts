@@ -909,6 +909,29 @@ export async function completeOrder(orderId: string, paymentMethod: PaymentMetho
   if (error) throw error;
 }
 
+/**
+ * Today's shelf price for a set of products, as `{ [productId]: cents }`.
+ *
+ * The amend sheet's pricing choice needs this and the order's own snapshot
+ * cannot answer it -- `order_items.unit_price_cents` is by definition what the
+ * price WAS. Kept as its own small query rather than widened onto
+ * getOrderItems, so an order nobody amends never pays for it.
+ *
+ * A product with no row is ABSENT from the map, never zero: order-amendment.ts
+ * reads absent as "this line cannot be re-priced" and would read zero as
+ * "free".
+ */
+export async function getCurrentPrices(productIds: string[]): Promise<Record<string, number>> {
+  if (productIds.length === 0) return {};
+  const { data, error } = await supabase.from('products').select('id, price_cents').in('id', productIds);
+  if (error) throw error;
+  const prices: Record<string, number> = {};
+  for (const row of (data ?? []) as { id: string; price_cents: number }[]) {
+    prices[row.id] = row.price_cents;
+  }
+  return prices;
+}
+
 // ── Amending ────────────────────────────────────────────────────────────
 //
 // One line of an order, as it should now stand. `quantity: 0` REMOVES the
