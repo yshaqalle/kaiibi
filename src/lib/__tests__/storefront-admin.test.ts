@@ -383,6 +383,10 @@ describe('listOrders', () => {
           subtotal_cents: 4499,
           delivery_fee_cents: 100,
           total_cents: 4599,
+          // Not yet completed -- complete_storefront_order (20260928000200)
+          // is the only writer of this column, and it sets it in the same
+          // statement as status -> 'completed'.
+          sale_id: null,
           created_at: '2026-08-20T10:00:00Z',
           // Two lines, five units apiece -- ten items to pack, not two.
           // sales.item_count (0001_init.sql) sums quantity the same way.
@@ -396,7 +400,7 @@ describe('listOrders', () => {
       {
         table: 'orders',
         columns:
-          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, created_at, order_items(quantity)',
+          'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, order_items(quantity)',
       },
     ]);
     expect(fake.eqCalls).toEqual([['shop_id', 'shop-1']]);
@@ -417,6 +421,7 @@ describe('listOrders', () => {
         subtotalCents: 4499,
         deliveryFeeCents: 100,
         totalCents: 4599,
+        saleId: null,
         createdAt: '2026-08-20T10:00:00Z',
       },
     ]);
@@ -443,6 +448,7 @@ describe('listOrders', () => {
           subtotal_cents: 100,
           delivery_fee_cents: 0,
           total_cents: 100,
+          sale_id: null,
           created_at: '2026-08-20T09:00:00Z',
           order_items: [{ quantity: 1 }],
         },
@@ -454,6 +460,37 @@ describe('listOrders', () => {
     expect(order.deliveryArea).toBeNull();
     expect(order.deliveryLandmark).toBeNull();
     expect(order.deliveryFeeCents).toBe(0);
+  });
+
+  // Task 6: the reconciliation block's whole reason to exist -- a completed
+  // order's sale_id read back as ShopOrder.saleId, not silently dropped or
+  // left undefined by a mapper that forgets the column.
+  it('reads the sale a completed order became', async () => {
+    fake.selectResult = {
+      data: [
+        {
+          id: 'o4',
+          number: 3,
+          customer_name: 'Hodan Jama',
+          customer_phone: '+252634456781',
+          fulfilment: 'collect',
+          delivery_area: null,
+          delivery_landmark: null,
+          note: null,
+          status: 'completed',
+          cancellation_reason: null,
+          subtotal_cents: 8600,
+          delivery_fee_cents: 0,
+          total_cents: 8600,
+          sale_id: 'f3a2c1de-0000-0000-0000-000000000000',
+          created_at: '2026-08-20T09:00:00Z',
+          order_items: [{ quantity: 1 }],
+        },
+      ],
+      error: null,
+    };
+    const [order] = await listOrders('shop-1');
+    expect(order.saleId).toBe('f3a2c1de-0000-0000-0000-000000000000');
   });
 
   // Property 2 of Task 6: the status column plan 3 left out, because nothing
@@ -476,6 +513,7 @@ describe('listOrders', () => {
           subtotal_cents: 100,
           delivery_fee_cents: 0,
           total_cents: 100,
+          sale_id: null,
           created_at: '2026-08-20T09:00:00Z',
           order_items: [{ quantity: 1 }],
         },

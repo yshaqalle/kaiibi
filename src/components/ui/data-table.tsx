@@ -28,6 +28,13 @@ export type Column<T> = {
   numeric?: boolean;
   /** Fixed width; otherwise the column takes an even share of the rest. */
   width?: number;
+  /**
+   * Marks this header pressable and eligible for the sort indicator.
+   * Optional and defaulted off -- a column that omits it renders exactly the
+   * plain header text it always has. Only meaningful alongside the table's
+   * own `sort` and `onSortChange`.
+   */
+  sortable?: boolean;
   render: (row: T) => ReactNode;
 };
 
@@ -38,6 +45,8 @@ export function DataTable<T>({
   onRowPress,
   emptyLabel,
   minWidth = 560,
+  sort,
+  onSortChange,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -46,6 +55,15 @@ export function DataTable<T>({
   emptyLabel: string;
   /** Below this the table scrolls sideways rather than crushing its columns. */
   minWidth?: number;
+  /**
+   * Which column key currently drives row order, and which way. Optional --
+   * omitted by every caller except the one that also sets `sortable` columns
+   * and `onSortChange`, so the other tables get the header row they always
+   * had.
+   */
+  sort?: { key: string; direction: 'asc' | 'desc' };
+  /** Called with a `sortable` column's key when its header is pressed. */
+  onSortChange?: (key: string) => void;
 }) {
   if (rows.length === 0) {
     return <Text style={styles.empty}>{emptyLabel}</Text>;
@@ -55,13 +73,40 @@ export function DataTable<T>({
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
       <View style={{ minWidth }}>
         <View style={styles.headerRow}>
-          {columns.map((column) => (
-            <View key={column.key} style={[styles.cell, cellWidth(column)]}>
+          {columns.map((column) => {
+            const active = column.sortable && sort?.key === column.key;
+            // A bare string child, same as every non-sortable header always
+            // had -- see customer-table-row.tsx's HeaderCell, whose arrow is
+            // its own conditionally-mounted sibling Text rather than a second
+            // expression stuffed inside the label's Text. table-headers.test
+            // .tsx's `texts()` helper only reads children when they're a
+            // plain string, so a `[label, arrow]` array inside one Text would
+            // silently vanish under it.
+            const label = (
               <Text style={[styles.headerText, column.numeric && styles.alignRight]} numberOfLines={1}>
                 {column.header.toUpperCase()}
               </Text>
-            </View>
-          ))}
+            );
+            const heading = active ? (
+              <View style={[styles.headerActive, column.numeric && styles.headerActiveRight]}>
+                {label}
+                <Text style={styles.headerArrow}>{sort!.direction === 'asc' ? '▲' : '▼'}</Text>
+              </View>
+            ) : (
+              label
+            );
+            return (
+              <View key={column.key} style={[styles.cell, cellWidth(column)]}>
+                {column.sortable && onSortChange ? (
+                  <Pressable onPress={() => onSortChange(column.key)} accessibilityRole="button">
+                    {heading}
+                  </Pressable>
+                ) : (
+                  heading
+                )}
+              </View>
+            );
+          })}
         </View>
 
         {rows.map((row) => {
@@ -157,6 +202,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   alignRight: { textAlign: 'right' },
+  headerActive: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerActiveRight: { justifyContent: 'flex-end' },
+  headerArrow: { fontSize: 9.5, color: theme.bentoMuted, fontWeight: '700' },
 
   nameCell: { minWidth: 0 },
   nameTitle: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },

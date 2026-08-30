@@ -16,8 +16,24 @@
 - **A migration reproduces its functions whole.** Every function it touches appears as the newest complete definition of itself, so the next reader never replays a chain of substitutions. (`20260908000150_journal_entry_sequence.sql` header)
 - **Adding a parameter requires `drop function` naming the old signature exactly, then create, then re-grant.** A `create or replace` cannot change the argument list, and a bare add leaves two ambiguous overloads. A plain replace keeps the existing ACL; a drop does not. (`20260929000100:204`, `20260929000150:123`)
 - **`revoke execute … from public` goes before `grant … to authenticated`.** Postgres grants EXECUTE to PUBLIC on every new function, so a grant alone is a no-op dressed as a decision. (`20260924000100:103`)
+- **Derive the newest definition PER FUNCTION, never per file.** A migration that re-creates only one of two functions leaves the other's newest definition in an earlier file. Copying from an ancestor that is merely *recent* silently reverts whatever a later migration fixed, and **nothing fails when you do it** — the revert is invisible to every suite except the pin test below.
+- **Find it with a grep that matches BOTH creation forms**, because a function whose *return type* changes must be dropped and re-created rather than replaced:
+
+  ```bash
+  grep -n "function public.<name>" supabase/migrations/*.sql | grep -vE "grant|revoke|drop"
+  ```
+
+  *(Corrected 2026-08-29: this constraint originally said `grep -ln "create or replace function …" | tail -1`. That is wrong and it is the same bug this rule exists to prevent — `get_public_storefront` is re-created with bare `create function`, so the `or replace` form matches only `20260924000100` and would send an implementer **six migrations backwards**, reverting flyers, auto-advance and offer facts in one move.)*
+
+- **Newest definitions, re-derived against `origin/main` at `7a6170a`:**
+  - `complete_sale` → `20260929000200_complete_storefront_order_agreed.sql:233`
+  - `complete_storefront_order` → `20260929000250_complete_storefront_order_line_bound.sql:69`
+  - `get_public_storefront` → `20260930000300_flyer_offer_facts.sql:83`
 - **`complete_sale`'s current signature is 15 arguments**, ending `p_prices_include_tax boolean default false`. Newest definition: `supabase/migrations/20260929000200_complete_storefront_order_agreed.sql:233`.
-- **`complete_storefront_order`'s newest definition** is in the same file, and its `complete_sale` call is at `:1489`.
+- **`complete_storefront_order`'s newest definition is `20260929000250_complete_storefront_order_line_bound.sql:69`** — NOT `…000200`, which re-created `complete_sale` alongside an older copy of this one. `…000250` exists solely to type `order_line_out_of_range`, and copying from `…000200` reverts it. *(Corrected 2026-08-29: the original text of this plan named the wrong file, and both sessions implementing Task 1 hit it.)*
+- **`supabase/tests/accumulated-rpc-edits.test.ts` pins RPC bodies** against exactly this revert, and it is a **Jest** test, not a DB check. Any task that redefines an RPC must run it: `npx jest supabase/tests/accumulated-rpc-edits.test.ts`. A pin token that includes a call's closing `);` breaks when a new argument turns it into a comma — narrow the token, never delete the entry.
+- **`npm run test:db` decides pass/fail by grepping the whole output for `ALL CHECKS PASSED` / `all assertions passed`** (`supabase/tests/run-all.sh:82`). It does **not** read `raise notice 'FAIL …'`. So a script whose verdict string sits in an earlier block reports success even when a later check fails. The verdict must be printed only after every check in the file has run — put it in the last block, or guard it. `@no-verdict` (`run-all.sh:72`) opts a script out entirely. **Prove a new check can fail**: mutate it, run `npm run test:db`, and confirm the script is named in the `FAILED:` list — not merely that a `FAIL` line appears in the noise.
+- **There is no `seed.sql`.** `npm run test:db` resets first, so a check that does `select id from public.shops limit 1` gets null and silently tests nothing. Every new check builds its own fixture, and any `update` it makes to shared rows (e.g. `shop_locations.require_open_register`) must be undone or rolled back. A `SKIP` branch that can report success having tested nothing is a defect, not a courtesy.
 - **Storefront components are NOT bento.** They take a `PaletteColors` prop and read colours from it. Never import `Colors` into `src/components/storefront/`.
 - **Migration filenames are `YYYYMMDDHHMMSS_lowercase_sentence.sql`** and sort after `20261009000100_narrow_the_anon_rpc_surface.sql`.
 
@@ -53,7 +69,39 @@
 
 - [ ] **Step 1: Write the failing checks**
 
-Append to `supabase/tests/verify-order-transitions.sql`, following the numbering already in the file (continue from its highest existing check number; the three below are written as 45–47 — renumber if the file has grown):
+> **SHIPPED as #110. Do not re-implement — and do not follow the SQL in the steps below.**
+>
+> Task 1 was implemented twice in parallel by two sessions, and the version that shipped
+> rejected this plan's central mechanism on security grounds. **The `p_require_register`
+> parameter written throughout the steps below is the rejected design.** `complete_sale` is
+> granted to `authenticated` and exposed over PostgREST, so every parameter it declares is a
+> field any member with `pos.access` can put in a JSON body. Reproduced against the live
+> database with a real JWT, at a shop with `require_open_register` set:
+>
+> | call | result |
+> |---|---|
+> | default | REFUSED ✓ |
+> | `p_require_register => false` | **ACCEPTED** — the setting defeated |
+> | `p_require_register => null` | **ACCEPTED** — `if NULL and …` is NULL, so the `if` never fires |
+>
+> Both were one extra JSON field. **A default decides what happens when the client says
+> nothing; it decides nothing about what happens when the client speaks** — and the guard's own
+> comment says the client "is the party it is meant to constrain."
+>
+> What shipped instead: no parameter at all, `complete_sale`'s signature unchanged, and the
+> skip read off a **provenance mark** — `storefront_order_fulfilments`, stamped with
+> `pg_current_xact_id()` by `complete_storefront_order` as SECURITY DEFINER, reusing the
+> pattern `20260928000500` established for `storefront_order_completions` rather than
+> inventing a third. See `20261010000000`'s header.
+>
+> The steps below are kept only as the record of what was planned. The generally-useful
+> corrections from both runs are in Global Constraints above and DO still apply.
+
+Append to `supabase/tests/verify-order-transitions.sql`. The file already runs to check 53, so
+these are **54–56** — read the file and confirm before numbering. Each carries its own fixture
+(there is no `seed.sql`), restores any `shop_locations` row it mutates, and must be able to fail
+the run: see Global Constraints on the verdict string. The `SKIP` branch in the third check below
+is a defect — build the open session instead:
 
 ```sql
 -- ── 45: a require_open_register location still completes a storefront order ──
@@ -354,33 +402,50 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing check**
 
-Append to `supabase/tests/verify-orders.sql`, continuing its numbering:
+Append to `supabase/tests/verify-orders.sql`, continuing its existing numbering — **read the file
+first and take the next number**, do not assume one.
+
+The check **must be able to fail the run**. Per Global Constraints, `run-all.sh` greps the whole
+output for the verdict string, so a `raise notice 'FAIL …'` alone changes nothing. Raise instead,
+and make sure this block runs *before* whichever block prints the file's verdict — or move the
+verdict to the end. It also builds its own storefront, because there is no `seed.sql`:
 
 ```sql
 -- ── N: the public storefront tells a customer where to collect from ──────────
 do $$
 declare
-  v_slug text; v_result jsonb;
+  v_shop uuid; v_slug text; v_result jsonb;
 begin
-  select slug into v_slug from public.storefronts limit 1;
+  -- Own fixture: the runner resets, so `select … limit 1` would find nothing
+  -- and this check would silently pass having tested no storefront at all.
+  select s.id, sf.slug into v_shop, v_slug
+    from public.shops s join public.storefronts sf on sf.shop_id = s.id
+   limit 1;
+
+  if v_slug is null then
+    raise exception 'CHECK N SETUP: no storefront in the fixture -- build one here rather than skipping';
+  end if;
+
   v_result := public.get_public_storefront(v_slug);
 
-  if v_result ? 'collect_address' then
-    raise notice 'PASS N: get_public_storefront returns collect_address (%)',
-      coalesce(v_result->>'collect_address', 'null');
-  else
-    raise notice 'FAIL N: get_public_storefront has no collect_address key';
+  if not (v_result ? 'collect_address') then
+    raise exception 'FAIL N: get_public_storefront has no collect_address key';
   end if;
+
+  raise notice 'PASS N: get_public_storefront returns collect_address (%)',
+    coalesce(v_result->>'collect_address', 'null');
 end $$;
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 2: Run it and watch it fail — and watch the RUN fail**
 
 ```bash
-npm run test:db -- --no-reset 2>&1 | grep "collect_address"
+npm run test:db 2>&1 | tail -5
 ```
 
-Expected: `FAIL N: get_public_storefront has no collect_address key`.
+Expected: `verify-orders` appears in the `FAILED:` list, and the failure names
+`get_public_storefront has no collect_address key`. If the run reports success, the verdict-string
+placement is wrong — fix that before going on, or this check can never fail again.
 
 - [ ] **Step 3: Write the migration**
 
@@ -411,23 +476,59 @@ Create `supabase/migrations/20261010000100_a_storefront_says_where_to_collect.sq
 -- empty-string convention the storefront types already follow.
 --
 -- Anon reads this, which is the point -- a shop's street address is the one
--- fact it most wants a stranger to have. No new grant and no new function:
--- get_public_storefront is already one of the four anon RPCs
--- (20261009000100), and this is a replace, so its ACL survives untouched.
+-- fact it most wants a stranger to have. No NEW anon function:
+-- get_public_storefront is already one of the four the surface was narrowed
+-- to (20261009000100), so this widens what one of them returns rather than
+-- adding a fifth.
+--
+-- But the grant IS load-bearing here. This function returns a table, and a
+-- new column changes its return type, so it must be DROPPED and re-created
+-- rather than replaced -- which is why 20260930000100, ...200 and ...300 each
+-- drop it too. A drop takes the ACL with it, and Postgres then grants EXECUTE
+-- to PUBLIC on the new one, so the revoke/grant pair at the foot is what
+-- actually decides who may call this. Neither statement is a formality.
+--
+-- The address comes from `sl`, the primary-location join this function ALREADY
+-- has and already reads `city` from. Not a subquery: one that fell back to the
+-- oldest location when none is primary would disagree with the join on exactly
+-- the shops where it matters, and the page would name a city from one branch
+-- and a street from another.
 ```
 
 **Body:** reproduce `get_public_storefront` whole from
-`supabase/migrations/20260930000300_flyer_offer_facts.sql`, adding one key to the returned
-`jsonb_build_object` immediately after `'offers_delivery'`:
+`supabase/migrations/20260930000300_flyer_offer_facts.sql:83`.
+
+It **`returns table(...)`** with fourteen typed columns — it is not a `jsonb_build_object`. Adding a
+column changes the return type, which `create or replace` cannot do, so the drop is mandatory and
+comes first, exactly as `20260930000300:81` does:
 
 ```sql
-    'collect_address', (select l.address from public.shop_locations l
-                         where l.shop_id = s.id
-                         order by l.is_primary desc, l.created_at asc
-                         limit 1),
+drop function if exists public.get_public_storefront(text);
 ```
 
-Restate the grant at the foot, matching `20260930000300`:
+Then two additions to the reproduced function. One column in the `returns table (…)` list,
+immediately after `city text` so it sits beside the other location-derived field:
+
+```sql
+  city            text,
+  collect_address text,
+```
+
+And one expression in the select, beside `sl.city`:
+
+```sql
+    s.name, sl.city, sl.address, s.slug, s.whatsapp_e164,
+```
+
+**Use `sl.address`. Do not write a subquery.** The primary location is already joined —
+`left join public.shop_locations sl on sl.shop_id = s.id and sl.is_primary` — and `city` already
+comes from it. A subquery of the shape `order by is_primary desc, created_at asc limit 1` would
+**disagree with that join** on a shop with no location flagged primary: the join yields null, the
+subquery yields the oldest location. The page would then show a city from one branch and an address
+from another. *(Corrected 2026-08-29: this plan originally specified exactly that subquery.)*
+
+Restate the grants at the foot. They are **load-bearing, not decorative** — the ACL does not
+survive the drop above:
 
 ```sql
 revoke execute on function public.get_public_storefront(text) from public;

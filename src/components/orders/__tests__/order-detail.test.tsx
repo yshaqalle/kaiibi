@@ -27,6 +27,7 @@ const ORDER: ShopOrder = {
   subtotalCents: 2400,
   deliveryFeeCents: 100,
   totalCents: 2500,
+  saleId: null,
   createdAt: '2026-08-20T10:00:00.000Z',
 };
 
@@ -119,6 +120,98 @@ describe('OrderDetail', () => {
       expect(t).not.toContain('Delivery');
       expect(t).toContain('Amount to collect');
       expect(t).toContain('$24.00');
+    });
+  });
+
+  // Task 6, property 1: a badge says where an order IS; the rail says where
+  // it has BEEN and what is left, off order.status alone -- orders stores no
+  // per-transition history, so there is nothing else honest to derive it
+  // from.
+  describe('the stage rail', () => {
+    it('shows where the order has been and where it is', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'accepted' } }));
+      ['Placed', 'Accepted', 'Ready', 'Done'].forEach((label) => expect(t).toContain(label));
+    });
+
+    it('marks the current step for a reader who cannot rely on colour alone', () => {
+      const tree = renderDetail({ order: { ...ORDER, status: 'accepted' } });
+      expect(find(tree, 'Current stage: Accepted')).toBeTruthy();
+    });
+
+    // Cancelled is an off-ramp, not a stop on the road -- showing it as a
+    // fifth step after Done would claim a cancelled order was nearly
+    // finished. Ready must not appear as a completed step either: `status`
+    // alone cannot say the order ever reached it before being cancelled.
+    it('renders cancelled as a terminal step, not a fifth stop', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'cancelled', cancellationReason: 'Out of stock' } }));
+      expect(t).toContain('Cancelled');
+      expect(t).not.toContain('Ready');
+    });
+  });
+
+  // Task 6, property 3: complete_storefront_order pays complete_sale the
+  // goods subtotal ONLY and posts the delivery fee separately to 4300
+  // Delivery Income (20260928000200's own header) -- without this block a
+  // shop sees a sale in Transactions for less than the order's total and has
+  // no way to tell that is correct rather than a bug.
+  describe('the reconciliation block', () => {
+    const completed = { ...ORDER, status: 'completed' as const, saleId: 'f3a2c1de-0000-0000-0000-000000000000' };
+
+    it('names the sale a completed order became', () => {
+      const t = texts(
+        renderDetail({ order: { ...completed, subtotalCents: 8600, deliveryFeeCents: 0, totalCents: 8600 } })
+      );
+      expect(t).toMatch(/in Transactions/i);
+    });
+
+    // The short id, not the raw uuid -- a shopkeeper's phone screen has no
+    // room for 36 characters, and the mutation that swaps in the full id
+    // (or drops the truncation entirely) must fail this.
+    it('shows the short form of the sale id, not the raw uuid', () => {
+      const t = texts(renderDetail({ order: completed }));
+      expect(t).toContain('f3a2c1');
+      expect(t).not.toContain('f3a2c1de-0000-0000-0000-000000000000');
+    });
+
+    // The delivery fee never reaches the sale: complete_storefront_order
+    // pays subtotal_cents only and posts the fee separately to 4300. Without
+    // this line the two figures look like a discrepancy.
+    it('says where the delivery fee went, so the gap is not read as a bug', () => {
+      const t = texts(
+        renderDetail({ order: { ...completed, subtotalCents: 18600, deliveryFeeCents: 400, totalCents: 19000 } })
+      );
+      expect(t).toMatch(/4300 Delivery Income/);
+    });
+
+    // The existing Goods/Delivery/Total breakdown hides a $0.00 delivery row
+    // on a collect order for exactly this reason: it would promise a fee
+    // that order never had. The reconciliation block follows the same rule.
+    it('shows no delivery-fee line when there was no delivery fee', () => {
+      const t = texts(renderDetail({ order: { ...completed, fulfilment: 'collect', deliveryFeeCents: 0 } }));
+      expect(t).not.toMatch(/4300 Delivery Income/);
+    });
+
+    it('shows nothing to reconcile before the order is completed', () => {
+      const t = texts(renderDetail({ order: { ...ORDER, status: 'ready', saleId: null } }));
+      expect(t).not.toMatch(/in Transactions/i);
+    });
+
+    // `status === 'completed' && saleId === null` is not a legacy state from
+    // before this column existed -- enforce_order_transition
+    // (20260928000200_complete_storefront_order.sql) permits `ready ->
+    // completed` only in the same statement that sets a non-null sale_id, so
+    // this order DID have a sale once. It is reachable today by exactly one
+    // route: the sale was deleted (delete_sale, 20260908000900, reachable
+    // from Accounting -> Transactions with no storefront exemption), which
+    // reverses the sale's journal entries and never touches orders.status.
+    // The old fallback ('Goods, in Transactions') and an unconditional
+    // delivery-fee line both claimed money was sitting in Transactions that
+    // is, in fact, gone -- false on the one screen a shop reconciles from.
+    it('says the sale was deleted, not that the goods are in Transactions, when a completed order has no sale', () => {
+      const t = texts(renderDetail({ order: { ...completed, saleId: null, deliveryFeeCents: 400 } }));
+      expect(t).not.toMatch(/in Transactions/i);
+      expect(t).not.toMatch(/4300 Delivery Income/);
+      expect(t).toMatch(/deleted/i);
     });
   });
 

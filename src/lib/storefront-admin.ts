@@ -707,6 +707,26 @@ export type ShopOrder = {
   subtotalCents: number;
   deliveryFeeCents: number;
   totalCents: number;
+  /**
+   * The sale this order became, or null until it is completed. Set by
+   * complete_storefront_order in the same statement as the status
+   * (20260928000200), so the two can never disagree AT THE MOMENT OF
+   * COMPLETION.
+   *
+   * They can still disagree LATER: `on delete set null` means this goes back
+   * to null if the sale is ever deleted (delete_sale, 20260908000900,
+   * reachable from Accounting -> Transactions with no storefront exemption),
+   * and delete_sale never touches orders.status. So `status === 'completed'
+   * && saleId === null` is a real, reachable state -- a completed order
+   * whose sale was later voided -- not a legacy case from before this column
+   * existed. order-detail.tsx's reconciliation block is gated on saleId
+   * itself for exactly this reason, not on status alone.
+   *
+   * The link runs ONE WAY only -- there is no sales.order_id -- which is why
+   * a completed order is indistinguishable from a walk-in once it reaches the
+   * Transactions tab. The sheet's reconciliation block is this link read back.
+   */
+  saleId: string | null;
   createdAt: string;
 };
 
@@ -724,6 +744,7 @@ function mapOrderRow(row: {
   subtotal_cents: number;
   delivery_fee_cents: number;
   total_cents: number;
+  sale_id: string | null;
   created_at: string;
   order_items: { quantity: number }[] | null;
 }): ShopOrder {
@@ -742,6 +763,7 @@ function mapOrderRow(row: {
     subtotalCents: row.subtotal_cents,
     deliveryFeeCents: row.delivery_fee_cents,
     totalCents: row.total_cents,
+    saleId: row.sale_id ?? null,
     createdAt: row.created_at,
   };
 }
@@ -760,7 +782,7 @@ export async function listOrders(shopId: string): Promise<ShopOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, created_at, order_items(quantity)'
+      'id, number, customer_name, customer_phone, fulfilment, delivery_area, delivery_landmark, note, status, cancellation_reason, subtotal_cents, delivery_fee_cents, total_cents, sale_id, created_at, order_items(quantity)'
     )
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });

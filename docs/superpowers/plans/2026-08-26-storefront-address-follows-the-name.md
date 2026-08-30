@@ -22,15 +22,39 @@ custom address.
 
 **Design note:** `docs/design/storefront-address-and-flyers-mockup.html`, screens 1–4.
 
-## The address is a subdomain
+## The address is a slug, and the FORM it is shown in is not this plan's call
 
-`https://<slug>.kaiibi.com` — one DNS label, 3–63 characters.
+> **CORRECTED 2026-08-29, after #108 (`9f23ae9`) landed on main.** This section previously
+> read *"The address is a subdomain … never `kaiibi.com/<slug>`"* and instructed Task 4 to
+> confirm the editor prints a subdomain. **That is now backwards, and following it would
+> reintroduce the bug #108 fixed.** Corrected below; the slug rules themselves are
+> unchanged, and Tasks 1–3 are unaffected.
 
-**Never `kaiibi.com/<slug>`.** That form has been shipped once already: the editor
-rendered a path while `slugFromHostname` only ever accepted a subdomain, so a
-shopkeeper was handed an address that does not work, on the one screen whose output
-gets printed on a card. `src/lib/storefront-host.ts:14-17` carries the comment. Any new
-copy that shows an address must build it from `APP_DOMAIN`, never from a literal.
+The shop's identity is the **slug** — one DNS label, 3–63 characters. That much never
+changed, and every rule in this plan about deriving, normalizing, validating and claiming
+it still stands.
+
+What changed is which *address form* the app shows. `<slug>.kaiibi.com` **has no wildcard
+DNS record and never did** — `dig +short xamdi.kaiibi.com` returns nothing. Shops were
+publishing, pressing copy link, and sending customers an address that failed to resolve,
+while `kaiibi.com/store/<slug>` — which has a real route file at
+`src/app/store/[slug].tsx` — was shown nowhere. #108 fixed that.
+
+The original objection in this section was still correct about the thing it was aimed at:
+a **bare** `kaiibi.com/<slug>`, with no segment and no route, which `slugFromHostname`
+never accepted. The shipped form carries the `store` segment and is routed.
+
+**So: never build an address from a literal — that part is unchanged and now enforced.**
+Every surface that shows, copies or sends one calls `storefrontAddress(slug)` from
+`src/lib/storefront-host.ts`, the single source #108 created after two surfaces
+hand-assembled the string and drifted apart. Today it returns
+`kaiibi.com/store/<slug>`.
+
+Which form is *canonical* is deliberately still open — options A/B/C in
+[`docs/backlog/2026-08-27-storefront-wildcard-dns.md`](../../backlog/2026-08-27-storefront-wildcard-dns.md).
+`slugFromHostname` is untouched and still resolves `<slug>.kaiibi.com` to the right shop,
+so nothing here forecloses buying the DNS record later. **This plan must not settle it** —
+call `storefrontAddress()` and inherit whatever the answer becomes.
 
 ## Global Constraints
 
@@ -128,7 +152,14 @@ Task 3 exists solely to pin this, and it is the task to be most careful with.
 - [x] **Step 1: Write the failing tests** — prefill from the name; the shop's own typing
       is never overwritten by a later name change; the suffix appears only on collision;
       the neighbourhood is prefilled; no numeric suffix is ever offered; the full address
-      renders as `<slug>.kaiibi.com` and not as a path.
+      renders as `storefrontAddress(slug)` returns it.
+
+      > **CORRECTED 2026-08-29.** The last clause read *"renders as `<slug>.kaiibi.com`
+      > and not as a path"*. This step is already done, and #108 has since rewritten the
+      > tests it produced (`storefront-content-drawer.test.tsx`,
+      > `storefront-address-one-form.test.tsx`) to assert the derived address instead.
+      > The text above is corrected to match the code that now ships — do not "restore"
+      > it.
 - [x] **Step 2: Run and watch them fail**
 - [x] **Step 3: Implement**, reusing the drawer's existing slug-state machine rather than
       adding a parallel one
@@ -149,8 +180,13 @@ one prevents breaking links a shop has already printed.
 
 1. Once the address is **claimed**, renaming the shop does **not** change it — not in the
    field, not on save, not after a reload.
-2. The claimed address renders read-only, with the full `<slug>.kaiibi.com` and a way to
-   copy it.
+2. The claimed address renders read-only, showing the full address as
+   `storefrontAddress(slug)` returns it, with a way to copy it. **What is shown and what
+   is copied must be the same string** — #108's post-mortem is that they drifted because
+   each was pinned to its own literal, so both could be wrong together. Assert they
+   collapse to one value, and that the value resolves to a route file on disk, the way
+   `storefront-canonical-path.test.tsx` already does. *(Corrected 2026-08-29: this line
+   read `<slug>.kaiibi.com`, which does not resolve.)*
 3. Changing it afterwards stays available and stays deliberate, keeping the warning the
    editor already shows.
 4. After a rename, the editor **says** the address did not move and that the old links
@@ -177,10 +213,19 @@ Use `.superpowers/sdd/reseed.sh`. At **390px and 1280px**:
 - [ ] A new shop's address is prefilled from its name, and claiming it works.
 - [ ] Seed a second shop with the same name. Its derived address is refused, the base
       stays put, and the suffix field appears already holding the neighbourhood.
-- [ ] Claim the suffixed address. Open `<slug>.kaiibi.com`'s route and confirm the page
-      loads — the address the editor showed is the address that resolves.
-- [ ] **Read the address the editor prints and confirm it is a subdomain**, not
-      `kaiibi.com/<slug>`. This is the specific defect that shipped before.
+- [ ] Claim the suffixed address. **Open exactly the address the editor printed** — copy
+      it, do not retype it in another form — and confirm the page loads. The property is
+      that display, copy and destination are one string; it is not that the string has
+      any particular shape.
+- [ ] **Confirm the editor prints whatever `storefrontAddress(slug)` returns** (today
+      `kaiibi.com/store/<slug>`), and that nothing on the screen assembles an address
+      from a literal.
+
+      > **CORRECTED 2026-08-29.** These two steps previously said to open
+      > `<slug>.kaiibi.com` and to *confirm the address is a subdomain*. Both are now
+      > inverted: the subdomain has no DNS record and does not resolve, and #108 changed
+      > the editor to print the path form on purpose. A verifier following the old text
+      > would have failed a working app and pushed it back to the address that breaks.
 - [ ] Rename the shop. Confirm the address does not move and the explanation appears.
 - [ ] Screenshot the collision state and the post-rename state; attach to the PR.
 
