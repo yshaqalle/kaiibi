@@ -22,76 +22,86 @@ import { confirmPublicOrder, getPublicOrder, type PublicOrder } from '@/lib/publ
 // opens the WEB page rather than deep-linking into an app the customer has
 // never installed -- which is what we want.
 export default function PublicOrderRoute() {
-  const { token } = useLocalSearchParams<{ token: string }>();
-  const value = Array.isArray(token) ? token[0] : token;
+  // Expo Router hands a dynamic segment back as string | string[]. Narrowed
+  // once, here, so nothing below has to think about it again.
+  const { token: rawToken } = useLocalSearchParams<{ token: string }>();
+  const token = String((Array.isArray(rawToken) ? rawToken[0] : rawToken) ?? '');
 
-  const [order, setOrder] = useState<PublicOrder | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // ONE state object, keyed by the token it describes, and NOTHING is set
+  // synchronously inside the effect. Resetting loading/error/notFound at the
+  // top of the effect is the obvious shape and it is what
+  // react-hooks/set-state-in-effect refuses: those three setState calls run
+  // during the render pass and trigger a second one before the fetch has even
+  // started. Deriving `loading` from whether the loaded token matches the one
+  // in the URL gives the same behaviour -- a token change shows Loading
+  // immediately, never a stale order -- with no synchronous write at all.
+  const [result, setResult] = useState<{
+    token: string;
+    order: PublicOrder | null;
+    notFound: boolean;
+    error: string | null;
+  } | null>(null);
   const [confirming, setConfirming] = useState(false);
+
+  const loading = result?.token !== token;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setNotFound(false);
 
-    getPublicOrder(String(value ?? ''))
-      .then((result) => {
+    getPublicOrder(token)
+      .then((order) => {
         if (cancelled) return;
         // null is the server's ONE answer for unknown, expired and mistyped.
-        // It is a state, not a failure, and it must not be reported as one.
-        if (!result) setNotFound(true);
-        else setOrder(result);
+        // It is a state, not a failure, and must not be reported as one.
+        setResult({ token, order, notFound: order === null, error: null });
       })
       .catch(() => {
         if (cancelled) return;
         // A REQUEST that failed is a different thing to tell a customer than
         // "this link is not valid" -- one sends them to check their signal,
         // the other to phone the shop about a link that is perfectly good.
-        setError('Could not load this order.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        setResult({ token, order: null, notFound: false, error: 'Could not load this order.' });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [value]);
+  }, [token]);
 
   const onConfirm = useCallback(() => {
     setConfirming(true);
-    confirmPublicOrder(String(value ?? ''))
-      .then((result) => {
+    confirmPublicOrder(token)
+      .then((order) => {
         // The RPC returns the SAME projection the read does, so the agreement
         // renders from this response rather than costing a second request.
-        if (result) setOrder(result);
+        if (order) setResult({ token, order, notFound: false, error: null });
       })
-      .catch(() => setError('Could not send your reply.'))
+      .catch(() =>
+        setResult((prev) => ({ token, order: prev?.order ?? null, notFound: false, error: 'Could not send your reply.' }))
+      )
       .finally(() => setConfirming(false));
-  }, [value]);
+  }, [token]);
 
   // WRITES NOTHING, and there is deliberately no RPC behind it. A link that
   // has been forwarded, screenshotted or leaked must never be able to alter an
   // order, so "something's wrong" stays in the human channel -- where the shop
   // can ask who it is talking to. See confirm_public_order's own header.
   const onMessageShop = useCallback(() => {
+    const order = result?.order;
     if (!order) return;
     const text = `Hello ${order.shopName}, I have a question about order #${order.number}.`;
     Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`).catch(() => {
       // A device with no WhatsApp is not an error worth a screen: the page
       // still shows the order, which is what they came for.
     });
-  }, [order]);
+  }, [result]);
 
   return (
     <PublicOrderView
-      order={order}
+      order={result?.order ?? null}
       loading={loading}
-      notFound={notFound}
-      error={error}
+      notFound={result?.notFound ?? false}
+      error={result?.error ?? null}
       confirming={confirming}
       onConfirm={onConfirm}
       onMessageShop={onMessageShop}

@@ -1,3 +1,9 @@
+// The import sits ABOVE the jest.mock below, which reads backwards but is
+// correct: babel-plugin-jest-hoist lifts every jest.mock call above the
+// imports before anything runs, so the fake is registered first either way.
+// Writing it in that order keeps `import/first` quiet.
+import { confirmPublicOrder, getPublicOrder } from '@/lib/public-order';
+
 type FakeState = { rpcCalls: [string, unknown][]; rpcResult: { data: unknown; error: unknown } };
 
 // Its own fake, not storefront-admin's. This module is called with NO SESSION
@@ -17,8 +23,6 @@ jest.mock('@/lib/supabase', () => {
 });
 
 const { __state: fake } = jest.requireMock('@/lib/supabase') as { __state: FakeState };
-
-import { confirmPublicOrder, getPublicOrder } from '@/lib/public-order';
 
 // The shape get_public_order actually returns (20261017000000). Deliberately
 // snake_case and nested exactly as the SQL builds it -- if the two drift, this
