@@ -145,6 +145,7 @@ describe('placeOrder', () => {
       subtotalCents: 2200,
       deliveryFeeCents: 200,
       totalCents: 2400,
+      shareToken: null,
       items: [
         { productId: 'p1', name: 'Soap', unitPriceCents: 500, quantity: 2, lineTotalCents: 1000 },
         { productId: 'p2', name: 'Oil', unitPriceCents: 1200, quantity: 1, lineTotalCents: 1200 },
@@ -201,6 +202,7 @@ describe('buildOrderMessage', () => {
       subtotalCents: 2200,
       deliveryFeeCents: 0,
       totalCents: 2200,
+      shareToken: null,
       items: [
         { productId: 'p1', name: 'Soap', unitPriceCents: 500, quantity: 2, lineTotalCents: 1000 },
         { productId: 'p2', name: 'Oil', unitPriceCents: 1200, quantity: 1, lineTotalCents: 1200 },
@@ -232,6 +234,7 @@ describe('buildOrderMessage', () => {
       subtotalCents: 2200,
       deliveryFeeCents: 200,
       totalCents: 2400,
+      shareToken: null,
       items: [
         { productId: 'p1', name: 'Soap', unitPriceCents: 500, quantity: 2, lineTotalCents: 1000 },
         { productId: 'p2', name: 'Oil', unitPriceCents: 1200, quantity: 1, lineTotalCents: 1200 },

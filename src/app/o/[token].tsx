@@ -1,49 +1,100 @@
 import { useLocalSearchParams } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Linking } from 'react-native';
 
-// THE CUSTOMER'S ORDER PAGE. No login, no session, no shop context.
+import { PublicOrderView } from '@/components/storefront/public-order-view';
+import { confirmPublicOrder, getPublicOrder, type PublicOrder } from '@/lib/public-order';
+
+// THE CUSTOMER'S ORDER PAGE. No login, no session, no shop context -- the
+// token in the URL is the whole of their authority.
 //
-// Created in Part 3 Task 1 alongside ORDER_SEGMENT, because the two are one
-// fact: Expo Router is file-based, so `ORDER_SEGMENT = 'o'` is a claim that
-// THIS DIRECTORY exists, and storefront-canonical-path.test.tsx resolves the
-// built path to this file rather than comparing the constant to itself. A
-// constant without the file is a link that 404s at the customer's end, which
-// is exactly the class of bug #108 was.
+// The directory name IS the URL segment (Expo Router is file-based), and it
+// comes from ORDER_SEGMENT: storefront-canonical-path.test.tsx resolves the
+// path orderPath() builds to this exact file on disk rather than comparing
+// the constant to itself. That is the assertion #108 wishes it had had.
 //
-// ── This is a shell, and it is an HONEST one ────────────────────────────
+// This file owns the fetch, the token and opening WhatsApp; PublicOrderView
+// owns what is on screen. That split is why every state below is testable
+// without expo-router or a network fake.
 //
-// get_public_order does not exist yet (Task 3), so there is nothing this can
-// truthfully render for a real token, and it says so rather than showing a
-// spinner that never resolves or a page of zeroes. That is safe to deploy in
-// this state for a reason worth stating: no tokens exist yet either -- they
-// are minted in Task 2 -- so there is no link anyone could be holding that
-// this would disappoint. Task 6 replaces the body.
-//
-// NOT bento. Bento tokens are the admin app's; this screen is seen by
-// customers, and the storefront's own palette is what it follows (see
-// src/app/store/[slug].tsx). The shell below uses neither -- it is plain
-// enough not to need a palette, and Task 6 brings the real one in.
+// `vercel.json` already rewrites every path to the SPA, so no hosting change
+// was needed. `app.json` has scheme `kaiibi` but no associatedDomains, so this
+// opens the WEB page rather than deep-linking into an app the customer has
+// never installed -- which is what we want.
 export default function PublicOrderRoute() {
   const { token } = useLocalSearchParams<{ token: string }>();
+  const value = Array.isArray(token) ? token[0] : token;
+
+  const [order, setOrder] = useState<PublicOrder | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setNotFound(false);
+
+    getPublicOrder(String(value ?? ''))
+      .then((result) => {
+        if (cancelled) return;
+        // null is the server's ONE answer for unknown, expired and mistyped.
+        // It is a state, not a failure, and it must not be reported as one.
+        if (!result) setNotFound(true);
+        else setOrder(result);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // A REQUEST that failed is a different thing to tell a customer than
+        // "this link is not valid" -- one sends them to check their signal,
+        // the other to phone the shop about a link that is perfectly good.
+        setError('Could not load this order.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+
+  const onConfirm = useCallback(() => {
+    setConfirming(true);
+    confirmPublicOrder(String(value ?? ''))
+      .then((result) => {
+        // The RPC returns the SAME projection the read does, so the agreement
+        // renders from this response rather than costing a second request.
+        if (result) setOrder(result);
+      })
+      .catch(() => setError('Could not send your reply.'))
+      .finally(() => setConfirming(false));
+  }, [value]);
+
+  // WRITES NOTHING, and there is deliberately no RPC behind it. A link that
+  // has been forwarded, screenshotted or leaked must never be able to alter an
+  // order, so "something's wrong" stays in the human channel -- where the shop
+  // can ask who it is talking to. See confirm_public_order's own header.
+  const onMessageShop = useCallback(() => {
+    if (!order) return;
+    const text = `Hello ${order.shopName}, I have a question about order #${order.number}.`;
+    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`).catch(() => {
+      // A device with no WhatsApp is not an error worth a screen: the page
+      // still shows the order, which is what they came for.
+    });
+  }, [order]);
 
   return (
-    <View style={styles.page}>
-      <Text style={styles.title}>Order not found</Text>
-      <Text style={styles.body}>
-        This link may have expired, or it may have been typed incorrectly. Check the message your shop sent you, or
-        get in touch with them directly.
-      </Text>
-      {/* The token is deliberately NOT echoed back. It is a capability: it
-          grants whoever holds it a read of someone's order, so it does not
-          belong in a screenshot of an error page. */}
-      <Text style={styles.hint}>{token ? 'Link not recognised.' : 'No link was provided.'}</Text>
-    </View>
+    <PublicOrderView
+      order={order}
+      loading={loading}
+      notFound={notFound}
+      error={error}
+      confirming={confirming}
+      onConfirm={onConfirm}
+      onMessageShop={onMessageShop}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  page: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10 },
-  title: { fontSize: 20, fontWeight: '800', textAlign: 'center' },
-  body: { fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 420 },
-  hint: { fontSize: 12, textAlign: 'center', opacity: 0.6 },
-});
