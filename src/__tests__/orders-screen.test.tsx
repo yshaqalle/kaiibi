@@ -912,4 +912,151 @@ describe('Orders screen', () => {
       expect(acceptOrder).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Task 5: today checkOrderFulfilment only runs when a shop OPENS one order
+  // (N1, above) -- a shop scanning several rows has no idea which of them it
+  // is short on until it opens each one. This runs the same check for every
+  // visible OPEN row, so the shortfall is on the row itself. Only OPEN
+  // orders are ever asked about -- N1's exact reasoning (a completed order's
+  // own completion already decremented the stock a check would report on; a
+  // cancelled order was never going to be filled), applied to the list
+  // instead of one opened order.
+  describe('shortfall flags', () => {
+    function itemsColumn(tree: ReactTestRenderer) {
+      const column = tree.root.findByType(DataTable).props.columns.find((c: { key: string }) => c.key === 'items');
+      if (!column) throw new Error('no "items" column on the table');
+      return column;
+    }
+
+    // The shortfall effect only fires once `orders` itself has been set by
+    // the initial `reload()` -- a second async hop beyond renderScreen's own
+    // single `act`, since it depends on that state existing first. This
+    // flushes THAT hop rather than guessing at a fixed delay.
+    async function flush(tree: ReactTestRenderer) {
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      return tree;
+    }
+
+    it('marks a row the shop cannot fill, with the actual shortfall as a digit', async () => {
+      (checkOrderFulfilment as jest.Mock).mockResolvedValue([
+        { productId: 'p1', productName: 'Sugar 2kg', quantity: 3, available: 1, shortBy: 2 },
+      ]);
+      const tree = await renderScreen([makeOrder({ id: 'o1', status: 'pending' })]);
+      await flush(tree);
+
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      const cell = itemsColumn(tree).render(row);
+      const flag = (cell.props.children as unknown[])[1] as { type: unknown; props: { children: string } } | null;
+      expect(flag).toBeTruthy();
+      expect(flag!.props.children).toBe('short 2');
+    });
+
+    it('never flags a completed order, and never even asks about one', async () => {
+      (checkOrderFulfilment as jest.Mock).mockResolvedValue([
+        { productId: 'p1', productName: 'Sugar 2kg', quantity: 3, available: 1, shortBy: 2 },
+      ]);
+      const tree = await renderScreen([makeOrder({ id: 'o-done', status: 'completed' })]);
+      await flush(tree);
+      pressChip(tree, 'Done');
+
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      expect(row.id).toBe('o-done');
+      const cell = itemsColumn(tree).render(row);
+      expect((cell.props.children as unknown[])[1]).toBeNull();
+      expect(checkOrderFulfilment).not.toHaveBeenCalled();
+    });
+
+    it('never flags a cancelled order, and never even asks about one', async () => {
+      (checkOrderFulfilment as jest.Mock).mockResolvedValue([
+        { productId: 'p1', productName: 'Sugar 2kg', quantity: 3, available: 1, shortBy: 2 },
+      ]);
+      const tree = await renderScreen([makeOrder({ id: 'o-cancelled', status: 'cancelled', cancellationReason: 'Out of stock' })]);
+      await flush(tree);
+      pressChip(tree, 'Cancelled');
+
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      expect(row.id).toBe('o-cancelled');
+      const cell = itemsColumn(tree).render(row);
+      expect((cell.props.children as unknown[])[1]).toBeNull();
+      expect(checkOrderFulfilment).not.toHaveBeenCalled();
+    });
+
+    it('asks about only the open orders on screen, once each -- never a completed or cancelled one mixed into the same shop', async () => {
+      (checkOrderFulfilment as jest.Mock).mockResolvedValue([]);
+      const tree = await renderScreen([
+        makeOrder({ id: 'p1', status: 'pending' }),
+        makeOrder({ id: 'p2', status: 'pending' }),
+        makeOrder({ id: 'done', status: 'completed' }),
+        makeOrder({ id: 'cancelled', status: 'cancelled', cancellationReason: 'x' }),
+      ]);
+      await flush(tree);
+
+      expect(checkOrderFulfilment).toHaveBeenCalledTimes(2);
+      expect(checkOrderFulfilment).toHaveBeenCalledWith('shop-1', 'p1');
+      expect(checkOrderFulfilment).toHaveBeenCalledWith('shop-1', 'p2');
+      expect(checkOrderFulfilment).not.toHaveBeenCalledWith('shop-1', 'done');
+      expect(checkOrderFulfilment).not.toHaveBeenCalledWith('shop-1', 'cancelled');
+    });
+
+    // M3: a fully fillable order (no shortfall rows at all) must render
+    // nothing -- not "short 0". findShortfalls (order-fulfilment.ts) never
+    // returns a non-positive shortBy, so an empty array is the realistic
+    // shape of "nothing to flag" this exercises.
+    it('renders no flag at all for an order with no shortfall', async () => {
+      (checkOrderFulfilment as jest.Mock).mockResolvedValue([]);
+      const tree = await renderScreen([makeOrder({ id: 'o1', status: 'pending' })]);
+      await flush(tree);
+
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      const cell = itemsColumn(tree).render(row);
+      expect((cell.props.children as unknown[])[1]).toBeNull();
+    });
+
+    // M2: one row's own failed check must not blank every other row's flag.
+    it('leaves a row unflagged on its own failed check, without erasing another row\'s real shortfall', async () => {
+      (checkOrderFulfilment as jest.Mock).mockImplementation(async (_shopId: string, orderId: string) => {
+        if (orderId === 'bad') throw new Error('network blip');
+        return [{ productId: 'p1', productName: 'Sugar 2kg', quantity: 3, available: 1, shortBy: 4 }];
+      });
+      const tree = await renderScreen([
+        makeOrder({ id: 'bad', status: 'pending' }),
+        makeOrder({ id: 'good', status: 'pending' }),
+      ]);
+      await flush(tree);
+
+      const rows = tree.root.findByType(DataTable).props.rows;
+      const badRow = rows.find((r: ShopOrder) => r.id === 'bad');
+      const goodRow = rows.find((r: ShopOrder) => r.id === 'good');
+
+      const badCell = itemsColumn(tree).render(badRow);
+      expect((badCell.props.children as unknown[])[1]).toBeNull();
+
+      const goodCell = itemsColumn(tree).render(goodRow);
+      const goodFlag = (goodCell.props.children as unknown[])[1] as { props: { children: string } } | null;
+      expect(goodFlag).toBeTruthy();
+      expect(goodFlag!.props.children).toBe('short 4');
+    });
+
+    // M4: each row must show ITS OWN shortfall, not another visible row's.
+    it('pairs each open order with its own shortfall, not another order\'s', async () => {
+      (checkOrderFulfilment as jest.Mock).mockImplementation(async (_shopId: string, orderId: string) => {
+        if (orderId === 'a') return [{ productId: 'p1', productName: 'Sugar 2kg', quantity: 3, available: 1, shortBy: 2 }];
+        return [{ productId: 'p2', productName: 'Rice 5kg', quantity: 5, available: 0, shortBy: 5 }];
+      });
+      const tree = await renderScreen([makeOrder({ id: 'a', status: 'pending' }), makeOrder({ id: 'b', status: 'pending' })]);
+      await flush(tree);
+
+      const rows = tree.root.findByType(DataTable).props.rows;
+      const rowA = rows.find((r: ShopOrder) => r.id === 'a');
+      const rowB = rows.find((r: ShopOrder) => r.id === 'b');
+
+      const flagA = (itemsColumn(tree).render(rowA).props.children as unknown[])[1] as { props: { children: string } };
+      const flagB = (itemsColumn(tree).render(rowB).props.children as unknown[])[1] as { props: { children: string } };
+      expect(flagA.props.children).toBe('short 2');
+      expect(flagB.props.children).toBe('short 5');
+    });
+  });
 });

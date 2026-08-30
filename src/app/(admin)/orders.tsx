@@ -97,7 +97,18 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 // action column -- the same permitted-moves table order-detail.tsx's own
 // canAccept/canMarkReady/canComplete already read from
 // (20260928000100_order_transitions.sql), not a second guess at it.
-function columnsFor(now: Date, hasPosAccess: boolean, onAction: (order: ShopOrder) => void, busyId: string | null): Column<ShopOrder>[] {
+// Task 5's own addition: `shortBy` is keyed by order id (see the `useEffect`
+// in the component below) -- the 'items' column's own render reads it here
+// rather than closing over the screen's state directly, same reasoning
+// `hasPosAccess`/`onAction`/`busyId` already follow: columnsFor is called
+// fresh every render, never memoized, so this closure can never go stale.
+function columnsFor(
+  now: Date,
+  hasPosAccess: boolean,
+  onAction: (order: ShopOrder) => void,
+  busyId: string | null,
+  shortBy: Record<string, number>
+): Column<ShopOrder>[] {
   return [
     { key: 'number', header: 'Order', width: 66, sortable: true, render: (row) => <ValueCell value={`#${row.number}`} strong /> },
     {
@@ -110,7 +121,25 @@ function columnsFor(now: Date, hasPosAccess: boolean, onAction: (order: ShopOrde
       },
     },
     { key: 'customer', header: 'Customer', sortable: true, render: (row) => <NameCell title={row.customerName} meta={row.customerPhone} /> },
-    { key: 'items', header: 'Items', numeric: true, width: 56, render: (row) => <ValueCell value={String(row.itemCount)} tone="muted" /> },
+    {
+      key: 'items',
+      header: 'Items',
+      numeric: true,
+      // Wider than a bare count (56) needs -- "short 2" beneath it is the
+      // widest content this column now ever carries.
+      width: 76,
+      render: (row) => (
+        <View style={styles.itemsCell}>
+          <ValueCell value={String(row.itemCount)} tone="muted" />
+          {/* A loss-toned figure, never colour alone (deuteranopia makes
+              red/green nearly indistinguishable) -- the digit IS the
+              signal; `shortBy[row.id] > 0` (not merely "is a key present")
+              is what actually gates this, so a check that resolved to a
+              real 0 can never render "short 0". */}
+          {shortBy[row.id] > 0 ? <Text style={styles.shortFlag}>{`short ${shortBy[row.id]}`}</Text> : null}
+        </View>
+      ),
+    },
     {
       key: 'fulfilment',
       header: 'Fulfilment',
@@ -224,6 +253,13 @@ function OrdersScreen() {
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Task 5: what the 'Items' column adds beside the count -- keyed by order
+  // id, and only ever holding an id once its own shortfall is POSITIVE (see
+  // the `.filter(([, n]) => n > 0)` below), so a row with nothing to flag is
+  // simply absent rather than present with a 0. Only entries whose sum
+  // survived a successful check are ever written here.
+  const [shortBy, setShortBy] = useState<Record<string, number>>({});
+
   // B2's own gate, read once and shared by the row's own action column and
   // the detail sheet -- OrderDetail owns no query of its own, and neither
   // does the row.
@@ -260,6 +296,61 @@ function OrdersScreen() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Task 5: today checkOrderFulfilment (N1, openDetail below) only runs once
+  // a shop OPENS one order -- a shop scanning several rows has no idea which
+  // of them it is short on until it opens each one. This runs the same check
+  // for every visible OPEN row instead, so the shortfall is on the row
+  // itself while scanning. `orders.filter(status === statusFilter)`, not
+  // `filteredOrders` -- the latter also depends on `search`, and re-querying
+  // stock on every keystroke would ask the same question dozens of times for
+  // an answer that has not changed; a search only narrows which already-open
+  // rows are ON SCREEN, it can never surface a row this effect has not
+  // already asked about.
+  //
+  // Only OPEN orders (UNCONFIRMED: pending, accepted, ready) are ever asked
+  // about -- N1's exact reasoning, applied to the list: a completed order's
+  // own completion already decremented the exact stock a check would report
+  // on, and a cancelled order was never going to be filled at all.
+  //
+  // COST: checkOrderFulfilment has no batch form, and its own first line
+  // (primaryLocation, storefront-admin.ts) re-resolves the shop's primary
+  // location on every single call, plus its own two more queries
+  // (order_items, product_location_stock) -- three Supabase round trips per
+  // order, not one. N visible open rows is therefore ~3N round trips here,
+  // fired concurrently via Promise.all rather than serialised, but not
+  // reduced in COUNT by that. primaryLocation is a private, unexported
+  // function of storefront-admin.ts and checkOrderFulfilment takes no
+  // pre-resolved location -- there is no way to hoist or share that one
+  // lookup across calls from this file without changing
+  // checkOrderFulfilment's own contract, which is out of this task's scope
+  // (Modify: orders.tsx only) and Part 2's territory, not this one's.
+  useEffect(() => {
+    if (!shop) return;
+    const open = orders.filter((o) => o.status === statusFilter && UNCONFIRMED.includes(o.status));
+    if (open.length === 0) {
+      setShortBy({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      open.map((o) =>
+        checkOrderFulfilment(shop.id, o.id)
+          .then((rows) => [o.id, rows.reduce((n, r) => n + r.shortBy, 0)] as const)
+          // One row's failed check must not blank the whole column -- 0 here
+          // reads as "nothing to flag", same as a genuinely fillable order,
+          // rather than an error banner for what is a per-row enhancement,
+          // not the row's reason for existing.
+          .catch(() => [o.id, 0] as const)
+      )
+    ).then((pairs) => {
+      if (!cancelled) setShortBy(Object.fromEntries(pairs.filter(([, n]) => n > 0)));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop, statusFilter, orders]);
 
   const closeDetail = useCallback(() => {
     setSelectedOrder(null);
@@ -515,7 +606,7 @@ function OrdersScreen() {
             </Caveat>
           ) : (
             <DataTable
-              columns={columnsFor(now, hasPosAccess, runRowAction, busyId)}
+              columns={columnsFor(now, hasPosAccess, runRowAction, busyId, shortBy)}
               rows={filteredOrders}
               keyExtractor={(row) => row.id}
               emptyLabel={emptyLabel}
@@ -579,6 +670,14 @@ const styles = StyleSheet.create({
   rowAction: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
   rowActionBusy: { opacity: 0.5 },
   rowActionText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 },
+  // flex-end, not the View default (stretch) -- once the count and the flag
+  // share a column, `stretch` would widen the box to the flag's own width
+  // and pull the plain item count off the right edge every other numeric
+  // column in this table keeps it pinned to.
+  itemsCell: { alignItems: 'flex-end' },
+  // A loss-toned figure, never colour alone -- the digit itself is the
+  // signal (see the 'items' column's own comment above).
+  shortFlag: { fontSize: 10.5, fontWeight: '800', color: theme.bentoLoss, textAlign: 'right', marginTop: 2 },
 });
 
 // Same wall, and it brings a `ScreenHeader` because this screen is pushed over
