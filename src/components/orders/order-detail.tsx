@@ -668,10 +668,15 @@ export function OrderDetail({
                       );
                     })}
                   </View>
+                  {/* "what they were quoted" would be a lie on an order that
+                      has ALREADY been re-priced once: re-pricing rewrites
+                      order_items.unit_price_cents, so from then on the prices
+                      ON the order are today's, and keeping them keeps those.
+                      The wording says what is true in both cases. */}
                   <Text style={styles.valueMuted}>
                     {pricing === 'agreed'
-                      ? 'The customer pays what they were quoted when they ordered.'
-                      : 'The customer pays your current shelf prices, which may not be what they agreed to.'}
+                      ? 'The customer pays the prices already on this order — what they were quoted, unless an earlier change re-priced it.'
+                      : "The customer pays your current shelf prices, which may not be what they agreed to. This cannot be undone by changing back — it rewrites the order's prices."}
                   </Text>
                 </Section>
 

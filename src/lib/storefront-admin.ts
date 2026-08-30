@@ -952,6 +952,14 @@ export type OrderAmendmentLine = { productId: string; quantity: number };
  * quoted figure survives to the till. Which one a shop wants is therefore a
  * question about what it owes the customer, and `amend_order` records the
  * answer on the amendment row rather than choosing for them.
+ *
+ * 'current' IS A ONE-WAY DOOR, and the UI says so. Re-pricing rewrites
+ * `order_items.unit_price_cents`, which is the only place the order's prices
+ * live -- so a later 'agreed' amend keeps the RE-PRICED figures, not the
+ * original quote. Nothing is lost: `order_amendments.before` holds every
+ * previous state, and the pricing column says which amends re-priced. But
+ * there is no "put it back" through this function, and a sentence promising
+ * one would be false.
  */
 export type OrderPricing = 'agreed' | 'current';
 

@@ -72,6 +72,19 @@
 -- to prevent. Checks 7a and 7b are the two modes over the identical fixture,
 -- and 7b's third case is the typo.
 --
+-- 'current' IS A ONE-WAY DOOR, and this is worth stating because the names
+-- suggest otherwise. There is exactly one place an order's prices live --
+-- order_items.unit_price_cents -- and re-pricing rewrites it. So a LATER
+-- amend at 'agreed' keeps the re-priced figures; it does not restore the
+-- original quote, because after the first re-price nothing in `orders` or
+-- `order_items` still remembers it. That is the correct behaviour for a
+-- function whose whole contract is "the order's own numbers are
+-- authoritative", and it is not a loss of information: order_amendments
+-- carries `before` for every amend and a `pricing` column saying which ones
+-- re-priced, so the original is always readable. But there is no undo
+-- through this function, and the sheet's own wording says so rather than
+-- promising one.
+--
 -- The mode is written onto the amendment row as its own column, not buried in
 -- the `after` blob, so "did this shop re-price this order?" is one query and
 -- not a JSON scan.

@@ -111,6 +111,7 @@ declare
   v_add_id       uuid;
   v_phone_id     uuid;
   v_big_id       uuid;
+  v_oneway_id    uuid;
 
   v_order    public.orders%rowtype;
   v_count    integer;
@@ -271,6 +272,13 @@ begin
     returning id into v_phone_id;
   insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
     values (v_phone_id, v_prod_rice, 'Basmati rice', 2500, 1, 2500);
+
+  -- Check 20: re-priced once, then amended again at 'agreed'.
+  insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, delivery_fee_cents, total_cents)
+    values (v_shop_id, 'One-way Customer', '+252634300016', 'collect', 10000, 0, 10000)
+    returning id into v_oneway_id;
+  insert into public.order_items (order_id, product_id, product_name, unit_price_cents, quantity, line_total_cents)
+    values (v_oneway_id, v_prod_rice, 'Basmati rice', 2500, 4, 10000);
 
   -- Check 19: 3 x 500,000,000 = 1,500,000,000, which fits int32 and is a
   -- storable order. Doubling every line does not.
@@ -831,6 +839,57 @@ begin
   select subtotal_cents into v_amount from public.orders where id = v_big_id;
   if v_amount <> 1500000000 then
     raise exception 'FAIL 19: the refused amend moved the subtotal to %', v_amount;
+  end if;
+
+  -- ------------------------------------------------ 20. re-pricing is a one-way door
+  --
+  -- PINNED BECAUSE THE NAMES SUGGEST OTHERWISE. 'agreed' means "keep the
+  -- prices on this order", and order_items.unit_price_cents is the only place
+  -- those live -- so once a 'current' amend has rewritten it, a later
+  -- 'agreed' amend keeps TODAY's price rather than restoring the original
+  -- quote. Found by driving the real RPC over PostgREST, where an amend back
+  -- to 'agreed' read 9000 and not the 7500 the name implies.
+  --
+  -- This is correct for a function whose contract is "the order's own numbers
+  -- are authoritative", and order_amendments.before keeps every earlier state
+  -- readable. It is asserted so that a future change quietly turning 'agreed'
+  -- into "restore the original" has to come past this check and the two
+  -- sentences of UI copy that promise otherwise.
+  perform set_config('role', 'authenticated', true);
+  v_order := public.amend_order(
+    p_order_id => v_oneway_id,
+    p_lines    => jsonb_build_array(jsonb_build_object('product_id', v_prod_rice, 'quantity', 2)),
+    p_reason   => 'the shop re-prices',
+    p_pricing  => 'current');
+  if v_order.subtotal_cents <> 6000 then
+    raise exception 'FAIL 20: the re-price gave % -- expected 6000 (2 x today''s 3000)', v_order.subtotal_cents;
+  end if;
+  v_order := public.amend_order(
+    p_order_id => v_oneway_id,
+    p_lines    => jsonb_build_array(jsonb_build_object('product_id', v_prod_rice, 'quantity', 2)),
+    p_reason   => 'and back again');
+  perform set_config('role', 'postgres', true);
+  -- 6000, NOT 5000. The two figures are 1000 apart, so this cannot pass by
+  -- coincidence whichever way the implementation goes.
+  if v_order.subtotal_cents <> 6000 then
+    raise exception 'FAIL 20: amending back at the agreed price gave % -- the order''s own price is now 3000, so 6000 was expected, not the original quote',
+      v_order.subtotal_cents;
+  end if;
+  -- ...and the original is still readable, which is what makes the one-way
+  -- door acceptable rather than a loss.
+  --
+  -- Asserted as "a row remembers 10000", NOT as "the earliest row does".
+  -- amended_at defaults to now(), which is TRANSACTION time, so two amends
+  -- inside this one DO block carry an identical timestamp and `order by
+  -- amended_at limit 1` picked between them arbitrarily -- it returned the
+  -- second one on the first run of this check. In production each amend is
+  -- its own transaction and the ordering is real; here the property that
+  -- matters is that the figure survives at all.
+  select count(*) into v_count
+    from public.order_amendments
+   where order_id = v_oneway_id and (before->>'subtotal_cents')::integer = 10000;
+  if v_count <> 1 then
+    raise exception 'FAIL 20: % amendment rows remember the pre-amend 10000 -- expected exactly 1', v_count;
   end if;
 
   raise notice 'PASS: order amendments';
