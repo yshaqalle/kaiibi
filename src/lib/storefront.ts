@@ -108,6 +108,26 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     about: row.about ?? null,
     heroImageUrl: row.hero_image_url ?? null,
     offersDelivery: Boolean(row.offers_delivery),
+    // `?? null` and not a bare read, for the same reason autoAdvance below
+    // takes Boolean(...): a client shipped ahead of its database calls a
+    // get_public_storefront with no `collect_address` column at all
+    // (20261010000100), and `undefined` must arrive as null -- the value a
+    // shop with no address on file already produces -- rather than as a
+    // distinct third state a renderer would have to test for separately.
+    //
+    // Only null and undefined substitute. An empty string passes straight
+    // through untouched, deliberately: the column is nullable and
+    // locations-panel.tsx writes `address.trim() || null`, so '' is not a
+    // value this path has to launder, and laundering it here would put the
+    // decision in two places.
+    collectAddress: (row.collect_address as string | null) ?? null,
+    // Same `?? null` and for the same two reasons: a client shipped ahead of
+    // its database sees no `collect_neighborhood` column at all, and undefined
+    // must arrive as the null a shop with a blank field already produces
+    // rather than as a third state. '' still passes through untouched --
+    // locations-panel.tsx writes `neighborhood.trim() || null`, and
+    // collectLocation drops empty parts anyway.
+    collectNeighborhood: (row.collect_neighborhood as string | null) ?? null,
     paymentMode: row.payment_mode,
     flyers: flyersOf(row.flyers),
     // Boolean(...), same guard `offersDelivery` uses two lines up: a client

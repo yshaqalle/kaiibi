@@ -35,6 +35,7 @@ function renderForm(opts?: {
   onSubmit?: jest.Mock;
   submitting?: boolean;
   whatsappE164?: string | null;
+  collectLocation?: string | null;
 }) {
   const onSubmit = opts?.onSubmit ?? jest.fn();
   let tree!: ReactTestRenderer;
@@ -47,6 +48,7 @@ function renderForm(opts?: {
         areas={opts?.areas ?? areas}
         submitting={opts?.submitting ?? false}
         whatsappE164={opts?.whatsappE164 ?? null}
+        collectLocation={opts?.collectLocation ?? null}
         onSubmit={onSubmit}
       />,
     );
@@ -234,19 +236,75 @@ describe('CheckoutForm', () => {
     expect(t).toContain('$30.00'); // 22.00 + 8.00
   });
 
-  // ── Property 4: collection-only shops render no area fields at all ─────
+  // ── Property 4: Deliver is OMITTED when unavailable, never disabled ─────
+  //
+  // These two tests used to assert that the COLLECT button was absent too,
+  // which is the defect this task fixes rather than a property worth keeping:
+  // the whole block sat behind `canDeliver`, so a collection-only shop was
+  // shown no choice at all and its order went through as a pick-up nobody was
+  // told about. Property 4's real rule -- no "Deliver" choice unless the shop
+  // both offers delivery AND has priced an area -- is untouched below, and
+  // every assertion that encoded it is still here.
+  //
+  // Each negative is now PAIRED with a positive. On its own,
+  // `deliver -> length 0` passes just as happily when the form failed to
+  // render anything at all, which is precisely the bug it would need to catch.
 
-  it('renders no fulfilment choice or area fields when the shop does not offer delivery', () => {
+  it('offers store pick-up, and omits Deliver, when the shop does not offer delivery', () => {
     const { tree } = renderForm({ offersDelivery: false });
     expect(findByTestId(tree, 'checkout-form-fulfilment-deliver')).toHaveLength(0);
-    expect(findByTestId(tree, 'checkout-form-fulfilment-collect')).toHaveLength(0);
+    expect(findByTestId(tree, 'checkout-form-fulfilment-collect').length).toBeGreaterThan(0);
     expect(findByTestId(tree, 'checkout-form-landmark-input')).toHaveLength(0);
   });
 
-  it('renders no fulfilment choice or area fields when the shop offers delivery but lists no areas', () => {
+  it('offers store pick-up, and omits Deliver, when the shop offers delivery but lists no areas', () => {
     const { tree } = renderForm({ offersDelivery: true, areas: [] });
     expect(findByTestId(tree, 'checkout-form-fulfilment-deliver')).toHaveLength(0);
-    expect(findByTestId(tree, 'checkout-form-fulfilment-collect')).toHaveLength(0);
+    expect(findByTestId(tree, 'checkout-form-fulfilment-collect').length).toBeGreaterThan(0);
+  });
+
+  it('offers both choices when the shop delivers and has priced an area', () => {
+    const { tree } = renderForm({ offersDelivery: true, areas: [{ name: 'Koodbuur', feeCents: 500 }] });
+    expect(findByTestId(tree, 'checkout-form-fulfilment-collect').length).toBeGreaterThan(0);
+    expect(findByTestId(tree, 'checkout-form-fulfilment-deliver').length).toBeGreaterThan(0);
+  });
+
+  it('names the place the customer is collecting from', () => {
+    const { tree } = renderForm({
+      offersDelivery: false,
+      areas: [],
+      collectLocation: 'Shop 12, Bakaaro Market, Hargeisa',
+    });
+    expect(texts(tree).some((t) => /Shop 12, Bakaaro Market, Hargeisa/.test(t))).toBe(true);
+  });
+
+  // The line is composed upstream (collectLocation, storefront-collect.ts) and
+  // is null only when the shop has neither an address nor a city. The choice
+  // still renders -- losing the address must never lose the option.
+  it('still shows the pick-up option when there is no place to name', () => {
+    const { tree } = renderForm({ offersDelivery: false, areas: [], collectLocation: null });
+    expect(findByTestId(tree, 'checkout-form-fulfilment-collect').length).toBeGreaterThan(0);
+    expect(texts(tree).some((t) => /Collect from/.test(t))).toBe(false);
+  });
+
+  // A dangling "Collect from" with nothing after it is the failure mode this
+  // whole composition exists to avoid.
+  it('never renders a "Collect from" label with nothing after it', () => {
+    const { tree } = renderForm({ offersDelivery: false, areas: [], collectLocation: null });
+    expect(texts(tree).some((t) => /Collect from\s*$/.test(t))).toBe(false);
+  });
+
+  // The pick-up line belongs to pick-up. Switching to delivery must take it
+  // away, or the page names a counter for an order coming to the door.
+  it('drops the pick-up line once the customer chooses delivery', () => {
+    const { tree } = renderForm({
+      offersDelivery: true,
+      areas: [{ name: 'Koodbuur', feeCents: 500 }],
+      collectLocation: 'Shop 12, Bakaaro Market, Hargeisa',
+    });
+    expect(texts(tree).some((t) => /Bakaaro Market/.test(t))).toBe(true);
+    press(tree, 'checkout-form-fulfilment-deliver');
+    expect(texts(tree).some((t) => /Bakaaro Market/.test(t))).toBe(false);
   });
 
   it('always submits collect-only orders as collect when the shop offers no delivery', () => {

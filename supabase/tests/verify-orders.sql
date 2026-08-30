@@ -87,7 +87,25 @@
 --   32.  an internal failure surfaces as a fixed, generic message: no
 --        constraint name, no shop id, nothing the customer cannot act on.
 --   33.  a de-entitled shop stops taking orders, refused identically to 27.
---        Left last because it moves the storefront shop onto the Free plan.
+--        Left last of the checks that use the storefront shop, because it
+--        moves that shop onto the Free plan.
+--
+-- ── get_public_storefront's pick-up address (20261010000100) ────────────
+--
+--   34.  the public page can say WHERE to collect from. A shop that does not
+--        deliver renders no fulfilment choice at all (checkout-form.tsx), so
+--        the order is placed as a collection the customer was never told
+--        about, to an address they were never given. This asserts the RPC
+--        carries the PRIMARY location's address, that a shop which has not
+--        filled one in gets null rather than a sibling branch's address or
+--        an empty string, and that `is_primary` beats `created_at` -- proven
+--        with a decoy location inserted FIRST, so dropping `is_primary desc`
+--        from the ordering makes this red rather than leaving it green.
+--
+--        It builds its own shop. Check 33 above takes the storefront module
+--        off v_store_id, and get_public_storefront returns nothing for a shop
+--        without it -- a check that borrowed that shop would be asserting
+--        against zero rows.
 
 \set ON_ERROR_STOP on
 
@@ -122,6 +140,11 @@ declare
   v_msg_unknown  text;  -- check 27's shared "this shop is not taking orders"
   v_msg_draft    text;
   v_msg_internal text;
+  -- Check 34's own fixture. Not v_store_id: check 33 takes that shop off the
+  -- plan, and this check has to read a page that is still public.
+  v_collect_id   uuid;   -- collection-only, published, entitled
+  v_collect_addr text;
+  v_collect_hood text;
   -- Keep in step with the constants of the same name in
   -- 20260927000000_place_order.sql. They are duplicated here on purpose: a
   -- test that reads the limit out of the function under test would pass
@@ -993,6 +1016,124 @@ begin
   if v_msg_draft <> v_msg_unknown then
     raise exception 'FAIL: a de-entitled shop answers with its own distinct message (% vs %)',
       v_msg_draft, v_msg_unknown;
+  end if;
+
+  -- ------------------------------------------------ 34. the public storefront says where to collect from
+  -- A COLLECTION-ONLY shop, which is the case the whole thing exists for:
+  -- offers_delivery false, so checkout-form.tsx renders no fulfilment choice
+  -- and the customer is never told the order is a pick-up, let alone from
+  -- where.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Collect Only')
+    returning id into v_collect_id;
+  update public.shops set slug = 'collect-only' where id = v_collect_id;
+  insert into public.storefronts (shop_id, offers_delivery, published_at)
+    values (v_collect_id, false, now());
+
+  -- The DECOY GOES IN FIRST, on purpose. Both orderings the codebase uses for
+  -- "the shop's location" (complete_sale 20260908000300:182-186,
+  -- storefront-admin.ts's primaryLocation) are `is_primary desc, created_at
+  -- asc`. Inserting the non-primary branch earlier means created_at alone
+  -- would pick the WRONG one, so this check goes red if `is_primary desc` is
+  -- ever dropped from the ordering -- which a decoy inserted afterwards could
+  -- not detect.
+  -- Both branches carry a neighbourhood too, and DIFFERENT ones, so the pair
+  -- of columns can be caught coming off two different rows -- which is the
+  -- failure a subquery each (rather than one lateral) would allow the moment
+  -- `is_primary desc, created_at asc` ties.
+  insert into public.shop_locations (shop_id, name, address, neighborhood, is_primary)
+    values (v_collect_id, 'Warehouse', 'Unit 4, Airport Road', 'Airport', false);
+  insert into public.shop_locations (shop_id, name, address, neighborhood, is_primary)
+    values (v_collect_id, 'Main', 'Shop 12, Bakaaro Market', 'Jigjiga Yar', true);
+
+  -- The column first, named, so the red state reads as the missing feature
+  -- rather than as a bare "column does not exist" from the query below.
+  -- proargmodes 't' is an OUT column of a `returns table`.
+  if not exists (
+    select 1
+    from pg_proc p, unnest(p.proargnames, p.proargmodes) as a(argname, argmode)
+    where p.oid = 'public.get_public_storefront(text)'::regprocedure
+      and a.argmode = 't'
+      and a.argname = 'collect_address'
+  ) then
+    raise exception 'FAIL 34: get_public_storefront returns no collect_address column -- a collection-only shop still cannot say where the goods will be waiting';
+  end if;
+
+  -- And the neighbourhood, which for nearly every shop is the ONLY one of the
+  -- two that holds anything: `address` is written only by an owner who went
+  -- looking for the optional field, while `neighborhood` is carried forward
+  -- for every shop by 20260808000000:134-135's backfill and by createShop
+  -- (src/lib/shops.ts:132) from signup's "area" box. Without it the pick-up
+  -- line degrades from a street straight to a city.
+  if not exists (
+    select 1
+    from pg_proc p, unnest(p.proargnames, p.proargmodes) as a(argname, argmode)
+    where p.oid = 'public.get_public_storefront(text)'::regprocedure
+      and a.argmode = 't'
+      and a.argname = 'collect_neighborhood'
+  ) then
+    raise exception 'FAIL 34: get_public_storefront returns no collect_neighborhood column -- the common shop, which has no street address, can still only name its city';
+  end if;
+
+  -- count first: `max()` over ZERO rows is also null, so asserting the value
+  -- alone would let a page that returns nothing at all pass the null case
+  -- below.
+  select count(*), max(g.collect_address), max(g.collect_neighborhood)
+    into v_count, v_collect_addr, v_collect_hood
+    from public.get_public_storefront('collect-only') g;
+  if v_count <> 1 then
+    raise exception 'FAIL 34: get_public_storefront returned % rows for a published collection-only shop', v_count;
+  end if;
+  if v_collect_addr is distinct from 'Shop 12, Bakaaro Market' then
+    raise exception 'FAIL 34: the pick-up address was % -- expected the PRIMARY location''s (Shop 12, Bakaaro Market)',
+      coalesce(quote_literal(v_collect_addr), 'null');
+  end if;
+  -- The neighbourhood off that SAME primary row -- 'Airport' here would mean
+  -- the two columns came from two different branches and the composed line
+  -- describes a place that does not exist.
+  if v_collect_hood is distinct from 'Jigjiga Yar' then
+    raise exception 'FAIL 34: the pick-up neighbourhood was % -- expected the PRIMARY location''s (Jigjiga Yar); ''Airport'' would mean the address and the neighbourhood came off different branches',
+      coalesce(quote_literal(v_collect_hood), 'null');
+  end if;
+
+  -- A shop that has not filled its address in. null is the real answer: the
+  -- pick-up line renders without an address rather than with an empty one,
+  -- and it must NOT quietly fall through to another branch's address -- the
+  -- Warehouse row is still there, and sending a customer to the wrong door is
+  -- worse than sending them to none.
+  update public.shop_locations set address = null
+    where shop_id = v_collect_id and is_primary;
+  select count(*), max(g.collect_address), max(g.collect_neighborhood)
+    into v_count, v_collect_addr, v_collect_hood
+    from public.get_public_storefront('collect-only') g;
+  if v_count <> 1 then
+    raise exception 'FAIL 34: get_public_storefront returned % rows once the address was cleared', v_count;
+  end if;
+  if v_collect_addr is not null then
+    raise exception 'FAIL 34: a shop with no address on its primary location answered % -- expected null, not an empty line and not another branch',
+      quote_literal(v_collect_addr);
+  end if;
+  -- THE COMMON SHOP, and the case the neighbourhood column exists for: no
+  -- street address on file, and the line still names somewhere rather than
+  -- falling all the way back to the city.
+  if v_collect_hood is distinct from 'Jigjiga Yar' then
+    raise exception 'FAIL 34: a shop with no street address answered neighbourhood % -- expected it to still name Jigjiga Yar, since that is all most shops will ever have',
+      coalesce(quote_literal(v_collect_hood), 'null');
+  end if;
+
+  -- And null once THAT is cleared too, for the same reason the address is
+  -- null-not-empty: nothing renders rather than a blank line, and it must not
+  -- fall through to the Warehouse branch's 'Airport'.
+  update public.shop_locations set neighborhood = null
+    where shop_id = v_collect_id and is_primary;
+  select count(*), max(g.collect_neighborhood)
+    into v_count, v_collect_hood
+    from public.get_public_storefront('collect-only') g;
+  if v_count <> 1 then
+    raise exception 'FAIL 34: get_public_storefront returned % rows once the neighbourhood was cleared too', v_count;
+  end if;
+  if v_collect_hood is not null then
+    raise exception 'FAIL 34: a shop with neither address nor neighbourhood answered % -- expected null, not another branch''s',
+      quote_literal(v_collect_hood);
   end if;
 
   raise notice 'PASS: orders schema';
