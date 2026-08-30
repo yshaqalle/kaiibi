@@ -263,6 +263,22 @@
   .badlabel.now{background:rgba(215,43,62,.13);color:#b21f30;}
   .badlabel.fix{background:rgba(0,131,64,.14);color:#0b7a44;}
 
+  /* ── roadmap ──────────────────────────────────────────────────── */
+  .road{display:grid;gap:10px;margin-top:18px;}
+  .rd{display:grid;grid-template-columns:98px 1fr auto;gap:14px;align-items:start;
+      border:1px solid var(--ln);border-radius:14px;padding:14px 16px;background:var(--sf);}
+  @media (max-width:640px){ .rd{grid-template-columns:1fr;} }
+  .rd .st{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    padding:4px 9px;border-radius:999px;text-align:center;white-space:nowrap;align-self:start;}
+  .rd .st.ship{background:rgba(0,131,64,.14);color:#0b7a44;}
+  .rd .st.next{background:rgba(47,107,255,.14);color:#1b47b8;}
+  .rd .st.then{background:rgba(119,119,127,.15);color:var(--mut);}
+  .rd .st.hold{background:transparent;color:var(--mut);border:1px dashed var(--ln);}
+  .rd b{font-size:14.5px;font-weight:800;display:block;letter-spacing:-.01em;}
+  .rd p{margin:4px 0 0;font-size:13px;color:var(--ink2);line-height:1.5;}
+  .rd .mig{font-size:11px;font-weight:750;color:var(--mut);white-space:nowrap;align-self:center;}
+  .rd.done{opacity:.62;}
+
   .errbar{background:var(--dnw);border-radius:14px;padding:12px 14px;font-size:12.5px;color:var(--dni);
     font-weight:650;line-height:1.45;display:flex;gap:9px;}
   .errbar code{background:rgba(215,43,62,.10);padding:1px 5px;border-radius:4px;font-size:11.5px;}
@@ -288,13 +304,79 @@
     showing exactly what changed, settles the rest on WhatsApp, and carries on. Every piece below exists to
     serve that one sentence.
   </p>
-  <p class="note" style="max-width:70ch;margin-bottom:26px;">
-    <b class="k">Updated 2026-08-29.</b> Two things arrived after the first draft. <b class="k">Part 0</b>
-    is now drawn — the two defects that block this journey before any of it matters, and the only one of
-    them with a customer-facing screen. And the share link is <b class="k">derived, not written</b>, after
-    #108 landed on main: two surfaces had each hand-built <code>&lt;slug&gt;.kaiibi.com</code>, which has
-    no DNS record, so shops were copying an address that failed for every customer they sent it to.
-  </p>
+  <section style="margin-top:34px;">
+    <h2>Where this stands</h2>
+    <p class="h2sub">Part 0 shipped as #110 while the rest was being drawn. Everything below it is still
+      unbuilt, and the Orders screen itself is untouched — <code>orders.tsx</code> is not in that PR.</p>
+
+    <div class="road">
+      <div class="rd done">
+        <span class="st ship">Shipped #110</span>
+        <div>
+          <b>Part 0 · No till required, and pick-up is visible</b>
+          <p>A shop with <code>require_open_register</code> set could not complete a single online
+            order; store pick-up rendered no choice at all and never gave an address. Both fixed —
+            and the register skip ships as a <em>provenance mark</em>, not the parameter this
+            document originally specified. See the last tab.</p>
+        </div>
+        <span class="mig">2 migrations</span>
+      </div>
+
+      <div class="rd">
+        <span class="st next">Next</span>
+        <div>
+          <b>Part 1 · The Orders screen, brought up to standard</b>
+          <p>The stat strip, search, sortable headers, the Waiting column, one inline next-action per
+            row, shortfall flags, the delivery split on the row, the stage rail and the reconciliation
+            block. <b class="k">No migration, no new security surface</b> — it reads data already
+            fetched. This is the ask this whole document started from, and it ships alone.</p>
+        </div>
+        <span class="mig">no migration</span>
+      </div>
+
+      <div class="rd">
+        <span class="st then">Then</span>
+        <div>
+          <b>Part 2 · <code>amend_order</code></b>
+          <p>The primitive everything else leans on, and the one that pays for itself: today a shop
+            that is short on stock can only cancel the whole order. Alone it turns a dead end into
+            "reduce and complete".</p>
+        </div>
+        <span class="mig">migration</span>
+      </div>
+
+      <div class="rd">
+        <span class="st then">Then</span>
+        <div>
+          <b>Part 3 · The customer's link</b>
+          <p>A page the customer can open — the stage rail, the diff after an amendment, and one tap
+            to confirm. Most opens will be "where is my order?", which is what actually kills the
+            phone call.</p>
+        </div>
+        <span class="mig">migration</span>
+      </div>
+
+      <div class="rd">
+        <span class="st hold">Hold</span>
+        <div>
+          <b>Part 4 · <code>split_order</code></b>
+          <p>Send what you have, keep the rest as a new linked order. Genuinely optional — "tell them
+            to reorder" is a workable answer in a small shop, and splitting adds order-number sprawl.
+            Build it when a shop asks.</p>
+        </div>
+        <span class="mig">migration</span>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:18px;">
+      <b class="k">One rule now binds every migration below</b>, learned from Part 0 and written into the
+      spec's constraints: <b class="k">a default is not an enforcement</b>. A function granted to
+      <code>authenticated</code> is exposed over PostgREST, so every parameter it declares is a field the
+      client can send — <code>amend_order</code>, <code>get_public_order</code>,
+      <code>confirm_public_order</code> and <code>split_order</code> would all have inherited the
+      mistake Part 0 caught.
+    </p>
+  </section>
 
   <section>
     <h2>What "basic" actually is</h2>
@@ -387,7 +469,7 @@
       <button role="tab" aria-selected="false" data-pane="p-sheet">The order sheet</button>
       <button role="tab" aria-selected="false" data-pane="p-amend">Amend &amp; partial fill</button>
       <button role="tab" aria-selected="false" data-pane="p-share">The customer's link</button>
-      <button role="tab" aria-selected="false" data-pane="p-part0">Pick-up &amp; the till</button>
+      <button role="tab" aria-selected="false" data-pane="p-part0">Pick-up &amp; the till ✓ shipped</button>
     </div>
 
     <!-- ══════════════ AFTER · 1280 ══════════════ -->
@@ -1169,7 +1251,14 @@
     </div>
     <!-- ══════════════ PART 0 ══════════════ -->
     <div class="pane" id="p-part0" hidden>
-      <div class="frameHead"><b>Two defects that block the journey before any of the above matters</b><i>Part 0 · ships first</i></div>
+      <div class="frameHead"><b>Two defects that blocked the journey before any of the above mattered</b><i>Part 0 · SHIPPED as #110</i></div>
+      <div class="caveat" style="background:rgba(0,131,64,.10);color:#0b7a44;max-width:none;">
+        <span class="ic">✓</span>
+        <span><b>This is built and merged.</b> The frames below are the before/after as designed, kept
+        because they are the record of what changed. One thing shipped differently and it matters: the
+        register skip is <b>not</b> the <code>p_require_register</code> parameter this document first
+        specified — see the note under 0a.</span>
+      </div>
 
       <h3 style="font-size:17px;margin:26px 0 4px;">0b · Store pick-up is invisible exactly when it is the only option</h3>
       <p class="note" style="margin-bottom:16px;">
@@ -1376,6 +1465,36 @@
         <div class="an"><div class="no">4</div><div>Nothing above is a screen change — 0a is a guard
           that stops firing. The only visible difference is that a button which always failed now
           works, which is why it is drawn as the error it removes.</div></div>
+      </div>
+
+      <div class="caveat" style="background:var(--dnw);color:var(--dni);max-width:none;margin-top:18px;">
+        <span class="ic">✕</span>
+        <span><b>What shipped is not what this document first specified, and the difference is a
+        security hole.</b> The original design gave <code>complete_sale</code> a
+        <code>p_require_register boolean default true</code> parameter, arguing the default left every
+        prior caller unchanged. <b>That argument was the mistake.</b> <code>complete_sale</code> is
+        granted to <code>authenticated</code> and exposed over PostgREST, so the parameter was a field
+        any member with <code>pos.access</code> could put in a JSON body.</span>
+      </div>
+
+      <div class="annot">
+        <div class="an"><div class="no">!</div><div>Reproduced against the live database with a real
+          JWT, at a shop with <code>require_open_register</code> set:
+          <b class="k">default → refused</b>; <b class="k"><code>=> false</code> → accepted</b>, the
+          setting defeated; <b class="k"><code>=> null</code> → accepted</b> too, because
+          <code>if NULL and …</code> is NULL so the guard never fires at all. Both were one extra JSON
+          field, and the null case would survive a review that only thought about <code>false</code>.</div></div>
+        <div class="an"><div class="no">✓</div><div><b class="k">What shipped instead:</b> no parameter,
+          <code>complete_sale</code>'s signature unchanged at fifteen arguments, and the skip read off a
+          <b class="k">provenance mark</b> — <code>storefront_order_fulfilments</code>, stamped
+          <code>pg_current_xact_id()</code> by <code>complete_storefront_order</code> as
+          <code>security definer</code>, reusing the pattern
+          <code>20260928000500</code> already established rather than inventing a third.
+          <em>"Only function X may do this" is a provenance question, not a parameter.</em></div></div>
+        <div class="an"><div class="no">→</div><div>This is now constraint 11 in the spec, because
+          <code>amend_order</code>, <code>split_order</code>, <code>get_public_order</code> and
+          <code>confirm_public_order</code> are all still unbuilt and every one of them would have
+          inherited it.</div></div>
       </div>
     </div>
   </section>
