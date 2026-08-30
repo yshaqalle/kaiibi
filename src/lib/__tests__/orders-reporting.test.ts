@@ -50,6 +50,10 @@ describe('orderStats', () => {
     order({ id: 'd', status: 'ready',     totalCents: 19000 }),
     order({ id: 'e', status: 'completed', totalCents: 8600 }),
     order({ id: 'f', status: 'cancelled', totalCents: 2800 }),
+    // g is accepted and 360m old -- older than b (240m) but not pending, so it
+    // must NOT be the answer to "oldest pending". Without this, the test cannot
+    // tell "oldest pending" from "oldest open" or "oldest anything".
+    order({ id: 'g', status: 'accepted', totalCents: 5000, createdAt: '2026-08-29T06:00:00Z' }), // 360m
   ];
 
   it('counts only pending orders as needing attention', () => {
@@ -65,8 +69,8 @@ describe('orderStats', () => {
   // including either would make the caveat under this tile untrue.
   it('sums open orders only -- pending, accepted and ready', () => {
     const s = orderStats(orders, NOW);
-    expect(s.openCount).toBe(4);
-    expect(s.openCents).toBe(4750 + 1200 + 12800 + 19000);
+    expect(s.openCount).toBe(5);
+    expect(s.openCents).toBe(4750 + 1200 + 12800 + 19000 + 5000);
   });
 
   it('reports ready separately, since that is money sitting on a shelf', () => {
@@ -82,9 +86,9 @@ describe('orderStats', () => {
     // open (it was never accepted) and not folded into converted (it never
     // shipped). A plain toContain on a number asserts nothing; these two
     // inequalities are what would actually catch a leak.
-    expect(s.openCents).not.toBe(4750 + 1200 + 12800 + 19000 + 2800);
+    expect(s.openCents).not.toBe(4750 + 1200 + 12800 + 19000 + 5000 + 2800);
     expect(s.convertedCents).not.toBe(8600 + 2800);
-    expect(s.openCents + s.convertedCents).toBe(4750 + 1200 + 12800 + 19000 + 8600);
+    expect(s.openCents + s.convertedCents).toBe(4750 + 1200 + 12800 + 19000 + 5000 + 8600);
   });
 
   it('has no oldest wait when nothing is pending', () => {
