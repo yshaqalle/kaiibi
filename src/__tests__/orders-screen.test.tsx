@@ -22,7 +22,7 @@ jest.mock('@/hooks/use-auth', () => ({
 import { OrderDetail } from '@/components/orders/order-detail';
 import { StatTile } from '@/components/stat-tile';
 import { Caveat } from '@/components/ui/caveat';
-import { DataTable } from '@/components/ui/data-table';
+import { DataTable, ValueCell } from '@/components/ui/data-table';
 import { useAuth } from '@/hooks/use-auth';
 import {
   acceptOrder,
@@ -710,6 +710,12 @@ describe('Orders screen', () => {
   // permitted-moves table -- so a shop working the counter accepts four
   // orders without opening four sheets.
   describe('the inline next action', () => {
+    function nextColumn(tree: ReactTestRenderer) {
+      const column = tree.root.findByType(DataTable).props.columns.find((c: { key: string }) => c.key === 'next');
+      if (!column) throw new Error('no "next" column on the table');
+      return column;
+    }
+
     it('offers Accept on a new order', async () => {
       const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
       expect(findByLabel(tree, 'Accept order 1042')).toBeTruthy();
@@ -746,6 +752,37 @@ describe('Orders screen', () => {
       expect(labelsMatching(tree, /accept|ready|complete/i)).toEqual([]);
       pressChip(tree, 'Cancelled');
       expect(labelsMatching(tree, /accept|ready|complete/i)).toEqual([]);
+    });
+
+    // A control that can never work must not be drawn as one that might
+    // (columnsFor's own comment, orders.tsx) -- the row's `render` must
+    // actually reach for the em dash, not merely stop short of a button. A
+    // test asserting only the button's absence (the two tests above) would
+    // still pass if this branch returned `null` instead.
+    it('renders the em dash itself, as a ValueCell, on a completed row', async () => {
+      const tree = await renderScreen([makeOrder({ id: 'o-done', number: 1037, status: 'completed' })]);
+      pressChip(tree, 'Done');
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      expect(row.id).toBe('o-done');
+      const cell = nextColumn(tree).render(row);
+      expect(cell).toBeTruthy();
+      expect(cell.type).toBe(ValueCell);
+      expect(cell.props.value).toBe('—');
+      expect(cell.props.tone).toBe('muted');
+    });
+
+    it('renders the em dash itself, as a ValueCell, on a cancelled row', async () => {
+      const tree = await renderScreen([
+        makeOrder({ id: 'o-cancelled', number: 1036, status: 'cancelled', cancellationReason: 'Out of stock' }),
+      ]);
+      pressChip(tree, 'Cancelled');
+      const row = tree.root.findByType(DataTable).props.rows[0];
+      expect(row.id).toBe('o-cancelled');
+      const cell = nextColumn(tree).render(row);
+      expect(cell).toBeTruthy();
+      expect(cell.type).toBe(ValueCell);
+      expect(cell.props.value).toBe('—');
+      expect(cell.props.tone).toBe('muted');
     });
 
     it('never offers Cancel inline, because cancelling needs a typed reason', async () => {
@@ -816,6 +853,38 @@ describe('Orders screen', () => {
       // reaches `actionError`, the point under test is that it reaches the
       // SCREEN, not just the (unmounted) sheet.
       expect(caveat?.props.children).toBe('boom');
+    });
+
+    // Finding 1: a `wrong` caveat with no action trains people to ignore the
+    // whole family (caveat.tsx's own doc comment) -- the caveat above must
+    // not just APPEAR, it must give the shop something to do. "Try again"
+    // replays the exact move that failed (Accept, on the same order), and a
+    // successful retry clears the caveat rather than leaving a stale banner
+    // up once the thing it complained about is no longer true.
+    it('offers a retry on the failed-inline-action caveat that replays the same move and clears on success', async () => {
+      (orderErrorMessage as jest.Mock).mockReturnValue(undefined);
+      (acceptOrder as jest.Mock).mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(undefined);
+      const tree = await renderScreen([makeOrder({ number: 1042, status: 'pending' })]);
+
+      await act(async () => {
+        press(findByLabel(tree, 'Accept order 1042')!);
+      });
+
+      const caveat = tree.root.findAllByType(Caveat).find((c) => c.props.tone === 'wrong');
+      expect(caveat).toBeTruthy();
+      expect(caveat?.props.action?.label).toBe('Try again');
+
+      await act(async () => {
+        caveat!.props.action.onPress();
+      });
+
+      // The same order, the same move -- not a fresh accept call the shop
+      // never asked for.
+      expect(acceptOrder).toHaveBeenCalledTimes(2);
+      expect(acceptOrder).toHaveBeenNthCalledWith(2, 'order-1');
+      // The retry succeeded, so the caveat that complained about the first
+      // failure must be gone -- not still sitting there with a stale "boom".
+      expect(tree.root.findAllByType(Caveat).find((c) => c.props.tone === 'wrong')).toBeFalsy();
     });
 
     // M4: a fast double-tap must not fire the underlying move twice.

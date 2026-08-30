@@ -235,6 +235,13 @@ function OrdersScreen() {
   // means nothing is mid-flight and every row's action is live.
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // The order + move an inline row action last failed on, so the caveat
+  // below (no sheet open to retry from) can offer "Try again" rather than
+  // leaving a shop with a banner and no way to finish what they started.
+  // `null` whenever nothing inline has failed, or the last inline failure
+  // was superseded by a later attempt succeeding -- see runRowAction.
+  const [failedRowAction, setFailedRowAction] = useState<ShopOrder | null>(null);
+
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
@@ -301,14 +308,18 @@ function OrdersScreen() {
   // reflects the move) and close the sheet. A failure surfaces on the sheet
   // itself and leaves it open -- a shop mid-cancellation must not lose what
   // it typed to a network blip.
+  // Returns whether the move succeeded -- runRowAction (below) needs that to
+  // know whether to remember the row for a retry, since this function
+  // already swallows the error into `actionError` rather than rethrowing it.
   const runAction = useCallback(
-    async (fn: () => Promise<void>, fallback: string) => {
+    async (fn: () => Promise<void>, fallback: string): Promise<boolean> => {
       setActionSubmitting(true);
       setActionError(null);
       try {
         await fn();
         await reload();
         closeDetail();
+        return true;
       } catch (err) {
         // B1: every typed error the database raises (transition_order,
         // complete_storefront_order) reaches this catch as a raw snake_case
@@ -318,6 +329,7 @@ function OrdersScreen() {
         // second, for the order-specific codes this feature raises; the
         // per-action fallback last, for anything neither recognises.
         setActionError(describePlanError(err) ?? orderErrorMessage(err) ?? extractErrorMessage(err, fallback));
+        return false;
       } finally {
         setActionSubmitting(false);
       }
@@ -343,9 +355,15 @@ function OrdersScreen() {
       // the only in-flight row action.
       setBusyId(order.id);
       const move = order.status === 'pending' ? () => acceptOrder(order.id) : () => markOrderReady(order.id);
-      runAction(move, order.status === 'pending' ? 'Could not accept this order.' : 'Could not mark this order ready.').finally(() => {
-        setBusyId(null);
-      });
+      runAction(move, order.status === 'pending' ? 'Could not accept this order.' : 'Could not mark this order ready.')
+        // Remember this row on failure -- "Try again" below replays the same
+        // move on the same order. A success (including a retry's success)
+        // clears it, so the caveat's own action never outlives the failure
+        // that produced it.
+        .then((ok) => setFailedRowAction(ok ? null : order))
+        .finally(() => {
+          setBusyId(null);
+        });
     },
     [openDetail, runAction]
   );
@@ -471,8 +489,24 @@ function OrdersScreen() {
             explanation. Gated on `!selectedOrder` so a failure that DOES
             happen with the sheet open (Cancel, Complete, or Accept/Mark
             ready pressed from inside the sheet itself) is not shown twice --
-            OrderDetail already renders that copy of `actionError`. */}
-        {!selectedOrder && actionError ? <Caveat tone="wrong">{actionError}</Caveat> : null}
+            OrderDetail already renders that copy of `actionError`.
+
+            Gated on `failedRowAction` too, not just `actionError` -- a
+            `wrong` caveat with no action trains people to ignore the whole
+            family (caveat.tsx's own doc comment), and every other
+            `tone="wrong"` site in this codebase pairs it with one. The
+            shop's actual goal was to accept or ready this order, so "Try
+            again" replays that exact move rather than just dismissing the
+            banner and leaving the order stuck. `failedRowAction` and
+            `actionError` are set together (runRowAction's `.then`, right
+            after runAction's own catch) and cleared together (a later
+            success clears both), so this can only be non-null here for a
+            failure that actually came from an inline row action. */}
+        {!selectedOrder && failedRowAction && actionError ? (
+          <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => runRowAction(failedRowAction) }}>
+            {actionError}
+          </Caveat>
+        ) : null}
 
         <BentoCard title="Orders" scope={`${filteredOrders.length} order${filteredOrders.length === 1 ? '' : 's'}`} bodyStyle={styles.tableBody}>
           {error ? (
