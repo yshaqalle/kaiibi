@@ -1,6 +1,8 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { ProductActions } from '@/components/storefront/theme-shared';
+import { TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
@@ -22,6 +24,10 @@ type Props = {
   // component, and every other storefront component reaches its data this
   // same prop-driven way (see ThemeProps).
   onAdd?: (product: StorefrontProduct) => void;
+  // Opens the product sheet -- the only place products.description has ever
+  // been rendered. Optional so a caller that has no sheet to open (every
+  // test predating it) still gets a tile, just a non-interactive one.
+  onOpen?: (product: StorefrontProduct) => void;
 };
 
 // The no-photo branch is not an error state.
@@ -31,11 +37,25 @@ type Props = {
 // working shop look abandoned. Setting the product name large on the soft tone
 // instead gives a tile that reads like a price label -- deliberate at a glance,
 // and legible on a phone, which is where nearly all of this traffic will be.
-export function ProductTile({ product, colors, shopName, whatsappE164, onAdd }: Props) {
+export function ProductTile({ product, colors, shopName, whatsappE164, onAdd, onOpen }: Props) {
   const outOfStock = product.stock <= 0;
 
+  // A View when there is nowhere to go, a Pressable when there is -- rather
+  // than a Pressable with a no-op onPress, which would report itself to a
+  // screen reader as a button that does nothing.
+  const Tile = onOpen ? Pressable : View;
+  const tileProps = onOpen
+    ? {
+        testID: 'product-tile-open',
+        accessibilityRole: 'button' as const,
+        accessibilityLabel: `${product.name}, ${formatCents(product.priceCents)}`,
+        onPress: () => onOpen(product),
+        style: pressable([styles.tile, { borderColor: colors.soft }]),
+      }
+    : { style: [styles.tile, { borderColor: colors.soft }] };
+
   return (
-    <View style={[styles.tile, { borderColor: colors.soft }]}>
+    <Tile {...tileProps}>
       {product.imageUrl ? (
         <Image source={{ uri: product.imageUrl }} style={styles.image} resizeMode="cover" />
       ) : (
@@ -74,7 +94,7 @@ export function ProductTile({ product, colors, shopName, whatsappE164, onAdd }: 
           <ProductActions product={product} colors={colors} shopName={shopName} whatsappE164={whatsappE164} onAdd={onAdd} />
         </View>
       </View>
-    </View>
+    </Tile>
   );
 }
 
@@ -85,12 +105,12 @@ const styles = StyleSheet.create({
   fallbackText: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   body: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 11 },
   name: { fontSize: 12.5, fontWeight: '700', lineHeight: 16, minHeight: 32 },
-  price: { fontSize: 15, fontWeight: '800', marginTop: 5 },
-  stock: { fontSize: 11, fontWeight: '700', marginTop: 1 },
+  price: { fontSize: TYPE.price, fontWeight: '800', marginTop: 5, ...TABULAR },
+  stock: { fontSize: TYPE.meta, fontWeight: '700', marginTop: 1 },
   // `alignSelf` keeps the pill hugging its own label rather than stretching
   // the full tile width -- a full-width bar would read as a banner, not a
   // status.
   stockPill: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, marginTop: 3 },
-  stockPillText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.2 },
+  stockPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.2 },
   actions: { marginTop: 8 },
 });

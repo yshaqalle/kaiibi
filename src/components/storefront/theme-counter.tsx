@@ -3,9 +3,12 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import {
-  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, ProductActions,
-  WhatsAppButton, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
+  NoSearchResults, ProductActions, SearchField, WhatsAppButton, useCheckoutFlow, useStorefrontCart,
+  type ThemeProps,
 } from '@/components/storefront/theme-shared';
+import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
+import { LETTER, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
@@ -41,6 +44,12 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
   // still in progress. Either way this entry point has to be here too.
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  // Counter renders no flyers and so has no category filter to compose
+  // with -- this is the only thing narrowing the list. It is also the theme
+  // that needs it most: 'a long catalogue with no photos' is what a shop
+  // picks Counter FOR.
+  const [query, setQuery] = useState('');
+  const shown = searchProducts(products, query);
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -104,6 +113,10 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
       {/* B6: the sticky CheckoutBar below floats over this scroll view and
           reserves no space of its own -- see theme-market.tsx's identical
           comment. */}
+      {shouldOfferSearch(products) ? (
+        <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
+      ) : null}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, itemCount > 0 && styles.scrollContentWithCheckoutBar]}
@@ -113,10 +126,12 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
         ) : null}
         {storefront.about ? <Text style={[styles.about, { color: colors.muted }]}>{storefront.about}</Text> : null}
 
-        {products.length === 0 ? (
-          <EmptyState colors={colors} />
+        {shown.length === 0 && query.trim() ? (
+          <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
+        ) : shown.length === 0 ? (
+          <EmptyState colors={colors} storefront={storefront} />
         ) : (
-          groupByCategory(products).map(([category, items]) => (
+          groupByCategory(shown).map(([category, items]) => (
             <View key={category} style={styles.section}>
               <Text style={[styles.sectionHead, { color: colors.accent }]}>{category.toUpperCase()}</Text>
               {items.map((p) => (
@@ -182,24 +197,24 @@ const styles = StyleSheet.create({
   // and `marginLeft: 'auto'` on `navActions` keeps that pair right-aligned
   // either way. `borderBottomWidth` is Counter's own treatment (Market and
   // Window have no border here) and stays untouched by this fix.
-  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: 14, gap: 12, borderBottomWidth: 2 },
+  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: SPACE.page, gap: SPACE.gap, borderBottomWidth: 2 },
   nameBlock: { flexShrink: 1 },
   navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24 },
   scrollContentWithCheckoutBar: { paddingBottom: 24 + CHECKOUT_BAR_CLEARANCE },
-  shopName: { fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
-  sub: { fontSize: 11.5 },
-  headline: { fontSize: 19, fontWeight: '700', paddingHorizontal: 14, paddingTop: 12 },
-  about: { fontSize: 13, paddingHorizontal: 14, paddingTop: 5 },
-  section: { paddingHorizontal: 14, paddingTop: 14 },
-  sectionHead: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
+  shopName: { fontSize: TYPE.name, fontWeight: '800', letterSpacing: 0.4 },
+  sub: { fontSize: TYPE.nameSub },
+  headline: { fontSize: TYPE.headline, fontWeight: '700', paddingHorizontal: SPACE.page, paddingTop: 12 },
+  about: { fontSize: TYPE.body, paddingHorizontal: SPACE.page, paddingTop: 5 },
+  section: { paddingHorizontal: SPACE.page, paddingTop: SPACE.page },
+  sectionHead: { fontSize: TYPE.meta, fontWeight: '800', letterSpacing: LETTER.metaWide },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1 },
   rowName: { flex: 1 },
-  name: { fontSize: 13.5, fontWeight: '600' },
+  name: { fontSize: TYPE.bodyDense, fontWeight: '600' },
   stateRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 3 },
-  state: { fontSize: 11.5, fontWeight: '600' },
+  state: { fontSize: TYPE.nameSub, fontWeight: '600' },
   statePill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  statePillText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.2 },
-  price: { fontSize: 14.5, fontWeight: '800' },
+  statePillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.2 },
+  price: { fontSize: TYPE.priceDense, fontWeight: '800', ...TABULAR },
 });

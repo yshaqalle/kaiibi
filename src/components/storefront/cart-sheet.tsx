@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { AppModal } from '@/components/ui/app-modal';
+import { TABULAR } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
 import type { PaletteColors } from '@/lib/storefront-catalog';
@@ -136,14 +137,14 @@ const styles = StyleSheet.create({
   line: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
   lineName: { flex: 1, minWidth: 0 },
   name: { fontSize: 14, fontWeight: '700' },
-  lineAmount: { fontSize: 12.5, marginTop: 2 },
+  lineAmount: { fontSize: 12.5, marginTop: 2, ...TABULAR },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 6 },
   stepButton: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   stepButtonText: { fontSize: 16, fontWeight: '800' },
-  qty: { minWidth: 18, textAlign: 'center', fontSize: 14, fontWeight: '800' },
+  qty: { minWidth: 18, textAlign: 'center', fontSize: 14, fontWeight: '800', ...TABULAR },
   subtotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14 },
   subtotalLabel: { fontSize: 14, fontWeight: '800' },
-  subtotalValue: { fontSize: 16, fontWeight: '800' },
+  subtotalValue: { fontSize: 16, fontWeight: '800', ...TABULAR },
   caveat: { fontSize: 12, marginTop: 8, lineHeight: 16 },
   checkout: { marginTop: 16, borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
   checkoutText: { fontSize: 14, fontWeight: '800' },

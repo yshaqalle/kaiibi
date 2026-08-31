@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
+import { SPACE, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -43,8 +44,75 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
   );
 }
 
-export function EmptyState({ colors }: { colors: PaletteColors }) {
-  return <Text style={[styles.empty, { color: colors.ink }]}>Nothing listed yet.</Text>;
+// Two different empties, and they must not say the same thing.
+//
+// This used to render one line -- "Nothing listed yet." -- for both of them: a
+// shop that has listed nothing, and a grid a flyer has just filtered down to a
+// category that happens to be sold out. The second case tells a customer
+// standing in front of a FULL catalogue that the shop is empty, which is both
+// wrong and a dead end.
+//
+// The shop-is-empty case is also the one place on this page where a full stop
+// is worst. Every other screen here exists to start a conversation, and this
+// one had a WhatsApp number in scope and declined to offer it.
+export function EmptyState({
+  colors, storefront, category, onClearCategory,
+}: {
+  colors: PaletteColors;
+  // Optional so the theme-level tests that predate this still type-check, and
+  // so a caller with no shop context degrades to the bare line rather than
+  // failing to render.
+  storefront?: PublicStorefront;
+  // Set only while a flyer's category filter is applied -- see filterByCategory.
+  category?: string | null;
+  onClearCategory?: () => void;
+}) {
+  if (category) {
+    return (
+      <View style={styles.emptyBlock}>
+        <Text style={[styles.emptyHead, { color: colors.ink }]}>Nothing in {category} right now.</Text>
+        <Text style={[styles.emptyBody, { color: colors.muted }]}>
+          The rest of the shop is still here.
+        </Text>
+        {onClearCategory ? (
+          <Pressable
+            testID="storefront-empty-clear-category"
+            accessibilityRole="button"
+            onPress={onClearCategory}
+            style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+          >
+            <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
+  const number = storefront?.whatsappE164;
+
+  return (
+    <View style={styles.emptyBlock}>
+      <Text style={[styles.emptyHead, { color: colors.ink }]}>Nothing listed yet.</Text>
+      {/* The second sentence is only true when there is somewhere to send
+          them -- promising "message us" with no number to message would be
+          the same dead end ProductActions refuses to render. */}
+      <Text style={[styles.emptyBody, { color: colors.muted }]}>
+        {number
+          ? "We're still putting the shop online. Message us and we'll tell you what's in today."
+          : "We're still putting the shop online. Check back shortly."}
+      </Text>
+      {number && storefront ? (
+        <Pressable
+          testID="storefront-empty-whatsapp"
+          accessibilityRole="link"
+          onPress={() => openExternalUrl(waLink(number, `Hello ${storefront.shopName}, what do you have in today?`))}
+          style={pressable(styles.emptyWa)}
+        >
+          <Text style={styles.emptyWaText}>Message on WhatsApp</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
 type ProductActionsProps = {
@@ -136,6 +204,77 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
     >
       <Text style={[styles.cartText, { color: colors.ground }]}>{count > 0 ? `Cart · ${count}` : 'Cart'}</Text>
     </Pressable>
+  );
+}
+
+// The way into a long catalogue. Renders only when there is enough of one to
+// be worth a control -- see shouldOfferSearch in storefront-search.ts.
+//
+// A plain TextInput and no submit button: the list filters as you type, so
+// there is nothing to submit, and a phone keyboard's own "search" key would
+// only dismiss itself. `clearButtonMode` is iOS-only, so the explicit Clear
+// below is what Android and web get -- and a filter with no visible way out
+// is the same dead end CategoryFilterBar exists to avoid.
+export function SearchField({
+  colors, value, onChange, count,
+}: {
+  colors: PaletteColors;
+  value: string;
+  onChange: (next: string) => void;
+  count: number;
+}) {
+  return (
+    <View style={styles.searchRow}>
+      <TextInput
+        testID="storefront-search"
+        accessibilityLabel={`Search ${count} items`}
+        placeholder={`Search ${count} items`}
+        placeholderTextColor={colors.muted}
+        value={value}
+        onChangeText={onChange}
+        autoCorrect={false}
+        autoCapitalize="none"
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+        style={[styles.search, { borderColor: colors.soft, color: colors.ink, backgroundColor: colors.ground }]}
+      />
+      {value.length > 0 ? (
+        <Pressable
+          testID="storefront-search-clear"
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
+          onPress={() => onChange('')}
+          style={pressable([styles.searchClear, { backgroundColor: colors.soft }])}
+        >
+          <Text style={[styles.searchClearText, { color: colors.ink }]}>Clear</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// What a search that found nothing should say. Distinct from both other
+// empties: the shop is not empty and no category is filtering -- the customer
+// simply typed something this shop does not stock, and the useful next move is
+// to ask rather than to keep typing.
+export function NoSearchResults({
+  colors, query, onClear,
+}: { colors: PaletteColors; query: string; onClear: () => void }) {
+  return (
+    <View style={styles.emptyBlock}>
+      <Text style={[styles.emptyHead, { color: colors.ink }]}>Nothing matches “{query}”.</Text>
+      <Text style={[styles.emptyBody, { color: colors.muted }]}>
+        Try a shorter word, or ask the shop — they may have it behind the counter.
+      </Text>
+      <Pressable
+        testID="storefront-search-empty-clear"
+        accessibilityRole="button"
+        onPress={onClear}
+        style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+      >
+        <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -528,6 +667,19 @@ const styles = StyleSheet.create({
   wa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   waText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
+  emptyBlock: { paddingHorizontal: 24, paddingVertical: 30, alignItems: 'center' },
+  emptyHead: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
+  emptyBody: { fontSize: 13, lineHeight: 19, marginTop: 7, textAlign: 'center', maxWidth: 320 },
+  emptyAction: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14 },
+  emptyActionText: { fontSize: 12.5, fontWeight: '800' },
+  // WhatsApp's own fixed colours, same as WhatsAppButton above -- never the
+  // shop's palette.
+  emptyWa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
+  emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page, paddingTop: 10 },
+  search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 10, fontSize: TYPE.body },
+  searchClear: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8 },
+  searchClearText: { fontSize: 12.5, fontWeight: '800' },
   cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   cartText: { fontSize: 12.5, fontWeight: '800' },
   filterChip: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14, marginTop: 12 },

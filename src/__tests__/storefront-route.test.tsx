@@ -569,3 +569,39 @@ describe('storefront route', () => {
     });
   });
 });
+
+// The loading state had no test at all, which is how a spinner on a white
+// screen survived as the first second of every visit. It is the slowest
+// moment in the whole flow -- the page arrives as a forwarded WhatsApp link,
+// opened in an in-app browser, on a phone -- so it is worth pinning.
+describe('while the shop is still loading', () => {
+  it('shows the page-shaped skeleton, never a bare spinner', async () => {
+    // A promise that never settles: the screen stays in `loading` for the
+    // whole assertion rather than racing the resolve.
+    (getPublicStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
+    (getPublicStorefrontProducts as jest.Mock).mockReturnValue(new Promise(() => {}));
+    (getPublicDeliveryAreas as jest.Mock).mockReturnValue(new Promise(() => {}));
+
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StorefrontScreen />);
+    });
+
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-skeleton').length).toBeGreaterThan(0);
+  });
+
+  // The missing-shop page must stay reachable and must keep saying nothing
+  // about whether the shop exists -- see this file's own header note on why
+  // a draft shop and a nonexistent one render identically.
+  it('still reaches the no-shop page once the read comes back empty', async () => {
+    (getPublicStorefront as jest.Mock).mockResolvedValue(null);
+
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StorefrontScreen />);
+    });
+
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-skeleton')).toHaveLength(0);
+    expect(textsIn(tree.toJSON()).join(' ')).toContain("no shop at this address");
+  });
+});

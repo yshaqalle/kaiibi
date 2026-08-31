@@ -1,8 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
 import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { StorefrontSkeleton } from '@/components/storefront/storefront-skeleton';
 import { StorefrontView } from '@/components/storefront/storefront-view';
 import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
@@ -64,13 +65,11 @@ export default function StorefrontScreen() {
     };
   }, [slug]);
 
-  if (state.status === 'loading') {
-    return (
-      <View style={styles.centre}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  // A spinner on white said nothing about whose page was loading or what
+  // shape it would be -- and this is the slowest moment in the whole flow.
+  // See storefront-skeleton.tsx on why it is neutral rather than in the
+  // shop's palette: the palette arrives with the fetch this is waiting on.
+  if (state.status === 'loading') return <StorefrontSkeleton />;
 
   if (state.status === 'missing') {
     return (

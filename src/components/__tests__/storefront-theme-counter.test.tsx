@@ -5,6 +5,7 @@ import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
 import { paletteColors } from '@/lib/storefront-catalog';
+import { SEARCH_THRESHOLD } from '@/lib/storefront-search';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -158,5 +159,62 @@ describe('ThemeCounter', () => {
 
     const addButtons = findByTestId(tree, 'product-tile-add');
     expect(addButtons).toHaveLength(1);
+  });
+});
+
+// The helper is unit-tested in storefront-search.test.ts; this asserts the
+// WIRING -- that Counter actually narrows its rows, and that the threshold
+// keeps the control off a short catalogue.
+describe('Counter search', () => {
+  const many: StorefrontProduct[] = Array.from({ length: SEARCH_THRESHOLD }, (_, i) => ({
+    id: `p${i}`,
+    name: i === 0 ? 'Paracetamol 500mg' : `Filler ${i}`,
+    description: null,
+    category: 'Analgesics',
+    priceCents: 250,
+    stock: 4,
+    imageUrl: null,
+  }));
+
+  it('offers no search box for a short catalogue', () => {
+    const tree = renderCounter(shop, many.slice(0, 3));
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-search')).toHaveLength(0);
+  });
+
+  it('narrows the rows to what was typed', () => {
+    const tree = renderCounter(shop, many);
+
+    const field = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-search' && typeof n.props?.onChangeText === 'function',
+    );
+    expect(field.length).toBeGreaterThan(0);
+
+    act(() => field[0].props.onChangeText('paracet'));
+
+    const texts = tree.root
+      .findAll((n) => n.props?.children !== undefined)
+      .flatMap((n) => [n.props.children].flat(Infinity))
+      .filter((c): c is string => typeof c === 'string');
+
+    expect(texts).toContain('Paracetamol 500mg');
+    expect(texts.some((t) => t.startsWith('Filler'))).toBe(false);
+  });
+
+  it('says nothing matched, rather than claiming the shop is empty', () => {
+    const tree = renderCounter(shop, many);
+    const field = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-search' && typeof n.props?.onChangeText === 'function',
+    );
+
+    act(() => field[0].props.onChangeText('bandage'));
+
+    const texts = tree.root
+      .findAll((n) => n.props?.children !== undefined)
+      .flatMap((n) => [n.props.children].flat(Infinity))
+      .filter((c): c is string => typeof c === 'string')
+      .join(' ');
+
+    expect(texts).toContain('bandage');
+    expect(texts).not.toContain('Nothing listed yet');
   });
 });

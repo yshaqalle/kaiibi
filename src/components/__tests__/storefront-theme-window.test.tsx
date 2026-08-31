@@ -2,6 +2,7 @@ import { AccessibilityInfo, type EmitterSubscription, FlatList } from 'react-nat
 import { act, create } from 'react-test-renderer';
 
 import { ThemeWindow } from '@/components/storefront/theme-window';
+import { SPACE } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
@@ -102,7 +103,10 @@ describe('ThemeWindow', () => {
   it('reserves no extra space while the cart is empty', async () => {
     const tree = await renderWindow('xamdi-window-b6-empty');
     const bottom = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
-    expect(bottom).toBe(16);
+    // The page gutter, not a number of its own -- both themes take it
+    // from the shared scale now, so this asserts "no clearance added"
+    // rather than pinning a padding that is free to be retuned.
+    expect(bottom).toBe(SPACE.page);
   });
 });
 

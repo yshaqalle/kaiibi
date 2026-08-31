@@ -3,24 +3,38 @@ import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-nat
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
+import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
   CartButton, CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  NoSearchResults, SearchField, WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow,
+  useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
+import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
+import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
+import type { StorefrontProduct } from '@/types/models';
 
 export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeProps) {
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  // The product whose sheet is open, or null. See product-sheet.tsx on
+  // why this is the product itself and not a separate visible flag.
+  const [openProduct, setOpenProduct] = useState<StorefrontProduct | null>(null);
   // Set by a flyer whose link_kind is 'category'. Lives here rather than in
   // the band because it is the GRID's state -- what is on show is this
   // screen's business, and a display component holding it would put the same
   // decision in two places.
   const [category, setCategory] = useState<string | null>(null);
-  const shown = filterByCategory(products, category);
+  const [query, setQuery] = useState('');
+  // Search runs on top of the category filter, not instead of it: a
+  // customer who arrived through a flyer and then searches expects to be
+  // searching WITHIN what the flyer showed them. Both ways out stay
+  // visible -- CategoryFilterBar for the category, Clear for the query.
+  const inCategory = filterByCategory(products, category);
+  const shown = searchProducts(inCategory, query);
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -100,9 +114,19 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
         autoAdvance={storefront.autoAdvance}
       />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
+      {shouldOfferSearch(products) ? (
+        <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
+      ) : null}
 
-      {shown.length === 0 ? (
-        <EmptyState colors={colors} />
+      {shown.length === 0 && query.trim() ? (
+        <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
+      ) : shown.length === 0 ? (
+        <EmptyState
+          colors={colors}
+          storefront={storefront}
+          category={category}
+          onClearCategory={() => setCategory(null)}
+        />
       ) : (
         <FlatList
           testID="storefront-goods"
@@ -127,11 +151,21 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
                 shopName={storefront.shopName}
                 whatsappE164={storefront.whatsappE164}
                 onAdd={addProduct}
+                onOpen={setOpenProduct}
               />
             </View>
           )}
         />
       )}
+
+      <ProductSheet
+        product={openProduct}
+        colors={colors}
+        shopName={storefront.shopName}
+        whatsappE164={storefront.whatsappE164}
+        onClose={() => setOpenProduct(null)}
+        onAdd={addProduct}
+      />
 
       <CartSheet
         visible={cartOpen}
@@ -157,7 +191,7 @@ const styles = StyleSheet.create({
   // running off the edge of the screen. `nameBlock`'s `flexShrink` is what
   // makes that possible for the name specifically: an unshrinkable View
   // would just overflow the wrapped line instead of wrapping its own text.
-  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: 14, gap: 12 },
+  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: SPACE.page, gap: SPACE.gap },
   nameBlock: { flexShrink: 1 },
   // `marginLeft: 'auto'` -- not `justifyContent: 'space-between'` on `nav`
   // -- is what keeps this pair pinned to the row's trailing edge whether it
@@ -165,12 +199,12 @@ const styles = StyleSheet.create({
   // space-between only pushes a *second* item on the line away from the
   // first, so a lone wrapped item would land back at the left margin.
   navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
-  shopName: { fontSize: 19, fontWeight: '800', letterSpacing: -0.4 },
-  sub: { fontSize: 11.5 },
-  headline: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, paddingHorizontal: 14, paddingTop: 4 },
-  about: { fontSize: 13, paddingHorizontal: 14, paddingTop: 5 },
-  grid: { padding: 14, gap: 12 },
-  gridWithCheckoutBar: { paddingBottom: 14 + CHECKOUT_BAR_CLEARANCE },
-  row: { gap: 12 },
+  shopName: { fontSize: TYPE.name, fontWeight: '800', letterSpacing: LETTER.display },
+  sub: { fontSize: TYPE.nameSub },
+  headline: { fontSize: TYPE.headline, fontWeight: '800', letterSpacing: LETTER.display, paddingHorizontal: SPACE.page, paddingTop: 4 },
+  about: { fontSize: TYPE.body, paddingHorizontal: SPACE.page, paddingTop: 5 },
+  grid: { padding: SPACE.page, gap: SPACE.gap },
+  gridWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
+  row: { gap: SPACE.gap },
   cell: { flex: 1 },
 });

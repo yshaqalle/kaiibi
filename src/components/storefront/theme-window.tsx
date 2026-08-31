@@ -3,12 +3,17 @@ import { FlatList, Image, StyleSheet, Text, View, useWindowDimensions } from 're
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
+import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
   CartButton, CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  NoSearchResults, SearchField, WhatsAppButton, filterByCategory, gridColumnsForWidth, useCheckoutFlow,
+  useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
+import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
+import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
+import type { StorefrontProduct } from '@/types/models';
 
 // Type ON the scrim, not on any palette -- and so deliberately fixed, the same
 // way WHATSAPP_BUTTON_GREEN is. The scrim's bottom is rgba(0,0,0,.55) over an
@@ -30,10 +35,19 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
   const numColumns = gridColumnsForWidth(width);
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  // The product whose sheet is open, or null. See product-sheet.tsx on
+  // why this is the product itself and not a separate visible flag.
+  const [openProduct, setOpenProduct] = useState<StorefrontProduct | null>(null);
   // See theme-market.tsx's comment on this pair -- what is on show is the
   // grid's state, and a flyer only reports the category it names.
   const [category, setCategory] = useState<string | null>(null);
-  const shown = filterByCategory(products, category);
+  const [query, setQuery] = useState('');
+  // Search runs on top of the category filter, not instead of it: a
+  // customer who arrived through a flyer and then searches expects to be
+  // searching WITHIN what the flyer showed them. Both ways out stay
+  // visible -- CategoryFilterBar for the category, Clear for the query.
+  const inCategory = filterByCategory(products, category);
+  const shown = searchProducts(inCategory, query);
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -150,9 +164,19 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
         autoAdvance={storefront.autoAdvance}
       />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
+      {shouldOfferSearch(products) ? (
+        <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
+      ) : null}
 
-      {shown.length === 0 ? (
-        <EmptyState colors={colors} />
+      {shown.length === 0 && query.trim() ? (
+        <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
+      ) : shown.length === 0 ? (
+        <EmptyState
+          colors={colors}
+          storefront={storefront}
+          category={category}
+          onClearCategory={() => setCategory(null)}
+        />
       ) : (
         <FlatList
           testID="storefront-goods"
@@ -174,11 +198,21 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
                 shopName={storefront.shopName}
                 whatsappE164={storefront.whatsappE164}
                 onAdd={addProduct}
+                onOpen={setOpenProduct}
               />
             </View>
           )}
         />
       )}
+
+      <ProductSheet
+        product={openProduct}
+        colors={colors}
+        shopName={storefront.shopName}
+        whatsappE164={storefront.whatsappE164}
+        onClose={() => setOpenProduct(null)}
+        onAdd={addProduct}
+      />
 
       <CartSheet
         visible={cartOpen}
@@ -203,13 +237,13 @@ const styles = StyleSheet.create({
   // the row off a phone's edge, and `marginLeft: 'auto'` (not
   // `justifyContent: 'space-between'`) is what keeps that pair pinned to
   // the trailing edge whether it shares line one with the name or not.
-  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: 16, gap: 12 },
+  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: SPACE.page, gap: SPACE.gap },
   navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
   // Window has no separate name wrapper (no city line under it, unlike
   // Market/Counter) -- `shopName` is the Text node itself, so it takes the
   // `flexShrink` Market puts on a wrapping View instead.
-  shopName: { fontSize: 15, fontWeight: '800', letterSpacing: 2, flexShrink: 1 },
-  hero: { marginHorizontal: 16, borderRadius: 20, padding: 24, overflow: 'hidden' },
+  shopName: { fontSize: TYPE.name, fontWeight: '800', letterSpacing: LETTER.wordmark, flexShrink: 1 },
+  hero: { marginHorizontal: SPACE.page, borderRadius: 20, padding: 24, overflow: 'hidden' },
   heroImage: { ...StyleSheet.absoluteFill },
   // A FLAT scrim, not a gradient, and covering the whole panel rather than
   // weighted to one edge: the headline and the about line flow from the TOP of
@@ -228,13 +262,13 @@ const styles = StyleSheet.create({
   // ratio outright means not setting type over an arbitrary photo at all,
   // which is a layout decision for the visual pass, not a bug fix.
   heroScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
-  heroHead: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, lineHeight: 31 },
-  heroAbout: { fontSize: 13.5, marginTop: 9 },
+  heroHead: { fontSize: TYPE.headlineLoud, fontWeight: '800', letterSpacing: LETTER.displayLoud, lineHeight: 31 },
+  heroAbout: { fontSize: TYPE.body, marginTop: 9 },
   // Applied only on the photo branch -- a shadow on the flat soft panel would
   // be a smudge under near-black type on a light ground, solving nothing.
   onScrimText: { textShadowColor: 'rgba(0,0,0,0.65)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  grid: { padding: 16, gap: 16 },
-  gridWithCheckoutBar: { paddingBottom: 16 + CHECKOUT_BAR_CLEARANCE },
-  row: { gap: 16 },
+  grid: { padding: SPACE.page, gap: SPACE.page },
+  gridWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
+  row: { gap: SPACE.page },
   cell: { flex: 1 },
 });
