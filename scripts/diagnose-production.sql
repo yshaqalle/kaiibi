@@ -103,29 +103,73 @@ select p.proname,
 
 \echo ''
 \echo '=== 4. The intended anon RPC surface ==='
-\echo '    EXPECT EXACTLY SIX: get_public_storefront,'
-\echo '    get_public_storefront_products, get_public_delivery_areas,'
-\echo '    place_storefront_order, and -- since 20261017000000 --'
-\echo '    get_public_order and confirm_public_order, the customer''s own'
-\echo '    order link. A SEVENTH is a decision, not an accident: the surface'
-\echo '    was deliberately narrowed from 74 to 4, and every addition since'
-\echo '    has had to argue for itself in verify-anon-rpc-surface.sql.'
-\echo '    TWO of these WRITE, and the other four only read. Say both out'
-\echo '    loud, because a list that names one write reads as a promise that'
-\echo '    there is only one. place_storefront_order is the older and the'
-\echo '    larger: it creates the order, its lines and its number, and has'
-\echo '    been anon-callable since the storefront shipped. Its safety is'
-\echo '    that it writes only rows it authors, never rows it was handed.'
-\echo '    confirm_public_order is the one the order link added, and it'
-\echo '    stamps an agreement and nothing else -- it cannot alter a line, a'
-\echo '    total, a status, or cancel anything.'
-select p.proname
-  from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
- where n.nspname = 'public'
-   and p.prokind = 'f'
-   and exists (select 1 from unnest(p.proacl) a where a::text like 'anon=%')
- order by p.proname;
+\echo '    The surface was deliberately narrowed from 74 to 4, and every'
+\echo '    addition since has had to argue for itself. An UNEXPECTED name is'
+\echo '    a function that took the PUBLIC default nobody thought about --'
+\echo '    that is how a post_journal_entry a stranger could post into once'
+\echo '    shipped. A MISSING name is a revoke that landed; good news, but'
+\echo '    say so out loud rather than letting the list quietly shrink.'
+\echo '    TWO of these WRITE, and the other four only read.'
+\echo '    place_storefront_order is the older and the larger: it creates the'
+\echo '    order, its lines and its number, and has been anon-callable since'
+\echo '    the storefront shipped. Its safety is that it writes only rows it'
+\echo '    authors, never rows it was handed. confirm_public_order is the one'
+\echo '    the order link added, and it stamps an agreement and nothing else'
+\echo '    -- it cannot alter a line, a total, a status, or cancel anything.'
+-- THE COUNT AND THE NAMES USED TO BE PROSE IN THE BANNER ABOVE, and prose is
+-- the one thing in this file nothing checks. It said FOUR for the whole life
+-- of a six-function surface, and later described a two-write surface as
+-- having one write. Both were found by someone reading, which is the slowest
+-- detector there is and the one this script exists to replace.
+--
+-- So the names are DATA now, and the query below compares them to the
+-- catalog instead of asking the reader to. The banner keeps only what cannot
+-- be checked -- why the surface is what it is, and what the two writes can
+-- and cannot do -- and states no count at all.
+--
+-- Kept byte-identical to the array in supabase/tests/verify-anon-rpc-surface.sql,
+-- which is the copy CI enforces on every migration. Two files still hold the
+-- list because this script has to run standalone against a production URL,
+-- with no repo and no test suite around it. supabase/tests/verify-diagnostic-
+-- anon-list.sh is what makes that duplication safe: it fails the moment the
+-- two lists disagree, so the fact is written twice but can only be true once.
+-- Read the pin file for WHY each name is on the list; it carries the argument.
+with expected(proname) as (values
+  -- >>> PINNED ANON SURFACE >>>
+  ('confirm_public_order'),
+  ('get_public_delivery_areas'),
+  ('get_public_order'),
+  ('get_public_storefront'),
+  ('get_public_storefront_products'),
+  ('place_storefront_order')
+  -- <<< PINNED ANON SURFACE <<<
+),
+actual(proname) as (
+  select p.proname
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prokind = 'f'
+     and exists (select 1 from unnest(p.proacl) a where a::text like 'anon=%')
+),
+diff as (
+  select coalesce(a.proname, e.proname) as anon_callable,
+         case when e.proname is null then 'UNEXPECTED -- not pinned. Revoke it, or justify it in the pin file.'
+              when a.proname is null then 'MISSING -- pinned but no longer anon-callable. Drop it from both lists.'
+              else 'pinned and present' end as status
+    from expected e
+    full outer join actual a on a.proname = e.proname
+)
+-- The verdict is UNION'd in rather than run as a second query, so that this
+-- check can never print zero rows the way check 2 once did. It sorts first
+-- because '(' precedes every letter.
+select anon_callable, status from diff
+union all
+select '(verdict)',
+       case when exists (select 1 from diff where status <> 'pinned and present')
+            then 'DRIFT -- read the UNEXPECTED or MISSING row above'
+            else 'OK -- exactly the pinned surface, nothing more' end
+ order by 1;
 
 \echo ''
 \echo '=== 5. Is the pick-up address live? ==='
