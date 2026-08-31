@@ -160,3 +160,84 @@ describe('ThemeWindow hero over a photo', () => {
     expect(headlineColor(tree)).toBe(colors.ink);
   });
 });
+
+// The wordmark is the answer to "whose shop is this", which is the first
+// question a forwarded WhatsApp link has to answer -- so it leads the hero
+// rather than sitting at 15px above a louder slogan, and it appears exactly
+// once on the page.
+describe('ThemeWindow wordmark', () => {
+  async function renderWith(over: Partial<PublicStorefront>) {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeWindow storefront={{ ...shop, slug: 'xamdi-wordmark', ...over }} products={products} colors={colors} />,
+      );
+    });
+    return tree;
+  }
+
+  // Walks the SERIALISED tree, not `root.findAll`. RN renders a <Text> as a
+  // composite element wrapping a host one, and both carry the same children --
+  // so findAll counts every string twice and "appears once" can never pass.
+  function allText(tree: ReturnType<typeof create>): string[] {
+    const out: string[] = [];
+    const walk = (node: unknown): void => {
+      if (node == null) return;
+      if (typeof node === 'string') { out.push(node); return; }
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      walk((node as { children?: unknown }).children);
+    };
+    walk(tree.toJSON());
+    return out;
+  }
+
+  it('names the shop in the hero', async () => {
+    const tree = await renderWith({});
+    const mark = tree.root.findAll((n) => n.props?.testID === 'storefront-wordmark');
+    expect(mark.length).toBeGreaterThan(0);
+  });
+
+  // It used to be in the nav AND would now also be in the hero -- the same
+  // name twice on a 390px screen.
+  it('does not also repeat the name in the nav', async () => {
+    const tree = await renderWith({});
+    const occurrences = allText(tree).filter((t) => t === shop.shopName || t === shop.shopName.toUpperCase());
+    expect(occurrences).toHaveLength(1);
+  });
+
+  it('sets the wordmark larger than the headline it leads', async () => {
+    const tree = await renderWith({ headline: 'Power that stays on.' });
+    const size = (testID: string) => {
+      const node = tree.root.findAll((n) => n.props?.testID === testID)[0];
+      const flat = [node.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+        fontSize?: number;
+      };
+      return flat.fontSize ?? 0;
+    };
+    expect(size('storefront-wordmark')).toBeGreaterThan(size('storefront-headline'));
+  });
+
+  // Composed from city + collectLocation, both already on the page object, so
+  // it is never a lone separator with nothing either side of it.
+  it('carries an eyebrow built from the shop’s own location', async () => {
+    const tree = await renderWith({ city: 'Hargeisa', collectNeighborhood: 'Jigjiga Yar' });
+    const eyebrow = tree.root.findAll((n) => n.props?.testID === 'storefront-eyebrow')[0];
+    const text = [eyebrow.props.children].flat(Infinity).join('');
+    expect(text).toContain('Hargeisa');
+    expect(text).not.toMatch(/^ *·|· *$/);
+  });
+
+  it('renders no eyebrow at all when the shop has no location to name', async () => {
+    const tree = await renderWith({ city: null, collectAddress: null, collectNeighborhood: null });
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-eyebrow')).toHaveLength(0);
+  });
+
+  it('flips the wordmark to white over a photo', async () => {
+    const tree = await renderWith({ heroImageUrl: 'https://example.test/hero.jpg' });
+    const node = tree.root.findAll((n) => n.props?.testID === 'storefront-wordmark')[0];
+    const flat = [node.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+      color?: string;
+    };
+    expect(flat.color).not.toBe(colors.ink);
+  });
+});

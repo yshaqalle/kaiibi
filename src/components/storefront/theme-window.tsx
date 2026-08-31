@@ -12,7 +12,7 @@ import {
   useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
-import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -49,6 +49,15 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   // visible -- CategoryFilterBar for the category, Clear for the query.
   const inCategory = filterByCategory(products, category);
   const shown = searchProducts(inCategory, query);
+  // Named once rather than re-testing `storefront.heroImageUrl` at five call
+  // sites: which hero renders is one decision, and it reads as one here.
+  const onPhoto = Boolean(storefront.heroImageUrl);
+  // collectLocation already composes [address, neighbourhood, city] and drops
+  // the empties, so it ENDS with the city whenever there is one -- joining the
+  // city to it as well printed "Hargeisa · Jigjiga Yar, Hargeisa". Prefer the
+  // fuller line and fall back to the city alone; never both.
+  const eyebrow =
+    collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city) ?? storefront.city;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -93,8 +102,16 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
+      {/* WINDOW'S NAV CARRIES NO NAME, and that is the point of the hero below
+          rather than an omission. The name used to sit here at 15px, tracked
+          out, above a 28px headline -- so the loudest thing on the page was the
+          shop's slogan and the quietest was whose shop it is. A customer
+          arriving on a forwarded WhatsApp link needs the second one first.
+
+          It moves into the hero as the wordmark. Repeating it in both places
+          would be the same name twice on a 390px screen. Market and Counter
+          keep theirs in the nav: neither has a hero panel to hand it to. */}
       <View style={styles.nav} testID="storefront-header">
-        <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName.toUpperCase()}</Text>
         <View style={styles.navActions}>
           <WhatsAppButton storefront={storefront} />
           <CartButton colors={colors} count={itemCount} onPress={() => setCartOpen(true)} />
@@ -115,25 +132,72 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
           That branch is the MAJORITY case (most shops upload nothing) and is
           not a degraded version of the other one -- it has to look intentional
           on its own, which is the test every theme in this set had to pass. */}
-      <View style={[styles.hero, { backgroundColor: colors.soft }]}>
-        {storefront.heroImageUrl ? (
+      <View style={[styles.hero, { backgroundColor: colors.soft }, onPhoto && styles.heroWithPhoto]}>
+        {onPhoto ? (
           <>
-            <Image source={{ uri: storefront.heroImageUrl }} style={styles.heroImage} resizeMode="cover" />
+            <Image source={{ uri: storefront.heroImageUrl! }} style={styles.heroImage} resizeMode="cover" />
             {/* Sits between the photo and the type, and nowhere else -- a
                 scrim on the no-photo panel would only dim the shop's own
-                colour for no reason. Transparent until 40% so the top of the
-                photo is untouched and it reads as a photograph, not a tinted
-                block. */}
+                colour for no reason. */}
             <View testID="storefront-hero-scrim" style={styles.heroScrim} pointerEvents="none" />
           </>
         ) : null}
+        {/* NO GRADIENT ON THE NO-PHOTO PANEL, and that is a reversal worth
+            recording. It was built with react-native-svg (already a dependency)
+            as a wash from `ground` down to `soft` -- and in a browser the Svg
+            laid itself out at an intrinsic size instead of filling its
+            absolutely-positioned parent, so a hard rectangular edge showed
+            past the panel's rounded corner. Seen immediately on screen,
+            invisible to jest.
+            
+            Rather than tune an SVG to fake a gradient, it is gone. The original
+            complaint about this panel was that nothing justified its height,
+            and what fixes that is the wordmark and the eyebrow now leading it
+            -- not a wash almost nobody would consciously notice. A flat `soft`
+            panel with type set on it is the cheaper and more robust answer. */}
+
+        {/* The wordmark. The biggest thing on the page, because "whose shop is
+            this" is the first question a forwarded link has to answer. */}
+        <Text
+          testID="storefront-wordmark"
+          style={[
+            styles.wordmark,
+            onPhoto && styles.onScrimText,
+            { color: onPhoto ? ON_SCRIM_INK : colors.ink },
+          ]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {storefront.shopName}
+        </Text>
+
+        {/* Composed from what the page already holds -- city and the same
+            collectLocation() the checkout and confirmation screens print -- so
+            it is never an empty line. At least one of the two is populated for
+            every shop (see PublicStorefront's own note on collectNeighborhood),
+            and if somehow neither is, the line does not render at all rather
+            than rendering a separator with nothing either side of it. */}
+        {eyebrow ? (
+          <Text
+            testID="storefront-eyebrow"
+            style={[
+              styles.eyebrow,
+              onPhoto && styles.onScrimText,
+              { color: onPhoto ? ON_SCRIM_MUTED : colors.muted },
+            ]}
+          >
+            {eyebrow}
+          </Text>
+        ) : null}
+
         {storefront.headline ? (
           <Text
             testID="storefront-headline"
             style={[
               styles.heroHead,
-              storefront.heroImageUrl && styles.onScrimText,
-              { color: storefront.heroImageUrl ? ON_SCRIM_INK : colors.ink },
+              onPhoto && styles.onScrimText,
+              { color: onPhoto ? ON_SCRIM_INK : colors.ink },
             ]}
           >
             {storefront.headline}
@@ -144,8 +208,8 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
             testID="storefront-about"
             style={[
               styles.heroAbout,
-              storefront.heroImageUrl && styles.onScrimText,
-              { color: storefront.heroImageUrl ? ON_SCRIM_MUTED : colors.muted },
+              onPhoto && styles.onScrimText,
+              { color: onPhoto ? ON_SCRIM_MUTED : colors.muted },
             ]}
           >
             {storefront.about}
@@ -247,8 +311,16 @@ const styles = StyleSheet.create({
   // Window has no separate name wrapper (no city line under it, unlike
   // Market/Counter) -- `shopName` is the Text node itself, so it takes the
   // `flexShrink` Market puts on a wrapping View instead.
-  shopName: { fontSize: TYPE.name, fontWeight: '800', letterSpacing: LETTER.wordmark, flexShrink: 1 },
-  hero: { marginHorizontal: SPACE.page, borderRadius: 20, padding: 24, overflow: 'hidden' },
+  hero: { marginHorizontal: SPACE.page, borderRadius: 20, paddingHorizontal: 24, paddingTop: 34, paddingBottom: 28, overflow: 'hidden' },
+  // A photo hero earns more height than a wash does -- there is something to
+  // look at.
+  heroWithPhoto: { paddingTop: 64, paddingBottom: 24 },
+  // 26, not 30: a serif sets WIDER than the sans at the same size, and
+  // "Xamdi Electronics" at 30 ran past the panel on a 390px screen. Shop names
+  // are not length-limited anywhere, so `adjustsFontSizeToFit` carries the
+  // genuinely long ones down rather than letting them wrap to three lines.
+  wordmark: { fontFamily: DISPLAY_FONT, fontSize: 26, fontWeight: '700', letterSpacing: -0.4, lineHeight: 32 },
+  eyebrow: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase', marginTop: 10 },
   heroImage: { ...StyleSheet.absoluteFill },
   // A FLAT scrim, not a gradient, and covering the whole panel rather than
   // weighted to one edge: the headline and the about line flow from the TOP of
@@ -267,7 +339,9 @@ const styles = StyleSheet.create({
   // ratio outright means not setting type over an arbitrary photo at all,
   // which is a layout decision for the visual pass, not a bug fix.
   heroScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
-  heroHead: { fontSize: TYPE.headlineLoud, fontWeight: '800', letterSpacing: LETTER.displayLoud, lineHeight: 31 },
+  // Steps DOWN from the wordmark now that the name leads -- the slogan is
+  // the second thing said, not the first.
+  heroHead: { fontSize: TYPE.headline, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 26, marginTop: 14 },
   heroAbout: { fontSize: TYPE.body, marginTop: 9 },
   // Applied only on the photo branch -- a shadow on the flat soft panel would
   // be a smudge under near-black type on a light ground, solving nothing.

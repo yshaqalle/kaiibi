@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 // One scale for the three themes.
 //
 // Market, Window and Counter each grew their own numbers. The shop name was
@@ -8,14 +10,14 @@
 // This is a CONSISTENCY change, not a redesign. Every value below is one of
 // the numbers already in use, chosen as the one to keep:
 //
-//   * name 19 -- Market's. Window's 15 was the smallest thing on a page whose
-//     whole job is announcing whose shop it is, and a customer arriving on a
-//     forwarded WhatsApp link needs that first. Window keeps its UPPERCASE
-//     tracking treatment at the shared size: the treatment belongs to the
-//     theme, the size does not.
-//   * headline 22, with Window alone at 28 -- Window is deliberately the loud
-//     one, that is what a shop picks it for. Counter's 19 was a third value
-//     with no argument behind it.
+//   * name 19 -- Market's and Counter's, in the nav. Window has no name in
+//     its nav at all any more: it moved into the hero as the wordmark, at its
+//     own larger size, because a customer arriving on a forwarded WhatsApp
+//     link needs "whose shop is this" before anything else.
+//   * headline 22 everywhere. Window used to be 28 -- the loudest thing on
+//     the page -- but its hero now leads with the WORDMARK, and a slogan
+//     shouting over the shop's own name was the thing that fixed. Counter's 19
+//     was a third value with no argument behind it.
 //   * body 13.5 -- the 0.5px spread between 13 and 13.5 is invisible and cost
 //     a decision every time someone added a line of copy.
 //   * padding 16 -- Window's. 14 is cramped on any phone sold in the last
@@ -30,10 +32,8 @@ export const TYPE = {
   name: 19,
   /** A city or neighbourhood under the name. */
   nameSub: 11.5,
-  /** The hero headline everywhere except Window. */
+  /** The hero headline, in every theme. */
   headline: 22,
-  /** Window's hero only -- the one theme that leads with a statement. */
-  headlineLoud: 28,
   /** Product names, the about paragraph, checkout copy. */
   body: 13.5,
   /** A product name inside a dense Counter row. */
@@ -47,6 +47,39 @@ export const TYPE = {
   /** The smallest legible step -- a pill label. */
   metaSmall: 10.5,
 } as const;
+
+// The display face, and the one place this set uses a second family at all.
+//
+// WHY NOT A BUNDLED WEBFONT. The brief asked for Fraunces, and
+// `@expo-google-fonts/fraunces` exists, so this was a choice rather than a
+// limitation. It was declined on the page's own terms:
+//
+//   * This page arrives as a forwarded WhatsApp link and opens in an in-app
+//     browser, usually on the slowest connection in the flow. A webfont is an
+//     extra blocking download in front of the ONE thing the page has to show
+//     fast -- whose shop this is and what it costs. Paying for a prettier
+//     wordmark with a slower wordmark is the wrong way round.
+//   * `useFonts` in _layout.tsx gates app startup behind the load, and that
+//     layout is shared with POS. A cashier's till would wait on a font only
+//     the public storefront uses.
+//   * A non-blocking load avoids both, at the cost of a visible swap on every
+//     first visit -- which on a wordmark is the most conspicuous place to have
+//     one.
+//
+// The SYSTEM serif has none of those costs and still does the job the brief
+// actually wanted: a display face that is visibly not the body face, so the
+// wordmark reads as set rather than typed. It differs between platforms
+// (Georgia on iOS and web, Noto Serif on Android) -- which is the real trade
+// accepted here, and is why it is confined to the wordmark and hero headline
+// rather than sprayed across every heading.
+//
+// If a shipped, consistent Fraunces is wanted later, it belongs behind a
+// non-blocking load with this as the fallback -- not as a startup gate.
+export const DISPLAY_FONT = Platform.select({
+  ios: 'Georgia',
+  android: 'serif',
+  default: 'Georgia, "Times New Roman", serif',
+});
 
 export const SPACE = {
   /** The page gutter, and the grid's own padding. */
