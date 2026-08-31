@@ -1,6 +1,12 @@
 # Orders Part 3 — the customer's link
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+
+> **SHIPPED.** Every step below is done and merged; the ticks are the record, not a plan.
+> Part 2 is PR #114, Part 3 is #116, and both are live on production as of 2026-08-30.
+> What each one actually decided, and what it found on the way, is in
+> `docs/superpowers/HANDOFF-2026-08-30-orders-part-2-done.md` and
+> `HANDOFF-2026-08-30-orders-part-3-done.md`.
 
 **Goal:** A customer who ordered can open one link and see where their order is, what it costs, and where to collect it — and, when the shop has amended it, agree to the change without phoning anyone.
 
@@ -147,7 +153,7 @@ Its post-mortem also names *why the old tests missed it*: they pinned each surfa
 literal, so **all of them could be wrong together**. The test below asserts every surface
 **collapses to one string**, and that the string **resolves to a route file on disk**.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import fs from 'node:fs';
@@ -178,12 +184,12 @@ it('percent-encodes a token that somehow contains a URL-significant character', 
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `npx jest src/lib/__tests__/storefront-host.test.ts`
 Expected: FAIL — `orderPath is not a function`. The route-file test also fails; it passes at Task 6.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // The customer's order link. A sibling of STOREFRONT_SEGMENT, and short on
@@ -205,17 +211,17 @@ export function orderAddress(token: string): string {
 }
 ```
 
-- [ ] **Step 4: Run again**
+- [x] **Step 4: Run again**
 
 Run: `npx jest src/lib/__tests__/storefront-host.test.ts`
 Expected: all pass except the route-file test, which is red until Task 6. **Leave it red and say so
 in the commit** — a test that passes before the thing it tests exists is worse than one that fails.
 
-- [ ] **Step 5: Mutation pass** — hard-code `'/o/' + token` in `orderPath` (must redden the
+- [x] **Step 5: Mutation pass** — hard-code `'/o/' + token` in `orderPath` (must redden the
       ORDER_SEGMENT test); return `APP_DOMAIN + '/o/' + token` from `orderAddress` (must redden the
       `toContain(orderPath())` assertion).
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -229,7 +235,7 @@ Number it after the newest: `ls supabase/migrations | tail -1`.
 `orders.customer_confirmed_at timestamptz`; `place_storefront_order` returns an extra
 `share_token` key.
 
-- [ ] **Step 1: Write the schema**
+- [x] **Step 1: Write the schema**
 
 ```sql
 alter table public.orders
@@ -249,7 +255,7 @@ create index orders_share_token_idx on public.orders (share_token)
   where share_token is not null;
 ```
 
-- [ ] **Step 2: Write the token generator**
+- [x] **Step 2: Write the token generator**
 
 ```sql
 -- 26 characters drawn from a 32-symbol alphabet = 130 bits. Read aloud over a
@@ -280,7 +286,7 @@ revoke execute on function public.mint_order_share_token() from public;
 -- to_e164 has (20260927000000's grants comment).
 ```
 
-- [ ] **Step 3: Copy `place_storefront_order` forward whole, minting the token**
+- [x] **Step 3: Copy `place_storefront_order` forward whole, minting the token**
 
 Derive its newest definition first:
 ```bash
@@ -323,7 +329,7 @@ so no grant churn); and why the function's own "the caller has no privilege that
 anything with one" comment is **extended** rather than reversed — a token is the inverse of a bare
 id, it *carries* its own privilege.
 
-- [ ] **Step 4: Checks** — add to `supabase/tests/verify-orders.sql` (it already owns this table):
+- [x] **Step 4: Checks** — add to `supabase/tests/verify-orders.sql` (it already owns this table):
   1. A placed order comes back with a `share_token` of exactly 26 characters.
   2. The token matches `^[0-9a-hjkmnp-tv-z]+$` — **no i, l, o or u**, no upper case.
   3. Two orders placed in a row get **different** tokens.
@@ -331,9 +337,9 @@ id, it *carries* its own privilege.
   5. `customer_confirmed_at` starts null.
   6. `anon` still cannot select `orders` directly (the lockdown is unchanged by the new columns).
 
-- [ ] **Step 5:** `npm run test:db` — zero `FAILED:`. `npx jest supabase/tests/accumulated-rpc-edits.test.ts`.
+- [x] **Step 5:** `npm run test:db` — zero `FAILED:`. `npx jest supabase/tests/accumulated-rpc-edits.test.ts`.
 
-- [ ] **Step 6: Mutation pass**
+- [x] **Step 6: Mutation pass**
 
 | Mutation | Must redden |
 |---|---|
@@ -342,7 +348,7 @@ id, it *carries* its own privilege.
 | Include `i`/`l`/`o`/`u` in the alphabet | check 2 — **run it, this is the one most likely to be silently wrong** |
 | Drop `share_expires_at` from the insert | check 4 |
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ---
 
@@ -358,7 +364,7 @@ This is a **deliberate addition to a surface that was deliberately narrowed** by
 five. The header must carry the same argued case the other four do: it belongs to the same family
 (the public storefront) and it is a *read* keyed on a capability the shop chose to hand out.
 
-- [ ] **Step 1: Write the failing checks** in `supabase/tests/verify-public-order.sql`. Own shop,
+- [x] **Step 1: Write the failing checks** in `supabase/tests/verify-public-order.sql`. Own shop,
       storefront, products and order; every failure a `raise exception`; verdict string last.
 
 **What it returns.** Shop name, order number, status, placed-at, the lines (name, quantity, line
@@ -424,17 +430,17 @@ Checks:
 9. `anon` can execute it.
 10. `anon` still cannot select `orders`, `order_items` or `order_amendments` directly.
 
-- [ ] **Step 2:** `npm run test:db 2>&1 | grep -iE "public-order|FAILED:"` — expect it named in `FAILED:`.
+- [x] **Step 2:** `npm run test:db 2>&1 | grep -iE "public-order|FAILED:"` — expect it named in `FAILED:`.
 
-- [ ] **Step 3: Implement**, then grants at the foot:
+- [x] **Step 3: Implement**, then grants at the foot:
 ```sql
 revoke execute on function public.get_public_order(text) from public;
 grant execute on function public.get_public_order(text) to anon, authenticated;
 ```
 
-- [ ] **Step 4:** `npm run test:db` and `npx jest supabase/tests/accumulated-rpc-edits.test.ts`.
+- [x] **Step 4:** `npm run test:db` and `npx jest supabase/tests/accumulated-rpc-edits.test.ts`.
 
-- [ ] **Step 5: Mutation pass**
+- [x] **Step 5: Mutation pass**
 
 | Mutation | Must redden |
 |---|---|
@@ -444,7 +450,7 @@ grant execute on function public.get_public_order(text) to anon, authenticated;
 | Return the shop address on a deliver order too | check 3 |
 | Drop the expiry test entirely | check 7 |
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -458,7 +464,7 @@ grant execute on function public.get_public_order(text) to anon, authenticated;
 The whole security argument is its asymmetry: it stamps `customer_confirmed_at` and **nothing
 else**, and it is idempotent.
 
-- [ ] **Step 1: Write the failing checks**, appended to `verify-public-order.sql`:
+- [x] **Step 1: Write the failing checks**, appended to `verify-public-order.sql`:
   11. Confirming with a valid token stamps `customer_confirmed_at`.
   12. **It is idempotent** — calling twice leaves the FIRST timestamp, unchanged. (Assert equality
       against the value read after the first call, not merely "not null".)
@@ -469,16 +475,16 @@ else**, and it is idempotent.
   15. A **cancelled** order cannot be confirmed.
   16. `anon` can execute it, and still cannot write `orders` directly.
 
-- [ ] **Step 2:** run, watch fail.
+- [x] **Step 2:** run, watch fail.
 
-- [ ] **Step 3: Implement.** The header must state, in the same terms `20260928000500` uses for
+- [x] **Step 3: Implement.** The header must state, in the same terms `20260928000500` uses for
       provenance: *a link that has been forwarded, screenshotted or leaked must never be able to
       harm an order.* "Something's wrong" is deliberately not a code path here — it opens WhatsApp
       on the client and writes nothing.
 
-- [ ] **Step 4:** `npm run test:db`, `npx jest supabase/tests/accumulated-rpc-edits.test.ts`.
+- [x] **Step 4:** `npm run test:db`, `npx jest supabase/tests/accumulated-rpc-edits.test.ts`.
 
-- [ ] **Step 5: Mutation pass**
+- [x] **Step 5: Mutation pass**
 
 | Mutation | Must redden |
 |---|---|
@@ -487,7 +493,7 @@ else**, and it is idempotent.
 | Let it confirm a cancelled order | check 15 |
 | Accept an expired token | check 14 |
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -516,17 +522,17 @@ export async function confirmPublicOrder(token: string): Promise<void>;
 assumes a signed-in member; this one is called with no session at all. Mixing them invites a future
 edit that reaches for a shop-scoped helper on the customer's page.
 
-- [ ] **Step 1: Write the failing tests** — follow `src/lib/__tests__/storefront-admin.test.ts`'s
+- [x] **Step 1: Write the failing tests** — follow `src/lib/__tests__/storefront-admin.test.ts`'s
       hoisted `jest.mock('@/lib/supabase')` fake. Cover: the RPC is called by name with `p_token`;
       a null/absent payload maps to `null` rather than throwing; the row maps through; an unknown
       token yields `null`; `confirmPublicOrder` throws on error.
 
-- [ ] **Step 2-4:** run, watch fail, implement, `npx jest src/lib && npx tsc --noEmit`.
+- [x] **Step 2-4:** run, watch fail, implement, `npx jest src/lib && npx tsc --noEmit`.
 
-- [ ] **Step 5: Mutation pass** — rename `p_token`; make an unknown token throw instead of
+- [x] **Step 5: Mutation pass** — rename `p_token`; make an unknown token throw instead of
       returning null. Both must redden.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -553,16 +559,16 @@ Two shapes:
   button. **This is the case that will be opened most**, and it is what kills the "where is my
   order?" call.
 
-- [ ] **Step 1: Write the failing tests** (`react-test-renderer`, props not text). Cover: an
+- [x] **Step 1: Write the failing tests** (`react-test-renderer`, props not text). Cover: an
       ordinary order renders the rail and total and **no confirm button**; an amended one renders
       both buttons; "Yes, that's fine" calls `confirmPublicOrder`; **"Something's wrong" calls
       nothing that writes** — assert the confirm spy was not called; an already-confirmed order
       shows neither button; an unknown token renders a not-found state rather than a crash;
       **`whereToGo` is rendered** for both fulfilment kinds.
-- [ ] **Step 2-4:** run, watch fail, implement, `npx jest src/app && npx tsc --noEmit`.
-- [ ] **Step 5: Mutation pass** — make "Something's wrong" call `confirmPublicOrder` (must redden);
+- [x] **Step 2-4:** run, watch fail, implement, `npx jest src/app && npx tsc --noEmit`.
+- [x] **Step 5: Mutation pass** — make "Something's wrong" call `confirmPublicOrder` (must redden);
       render the confirm buttons on an unamended order; drop `whereToGo`.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -575,15 +581,15 @@ Decision 2. `place_storefront_order` returns `share_token` in the **same jsonb t
 screen already renders** (Task 2), so this is a render change and not a second query — no new RPC
 call, no loading state.
 
-- [ ] **Step 1: Write the failing tests** — the confirmation screen shows the address built by
+- [x] **Step 1: Write the failing tests** — the confirmation screen shows the address built by
       `orderAddress(token)`; a response with **no** `share_token` (an older client, or a failure
       path) renders no link rather than `kaiibi.com/o/undefined`; the string shown **equals**
       `orderAddress(token)` and is not hand-built.
-- [ ] **Step 2-4:** run, watch fail, implement, `npx jest && npx tsc --noEmit`.
-- [ ] **Step 5: Mutation pass** — hand-build the URL (must redden); render the link when the token
+- [x] **Step 2-4:** run, watch fail, implement, `npx jest && npx tsc --noEmit`.
+- [x] **Step 5: Mutation pass** — hand-build the URL (must redden); render the link when the token
       is absent (must redden). **The second one matters most**: `undefined` in a URL is the exact
       shape of the #108 bug, a link that looks real and goes nowhere.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -591,7 +597,7 @@ call, no loading state.
 
 **Files:** `src/app/(admin)/orders.tsx`, `src/components/orders/order-detail.tsx`, their tests.
 
-- [ ] **Step 1:** an **"Awaiting customer"** chip beside the stage, shown when the order's latest
+- [x] **Step 1:** an **"Awaiting customer"** chip beside the stage, shown when the order's latest
       `order_amendments.amended_at` has no later `customer_confirmed_at`.
 
       **It warns, it does not block.** "Mark ready" stays live on an unconfirmed order — it is just
@@ -600,25 +606,25 @@ call, no loading state.
       feature. Same posture the sheet already takes with `blockedOnPosAccess`: say why, don't
       silently fail.
 
-- [ ] **Step 2:** a copy-link affordance in the detail sheet, built from `orderAddress(token)` —
+- [x] **Step 2:** a copy-link affordance in the detail sheet, built from `orderAddress(token)` —
       **never a hand-built string.** An order with no token (placed before Task 2) shows no link
       rather than a broken one.
-- [ ] **Step 3: Tests** — the chip appears only when amended-and-unconfirmed; "Mark ready" is still
+- [x] **Step 3: Tests** — the chip appears only when amended-and-unconfirmed; "Mark ready" is still
       enabled while the chip shows; the copied string **equals `orderAddress(token)`** (this is the
       #108 assertion again, at the surface that actually gets copied).
-- [ ] **Step 4: Mutation pass** — disable "Mark ready" when unconfirmed (must redden); hand-build
+- [x] **Step 4: Mutation pass** — disable "Mark ready" when unconfirmed (must redden); hand-build
       the link (must redden); show the chip on a confirmed order.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ---
 
 ## Verification of the whole part
 
-- [ ] `npm run test:db` — zero `FAILED:`.
-- [ ] `npm test && npx tsc --noEmit && npm run lint` — no worse than the baseline measured at the
+- [x] `npm run test:db` — zero `FAILED:`.
+- [x] `npm test && npx tsc --noEmit && npm run lint` — no worse than the baseline measured at the
       start. **Measure it first:** bare `npx tsc --noEmit` had **18 pre-existing errors** and lint
       **147 problems** as of `e448edb`; do not believe a handoff that says "tsc clean".
-- [ ] **The seam, against a real stack.** The unit tests mock PostgREST. Call `get_public_order` and
+- [x] **The seam, against a real stack.** The unit tests mock PostgREST. Call `get_public_order` and
       `confirm_public_order` over real HTTP **with the anon key and no session at all** — that is
       the posture a customer actually has, and it is the one thing a fake cannot show:
       ```bash
@@ -628,7 +634,7 @@ call, no loading state.
       ```
       Assert the payload contains no uuid and no cost, and that `confirm_public_order` moves nothing
       but the timestamp.
-- [ ] **On a device**, per `/testing-kaiibi`. **Note the two traps Part 2 hit:** Metro on `:8081`
+- [x] **On a device**, per `/testing-kaiibi`. **Note the two traps Part 2 hit:** Metro on `:8081`
       serves the *main checkout*, not your worktree, and the main `.env` points at **production**,
       which will not have these migrations. Either merge first or run a second Metro against the
       local stack.
