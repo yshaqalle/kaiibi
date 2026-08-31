@@ -108,7 +108,11 @@ export function EmptyState({
           onPress={() => openExternalUrl(waLink(number, `Hello ${storefront.shopName}, what do you have in today?`))}
           style={pressable(styles.emptyWa)}
         >
-          <Text style={styles.emptyWaText}>Message on WhatsApp</Text>
+          {/* NOT "Message on WhatsApp" -- that is already the label on the
+              nav button a few pixels above, and two identical buttons on one
+              screen make the reader work out whether they do the same thing.
+              This one names the answer it gets back. */}
+          <Text style={styles.emptyWaText}>Ask what&apos;s in today</Text>
         </Pressable>
       ) : null}
     </View>
@@ -692,7 +696,21 @@ const styles = StyleSheet.create({
   // Row scale: Counter's dense price list, where the pair sits inline next
   // to the stock label rather than filling a row's width.
   actionsCompact: { gap: 4 },
-  buttonCompact: { flex: 0, borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
+  // `flexGrow/Shrink/Basis` spelled out rather than the `flex: 0` shorthand
+  // this used to carry, because THE SHORTHAND DOES NOT MEAN THE SAME THING ON
+  // THE TWO PLATFORMS.
+  //
+  // React Native reads `flex: 0` as grow 0 / shrink 0 / basis auto -- the
+  // button hugs its label, which is what Counter's dense row wants. CSS reads
+  // it as `0 1 0%`: basis ZERO, so on react-native-web the button collapsed to
+  // its own horizontal padding and clipped the label -- "Add" rendered as
+  // "Adc" on every Counter shop. Native was fine, so nothing in the app
+  // surfaced it, and jest cannot see it because react-test-renderer does no
+  // layout. It showed up the first time Counter was opened in a browser --
+  // which is where nearly all of this page's traffic actually is.
+  //
+  // The longhand is identical on both.
+  buttonCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
   buttonTextCompact: { fontSize: 10.5 },
   // Floats over the browsing view's own content -- the parent View every
   // theme renders is flex:1 with no explicit `position`, which React Native

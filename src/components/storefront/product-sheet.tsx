@@ -54,19 +54,22 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
           </View>
 
           <ScrollView contentContainerStyle={styles.body}>
-            {/* Same no-photo rule as ProductTile: most shops upload a handful
-                at best, so the fallback sets the name large on `soft` rather
-                than showing a broken-image box. The majority case must not
-                look like an error. */}
+            {/* NO placeholder when there is no photo, which is the opposite of
+                what ProductTile does -- and deliberately so.
+
+                A tile is mostly picture, so its no-photo branch has to fill
+                that space with something intentional (the name, set large on
+                `soft`). A sheet is mostly WORDS: it already leads with the
+                name at 22px, then the price, then the description. A 4:3 block
+                here would repeat the name it sits directly above and push the
+                description -- the entire reason this component exists -- below
+                the fold on a phone.
+
+                Verified in a browser at 400x880, which is where both of those
+                problems were visible and neither was in jest. */}
             {product.imageUrl ? (
               <Image source={{ uri: product.imageUrl }} style={styles.photo} resizeMode="cover" />
-            ) : (
-              <View style={[styles.photo, styles.photoFallback, { backgroundColor: colors.soft }]}>
-                <Text style={[styles.photoFallbackText, { color: colors.ink }]} numberOfLines={3}>
-                  {product.name}
-                </Text>
-              </View>
-            )}
+            ) : null}
 
             <Text style={[styles.name, { color: colors.ink }]}>{product.name}</Text>
 
@@ -131,10 +134,8 @@ const styles = StyleSheet.create({
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%', overflow: 'hidden' },
   head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4 },
   grab: { width: 38, height: 4, borderRadius: 999 },
-  body: { paddingHorizontal: 18, paddingBottom: 22 },
+  body: { paddingHorizontal: 18, paddingBottom: 22, paddingTop: 6 },
   photo: { width: '100%', aspectRatio: 4 / 3, borderRadius: 14, marginBottom: 14 },
-  photoFallback: { justifyContent: 'flex-end', padding: 14 },
-  photoFallbackText: { fontSize: 20, fontWeight: '800', lineHeight: 25 },
   name: { fontSize: TYPE.headline, fontWeight: '800', letterSpacing: -0.4, lineHeight: 27 },
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 9 },
   price: { fontSize: 22, fontWeight: '800', letterSpacing: -0.4, ...TABULAR },
