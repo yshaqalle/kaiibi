@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { formatCents } from '@/lib/currency';
 import type { PublicOrder } from '@/lib/public-order';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -196,7 +197,7 @@ export function PublicOrderView({
             disabled={confirming}
             accessibilityLabel="Yes, that's fine"
             accessibilityRole="button"
-            style={[styles.primary, { backgroundColor: colors.ink }, confirming && styles.disabled]}
+            style={pressable([styles.primary, { backgroundColor: colors.ink }, confirming && styles.disabled])}
           >
             <Text style={[styles.primaryText, { color: colors.ground }]}>
               {confirming ? 'Sending…' : "Yes, that's fine"}
@@ -216,7 +217,7 @@ export function PublicOrderView({
           onPress={onMessageShop}
           accessibilityLabel="Something is wrong — message the shop"
           accessibilityRole="button"
-          style={[styles.secondary, { borderColor: colors.soft }]}
+          style={pressable([styles.secondary, { borderColor: colors.soft }])}
         >
           <Text style={[styles.secondaryText, { color: colors.ink }]}>Something is wrong — message the shop</Text>
         </Pressable>

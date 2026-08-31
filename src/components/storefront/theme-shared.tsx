@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
+import { pressable } from '@/components/storefront/press-feedback';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -36,7 +37,7 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
   if (!storefront.whatsappE164) return null;
   const href = waLink(storefront.whatsappE164, `Hello ${storefront.shopName}, I have a question.`);
   return (
-    <Pressable style={styles.wa} onPress={() => openExternalUrl(href)} accessibilityRole="link">
+    <Pressable style={pressable(styles.wa)} onPress={() => openExternalUrl(href)} accessibilityRole="link">
       <Text style={styles.waText}>Message on WhatsApp</Text>
     </Pressable>
   );
@@ -98,7 +99,7 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
         <Pressable
           testID="product-tile-add"
           accessibilityRole="button"
-          style={[styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }]}
+          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }])}
           onPress={() => onAdd?.(product)}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: colors.ground }]}>Add</Text>
@@ -109,7 +110,7 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
         <Pressable
           testID="product-tile-ask"
           accessibilityRole="button"
-          style={[styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }]}
+          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }])}
           onPress={handleAsk}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
@@ -131,7 +132,7 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
       accessibilityRole="button"
       accessibilityLabel={count > 0 ? `Open cart, ${count} item${count === 1 ? '' : 's'}` : 'Open cart'}
       onPress={onPress}
-      style={[styles.cart, { backgroundColor: colors.accent }]}
+      style={pressable([styles.cart, { backgroundColor: colors.accent }])}
     >
       <Text style={[styles.cartText, { color: colors.ground }]}>{count > 0 ? `Cart · ${count}` : 'Cart'}</Text>
     </Pressable>
@@ -167,7 +168,7 @@ export function CategoryFilterBar({
       accessibilityRole="button"
       accessibilityLabel={`Showing ${category} only. Show everything`}
       onPress={onClear}
-      style={[styles.filterChip, { backgroundColor: colors.soft }]}
+      style={pressable([styles.filterChip, { backgroundColor: colors.soft }])}
     >
       <Text style={[styles.filterChipText, { color: colors.ink }]}>{category} · Show everything ✕</Text>
     </Pressable>
@@ -262,7 +263,7 @@ export function CheckoutBar({
       testID="storefront-checkout-bar"
       accessibilityRole="button"
       onPress={onPress}
-      style={[styles.checkoutBar, { backgroundColor: colors.accent }]}
+      style={pressable([styles.checkoutBar, { backgroundColor: colors.accent }])}
     >
       <Text style={[styles.checkoutBarText, { color: colors.ground }]}>Checkout · {formatCents(subtotalCents)}</Text>
     </Pressable>
@@ -440,7 +441,15 @@ export function CheckoutScreen({
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <View style={styles.screenNav}>
-        <Pressable testID="storefront-checkout-back" accessibilityRole="button" onPress={onBack} hitSlop={8}>
+        {/* No background of its own -- `pressable(undefined)` still returns
+            the callback, so the opacity/scale applies to the bare text. */}
+        <Pressable
+          testID="storefront-checkout-back"
+          accessibilityRole="button"
+          onPress={onBack}
+          hitSlop={8}
+          style={pressable(undefined)}
+        >
           <Text style={[styles.screenBack, { color: colors.ink }]}>‹ Back</Text>
         </Pressable>
         <Text style={[styles.screenTitle, { color: colors.ink }]}>Checkout</Text>
@@ -455,7 +464,7 @@ export function CheckoutScreen({
             testID="storefront-checkout-edit-cart"
             accessibilityRole="button"
             onPress={onEditCart}
-            style={[styles.editCart, { borderColor: colors.danger }]}
+            style={pressable([styles.editCart, { borderColor: colors.danger }])}
           >
             <Text style={[styles.editCartText, { color: colors.danger }]}>Edit cart</Text>
           </Pressable>
@@ -505,7 +514,7 @@ export function ConfirmationScreen({
           testID="storefront-continue-shopping"
           accessibilityRole="button"
           onPress={onDone}
-          style={[styles.continueButton, { backgroundColor: colors.soft }]}
+          style={pressable([styles.continueButton, { backgroundColor: colors.soft }])}
         >
           <Text style={[styles.continueText, { color: colors.ink }]}>Continue shopping</Text>
         </Pressable>

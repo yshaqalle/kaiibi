@@ -105,3 +105,54 @@ describe('ThemeWindow', () => {
     expect(bottom).toBe(16);
   });
 });
+
+// Window is the ONLY theme that reads hero_image_url, and it used to lay that
+// photo across the panel with StyleSheet.absoluteFill and then set the
+// headline on top in `colors.ink` -- a near-black -- with nothing between
+// them. A shop uploading a dark or busy photo got an unreadable headline, and
+// no amount of choosing a good photo helps the shop that chooses a bad one.
+//
+// The scrim is the fix. These assert both halves: that it exists over a
+// photo, and that the type stops being near-black once it does.
+describe('ThemeWindow hero over a photo', () => {
+  async function renderWithHero(heroImageUrl: string | null) {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeWindow
+          storefront={{ ...shop, slug: 'xamdi-hero', heroImageUrl, headline: 'Power that stays on.' }}
+          products={products}
+          colors={colors}
+        />,
+      );
+    });
+    return tree;
+  }
+
+  function headlineColor(tree: ReturnType<typeof create>) {
+    const node = tree.root.findAll((n) => n.props?.testID === 'storefront-headline')[0];
+    const flat = [node.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+      color?: string;
+    };
+    return flat.color;
+  }
+
+  it('lays a scrim between the photo and the headline', async () => {
+    const tree = await renderWithHero('https://example.test/hero.jpg');
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-hero-scrim').length).toBeGreaterThan(0);
+  });
+
+  it('stops setting the headline in near-black once a photo is behind it', async () => {
+    const tree = await renderWithHero('https://example.test/hero.jpg');
+    expect(headlineColor(tree)).not.toBe(colors.ink);
+  });
+
+  // The no-photo hero is not a degraded state -- it is the majority case, and
+  // it must keep reading as the shop's own palette rather than inheriting a
+  // treatment meant for a photo that isn't there.
+  it('renders no scrim, and keeps ink type, when there is no photo', async () => {
+    const tree = await renderWithHero(null);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-hero-scrim')).toHaveLength(0);
+    expect(headlineColor(tree)).toBe(colors.ink);
+  });
+});

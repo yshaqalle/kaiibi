@@ -129,9 +129,18 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
                         shifts it and the price column keeps scanning down
                         the same as before this row grew an Add/Ask pair. */}
                     <View style={styles.stateRow}>
-                      <Text style={[styles.state, { color: p.stock > 0 ? '#1f7a4d' : '#8a5a05' }]}>
-                        {p.stock > 0 ? 'In stock' : 'Out of stock — ask us'}
-                      </Text>
+                      {/* See product-tile.tsx's comment on this same pair.
+                          Counter is where it matters most: on a 200-row
+                          price list, a colour on every in-stock row buried
+                          the handful of sold-out ones a customer is actually
+                          scanning for. */}
+                      {p.stock > 0 ? (
+                        <Text style={[styles.state, { color: colors.ink }]}>In stock</Text>
+                      ) : (
+                        <View style={[styles.statePill, { backgroundColor: colors.soft }]}>
+                          <Text style={[styles.statePillText, { color: colors.stockOut }]}>Out of stock</Text>
+                        </View>
+                      )}
                       <ProductActions
                         product={p}
                         colors={colors}
@@ -190,5 +199,7 @@ const styles = StyleSheet.create({
   name: { fontSize: 13.5, fontWeight: '600' },
   stateRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 3 },
   state: { fontSize: 11.5, fontWeight: '600' },
+  statePill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  statePillText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.2 },
   price: { fontSize: 14.5, fontWeight: '800' },
 });

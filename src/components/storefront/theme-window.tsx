@@ -10,6 +10,18 @@ import {
 } from '@/components/storefront/theme-shared';
 import { collectLocation } from '@/lib/storefront-collect';
 
+// Type ON the scrim, not on any palette -- and so deliberately fixed, the same
+// way WHATSAPP_BUTTON_GREEN is. The scrim's bottom is rgba(0,0,0,.55) over an
+// unknown photograph, which is a dark ground in every case the branch can
+// reach; a palette's own ink is near-black and would vanish into it. These are
+// the two values that stay readable on that ground regardless of which of the
+// six palettes the shop picked, so they are not derived from any of them.
+const ON_SCRIM_INK = '#ffffff';
+// The about line's quieter step. Off-white rather than an opacity on white:
+// an opacity would composite differently against every photo, and this stays
+// a value that can be reasoned about and tested.
+const ON_SCRIM_MUTED = '#e8e6e0';
+
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
 // That is the test every theme in this set had to pass.
@@ -74,15 +86,55 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
         </View>
       </View>
 
+      {/* Two heroes in one panel, and which one renders is decided by whether
+          the shop uploaded a photo -- NOT by a style flag a caller can get
+          wrong.
+
+          Over a photo: a scrim, then white type. Without it, the headline was
+          set in `colors.ink` -- a near-black -- directly on whatever image the
+          shop chose, so a dark or busy photo produced an unreadable headline
+          and nothing in the editor warned them. A shop cannot be asked to only
+          upload photos that happen to suit near-black text.
+
+          Without a photo: the palette's own soft panel and ink type, unchanged.
+          That branch is the MAJORITY case (most shops upload nothing) and is
+          not a degraded version of the other one -- it has to look intentional
+          on its own, which is the test every theme in this set had to pass. */}
       <View style={[styles.hero, { backgroundColor: colors.soft }]}>
         {storefront.heroImageUrl ? (
-          <Image source={{ uri: storefront.heroImageUrl }} style={styles.heroImage} resizeMode="cover" />
+          <>
+            <Image source={{ uri: storefront.heroImageUrl }} style={styles.heroImage} resizeMode="cover" />
+            {/* Sits between the photo and the type, and nowhere else -- a
+                scrim on the no-photo panel would only dim the shop's own
+                colour for no reason. Transparent until 40% so the top of the
+                photo is untouched and it reads as a photograph, not a tinted
+                block. */}
+            <View testID="storefront-hero-scrim" style={styles.heroScrim} pointerEvents="none" />
+          </>
         ) : null}
         {storefront.headline ? (
-          <Text testID="storefront-headline" style={[styles.heroHead, { color: colors.ink }]}>{storefront.headline}</Text>
+          <Text
+            testID="storefront-headline"
+            style={[
+              styles.heroHead,
+              storefront.heroImageUrl && styles.onScrimText,
+              { color: storefront.heroImageUrl ? ON_SCRIM_INK : colors.ink },
+            ]}
+          >
+            {storefront.headline}
+          </Text>
         ) : null}
         {storefront.about ? (
-          <Text testID="storefront-about" style={[styles.heroAbout, { color: colors.muted }]}>{storefront.about}</Text>
+          <Text
+            testID="storefront-about"
+            style={[
+              styles.heroAbout,
+              storefront.heroImageUrl && styles.onScrimText,
+              { color: storefront.heroImageUrl ? ON_SCRIM_MUTED : colors.muted },
+            ]}
+          >
+            {storefront.about}
+          </Text>
         ) : null}
       </View>
 
@@ -159,8 +211,28 @@ const styles = StyleSheet.create({
   shopName: { fontSize: 15, fontWeight: '800', letterSpacing: 2, flexShrink: 1 },
   hero: { marginHorizontal: 16, borderRadius: 20, padding: 24, overflow: 'hidden' },
   heroImage: { ...StyleSheet.absoluteFill },
+  // A FLAT scrim, not a gradient, and covering the whole panel rather than
+  // weighted to one edge: the headline and the about line flow from the TOP of
+  // this panel, so the area that needs darkening is the area the text is in,
+  // which here is all of it. (The visual pass proposes moving the type to the
+  // bottom as a wordmark -- when that lands, this becomes a bottom-weighted
+  // gradient and needs react-native-svg or a gradient dependency. It is not
+  // worth either today, for a rectangle.)
+  //
+  // WHAT 0.55 DOES AND DOES NOT BUY. Against a mid or dark photo it clears
+  // 4.5:1 for white type comfortably. Against a near-WHITE photo it does not,
+  // and no fixed alpha does without dimming the picture into a grey block --
+  // a pure-white image under a 0.55 black scrim still leaves white text at
+  // about 2:1. The textShadow below is what carries that worst case: an
+  // outline that does not depend on the photo behind it. Guaranteeing the
+  // ratio outright means not setting type over an arbitrary photo at all,
+  // which is a layout decision for the visual pass, not a bug fix.
+  heroScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
   heroHead: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, lineHeight: 31 },
   heroAbout: { fontSize: 13.5, marginTop: 9 },
+  // Applied only on the photo branch -- a shadow on the flat soft panel would
+  // be a smudge under near-black type on a light ground, solving nothing.
+  onScrimText: { textShadowColor: 'rgba(0,0,0,0.65)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   grid: { padding: 16, gap: 16 },
   gridWithCheckoutBar: { paddingBottom: 16 + CHECKOUT_BAR_CLEARANCE },
   row: { gap: 16 },

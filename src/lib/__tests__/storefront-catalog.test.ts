@@ -69,6 +69,66 @@ describe('danger text (form errors)', () => {
   });
 });
 
+// The out-of-stock colour used to be the literal '#8a5a05', typed straight
+// into product-tile.tsx and theme-counter.tsx and identical on all six
+// palettes. On SAFFRON that literal IS the palette's own accent, byte for
+// byte -- so "Out of stock" rendered in the colour of the Add button and the
+// section rule, and the notice read as an action. The `danger` suite above
+// already guards against colliding with this amber; the guard went on danger
+// and never on the amber itself.
+//
+// Now derived per palette, the same way muted and danger are. The pill it
+// paints sits on `soft` (not `ground`), so it is stepped against soft -- the
+// surface it is actually on. Ground is lighter than soft in every palette, so
+// clearing 4.5:1 on soft clears it on ground too.
+describe('out-of-stock text', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s keeps out-of-stock readable on the pill it sits on', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.stockOut, c.soft)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s keeps it readable on the page ground too', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.stockOut, c.ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The Saffron collision, pinned so it cannot come back.
+  it.each(keys)('%s does not paint out-of-stock in its own accent', (key) => {
+    const c = paletteColors(key);
+    expect(c.stockOut.toLowerCase()).not.toBe(c.accent.toLowerCase());
+  });
+
+  // Saffron by name as well as by rule -- it is the palette the rule exists
+  // for, and a future change to the anchor should fail loudly here.
+  it('saffron no longer renders out-of-stock as its accent', () => {
+    const c = paletteColors('saffron');
+    expect(c.accent).toBe('#8a5a05');
+    expect(c.stockOut).not.toBe('#8a5a05');
+  });
+
+  // An error and a stock notice must not look like the same signal -- the
+  // rule storefront-catalog.ts states on dangerInk, asserted from both ends.
+  it.each(keys)('%s keeps out-of-stock distinct from the error colour', (key) => {
+    const c = paletteColors(key);
+    expect(c.stockOut.toLowerCase()).not.toBe(c.danger.toLowerCase());
+  });
+});
+
+// There is deliberately NO `stockOk`. In-stock is the state nearly every
+// product is in, so a colour on it would be spent where it carries no
+// information -- and the green it would have been derived from lands within
+// ~4% of WHATSAPP_BUTTON_GREEN on every palette, which would put a passive
+// status label in the colour of a tappable affordance. In-stock is set in
+// `ink` instead: the words stay, the colour goes. See product-tile.tsx.
+describe('in-stock carries no colour of its own', () => {
+  it('the palette offers no stockOk token to reach for', () => {
+    const c = paletteColors('ink') as Record<string, unknown>;
+    expect(c.stockOk).toBeUndefined();
+  });
+});
+
 describe('WhatsApp green', () => {
   it('is fixed, because it is a recognised affordance and not a brand colour', () => {
     expect(WHATSAPP_BUTTON_GREEN).toBe('#1f7a4d');

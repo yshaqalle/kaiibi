@@ -26,7 +26,22 @@ export type PaletteColors = {
   accent: string; // buttons and the active filter, always with white on it
   muted: string;  // secondary type -- a city subtitle, an about paragraph
   danger: string; // form error text -- never the out-of-stock amber, and never a stray hex at the call site
+  stockOut: string; // "Ask us" on a sold-out product -- derived, never a literal, never the accent
 };
+
+// There is NO stockOk, and that is the design.
+//
+// In-stock is the state nearly every product is in, so colouring it spends the
+// page's scarcest signal on the one thing that carries no information -- and on
+// a 200-row Counter price list it buries the handful of rows a customer
+// actually needs to spot. Worse, the green it would be derived from
+// (the old '#1f7a4d' literal) IS WHATSAPP_BUTTON_GREEN, so the label sat in the
+// colour of a tappable affordance while doing nothing; blending toward the
+// palette's ink moves it about 4%, which is not a fix, only a disguise.
+//
+// The words stay -- "do they actually have it?" is the question this whole page
+// exists to answer, and dropping the affirmative would undercut it. Only the
+// colour goes: in-stock is set in `ink`, out-of-stock gets the pill below.
 
 export const THEMES: { key: StorefrontTheme; label: string; description: string }[] = [
   { key: 'market', label: 'Market', description: 'Even grid, price forward. Works with any number of photos.' },
@@ -48,7 +63,11 @@ export const PALETTES: { key: StorefrontPalette; label: string; suits: string }[
 export const DEFAULT_THEME: StorefrontTheme = 'market';
 export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 
-type BasePaletteColors = Omit<PaletteColors, 'muted' | 'danger'>;
+// What a palette actually STORES, as opposed to what it hands out. Every name
+// omitted here is derived below and must never appear in COLORS -- the omission
+// is what makes forgetting to derive one a compile error rather than a colour
+// nobody notices is wrong.
+type BasePaletteColors = Omit<PaletteColors, 'muted' | 'danger' | 'stockOut'>;
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   ink:     { ground: '#ffffff', soft: '#f4f4f5', ink: '#141418', accent: '#141418' },
@@ -121,9 +140,35 @@ export function dangerInk(palette: StorefrontPalette): string {
   return stepUntilContrast(tinted, c.ground, 4.5);
 }
 
+// The out-of-stock amber, on the same pattern as dangerInk above and for the
+// same reason: it was a literal ('#8a5a05', typed into product-tile.tsx and
+// theme-counter.tsx) reused identically on six palettes, and on SAFFRON that
+// literal is the palette's own accent byte for byte -- so a sold-out notice
+// rendered in the colour of the Add button and the section rule. The comment
+// on DANGER_BASE above already names this amber as the thing an error must not
+// be confusable with; the guard went on danger and never on the amber itself.
+//
+// Anchored on that same familiar amber so the colour a shop already recognises
+// is the STARTING point, blended a little toward the palette's own ink so the
+// token is genuinely computed from that palette rather than one constant reused
+// six times, then walked until it clears 4.5:1.
+//
+// Stepped against SOFT, not ground: this paints text inside a pill filled with
+// `soft`, so soft is the surface it actually sits on. Every palette's ground is
+// lighter than its soft, so clearing the ratio here clears it on ground too --
+// which the tests assert from both ends rather than leaving to this comment.
+const STOCK_OUT_BASE = '#8a5a05';
+const STOCK_OUT_INK_BLEND = 0.12;
+
+export function stockOutInk(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  const tinted = blendHex(STOCK_OUT_BASE, c.ink, STOCK_OUT_INK_BLEND);
+  return stepUntilContrast(tinted, c.soft, 4.5);
+}
+
 export function paletteColors(palette: StorefrontPalette): PaletteColors {
   const key = paletteKey(palette);
-  return { ...COLORS[key], muted: mutedInk(key), danger: dangerInk(key) };
+  return { ...COLORS[key], muted: mutedInk(key), danger: dangerInk(key), stockOut: stockOutInk(key) };
 }
 
 // NOT part of any palette, and deliberately not themeable. Green is what makes

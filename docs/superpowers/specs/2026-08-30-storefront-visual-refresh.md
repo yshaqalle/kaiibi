@@ -1,7 +1,7 @@
 # Storefront visual refresh — design
 
 **Date:** 2026-08-30
-**Status:** Awaiting review
+**Status:** Partly built — the three defect fixes have shipped; the design work is still awaiting review
 **Mockup:** `docs/design/storefront-visual-refresh-mockup.html`
 **Scope:** A visual pass on the public storefront's three themes and the editor's
 design picker. No change to what a shop can edit, where content comes from, or
@@ -96,7 +96,28 @@ type against a saturated green button with white type. If genuine hue separation
 is wanted, that is an anchor change, not a derivation change — see the open
 question below.
 
-### Open question — does "In stock" need a colour at all?
+### Resolved — in-stock keeps its words and loses its colour
+
+Settled during build, and it changed the shape of the fix.
+
+Removing the in-stock signal outright was wrong: "do they actually have it?" is
+the question this page exists to answer, and absence-as-signal only works for a
+customer who already knows the convention. But colouring the state that ~90% of
+products are in spends the page's scarcest signal where it carries no
+information — and on Counter's 200-row list it buries the handful of sold-out
+rows a customer is actually scanning for.
+
+So the state is **demoted from colour to type**: "In stock" keeps its words, set
+in `ink`; "Out of stock" gets the pill and the derived amber. That kills the
+WhatsApp-green resemblance by removing the green entirely, rather than
+explaining away a 4% difference — and it means **`stockOk` was never needed**.
+One new token, not two.
+
+The pill says **"Out of stock"**, not "Ask us": the Ask button sits directly
+beside it, so the pill should carry the state and let the button carry the
+action.
+
+### Superseded — the original open question
 
 Worth settling before build. Most products, most of the time, are in stock, so a
 green pill on nearly every tile is decoration that carries no information. The

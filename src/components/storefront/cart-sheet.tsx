@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { AppModal } from '@/components/ui/app-modal';
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
@@ -46,7 +47,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
               accessibilityRole="button"
               accessibilityLabel="Close cart"
               onPress={onClose}
-              style={[styles.close, { backgroundColor: colors.soft }]}
+              style={pressable([styles.close, { backgroundColor: colors.soft }])}
             >
               <Text style={[styles.closeText, { color: colors.ink }]}>Close</Text>
             </Pressable>
@@ -74,7 +75,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                       accessibilityLabel={`Reduce ${line.name} quantity`}
                       hitSlop={6}
                       onPress={() => onChangeQuantity(line.productId, line.quantity - 1)}
-                      style={[styles.stepButton, { backgroundColor: colors.ground }]}
+                      style={pressable([styles.stepButton, { backgroundColor: colors.ground }])}
                     >
                       <Text style={[styles.stepButtonText, { color: colors.ink }]}>−</Text>
                     </Pressable>
@@ -85,7 +86,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                       accessibilityLabel={`Increase ${line.name} quantity`}
                       hitSlop={6}
                       onPress={() => onChangeQuantity(line.productId, line.quantity + 1)}
-                      style={[styles.stepButton, { backgroundColor: colors.ground }]}
+                      style={pressable([styles.stepButton, { backgroundColor: colors.ground }])}
                     >
                       <Text style={[styles.stepButtonText, { color: colors.ink }]}>+</Text>
                     </Pressable>
@@ -112,7 +113,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                 testID="cart-sheet-checkout"
                 accessibilityRole="button"
                 onPress={onCheckout}
-                style={[styles.checkout, { backgroundColor: colors.accent }]}
+                style={pressable([styles.checkout, { backgroundColor: colors.accent }])}
               >
                 <Text style={[styles.checkoutText, { color: colors.ground }]}>Checkout</Text>
               </Pressable>
