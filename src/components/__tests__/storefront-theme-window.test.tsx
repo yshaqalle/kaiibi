@@ -63,7 +63,7 @@ const products: StorefrontProduct[] = [
 // storefront-cart.ts's native-platform cache (`nativeCache`, a module-level
 // Map with no reset hook by design -- same note storefront-route.test.tsx's
 // own setup carries) persists for the life of this test file. Each test
-// below renders its own shop slug so one test's basket can never leak into
+// below renders its own shop slug so one test's cart can never leak into
 // another's, without needing the web/localStorage fake other storefront
 // test files use.
 // FlatList (via VirtualizedList) schedules a cell-measurement update on a
@@ -82,8 +82,8 @@ async function renderWindow(slug: string) {
 describe('ThemeWindow', () => {
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
   // space of its own -- without this, its last-row content sits underneath
-  // it the moment the basket goes from empty to non-empty.
-  it('reserves extra bottom space for the sticky checkout bar once the basket is non-empty', async () => {
+  // it the moment the cart goes from empty to non-empty.
+  it('reserves extra bottom space for the sticky checkout bar once the cart is non-empty', async () => {
     const tree = await renderWindow('xamdi-window-b6-nonempty');
     const before = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
 
@@ -99,7 +99,7 @@ describe('ThemeWindow', () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   });
 
-  it('reserves no extra space while the basket is empty', async () => {
+  it('reserves no extra space while the cart is empty', async () => {
     const tree = await renderWindow('xamdi-window-b6-empty');
     const bottom = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
     expect(bottom).toBe(16);

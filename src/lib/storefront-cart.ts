@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// A basket held in a STRANGER'S browser -- no account, no session, no
+// A cart held in a STRANGER'S browser -- no account, no session, no
 // register. This is deliberately not src/lib/cart.ts, which is the POS cart a
 // signed-in cashier uses at a till (`cartTotalCents`, `buildSalePayload`).
 // The two look alike and behave differently; do not merge them.
@@ -14,7 +14,7 @@ import { Platform } from 'react-native';
 export type CartLine = { productId: string; name: string; unitPriceCents: number; quantity: number };
 
 // Keyed by shop slug (see StorefrontCart.slug) so a customer browsing two
-// shops in the same tab never has their baskets merge into one.
+// shops in the same tab never has their carts merge into one.
 export type StorefrontCart = { slug: string; lines: CartLine[] };
 
 function emptyCart(slug: string): StorefrontCart {
@@ -147,7 +147,7 @@ export function loadCart(slug: string): StorefrontCart {
     }
     // Drops any line that doesn't look like a line rather than throwing over
     // the whole cart -- one corrupt entry should not cost the rest of the
-    // basket, the same reasoning held-orders.ts applies to a parked sale.
+    // cart, the same reasoning held-orders.ts applies to a parked sale.
     const lines = (parsed as { lines: unknown[] }).lines.filter(isCartLine);
     return { slug, lines };
   } catch {

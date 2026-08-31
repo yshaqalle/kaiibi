@@ -66,7 +66,7 @@ async function flush(tree: ReactTestRenderer) {
 
 // The same fake, clearable localStorage storefront-route.test.tsx sets up --
 // storefront-cart.ts persists there on web, and the cart's native path is a
-// module-level Map with no reset hook, so without this every basket added in
+// module-level Map with no reset hook, so without this every cart added in
 // one test would still be sitting there for the next.
 const webStorage = new Map<string, string>();
 const fakeLocalStorage = {

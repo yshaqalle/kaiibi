@@ -44,7 +44,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
         errorCode={checkout.errorCode}
         onBack={checkout.backToBrowse}
         onSubmit={(details, via) => checkout.submit(cart, details, via)}
-        onEditBasket={() => {
+        onEditCart={() => {
           checkout.backToBrowse();
           setCartOpen(true);
         }}
@@ -147,7 +147,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeP
 
 const styles = StyleSheet.create({
   // See theme-market.tsx's identical comment on `nav`/`navActions`: `flexWrap`
-  // is what lets WhatsApp + Basket drop to their own line rather than run
+  // is what lets WhatsApp + Cart drop to their own line rather than run
   // the row off a phone's edge, and `marginLeft: 'auto'` (not
   // `justifyContent: 'space-between'`) is what keeps that pair pinned to
   // the trailing edge whether it shares line one with the name or not.

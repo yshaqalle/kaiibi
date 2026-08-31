@@ -16,14 +16,14 @@ type Props = {
   // the cart's state.
   onChangeQuantity: (productId: string, quantity: number) => void;
   // B7: opening this sheet used to be a dead end -- a customer reviewing
-  // their basket had no way onward except closing it again and finding the
+  // their cart had no way onward except closing it again and finding the
   // theme's own sticky bar underneath. The caller decides what "go to
   // checkout" means (every theme both closes this sheet and opens its own
   // checkout stage), this component only has to offer the action.
   onCheckout: () => void;
 };
 
-// What a stranger's basket has to say, and just as importantly what it must
+// What a stranger's cart has to say, and just as importantly what it must
 // never say:
 //
 //   * No delivery line, no total -- only a subtotal. Delivery is not knowable
@@ -40,11 +40,11 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: colors.ground }]}>
           <View style={styles.head}>
-            <Text style={[styles.title, { color: colors.ink }]}>Your basket</Text>
+            <Text style={[styles.title, { color: colors.ink }]}>Your cart</Text>
             <Pressable
               testID="cart-sheet-close"
               accessibilityRole="button"
-              accessibilityLabel="Close basket"
+              accessibilityLabel="Close cart"
               onPress={onClose}
               style={[styles.close, { backgroundColor: colors.soft }]}
             >
@@ -53,7 +53,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
           </View>
 
           {cart.lines.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.muted }]}>Your basket is empty.</Text>
+            <Text style={[styles.empty, { color: colors.muted }]}>Your cart is empty.</Text>
           ) : (
             <>
               {cart.lines.map((line) => (
@@ -105,7 +105,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                 Nothing is charged now. You pay on collection or delivery.
               </Text>
 
-              {/* B7: the way onward, from right here -- reviewing the basket
+              {/* B7: the way onward, from right here -- reviewing the cart
                   used to be a dead end that only closing this sheet and
                   finding the theme's own sticky bar could get past. */}
               <Pressable

@@ -81,7 +81,7 @@ async function flush(tree: ReactTestRenderer) {
 }
 
 // storefront-cart.ts persists to localStorage on web and to a module-level Map
-// with no reset hook on native, so without a clearable fake one test's basket
+// with no reset hook on native, so without a clearable fake one test's cart
 // leaks into the next.
 const webStorage = new Map<string, string>();
 Object.defineProperty(window, 'localStorage', {

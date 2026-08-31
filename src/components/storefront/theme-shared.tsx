@@ -120,7 +120,7 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
 }
 
 // The cart entry point every theme needs -- including Counter, which has no
-// product grid and so no Add button of its own. The basket is keyed by shop
+// product grid and so no Add button of its own. The cart is keyed by shop
 // slug, not by theme (see storefront-cart.ts), so a customer who added items
 // under Market and then lands on Counter -- or whose shop simply switched
 // themes -- still needs a way to see and change what is already in it.
@@ -129,11 +129,11 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
     <Pressable
       testID="storefront-cart-button"
       accessibilityRole="button"
-      accessibilityLabel={count > 0 ? `Open basket, ${count} item${count === 1 ? '' : 's'}` : 'Open basket'}
+      accessibilityLabel={count > 0 ? `Open cart, ${count} item${count === 1 ? '' : 's'}` : 'Open cart'}
       onPress={onPress}
       style={[styles.cart, { backgroundColor: colors.accent }]}
     >
-      <Text style={[styles.cartText, { color: colors.ground }]}>{count > 0 ? `Basket · ${count}` : 'Basket'}</Text>
+      <Text style={[styles.cartText, { color: colors.ground }]}>{count > 0 ? `Cart · ${count}` : 'Cart'}</Text>
     </Pressable>
   );
 }
@@ -185,7 +185,7 @@ export function gridColumnsForWidth(width: number): number {
   return 4;
 }
 
-// The basket lives in `storefront-cart.ts`, keyed by shop slug, and every
+// The cart lives in `storefront-cart.ts`, keyed by shop slug, and every
 // theme needs to read it, add to it, and change a line's quantity the same
 // way -- so that logic is a hook here rather than copied into Market, Window
 // and Counter separately. Deliberately not exported as a class or a context:
@@ -213,7 +213,7 @@ export function useStorefrontCart(slug: string) {
   // placeOrder (storefront-order.ts) already clears the STORED cart the
   // moment an order is accepted -- this brings the in-memory copy every theme
   // reads back in sync with that, so a customer who places a second order
-  // doesn't see the first one's lines still sitting in the basket. Never
+  // doesn't see the first one's lines still sitting in the cart. Never
   // called on a rejected order: the caller only reaches this after
   // placeOrder/placeOrderViaWhatsApp has resolved, never from a catch block.
   function clearCart() {
@@ -234,17 +234,17 @@ export function useStorefrontCart(slug: string) {
   };
 }
 
-// The direct path from a non-empty basket to checkout. CartSheet (the basket
+// The direct path from a non-empty cart to checkout. CartSheet (the cart
 // review modal) has a fixed prop surface --
 // visible/onClose/cart/colors/onChangeQuantity, see cart-sheet.tsx -- and
 // gained no checkout affordance of its own, so this sticky bar is what every
 // theme renders instead: named after the subtotal, gone the moment the
-// basket is empty, so it can never invite a checkout with nothing in it.
+// cart is empty, so it can never invite a checkout with nothing in it.
 // B6: the bar itself is `position: absolute`, so it takes no space in the
 // document flow it floats over -- nothing pushes the browsing view's own
 // content up to make room for it. Each theme's scrollable container adds
 // this much bottom padding of its own, but ONLY while `itemCount > 0` (the
-// same condition CheckoutBar below uses to render at all): an empty basket
+// same condition CheckoutBar below uses to render at all): an empty cart
 // must not carry dead space at the bottom of a page with no bar to clear.
 // Sized to the bar's own layout -- paddingVertical 14 top and bottom plus a
 // ~17px line of 14px/800-weight text is ~45px, plus the 14px gap the bar
@@ -295,14 +295,14 @@ const ORDER_ERROR_MESSAGES: Record<string, string> = {
   invalid_note: 'Shorten your note and try again.',
   delivery_unavailable: "This shop doesn't offer delivery. Choose collection instead.",
   unknown_delivery_area: "That delivery area isn't available any more. Pick another one.",
-  empty_cart: 'Your basket is empty. Add something before checking out.',
-  cart_too_large: 'There are too many items in your basket. Remove a few and try again.',
-  invalid_quantity: 'One of the quantities in your basket looks wrong. Adjust it and try again.',
+  empty_cart: 'Your cart is empty. Add something before checking out.',
+  cart_too_large: 'There are too many items in your cart. Remove a few and try again.',
+  invalid_quantity: 'One of the quantities in your cart looks wrong. Adjust it and try again.',
   // The one code the brief calls out by name: the action is to remove the
   // item, not just be told about it -- CheckoutScreen below renders an
-  // "Edit basket" action whenever this exact code comes back, wired to
-  // reopen CartSheet on top of the same basket rather than merely saying so.
-  unavailable_item: 'One of the items in your basket is no longer available. Remove it to continue.',
+  // "Edit cart" action whenever this exact code comes back, wired to
+  // reopen CartSheet on top of the same cart rather than merely saying so.
+  unavailable_item: 'One of the items in your cart is no longer available. Remove it to continue.',
 };
 
 // The RPC's error surfaces as `error.message` set to the fixed code word
@@ -392,10 +392,10 @@ export function useCheckoutFlow(opts: {
       setOrder(placed);
       setStage('confirmation');
     } catch (err) {
-      // A rejected order (a stale product, a full basket, a rate limit)
+      // A rejected order (a stale product, a full cart, a rate limit)
       // leaves the cart exactly as placeOrder left it -- untouched, since
       // onOrderPlaced above is never reached -- and keeps the customer on
-      // 'checkout' rather than bouncing them back to an empty-looking basket,
+      // 'checkout' rather than bouncing them back to an empty-looking cart,
       // so what they typed is still on screen to retry with. B2: the message
       // itself is now the RPC's own client-error code translated into a
       // sentence the customer can act on (see ORDER_ERROR_MESSAGES above),
@@ -417,7 +417,7 @@ export function useCheckoutFlow(opts: {
 // address means the same thing on a photo grid or a price list, and only the
 // palette should differ between them -- `colors` already carries that.
 export function CheckoutScreen({
-  storefront, cart, areas, colors, submitting, error, errorCode, onBack, onSubmit, onEditBasket,
+  storefront, cart, areas, colors, submitting, error, errorCode, onBack, onSubmit, onEditCart,
 }: {
   storefront: PublicStorefront;
   cart: StorefrontCart;
@@ -431,11 +431,11 @@ export function CheckoutScreen({
   errorCode?: string | null;
   onBack: () => void;
   onSubmit: (details: CheckoutDetails, via: 'direct' | 'whatsapp') => void;
-  // B2/B7: reopens the basket on 'unavailable_item' so removing the stale
+  // B2/B7: reopens the cart on 'unavailable_item' so removing the stale
   // line is one tap away, not a message the customer has to act on by
   // guessing where to go. Optional so a caller mid-migration (and every
   // existing test that predates this) still type-checks.
-  onEditBasket?: () => void;
+  onEditCart?: () => void;
 }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
@@ -449,15 +449,15 @@ export function CheckoutScreen({
         {error ? <Text style={[styles.screenError, { color: colors.danger }]}>{error}</Text> : null}
         {/* B2: "remove the item" is the action -- so make it possible from
             right here, not just say it and leave the customer to work out
-            that the basket is back through the nav bar. */}
-        {errorCode === 'unavailable_item' && onEditBasket ? (
+            that the cart is back through the nav bar. */}
+        {errorCode === 'unavailable_item' && onEditCart ? (
           <Pressable
-            testID="storefront-checkout-edit-basket"
+            testID="storefront-checkout-edit-cart"
             accessibilityRole="button"
-            onPress={onEditBasket}
-            style={[styles.editBasket, { borderColor: colors.danger }]}
+            onPress={onEditCart}
+            style={[styles.editCart, { borderColor: colors.danger }]}
           >
-            <Text style={[styles.editBasketText, { color: colors.danger }]}>Edit basket</Text>
+            <Text style={[styles.editCartText, { color: colors.danger }]}>Edit cart</Text>
           </Pressable>
         ) : null}
         <CheckoutForm
@@ -548,8 +548,8 @@ const styles = StyleSheet.create({
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  editBasket: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
-  editBasketText: { fontSize: 12.5, fontWeight: '800' },
+  editCart: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  editCartText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
   continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
   continueText: { fontSize: 14, fontWeight: '800' },

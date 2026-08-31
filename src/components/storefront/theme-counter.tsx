@@ -35,9 +35,9 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
 }
 
 export function ThemeCounter({ storefront, products, colors, areas = [] }: ThemeProps) {
-  // The basket is keyed by shop slug, not by theme (see theme-shared.tsx's
+  // The cart is keyed by shop slug, not by theme (see theme-shared.tsx's
   // useStorefrontCart) -- a customer can still arrive here with items a
-  // grid theme already put in it, or a shop can switch themes with a basket
+  // grid theme already put in it, or a shop can switch themes with a cart
   // still in progress. Either way this entry point has to be here too.
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
@@ -63,7 +63,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
         errorCode={checkout.errorCode}
         onBack={checkout.backToBrowse}
         onSubmit={(details, via) => checkout.submit(cart, details, via)}
-        onEditBasket={() => {
+        onEditCart={() => {
           checkout.backToBrowse();
           setCartOpen(true);
         }}
@@ -169,7 +169,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
 
 const styles = StyleSheet.create({
   // See theme-market.tsx's identical comment: `flexWrap` lets WhatsApp +
-  // Basket drop to their own line instead of overrunning a phone screen,
+  // Cart drop to their own line instead of overrunning a phone screen,
   // and `marginLeft: 'auto'` on `navActions` keeps that pair right-aligned
   // either way. `borderBottomWidth` is Counter's own treatment (Market and
   // Window have no border here) and stays untouched by this fix.

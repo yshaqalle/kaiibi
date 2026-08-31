@@ -30,7 +30,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
 
   // Browse -> cart -> checkout -> confirmation all live on this one screen --
   // no route change, so a flaky connection mid-checkout never loses the
-  // basket. `cart` (open/close) is CartSheet's own modal, layered over the
+  // cart. `cart` (open/close) is CartSheet's own modal, layered over the
   // browsing return below; `checkout.stage` swaps the WHOLE screen, since
   // checkout and confirmation are the same for every theme (see
   // CheckoutScreen/ConfirmationScreen in theme-shared.tsx).
@@ -46,7 +46,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
         errorCode={checkout.errorCode}
         onBack={checkout.backToBrowse}
         onSubmit={(details, via) => checkout.submit(cart, details, via)}
-        onEditBasket={() => {
+        onEditCart={() => {
           checkout.backToBrowse();
           setCartOpen(true);
         }}
@@ -117,7 +117,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
           columnWrapperStyle={styles.row}
           // B6: the sticky CheckoutBar below is `position: absolute` and so
           // reserves no space of its own -- without this, its last row sits
-          // underneath the bar the moment the basket is non-empty.
+          // underneath the bar the moment the cart is non-empty.
           contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
           renderItem={({ item }) => (
             <View style={styles.cell}>
@@ -153,7 +153,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
 const styles = StyleSheet.create({
   // B10: no fixed-width child here can outrun a 320px phone -- `flexWrap`
   // lets the actions drop to their own line the moment the shop name and
-  // the WhatsApp/Basket pair no longer both fit on one, rather than the row
+  // the WhatsApp/Cart pair no longer both fit on one, rather than the row
   // running off the edge of the screen. `nameBlock`'s `flexShrink` is what
   // makes that possible for the name specifically: an unshrinkable View
   // would just overflow the wrapped line instead of wrapping its own text.

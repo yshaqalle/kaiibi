@@ -127,7 +127,7 @@ function fillRequiredCheckoutFields(tree: ReactTestRenderer) {
 
 // Jest's RN environment has a `window` but no real storage, and the cart's
 // native path (storefront-cart.ts's `nativeCache`) is a module-level Map with
-// no reset hook by design -- so without this, every basket added in one test
+// no reset hook by design -- so without this, every cart added in one test
 // would still be sitting there for the next. Forcing 'web' and giving it a
 // fake, clearable localStorage is the same setup storefront-cart.test.ts
 // uses, and it is also the platform that matters here: the storefront route
@@ -362,7 +362,7 @@ describe('storefront route', () => {
       expect(findByTestId(tree, 'checkout-form-submit-whatsapp')).toHaveLength(0);
     });
 
-    it('keeps the cart and reports the failure rather than losing the basket on a rejected order', async () => {
+    it('keeps the cart and reports the failure rather than losing the cart on a rejected order', async () => {
       (placeOrder as jest.Mock).mockRejectedValue(new Error('rate limited'));
       const tree = await render();
 
@@ -371,7 +371,7 @@ describe('storefront route', () => {
       press(tree, 'checkout-form-submit');
       await flush(tree);
 
-      // Still on checkout, not bounced back to an empty basket -- and the
+      // Still on checkout, not bounced back to an empty cart -- and the
       // typed name is still in the field because CheckoutForm never
       // unmounted.
       expect(textsIn(tree.toJSON() as ReactTestRendererJSON)).toContain('Checkout');
@@ -382,25 +382,25 @@ describe('storefront route', () => {
     it('the cart survives a reload of the same shop\'s page', async () => {
       const first = await render();
       await addOneToCart(first);
-      expect(textsIn(first.toJSON() as ReactTestRendererJSON)).toContain('Basket · 1');
+      expect(textsIn(first.toJSON() as ReactTestRendererJSON)).toContain('Cart · 1');
 
       // A reload is a fresh mount of the same route, not a state carried
       // forward in memory -- storefront-cart.ts persists to
       // window.localStorage keyed by slug, so a brand new StorefrontScreen
       // instance for the same shop must still see it.
       const second = await render();
-      expect(textsIn(second.toJSON() as ReactTestRendererJSON)).toContain('Basket · 1');
+      expect(textsIn(second.toJSON() as ReactTestRendererJSON)).toContain('Cart · 1');
     });
 
     it("a second shop's cart stays separate", async () => {
       const first = await render();
       await addOneToCart(first);
-      expect(textsIn(first.toJSON() as ReactTestRendererJSON)).toContain('Basket · 1');
+      expect(textsIn(first.toJSON() as ReactTestRendererJSON)).toContain('Cart · 1');
 
       mockSlug = 'other-shop';
       (getPublicStorefront as jest.Mock).mockResolvedValue({ ...shop, slug: 'other-shop', shopName: 'Other Shop' });
       const second = await render();
-      expect(textsIn(second.toJSON() as ReactTestRendererJSON)).not.toContain('Basket · 1');
+      expect(textsIn(second.toJSON() as ReactTestRendererJSON)).not.toContain('Cart · 1');
     });
 
     // B1: a double tap must place exactly one order. `press` calls the
@@ -494,20 +494,20 @@ describe('storefront route', () => {
       press(tree, 'checkout-form-submit');
       await flush(tree);
 
-      press(tree, 'storefront-checkout-edit-basket');
+      press(tree, 'storefront-checkout-edit-cart');
       await flush(tree);
 
-      // Back on the basket, not still stuck on checkout -- testID-based,
+      // Back on the cart, not still stuck on checkout -- testID-based,
       // not text-based: CartSheet's own new Checkout button (B7) also says
       // the word "Checkout", so the absence of CheckoutScreen is proven by
       // its own nav (`storefront-checkout-back`) being gone, not by the
       // word "Checkout" being gone from the tree entirely.
       const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
-      expect(texts).toContain('Your basket');
+      expect(texts).toContain('Your cart');
       expect(tree.root.findAll((n) => n.props?.testID === 'storefront-checkout-back')).toHaveLength(0);
     });
 
-    it('offers no edit-basket action for an error other than unavailable_item', async () => {
+    it('offers no edit-cart action for an error other than unavailable_item', async () => {
       (placeOrder as jest.Mock).mockRejectedValue({ message: 'rate_limited' });
       const tree = await render();
 
@@ -516,19 +516,19 @@ describe('storefront route', () => {
       press(tree, 'checkout-form-submit');
       await flush(tree);
 
-      expect(findByTestId(tree, 'storefront-checkout-edit-basket')).toHaveLength(0);
+      expect(findByTestId(tree, 'storefront-checkout-edit-cart')).toHaveLength(0);
     });
   });
 
-  // B7: reviewing the basket used to be a dead end -- the only way forward
+  // B7: reviewing the cart used to be a dead end -- the only way forward
   // was closing the sheet and finding the theme's own sticky bar underneath.
-  describe('checkout from inside the basket', () => {
+  describe('checkout from inside the cart', () => {
     beforeEach(() => {
       (getPublicStorefront as jest.Mock).mockResolvedValue(shop);
       (getPublicStorefrontProducts as jest.Mock).mockResolvedValue(products);
     });
 
-    it('reaches checkout from the basket sheet, not only the sticky bar', async () => {
+    it('reaches checkout from the cart sheet, not only the sticky bar', async () => {
       const tree = await render();
       await addOneToCart(tree);
 

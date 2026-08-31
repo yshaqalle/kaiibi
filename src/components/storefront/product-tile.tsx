@@ -17,7 +17,7 @@ type Props = {
   // of both options: the customer taps and the app shrugs.
   shopName?: string;
   whatsappE164?: string | null;
-  // Deliberately a callback, not an import of storefront-cart.ts: a basket
+  // Deliberately a callback, not an import of storefront-cart.ts: a cart
   // held in a stranger's browser has no business living inside a display
   // component, and every other storefront component reaches its data this
   // same prop-driven way (see ThemeProps).

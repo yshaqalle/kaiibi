@@ -106,13 +106,13 @@ describe('ThemeCounter', () => {
 
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
   // space of its own -- without this, its last-row content sits underneath
-  // it the moment the basket goes from empty to non-empty.
+  // it the moment the cart goes from empty to non-empty.
   //
   // storefront-cart.ts's native-platform cache is a module-level Map with no
   // reset hook by design -- a slug this test does not share with any other
   // test in this file (rather than the shared `shop.slug`) keeps this one's
-  // basket from leaking into, or being polluted by, another's.
-  it('reserves extra bottom space for the sticky checkout bar once the basket is non-empty', () => {
+  // cart from leaking into, or being polluted by, another's.
+  it('reserves extra bottom space for the sticky checkout bar once the cart is non-empty', () => {
     const tree = renderCounter({ ...shop, slug: 'xamdi-counter-b6' });
     const flatStyle = (style: unknown) =>
       [style].flat(Infinity).reduce((acc, s) => ({ ...(acc as object), ...(s as object) }), {}) as { paddingBottom: number };
@@ -126,14 +126,14 @@ describe('ThemeCounter', () => {
     expect(after.paddingBottom).toBeGreaterThan(before.paddingBottom);
   });
 
-  it('pressing Add on a row adds that product to the basket', () => {
+  it('pressing Add on a row adds that product to the cart', () => {
     const tree = renderCounter(shop);
     const addButtons = findByTestId(tree, 'product-tile-add');
     expect(addButtons).toHaveLength(1);
     act(() => addButtons[0].props.onPress());
 
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
-    expect(texts).toContain('Basket · 1');
+    expect(texts).toContain('Cart · 1');
   });
 
   it('pressing Ask on a row opens a wa.me link prefilled with the shop and product name', () => {
