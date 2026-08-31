@@ -46,11 +46,38 @@ select version
 -- meant "no output" was ambiguous between a swallowed result and a function
 -- that does not exist. Now silence is impossible and a missing function says
 -- so in words.
+--
+-- THE LAST ARGUMENT NAME IS BACK, and only that one. Dropping the whole name
+-- list to escape the pager left this check counting to fifteen and nothing
+-- more, so a fifteen-argument complete_sale that was not this repo's
+-- fifteen-argument complete_sale read as OK -- while the banner above went on
+-- telling the reader to expect a name the output no longer showed. One name is
+-- twenty characters, not a few hundred, so it cannot bring the pager back, and
+-- the verdict TESTS it rather than leaving the comparison to the eye.
+--
+-- WHAT THIS DOES NOT DO, said plainly so nobody reads more into an OK than is
+-- there: it pins the LAST argument and not the other fourteen. That is the
+-- position the hole appeared in -- a trailing p_require_register with a
+-- default, which is the only shape a new parameter can take without breaking
+-- every existing caller -- so it is the position worth one cheap assertion.
+-- A renamed argument in the middle would still read as OK here. The check
+-- that would catch that is a full signature comparison, and it belongs in the
+-- test suite against a known-good database, not in a script whose job is to
+-- interrogate a production catalog it cannot diff against anything.
+--
+-- proargnames[pronargs] is the last INPUT argument: safe here because
+-- complete_sale returns jsonb and declares no OUT parameters, so the two
+-- arrays are indexed alike. Unnamed arguments give NULL, which `is distinct
+-- from` sends to WRONG SHAPE rather than silently to OK.
 select coalesce(string_agg(p.pronargs::text, ' + ' order by p.pronargs),
                 'NONE -- complete_sale is missing entirely')       as arg_counts,
-       case when count(*) = 1 and max(p.pronargs) = 15 then 'OK -- the register guard is not a parameter'
-            when count(*) = 0                          then 'BROKEN -- complete_sale does not exist'
-            else 'EXPOSED -- push 20261014000000' end              as verdict
+       coalesce(max(p.proargnames[p.pronargs]), '-')               as last_argument,
+       case when count(*) = 0 then 'BROKEN -- complete_sale does not exist'
+            when count(*) > 1 or max(p.pronargs) <> 15
+                 then 'EXPOSED -- push 20261014000000'
+            when max(p.proargnames[p.pronargs]) is distinct from 'p_prices_include_tax'
+                 then 'WRONG SHAPE -- fifteen arguments, but not the ones this repo declares'
+            else 'OK -- the register guard is not a parameter' end as verdict
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
  where n.nspname = 'public' and p.proname = 'complete_sale';
