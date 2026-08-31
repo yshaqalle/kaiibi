@@ -40,21 +40,30 @@ select version
 \echo '    16 arguments -- under ANY name -- means any member with pos.access'
 \echo '    can defeat a shop''s require_open_register setting with one extra'
 \echo '    JSON field. That is the hole 20261011000000 closes.'
--- AGGREGATED, so this ALWAYS returns exactly one row. The version before
--- 20261017000000's follow-up selected one row per overload and printed the
--- full argument NAME LIST -- a few hundred characters wide, which is what
--- tripped the pager. It also meant "no output" was ambiguous between a
--- swallowed result and a function that does not exist. Now silence is
--- impossible and a missing function says so in words.
+-- AGGREGATED, so this ALWAYS returns exactly one row. The previous version
+-- selected one row per overload and printed the full argument NAME LIST --
+-- a few hundred characters wide, which is what tripped the pager. It also
+-- meant "no output" was ambiguous between a swallowed result and a function
+-- that does not exist. Now silence is impossible and a missing function says
+-- so in words.
 --
 -- THE LAST ARGUMENT NAME IS BACK, and only that one. Dropping the whole name
 -- list to escape the pager left this check counting to fifteen and nothing
--- more, so a complete_sale with fifteen arguments of which one is the WRONG
--- argument read as OK -- and the banner above went on telling the reader to
--- expect a name the output no longer showed. One name is twenty characters,
--- not a few hundred, so it cannot bring the pager back. The verdict tests it
--- rather than leaving it to the eye, because the whole lesson of this file is
--- that a number printed next to a claim is not the same as a claim checked.
+-- more, so a fifteen-argument complete_sale that was not this repo's
+-- fifteen-argument complete_sale read as OK -- while the banner above went on
+-- telling the reader to expect a name the output no longer showed. One name is
+-- twenty characters, not a few hundred, so it cannot bring the pager back, and
+-- the verdict TESTS it rather than leaving the comparison to the eye.
+--
+-- WHAT THIS DOES NOT DO, said plainly so nobody reads more into an OK than is
+-- there: it pins the LAST argument and not the other fourteen. That is the
+-- position the hole appeared in -- a trailing p_require_register with a
+-- default, which is the only shape a new parameter can take without breaking
+-- every existing caller -- so it is the position worth one cheap assertion.
+-- A renamed argument in the middle would still read as OK here. The check
+-- that would catch that is a full signature comparison, and it belongs in the
+-- test suite against a known-good database, not in a script whose job is to
+-- interrogate a production catalog it cannot diff against anything.
 --
 -- proargnames[pronargs] is the last INPUT argument: safe here because
 -- complete_sale returns jsonb and declares no OUT parameters, so the two
