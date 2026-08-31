@@ -40,17 +40,35 @@ select version
 \echo '    16 arguments -- under ANY name -- means any member with pos.access'
 \echo '    can defeat a shop''s require_open_register setting with one extra'
 \echo '    JSON field. That is the hole 20261011000000 closes.'
--- AGGREGATED, so this ALWAYS returns exactly one row. The previous version
--- selected one row per overload and printed the full argument NAME LIST --
--- a few hundred characters wide, which is what tripped the pager. It also
--- meant "no output" was ambiguous between a swallowed result and a function
--- that does not exist. Now silence is impossible and a missing function says
--- so in words.
+-- AGGREGATED, so this ALWAYS returns exactly one row. The version before
+-- 20261017000000's follow-up selected one row per overload and printed the
+-- full argument NAME LIST -- a few hundred characters wide, which is what
+-- tripped the pager. It also meant "no output" was ambiguous between a
+-- swallowed result and a function that does not exist. Now silence is
+-- impossible and a missing function says so in words.
+--
+-- THE LAST ARGUMENT NAME IS BACK, and only that one. Dropping the whole name
+-- list to escape the pager left this check counting to fifteen and nothing
+-- more, so a complete_sale with fifteen arguments of which one is the WRONG
+-- argument read as OK -- and the banner above went on telling the reader to
+-- expect a name the output no longer showed. One name is twenty characters,
+-- not a few hundred, so it cannot bring the pager back. The verdict tests it
+-- rather than leaving it to the eye, because the whole lesson of this file is
+-- that a number printed next to a claim is not the same as a claim checked.
+--
+-- proargnames[pronargs] is the last INPUT argument: safe here because
+-- complete_sale returns jsonb and declares no OUT parameters, so the two
+-- arrays are indexed alike. Unnamed arguments give NULL, which `is distinct
+-- from` sends to WRONG SHAPE rather than silently to OK.
 select coalesce(string_agg(p.pronargs::text, ' + ' order by p.pronargs),
                 'NONE -- complete_sale is missing entirely')       as arg_counts,
-       case when count(*) = 1 and max(p.pronargs) = 15 then 'OK -- the register guard is not a parameter'
-            when count(*) = 0                          then 'BROKEN -- complete_sale does not exist'
-            else 'EXPOSED -- push 20261014000000' end              as verdict
+       coalesce(max(p.proargnames[p.pronargs]), '-')               as last_argument,
+       case when count(*) = 0 then 'BROKEN -- complete_sale does not exist'
+            when count(*) > 1 or max(p.pronargs) <> 15
+                 then 'EXPOSED -- push 20261014000000'
+            when max(p.proargnames[p.pronargs]) is distinct from 'p_prices_include_tax'
+                 then 'WRONG SHAPE -- fifteen arguments, but not the ones this repo declares'
+            else 'OK -- the register guard is not a parameter' end as verdict
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
  where n.nspname = 'public' and p.proname = 'complete_sale';
