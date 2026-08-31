@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { AppModal } from '@/components/ui/app-modal';
+import { TABULAR } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
 import type { PaletteColors } from '@/lib/storefront-catalog';
@@ -16,14 +18,14 @@ type Props = {
   // the cart's state.
   onChangeQuantity: (productId: string, quantity: number) => void;
   // B7: opening this sheet used to be a dead end -- a customer reviewing
-  // their basket had no way onward except closing it again and finding the
+  // their cart had no way onward except closing it again and finding the
   // theme's own sticky bar underneath. The caller decides what "go to
   // checkout" means (every theme both closes this sheet and opens its own
   // checkout stage), this component only has to offer the action.
   onCheckout: () => void;
 };
 
-// What a stranger's basket has to say, and just as importantly what it must
+// What a stranger's cart has to say, and just as importantly what it must
 // never say:
 //
 //   * No delivery line, no total -- only a subtotal. Delivery is not knowable
@@ -40,20 +42,20 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: colors.ground }]}>
           <View style={styles.head}>
-            <Text style={[styles.title, { color: colors.ink }]}>Your basket</Text>
+            <Text style={[styles.title, { color: colors.ink }]}>Your cart</Text>
             <Pressable
               testID="cart-sheet-close"
               accessibilityRole="button"
-              accessibilityLabel="Close basket"
+              accessibilityLabel="Close cart"
               onPress={onClose}
-              style={[styles.close, { backgroundColor: colors.soft }]}
+              style={pressable([styles.close, { backgroundColor: colors.soft }])}
             >
               <Text style={[styles.closeText, { color: colors.ink }]}>Close</Text>
             </Pressable>
           </View>
 
           {cart.lines.length === 0 ? (
-            <Text style={[styles.empty, { color: colors.muted }]}>Your basket is empty.</Text>
+            <Text style={[styles.empty, { color: colors.muted }]}>Your cart is empty.</Text>
           ) : (
             <>
               {cart.lines.map((line) => (
@@ -74,7 +76,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                       accessibilityLabel={`Reduce ${line.name} quantity`}
                       hitSlop={6}
                       onPress={() => onChangeQuantity(line.productId, line.quantity - 1)}
-                      style={[styles.stepButton, { backgroundColor: colors.ground }]}
+                      style={pressable([styles.stepButton, { backgroundColor: colors.ground }])}
                     >
                       <Text style={[styles.stepButtonText, { color: colors.ink }]}>−</Text>
                     </Pressable>
@@ -85,7 +87,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                       accessibilityLabel={`Increase ${line.name} quantity`}
                       hitSlop={6}
                       onPress={() => onChangeQuantity(line.productId, line.quantity + 1)}
-                      style={[styles.stepButton, { backgroundColor: colors.ground }]}
+                      style={pressable([styles.stepButton, { backgroundColor: colors.ground }])}
                     >
                       <Text style={[styles.stepButtonText, { color: colors.ink }]}>+</Text>
                     </Pressable>
@@ -105,14 +107,14 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                 Nothing is charged now. You pay on collection or delivery.
               </Text>
 
-              {/* B7: the way onward, from right here -- reviewing the basket
+              {/* B7: the way onward, from right here -- reviewing the cart
                   used to be a dead end that only closing this sheet and
                   finding the theme's own sticky bar could get past. */}
               <Pressable
                 testID="cart-sheet-checkout"
                 accessibilityRole="button"
                 onPress={onCheckout}
-                style={[styles.checkout, { backgroundColor: colors.accent }]}
+                style={pressable([styles.checkout, { backgroundColor: colors.accent }])}
               >
                 <Text style={[styles.checkoutText, { color: colors.ground }]}>Checkout</Text>
               </Pressable>
@@ -135,14 +137,14 @@ const styles = StyleSheet.create({
   line: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
   lineName: { flex: 1, minWidth: 0 },
   name: { fontSize: 14, fontWeight: '700' },
-  lineAmount: { fontSize: 12.5, marginTop: 2 },
+  lineAmount: { fontSize: 12.5, marginTop: 2, ...TABULAR },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 6 },
   stepButton: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   stepButtonText: { fontSize: 16, fontWeight: '800' },
-  qty: { minWidth: 18, textAlign: 'center', fontSize: 14, fontWeight: '800' },
+  qty: { minWidth: 18, textAlign: 'center', fontSize: 14, fontWeight: '800', ...TABULAR },
   subtotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14 },
   subtotalLabel: { fontSize: 14, fontWeight: '800' },
-  subtotalValue: { fontSize: 16, fontWeight: '800' },
+  subtotalValue: { fontSize: 16, fontWeight: '800', ...TABULAR },
   caveat: { fontSize: 12, marginTop: 8, lineHeight: 16 },
   checkout: { marginTop: 16, borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
   checkoutText: { fontSize: 14, fontWeight: '800' },

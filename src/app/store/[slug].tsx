@@ -1,11 +1,16 @@
 import { useLocalSearchParams } from 'expo-router';
 import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { StorefrontSkeleton } from '@/components/storefront/storefront-skeleton';
 import { StorefrontView } from '@/components/storefront/storefront-view';
-import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
-import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
+import {
+  getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontCategories, getPublicStorefrontProducts,
+} from '@/lib/storefront';
+import type {
+  PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct,
+} from '@/types/models';
 
 // A DRAFT SHOP AND A NONEXISTENT SHOP RENDER THE SAME PAGE.
 //
@@ -19,7 +24,13 @@ export default function StorefrontScreen() {
   const [state, setState] = useState<
     | { status: 'loading' }
     | { status: 'missing' }
-    | { status: 'ready'; shop: PublicStorefront; products: StorefrontProduct[]; areas: PublicDeliveryArea[] }
+    | {
+        status: 'ready';
+        shop: PublicStorefront;
+        products: StorefrontProduct[];
+        areas: PublicDeliveryArea[];
+        categories: StorefrontCategory[];
+      }
   >({ status: 'loading' });
 
   useEffect(() => {
@@ -48,11 +59,17 @@ export default function StorefrontScreen() {
         // this address" page an unknown slug gets. Left un-caught, a reject
         // here would still propagate through Promise.all into the outer
         // catch below and do exactly that.
-        const [products, areas] = await Promise.all([
+        // `.catch(() => [])` on categories for the same reason it is on
+        // areas, one line down: the band is a NAVIGATION AID over a grid
+        // that is already on screen, so a blip on this read costs a
+        // shortcut. Letting it reject would drag a published, working shop
+        // down to the "no shop at this address" page.
+        const [products, areas, categories] = await Promise.all([
           getPublicStorefrontProducts(String(slug)),
           shop.offersDelivery ? getPublicDeliveryAreas(String(slug)).catch(() => []) : Promise.resolve([]),
+          getPublicStorefrontCategories(String(slug)).catch(() => []),
         ]);
-        if (!cancelled) setState({ status: 'ready', shop, products, areas });
+        if (!cancelled) setState({ status: 'ready', shop, products, areas, categories });
       } catch {
         // A failed read is indistinguishable from an unknown shop on purpose --
         // an error page would confirm the shop exists.
@@ -64,13 +81,11 @@ export default function StorefrontScreen() {
     };
   }, [slug]);
 
-  if (state.status === 'loading') {
-    return (
-      <View style={styles.centre}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
+  // A spinner on white said nothing about whose page was loading or what
+  // shape it would be -- and this is the slowest moment in the whole flow.
+  // See storefront-skeleton.tsx on why it is neutral rather than in the
+  // shop's palette: the palette arrives with the fetch this is waiting on.
+  if (state.status === 'loading') return <StorefrontSkeleton />;
 
   if (state.status === 'missing') {
     return (
@@ -85,7 +100,12 @@ export default function StorefrontScreen() {
   return (
     <>
       <StorefrontHead shop={state.shop} />
-      <StorefrontView storefront={state.shop} products={state.products} areas={state.areas} />
+      <StorefrontView
+        storefront={state.shop}
+        products={state.products}
+        areas={state.areas}
+        categories={state.categories}
+      />
     </>
   );
 }

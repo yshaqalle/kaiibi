@@ -1,0 +1,1227 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — Visual Refresh</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --b-page:#f4f4f5; --b-surface:#ffffff; --b-soft:#f7f7f8; --b-line:#ececf0;
+    --b-ink:#0b0b0d; --b-ink2:#1a1a1e; --b-mut:#5e5d65; --b-mut2:#717078;
+    --accwash:#e6edff; --accink:#1b47b8;
+    --bad:#b3261e; --badwash:#fdeceb; --badln:#f0cdca;
+    --ok:#008340; --okwash:#e6f4ec; --okln:#bfe0cd;
+    --warn:#b07206; --warnwash:#fbf3e2; --warnln:#e8d6ab;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:58px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;
+    /* file paths and migration names are long and unbreakable — let them wrap
+       rather than set an 800px min-content width that pushes the whole page */
+    overflow-wrap:anywhere;word-break:break-word;}
+
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  /* callout */
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:80ch;}
+  .call b{color:var(--ink);}
+  .call.warnT{border-left-color:#b07206;}
+  .call.badT{border-left-color:#b3261e;}
+
+  /* tables — the wrapper scrolls, never the page (long <code> spans set a wide min-content) */
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:560px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--mut);padding:11px 14px;background:var(--pg2);border-bottom:1px solid var(--ln);}
+  td{padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);font-weight:700;}
+  td.no{color:#b3261e;font-weight:700;}
+  td.yes{color:#008340;font-weight:700;}
+
+  /* token grid */
+  .tokgrid{margin-top:16px;border:1px solid var(--ln);border-radius:13px;overflow:hidden;background:var(--sf);}
+  .tokrow{display:grid;grid-template-columns:104px repeat(6,1fr);align-items:stretch;
+    border-bottom:1px solid var(--ln);}
+  .tokrow:last-child{border-bottom:0;}
+  .tokrow.head{background:var(--pg2);}
+  .tokrow .rk{padding:10px 12px;font-size:11px;font-weight:800;color:var(--ink);
+    display:flex;align-items:center;border-right:1px solid var(--ln);}
+  .tokrow.head .rk,.tokrow.head .cell{font-size:10px;font-weight:800;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--mut);padding:9px 12px;}
+  .tokrow .cell{padding:8px 10px;border-right:1px solid var(--ln);}
+  .tokrow .cell:last-child{border-right:0;}
+  .chip{border-radius:8px;padding:7px 8px;font-size:11px;font-weight:800;text-align:center;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-.02em;}
+  .ratio{display:block;font-size:9.5px;font-weight:700;color:var(--mut);margin-top:4px;text-align:center;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  @media(max-width:900px){ .tokgrid{overflow-x:auto;} .tokrow{grid-template-columns:104px repeat(6,120px);min-width:820px;} }
+
+  /* before / after pair */
+  .ba{display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(322px,1fr));margin-top:18px;align-items:start;}
+  .baHead{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin:0 0 10px;}
+  .baHead b{font-size:13px;font-weight:800;}
+  .tag{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+    border-radius:999px;padding:2px 8px;}
+  .tag.before{background:var(--badwash);color:#8c1d16;border:1px solid var(--badln);}
+  .tag.after{background:var(--okwash);color:#075e34;border:1px solid var(--okln);}
+  .baNote{font-size:12px;color:var(--mut);margin:9px 0 0;line-height:1.5;}
+  .baNote b{color:var(--ink2);}
+
+  /* phone frame */
+  .phone{width:100%;max-width:344px;border:1px solid var(--ln);border-radius:22px;overflow:hidden;
+    background:#fff;box-shadow:0 18px 40px -24px rgba(16,16,20,.42);}
+  .sf{font-size:13px;line-height:1.45;color:var(--i);background:var(--g);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+
+  /* storefront: nav */
+  .sf .nav{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px;}
+  .sf .nav .nameblk{flex-shrink:1;min-width:0;}
+  .sf .shopname{font-size:19px;font-weight:800;letter-spacing:-.4px;}
+  .sf .city{font-size:11.5px;color:var(--m);}
+  .sf .navact{display:flex;gap:8px;margin-left:auto;flex-shrink:0;}
+  .sf .pill{border-radius:999px;padding:7px 13px;font-size:12px;font-weight:800;white-space:nowrap;}
+  .sf .pill.wa{background:#1f7a4d;color:#fff;}
+  .sf .pill.cart{background:var(--a);color:var(--g);}
+
+  /* storefront: window hero */
+  .sf .hero{margin:0 16px;border-radius:20px;padding:24px;overflow:hidden;position:relative;background:var(--s);}
+  .sf .heroHead{font-size:28px;font-weight:800;letter-spacing:-.8px;line-height:1.1;}
+  .sf .heroAbout{font-size:13.5px;margin-top:9px;color:var(--m);}
+  .sf .heroPhoto{position:absolute;inset:0;background:var(--photo);}
+
+  /* AFTER: wordmark hero */
+  .sf .whero{margin:0 16px;border-radius:20px;padding:38px 24px 30px;overflow:hidden;position:relative;
+    text-align:center;
+    background:radial-gradient(ellipse 460px 220px at 50% 0%, var(--g) 0%, var(--s) 62%, var(--s2) 100%);}
+  .sf .whero .mark{font-size:32px;font-weight:800;letter-spacing:-1.1px;line-height:1.05;position:relative;z-index:1;}
+  .sf .whero .est{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--m);margin-top:11px;position:relative;z-index:1;}
+  .sf .whero .line{font-size:13px;color:var(--m);margin-top:12px;position:relative;z-index:1;line-height:1.5;}
+  .sf .whero.shot{padding:64px 20px 22px;text-align:left;}
+  .sf .whero.shot .photo{position:absolute;inset:0;background:var(--photo);}
+  .sf .whero.shot::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.62));}
+  .sf .whero.shot .mark,.sf .whero.shot .est{color:#fff;z-index:2;}
+  .sf .whero.shot .est{opacity:.88;}
+
+  /* storefront: category band */
+  .sf .band{padding:18px 14px 4px;}
+  .sf .bandHead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:11px;}
+  .sf .bandHead b{font-size:14px;font-weight:800;letter-spacing:-.3px;}
+  .sf .bandHead span{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--m);}
+  .sf .cats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  .sf .cat{position:relative;border-radius:11px;overflow:hidden;aspect-ratio:4/5;
+    display:flex;align-items:flex-end;padding:12px;background:var(--tile);}
+  .sf .cat::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 42%,rgba(0,0,0,.5));}
+  .sf .cat i{position:relative;z-index:1;font-style:normal;color:#fff;}
+  .sf .cat .cn{display:block;font-size:14px;font-weight:800;letter-spacing:-.2px;}
+  .sf .cat .cc{display:block;font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    opacity:.86;margin-top:2px;}
+
+  /* storefront: grid */
+  .sf .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:14px;}
+  .sf .tile{border:1px solid var(--s);border-radius:14px;overflow:hidden;background:var(--g);}
+  .sf .tile .img{aspect-ratio:1;background:var(--s);display:flex;align-items:flex-end;padding:10px;}
+  .sf .tile .img.shot{background:var(--photo);}
+  .sf .tile .fb{font-size:15px;font-weight:800;line-height:1.25;}
+  .sf .tile .bd{padding:9px 10px 11px;}
+  .sf .tile .pn{font-size:12.5px;font-weight:700;line-height:1.28;min-height:32px;}
+  .sf .tile .pp{font-size:15px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums;letter-spacing:-.2px;}
+  .sf .tile .st{font-size:11px;font-weight:700;margin-top:1px;}
+  .sf .stockPill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:9.5px;font-weight:800;
+    letter-spacing:.02em;margin-top:5px;}
+  .sf .acts{display:flex;gap:6px;margin-top:8px;}
+  .sf .acts b{flex:1;text-align:center;border-radius:9px;padding:6px 0;font-size:12px;font-weight:800;}
+  .sf .acts .add{background:var(--a);color:var(--g);}
+  .sf .acts .ask{background:#1f7a4d;color:#fff;}
+
+  /* storefront: counter rows */
+  .sf .sect{padding:14px 14px 0;}
+  .sf .sectHead{font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--a);}
+  .sf .crow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--s);}
+  .sf .crow .cname{flex:1;}
+  .sf .crow .cn2{font-size:13.5px;font-weight:600;}
+  .sf .crow .cstate{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;}
+  .sf .crow .cs{font-size:11.5px;font-weight:600;}
+  .sf .crow .cp{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .sf .miniacts{display:flex;gap:4px;}
+  .sf .miniacts b{border-radius:7px;padding:3px 9px;font-size:10.5px;font-weight:800;}
+
+  /* editor chrome (bento) */
+  .ed{background:var(--b-page);border:1px solid var(--ln);border-radius:16px;padding:16px;color:var(--b-ink);}
+  .card{background:var(--b-surface);border-radius:26px;padding:18px;}
+  .card + .card{margin-top:12px;}
+  .cardTitle{font-size:15px;font-weight:800;letter-spacing:-.2px;margin:0 0 12px;}
+  .edEyebrow{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--b-mut);margin:0 0 8px;}
+  .edEyebrow + .strip{margin-bottom:16px;}
+  .strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px;}
+  .lt{flex:0 0 auto;width:150px;border:1px solid var(--b-line);background:var(--b-soft);border-radius:16px;padding:12px;}
+  .lt.on{background:var(--b-ink);border-color:var(--b-ink);color:#fff;}
+  .lt .ln{font-size:14px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;gap:5px;}
+  .lt .ld{font-size:11.5px;line-height:1.35;color:var(--b-mut2);}
+  .lt.on .ld{color:#fff;opacity:.82;}
+  .wire{height:52px;border-radius:9px;background:#fff;border:1px solid var(--b-line);margin-bottom:9px;
+    padding:5px;display:flex;flex-direction:column;gap:3px;overflow:hidden;}
+  .wire i{display:block;background:#dcdce2;border-radius:2px;}
+  .wire .wRow{display:flex;gap:3px;flex:1;}
+  .wire .wRow i{flex:1;height:100%;}
+  .st1{flex:0 0 auto;height:5px;width:34%;}
+  .swt{flex:0 0 auto;width:116px;border:1px solid var(--b-line);background:var(--b-soft);border-radius:16px;padding:10px;}
+  .swt.on{border-color:var(--b-ink);border-width:2px;padding:9px;}
+  .swt .bands{height:44px;border-radius:9px;overflow:hidden;display:flex;margin-bottom:8px;border:1px solid var(--b-line);}
+  .swt .bands span{flex:1;}
+  .swt .bands span.acc{flex:1.25;}
+  .swt .sl{font-size:12.5px;font-weight:800;display:flex;align-items:center;gap:5px;}
+  .swt .ss{font-size:10.5px;color:var(--b-mut2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .dots{display:flex;gap:4px;margin-bottom:8px;}
+  .dots span{width:18px;height:18px;border-radius:5px;border:1px solid var(--b-line);}
+  .check{font-size:11px;}
+
+  /* type roles */
+  .roles{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));margin-top:16px;}
+  .role{border:1px solid var(--ln);border-radius:14px;background:var(--sf);padding:16px 17px;}
+  .role .rl{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);}
+  .role .spec{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--mut);margin-top:9px;}
+  .role .demoA{font-size:26px;font-weight:800;letter-spacing:-.9px;margin-top:8px;}
+  .role .demoB{font-size:14px;font-weight:600;margin-top:8px;}
+  .role .demoC{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;margin-top:10px;}
+  .role p{font-size:12.5px;color:var(--ink2);margin:10px 0 0;line-height:1.5;}
+
+  /* press-feedback demo — the argument is tactile, so it is built, not described */
+  .demoPad{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:22px;
+    display:flex;gap:10px;}
+  .dBtn{flex:1;text-align:center;border-radius:9px;padding:13px 0;font-size:14px;font-weight:800;
+    color:#fff;user-select:none;cursor:pointer;}
+  .dBtn.add{background:#1f6b45;} .dBtn.ask{background:#1f7a4d;}
+  .dBtn.live{transition:transform .12s ease,opacity .12s ease;}
+  .dBtn.live:active{transform:scale(.97);opacity:.78;}
+  .dBtn:focus-visible{outline:2px solid var(--blue);outline-offset:3px;}
+  @media (prefers-reduced-motion:reduce){ .dBtn.live{transition:none;} .dBtn.live:active{transform:none;} }
+
+  /* product sheet */
+  .sf .shTop{display:flex;justify-content:center;padding:9px 0 4px;}
+  .sf .shGrab{width:38px;height:4px;border-radius:999px;background:var(--s);}
+  .sf .shPhoto{aspect-ratio:4/3;width:100%;}
+
+  /* counter search */
+  .sf .searchField{flex-basis:100%;border:1px solid var(--s);border-radius:10px;padding:9px 12px;
+    font-size:12.5px;color:var(--m);background:var(--g);}
+
+  /* loading skeleton */
+  .sk{background:linear-gradient(90deg,#eeeef1 0%,#f6f6f8 50%,#eeeef1 100%);
+    background-size:200% 100%;border-radius:6px;animation:shim 1.5s linear infinite;}
+  @keyframes shim{ to{ background-position:-200% 0; } }
+  @media (prefers-reduced-motion:reduce){ .sk{animation:none;} }
+  .skName{height:15px;width:118px;} .skCity{height:10px;width:62px;margin-top:6px;}
+  .skPill{height:28px;width:66px;border-radius:999px;}
+  .skImg{aspect-ratio:1;width:100%;border-radius:12px;margin-bottom:9px;}
+  .skLine{height:10px;width:100%;} .skLine.short{width:52%;margin-top:6px;}
+
+  /* checklist */
+  .checks{list-style:none;padding:0;margin:16px 0 0;}
+  .checks li{border:1px solid var(--ln);border-radius:12px;background:var(--sf);padding:11px 14px;
+    margin-bottom:8px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start;color:var(--ink2);}
+  .checks li b{color:var(--ink);}
+  .checks li::before{content:'☐';font-size:15px;line-height:1.3;color:var(--mut);flex-shrink:0;}
+  .checks li.out::before{content:'—';}
+  .checks li.out{opacity:.72;}
+
+  .foot{margin-top:64px;padding-top:20px;border-top:1px solid var(--ln);font-size:12.5px;color:var(--mut);}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Kaiibi · Storefront · 2026-08-30</p>
+  <h1>The storefront’s visual pass, against the storefront we actually have</h1>
+  <p class="lede">
+    The brief that started this describes a single-brand page — juniper and parchment, Fraunces
+    and IBM Plex Mono, five named designs, photo category tiles. Kaiibi’s storefront is not that
+    shape: it is <b>three layouts × six contrast-checked palettes</b>, rendered in React Native,
+    coloured per shop. This page translates the brief into that system, keeps every idea in it
+    that survives the translation, and names the four that don’t.
+  </p>
+
+  <div class="call badT">
+    <b>The one thing that cannot be adopted as written:</b> a fixed brand palette. The storefront’s
+    colours belong to the shop — six palettes, each contrast-checked against WCAG in
+    <code>storefront-catalog.test.ts</code>, with <code>muted</code> and <code>danger</code> derived
+    rather than picked. Baking juniper/parchment into the page deletes that feature. Everything the
+    brief wants from colour is reachable by <em>deriving more tokens the same way</em>, which is what
+    this proposes.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>1 · The brief, translated</h2>
+    <p class="h2sub">Row by row: what was asked for, what this codebase actually has, and what it becomes.</p>
+
+    <div class="tw"><table>
+      <tr>
+        <th style="width:22%">Brief asks for</th>
+        <th style="width:30%">Kaiibi has</th>
+        <th>Becomes</th>
+      </tr>
+      <tr>
+        <td><b>Five designs</b><br>Grid catalogue, Editorial film, Campaign, Statement, Concern-led</td>
+        <td>Three layouts — <b>Market</b>, <b>Counter</b>, <b>Window</b> — times six palettes.
+          <code>storefront-catalog.ts</code>. A layout is a layout; a palette is four values.
+          9 things to build, not 30.</td>
+        <td>The picker keeps its two rows. Both rows get a real preview instead of prose
+          (§6). No design is renamed or added.</td>
+      </tr>
+      <tr>
+        <td><b>Fixed tokens</b><br><code>--juniper</code>, <code>--parchment</code>, <code>--clay</code></td>
+        <td>Per-shop palettes with derived <code>muted</code> (blend 0.34) and <code>danger</code>
+          (stepped to 4.5:1). No shop gets a hex field — “a free colour picker is how a page ends
+          up yellow on white and published.”</td>
+        <td class="no">Not adopted. Instead: two <em>more</em> derived tokens,
+          <code>stockOk</code> / <code>stockOut</code>, to kill the last off-palette literals (§2).</td>
+      </tr>
+      <tr>
+        <td><b>Three font families</b><br>Fraunces / Inter / IBM Plex Mono</td>
+        <td>No custom fonts anywhere. <code>expo-font</code> is a dependency, but there is no
+          <code>useFonts</code> call and no <code>assets/fonts</code> directory. This renders through
+          React Native, not a <code>&lt;link&gt;</code> tag.</td>
+        <td class="no">Deferred. The <em>roles</em> the brief wants — display / body / meta — are
+          delivered through weight, size, tracking and case on the system face (§3). A display serif
+          is its own task, with its own native-reflow risk.</td>
+      </tr>
+      <tr>
+        <td><b>Category tiles with photos</b></td>
+        <td>Half the data exists: <code>categories.image_url</code> since migration
+          <code>0016_brand_category_media.sql</code>. But <code>products.category</code> is free
+          text joined by name, and no public RPC returns category media at all.</td>
+        <td class="yes">Adopted, with a backend line item (§8). The band reuses the category state
+          the flyer carousel already sets — <code>filterByCategory</code> and
+          <code>CategoryFilterBar</code> need no change.</td>
+      </tr>
+      <tr>
+        <td><b>Wordmark hero, gradient, eyebrow</b></td>
+        <td>Window’s hero is a flat <code>colors.soft</code> panel — exactly the “flat empty grey
+          panel with no reason for its height” the brief complains about.</td>
+        <td class="yes">Adopted, palette-derived (§4). And it fixes a live legibility bug on the
+          way through.</td>
+      </tr>
+      <tr>
+        <td><b>Preview in a shadowed card</b></td>
+        <td>Already done. The preview sits in <code>&lt;BentoCard title="Preview"&gt;</code> with
+          its own <code>previewFrame</code>.</td>
+        <td>No change.</td>
+      </tr>
+      <tr>
+        <td><b>Products read-only, backend-synced</b></td>
+        <td>Already true — <code>getStorefrontPreviewProducts(shopId)</code>, admin-side, so a
+          never-published shop still sees its own catalogue in the preview.</td>
+        <td>No change. Nothing in this pass makes a product editable here.</td>
+      </tr>
+      <tr>
+        <td><b>Three stock states</b><br><code>ok</code> / <code>low</code> / <code>no</code></td>
+        <td>Two. <code>stock &gt; 0</code> or not. There is no low-stock threshold on the public page.</td>
+        <td>Stays two. Inventing a third state in a visual pass would be a product decision
+          smuggled in as CSS.</td>
+      </tr>
+    </table></div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>2 · Colour — two more derived tokens, no new literals</h2>
+    <p class="h2sub">
+      The palette already derives what it can’t store. <code>mutedInk</code> blends ink toward ground
+      by 0.34; <code>dangerInk</code> anchors on a conventional red, tints 12% toward the palette’s
+      own ink, then walks it until it clears 4.5:1. Two colours never got that treatment.
+    </p>
+
+    <div class="call badT">
+      <b>The live defect — two colour collisions, both verifiable by grep.</b>
+      <code>#1f7a4d</code> and <code>#8a5a05</code> are typed directly into
+      <code>product-tile.tsx:56</code> and <code>theme-counter.tsx:132</code> — a fixed green and a
+      fixed amber on all six palettes.
+      <br><br>
+      <b>1 · Out-of-stock amber <em>is</em> Saffron’s accent.</b> <code>#8a5a05</code> is
+      byte-for-byte <code>storefront-catalog.ts:58</code>’s accent for that palette. On a Saffron
+      shop, “Out of stock — ask us” is the same colour as the Add button and the section rule.
+      <b>The codebase already knows this</b>: <code>storefront-catalog.test.ts:68</code> asserts
+      <code>danger !== '#8a5a05'</code> precisely to avoid the clash — the guard was put on
+      <code>danger</code> and never on the stock literal that caused it.
+      <br><br>
+      <b>2 · In-stock green <em>is</em> the WhatsApp button.</b> <code>#1f7a4d</code> is
+      byte-for-byte <code>WHATSAPP_BUTTON_GREEN</code> (<code>storefront-catalog.ts:139</code>) — a
+      colour the catalogue calls out as <em>deliberately not themeable, an affordance rather than a
+      brand colour</em>. Today the words “In stock” wear the affordance colour on every palette,
+      one line above an Ask button wearing the same green.
+    </div>
+
+    <h3>Proposed: <code>stockOk</code> and <code>stockOut</code>, derived per palette</h3>
+    <p class="note">
+      Same formula as <code>dangerInk</code>: anchor, blend <code>0.12</code> toward the palette’s
+      ink so the token is genuinely computed <em>from</em> that palette, then
+      <code>stepUntilContrast(…, ground, 4.5)</code>. The swatches below are computed live on this
+      page by the real maths ported out of <code>contrast.ts</code> — they are not hand-picked.
+    </p>
+
+    <div class="tokgrid" id="tokgrid"></div>
+    <p class="baNote" style="max-width:74ch">
+      <b>Read the ratios, not the colours.</b> Every cell prints its own contrast against that
+      palette’s ground. Nothing lands below <b>5.9:1</b> — and the amber/accent collision on Saffron
+      is gone, because the token is now a function of Saffron rather than a constant that happens to
+      equal it.
+    </p>
+
+    <div class="call warnT">
+      <b>What this does not fix, said plainly.</b> A 0.12 blend barely moves a green that is already
+      close to the palette’s ink, so <code>stockOk</code> lands within <b>~4%</b> of
+      <code>WHATSAPP_BUTTON_GREEN</code> on every palette — <code>#1d6f47</code> against
+      <code>#1f7a4d</code>. A <code>stockOk !== WHATSAPP_BUTTON_GREEN</code> test would pass and prove
+      nothing, so it is deliberately not proposed. What separates the two is <b>shape and weight, not
+      hue</b>: a light wash pill carrying dark green type, against a saturated green button carrying
+      white text. Real hue separation would mean choosing a different anchor — a decision, not a
+      derivation.
+    </div>
+
+    <div class="call">
+      <b>Open question, worth settling before build: does “In stock” need a colour at all?</b>
+      Most products, most of the time, are in stock — so a green pill on nearly every tile is
+      decoration carrying no information. The alternative is to <b>mark only the exception</b>:
+      out-of-stock gets the pill, in-stock gets plain <code>muted</code> text or nothing. That
+      removes the WhatsApp-green resemblance by removing the green, and leaves colour on the one
+      state a customer actually has to notice. <b>Recommended</b> — but flagged rather than decided,
+      because it changes what a customer sees, which is a step past a visual pass.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>3 · Type — three roles, one family</h2>
+    <p class="h2sub">
+      The brief’s real complaint is right: there is no role assignment today, just weight 800 at
+      six different sizes. That is fixable without shipping a single font file.
+    </p>
+
+    <div class="roles">
+      <div class="role">
+        <div class="rl">Display</div>
+        <div class="demoA">Xamdi Electronics</div>
+        <div class="spec">800 · −0.9 tracking · 19–32px</div>
+        <p>Shop wordmark, hero headline, category and section heads. Tight negative tracking is what
+          makes a system face read as set rather than typed.</p>
+      </div>
+      <div class="role">
+        <div class="rl">Body</div>
+        <div class="demoB">Solar panels, inverters and batteries, with fitting included.</div>
+        <div class="spec">400/600 · 0 tracking · 12.5–14px</div>
+        <p>Product names, the about paragraph, checkout copy. The only role that ever wraps to a
+          second line, so it is the only one with a line-height worth tuning.</p>
+      </div>
+      <div class="role">
+        <div class="rl">Meta</div>
+        <div class="demoC">11 products · In stock</div>
+        <div class="spec">800 · +0.09em · uppercase · 9.5–11px · tabular-nums</div>
+        <p>Prices, stock pills, category counts, eyebrows. <code>fontVariant: ['tabular-nums']</code>
+          is the part that matters — a column of prices that doesn’t align is the tell.</p>
+      </div>
+    </div>
+
+    <div class="call warnT">
+      <b>What a serif would cost, if it’s wanted later.</b> Bundle the file into
+      <code>assets/fonts</code>, add a <code>useFonts</code> gate in <code>_layout.tsx</code>, and
+      accept that every hero and section head reflows on native at a different metric than the
+      system face — which means re-verifying Window’s hero and Counter’s section rules on device,
+      not just on web. Worth doing deliberately; not worth smuggling into a colour-and-spacing pass.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>4 · Window’s hero</h2>
+    <p class="h2sub">
+      This is the brief’s strongest point and it lands cleanly. Window is the only theme that reads
+      <code>heroImageUrl</code>, and it is the theme a shop picks when it has photos — so its hero is
+      the one place the page is allowed to be big.
+    </p>
+
+    <div class="call badT">
+      <b>Found on the way through — a real bug, not a taste call.</b>
+      <code>theme-window.tsx:78-86</code> lays the hero image across the panel with
+      <code>StyleSheet.absoluteFill</code> and then puts the headline on top in
+      <code>colors.ink</code> — near-black — with <b>no scrim</b>. A shop that uploads a dark or busy
+      photo gets an unreadable headline. The scrim below is what fixes it; the wordmark treatment is
+      what makes it look intended.
+    </div>
+
+    <div class="ba">
+      <div>
+        <div class="baHead"><b>Window today</b><span class="tag before">Before</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fdfaf7;--s:#f5ede6;--i:#241a14;--a:#98452a;--m:#6e6661;">
+            <div class="nav">
+              <div class="nameblk"><div class="shopname" style="font-size:15px;letter-spacing:2px;">XAMDI ELECTRONICS</div></div>
+              <div class="navact"><span class="pill wa">WhatsApp</span><span class="pill cart">Cart</span></div>
+            </div>
+            <div class="hero">
+              <div class="heroHead">Power that stays on.</div>
+              <div class="heroAbout">Solar, inverters and batteries — fitted the same week.</div>
+            </div>
+            <div class="grid">
+              <div class="tile"><div class="img"><span class="fb">100W Panel</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$148</div>
+                <div class="st" style="color:#1f7a4d">In stock</div>
+                <div class="acts"><b class="add">Add</b><b class="ask">Ask</b></div></div></div>
+              <div class="tile"><div class="img"><span class="fb">Deep-cycle Battery</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$96</div>
+                <div class="st" style="color:#1f7a4d">In stock</div>
+                <div class="acts"><b class="add">Add</b><b class="ask">Ask</b></div></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">A flat <code>soft</code> rectangle with 24px of padding and nothing to
+          justify its height. The shop’s <b>name</b> — the one thing a customer arriving on a
+          forwarded WhatsApp link needs — is 15px, tracked out, above it.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Wordmark hero, no photo</b><span class="tag after">After</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fdfaf7;--s:#f5ede6;--s2:#efe3d8;--i:#241a14;--a:#98452a;--m:#6e6661;">
+            <div class="nav">
+              <div class="nameblk"><div class="shopname" style="font-size:15px;letter-spacing:2px;">XAMDI ELECTRONICS</div></div>
+              <div class="navact"><span class="pill wa">WhatsApp</span><span class="pill cart">Cart</span></div>
+            </div>
+            <div class="whero">
+              <div class="mark">Xamdi Electronics</div>
+              <div class="est">Hargeisa · Collect at Jigjiga Yar</div>
+              <div class="line">Power that stays on. Solar, inverters and batteries — fitted the same week.</div>
+            </div>
+            <div class="grid">
+              <div class="tile"><div class="img"><span class="fb">100W Panel</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$148</div>
+                <span class="stockPill" data-tok="ok" data-pal="clay">In stock</span>
+                <div class="acts"><b class="add">Add</b><b class="ask">Ask</b></div></div></div>
+              <div class="tile"><div class="img"><span class="fb">Deep-cycle Battery</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$96</div>
+                <span class="stockPill" data-tok="ok" data-pal="clay">In stock</span>
+                <div class="acts"><b class="add">Add</b><b class="ask">Ask</b></div></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">Gradient <code>ground → soft</code>, <b>derived from the palette</b>, not a
+          fixed parchment. Shop name becomes the wordmark. The eyebrow is composed from data the page
+          already holds — <code>city</code> and <code>collectLocation()</code> — so it is never
+          an empty line.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Wordmark hero, with photo</b><span class="tag after">After</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fdfaf7;--s:#f5ede6;--s2:#efe3d8;--i:#241a14;--a:#98452a;--m:#6e6661;
+                                 --photo:linear-gradient(150deg,#6d5a44,#2c231b);">
+            <div class="nav">
+              <div class="nameblk"><div class="shopname" style="font-size:15px;letter-spacing:2px;">XAMDI ELECTRONICS</div></div>
+              <div class="navact"><span class="pill wa">WhatsApp</span><span class="pill cart">Cart</span></div>
+            </div>
+            <div class="whero shot">
+              <div class="photo"></div>
+              <div class="mark" style="font-size:27px">Xamdi Electronics</div>
+              <div class="est">Hargeisa · Collect at Jigjiga Yar</div>
+            </div>
+            <div class="band">
+              <div class="bandHead"><b>Shop by category</b><span>4 departments</span></div>
+              <div class="cats">
+                <div class="cat" style="--tile:linear-gradient(150deg,#a4643f,#5d3320)">
+                  <i><span class="cn">Solar</span><span class="cc">11 products</span></i></div>
+                <div class="cat" style="--tile:linear-gradient(150deg,#7c8fa0,#3f4e5c)">
+                  <i><span class="cn">Batteries</span><span class="cc">9 products</span></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">Scrim <code>linear-gradient(180deg, transparent 42%, rgba(0,0,0,.55))</code>
+          and type flips to white. <b>This is the fix for the legibility bug above</b> — the treatment
+          that makes a photo hero look deliberate is the same one that makes it readable.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>5 · Market gets a category band</h2>
+    <p class="h2sub">
+      Market is the default theme and the one every shop lands on. Today it goes straight from the
+      about paragraph to an undifferentiated grid — a 60-product shop is one long scroll with no
+      way in. Counter already groups by category; Market ignores it except as a flyer target.
+    </p>
+
+    <div class="ba">
+      <div>
+        <div class="baHead"><b>Market today</b><span class="tag before">Before</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fbfcfa;--s:#eef4ef;--i:#12211a;--a:#1f6b45;--m:#616c66;">
+            <div class="nav">
+              <div class="nameblk"><div class="shopname">Barwaaqo Grocers</div><div class="city">Hargeisa</div></div>
+              <div class="navact"><span class="pill cart">Cart</span></div>
+            </div>
+            <div style="padding:4px 14px 0"><div style="font-size:22px;font-weight:800;letter-spacing:-.5px">Fresh every morning.</div>
+              <div style="font-size:13px;color:var(--m);padding-top:5px">Produce, dry goods and household, from the main market.</div></div>
+            <div class="grid">
+              <div class="tile"><div class="img"><span class="fb">Basmati Rice 5kg</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$12</div>
+                <div class="st" style="color:#1f7a4d">In stock</div>
+                <div class="acts"><b class="add">Add</b></div></div></div>
+              <div class="tile"><div class="img"><span class="fb">Sunflower Oil 3L</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$9</div>
+                <div class="st" style="color:#1f7a4d">In stock</div>
+                <div class="acts"><b class="add">Add</b></div></div></div>
+              <div class="tile"><div class="img"><span class="fb">Dates 1kg</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$7</div>
+                <div class="st" style="color:#8a5a05">Out of stock — ask us</div>
+                <div class="acts"><b class="ask" style="flex:1;text-align:center;border-radius:9px;padding:6px 0;font-size:12px;font-weight:800">Ask</b></div></div></div>
+              <div class="tile"><div class="img"><span class="fb">Tea Leaves 500g</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$5</div>
+                <div class="st" style="color:#1f7a4d">In stock</div>
+                <div class="acts"><b class="add">Add</b></div></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">No way in. The out-of-stock amber sits one row from the accent green with
+          no shape difference — <b>colour alone is carrying the whole signal</b>.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Band + stock pills</b><span class="tag after">After</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fbfcfa;--s:#eef4ef;--i:#12211a;--a:#1f6b45;--m:#616c66;">
+            <div class="nav">
+              <div class="nameblk"><div class="shopname">Barwaaqo Grocers</div><div class="city">Hargeisa</div></div>
+              <div class="navact"><span class="pill cart">Cart</span></div>
+            </div>
+            <div style="padding:4px 14px 0"><div style="font-size:22px;font-weight:800;letter-spacing:-.5px">Fresh every morning.</div>
+              <div style="font-size:13px;color:var(--m);padding-top:5px">Produce, dry goods and household, from the main market.</div></div>
+            <div class="band">
+              <div class="bandHead"><b>Shop by category</b><span>4 departments</span></div>
+              <div class="cats">
+                <div class="cat" style="--tile:linear-gradient(150deg,#4c6b57,#24402f)">
+                  <i><span class="cn">Produce</span><span class="cc">18 products</span></i></div>
+                <div class="cat" style="--tile:linear-gradient(150deg,#8d9b6e,#4d5836)">
+                  <i><span class="cn">Dry goods</span><span class="cc">23 products</span></i></div>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="tile"><div class="img"><span class="fb">Basmati Rice 5kg</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$12</div>
+                <span class="stockPill" data-tok="ok" data-pal="palm">In stock</span>
+                <div class="acts"><b class="add">Add</b></div></div></div>
+              <div class="tile"><div class="img"><span class="fb">Dates 1kg</span></div>
+                <div class="bd"><div class="pn" style="min-height:0"></div><div class="pp">$7</div>
+                <span class="stockPill" data-tok="out" data-pal="palm">Ask us</span>
+                <div class="acts"><b class="ask" style="flex:1;text-align:center;border-radius:9px;padding:6px 0;font-size:12px;font-weight:800">Ask</b></div></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">
+          Tapping a tile sets the <b>same</b> <code>category</code> state a flyer already sets — so
+          <code>filterByCategory</code> and <code>CategoryFilterBar</code> are reused verbatim and the
+          way back out already exists. The band renders only at <b>2+ categories with stock</b>: one
+          category is a filter to everything.
+        </p>
+      </div>
+    </div>
+
+    <div class="call">
+      <b>Where the tile art comes from.</b> <code>categories.image_url</code> when the shop has set
+      one; otherwise a gradient seeded from the palette’s accent — the same principle as
+      <code>ProductTile</code>’s no-photo branch, which sets the product name large on
+      <code>soft</code> rather than showing a broken-image box. <b>The no-photo case is the majority
+      case and must not look like an error.</b>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>6 · Counter, and the editor’s picker</h2>
+
+    <div class="ba">
+      <div>
+        <div class="baHead"><b>Counter rows</b><span class="tag before">Before</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fdfbf6;--s:#f6efe0;--i:#241d10;--a:#8a5a05;--m:#6e695e;">
+            <div class="nav" style="border-bottom:2px solid var(--i)">
+              <div class="nameblk"><div class="shopname" style="font-size:18px;letter-spacing:.4px">Hooyo Pharmacy</div><div class="city">Hargeisa</div></div>
+              <div class="navact"><span class="pill cart">Cart</span></div>
+            </div>
+            <div class="sect">
+              <div class="sectHead">ANALGESICS</div>
+              <div class="crow"><div class="cname"><div class="cn2">Paracetamol 500mg × 20</div>
+                <div class="cstate"><span class="cs" style="color:#1f7a4d">In stock</span>
+                <span class="miniacts"><b style="background:var(--a);color:var(--g)">Add</b><b style="background:#1f7a4d;color:#fff">Ask</b></span></div></div>
+                <div class="cp">$2.50</div></div>
+              <div class="crow"><div class="cname"><div class="cn2">Ibuprofen 200mg × 24</div>
+                <div class="cstate"><span class="cs" style="color:#8a5a05">Out of stock — ask us</span>
+                <span class="miniacts"><b style="background:#1f7a4d;color:#fff">Ask</b></span></div></div>
+                <div class="cp">$3.10</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote"><b>Saffron is the worst case in the set.</b> The out-of-stock amber
+          <code>#8a5a05</code> is byte-for-byte this palette’s own <code>accent</code> — the same
+          colour as the Add button and the section rule. “Out of stock” looks like an action.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Counter rows</b><span class="tag after">After</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fdfbf6;--s:#f6efe0;--i:#241d10;--a:#8a5a05;--m:#6e695e;">
+            <div class="nav" style="border-bottom:2px solid var(--i)">
+              <div class="nameblk"><div class="shopname" style="font-size:18px;letter-spacing:.4px">Hooyo Pharmacy</div><div class="city">Hargeisa</div></div>
+              <div class="navact"><span class="pill cart">Cart</span></div>
+            </div>
+            <div class="sect">
+              <div class="sectHead">ANALGESICS</div>
+              <div class="crow"><div class="cname"><div class="cn2">Paracetamol 500mg × 20</div>
+                <div class="cstate"><span class="stockPill" style="margin-top:0" data-tok="ok" data-pal="saffron">In stock</span>
+                <span class="miniacts"><b style="background:var(--a);color:var(--g)">Add</b><b style="background:#1f7a4d;color:#fff">Ask</b></span></div></div>
+                <div class="cp">$2.50</div></div>
+              <div class="crow"><div class="cname"><div class="cn2">Ibuprofen 200mg × 24</div>
+                <div class="cstate"><span class="stockPill" style="margin-top:0" data-tok="out" data-pal="saffron">Ask us</span>
+                <span class="miniacts"><b style="background:#1f7a4d;color:#fff">Ask</b></span></div></div>
+                <div class="cp">$3.10</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">Pill shape carries the state, derived colour carries the tone, and prices
+          go <code>tabular-nums</code> so the right column scans as a column. <b>Shape first, colour
+          second</b> — the same rule bento applies to profit/loss.</p>
+      </div>
+    </div>
+
+    <h3>The picker — <code>design-strip.tsx</code></h3>
+    <p class="note">
+      The brief wants hover lift and a clearer selected state. The selected state is already strong
+      (the tile inverts to <code>bentoInk</code>). The weakness is different, and worse: <b>you
+      cannot see either thing you are choosing.</b> A layout is described in prose; a palette is
+      three 18px dots.
+    </p>
+
+    <div class="ba" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
+      <div>
+        <div class="baHead"><b>Picker today</b><span class="tag before">Before</span></div>
+        <div class="ed">
+          <div class="card">
+            <div class="cardTitle">Design</div>
+            <p class="edEyebrow">Layout</p>
+            <div class="strip">
+              <div class="lt on"><div class="ln">Market</div><div class="ld">Even grid, price forward. Works with any number of photos.</div></div>
+              <div class="lt"><div class="ln">Counter</div><div class="ld">A price list. Best for a long catalogue with no photos.</div></div>
+              <div class="lt"><div class="ln">Window</div><div class="ld">Big opening statement, larger tiles.</div></div>
+            </div>
+            <p class="edEyebrow">Colours</p>
+            <div class="strip">
+              <div class="swt on"><div class="dots"><span style="background:#fbfcfa"></span><span style="background:#eef4ef"></span><span style="background:#1f6b45;border-color:transparent"></span></div>
+                <div class="sl">Palm</div><div class="ss">grocery, pharmacy, produce</div></div>
+              <div class="swt"><div class="dots"><span style="background:#fdfaf7"></span><span style="background:#f5ede6"></span><span style="background:#98452a;border-color:transparent"></span></div>
+                <div class="sl">Clay</div><div class="ss">hardware, furniture, textiles</div></div>
+              <div class="swt"><div class="dots"><span style="background:#fdfbf6"></span><span style="background:#f6efe0"></span><span style="background:#8a5a05;border-color:transparent"></span></div>
+                <div class="sl">Saffron</div><div class="ss">food, spice, tailoring</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">Three 18px dots is not enough surface to judge a palette by, and “Even grid,
+          price forward” asks the shop to picture a layout they have never seen.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Picker after</b><span class="tag after">After</span></div>
+        <div class="ed">
+          <div class="card">
+            <div class="cardTitle">Design</div>
+            <p class="edEyebrow">Layout</p>
+            <div class="strip">
+              <div class="lt on">
+                <div class="wire"><i class="st1"></i><div class="wRow"><i></i><i></i></div><div class="wRow"><i></i><i></i></div></div>
+                <div class="ln">Market <span class="check">✓</span></div><div class="ld">Even grid, price forward.</div></div>
+              <div class="lt">
+                <div class="wire"><i class="st1"></i><i style="height:5px"></i><i style="height:5px"></i><i style="height:5px"></i><i style="height:5px"></i></div>
+                <div class="ln">Counter</div><div class="ld">A price list, grouped.</div></div>
+              <div class="lt">
+                <div class="wire"><i style="height:22px"></i><div class="wRow"><i></i><i></i></div></div>
+                <div class="ln">Window</div><div class="ld">Big opening statement.</div></div>
+            </div>
+            <p class="edEyebrow">Colours</p>
+            <div class="strip">
+              <div class="swt on"><div class="bands"><span style="background:#fbfcfa"></span><span style="background:#eef4ef"></span><span class="acc" style="background:#1f6b45"></span></div>
+                <div class="sl">Palm <span class="check">✓</span></div><div class="ss">grocery, pharmacy</div></div>
+              <div class="swt"><div class="bands"><span style="background:#fdfaf7"></span><span style="background:#f5ede6"></span><span class="acc" style="background:#98452a"></span></div>
+                <div class="sl">Clay</div><div class="ss">hardware, textiles</div></div>
+              <div class="swt"><div class="bands"><span style="background:#fdfbf6"></span><span style="background:#f6efe0"></span><span class="acc" style="background:#8a5a05"></span></div>
+                <div class="sl">Saffron</div><div class="ss">food, spice, tailoring</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">A 52px wireframe of the actual layout, and a 44px palette band with the
+          accent given extra width because it is the one the shop is really choosing. Both rows stay
+          <b>derived from <code>THEMES</code> / <code>PALETTES</code></b> — a seventh palette still
+          needs no change here.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>7 · Responsive</h2>
+    <p class="h2sub">
+      The brief proposes a 900px breakpoint and one source of truth. Kaiibi already has the second
+      half of that and a different first half.
+    </p>
+    <div class="tw"><table>
+      <tr><th style="width:30%">Rule</th><th>Where it lives</th></tr>
+      <tr><td><b>Grid columns</b></td>
+        <td><code>gridColumnsForWidth()</code> in <code>theme-shared.tsx</code> — 2 below 640, 3 below
+          1024, 4 above. Already one source of truth for Market and Window, already the
+          <code>key={numColumns}</code> remount trick RN requires. <b>The category band uses the same
+          function</b> rather than introducing a second breakpoint set.</td></tr>
+      <tr><td><b>Editor preview</b></td>
+        <td>Already switches to a stacked single column below the wide breakpoint
+          (<code>wideColumn</code> / <code>previewColumn</code>). No mobile-only stylesheet exists to
+          collapse.</td></tr>
+      <tr><td><b>900px specifically</b></td>
+        <td class="no">Not adopted. Adding a fourth number to a set that already has 640 and 1024
+          would mean two answers to “how many columns at 900px”.</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>8 · What this needs that isn’t CSS</h2>
+    <p class="h2sub">The category band is the only item here with a backend cost. Everything else is
+      component-local.</p>
+    <div class="tw"><table>
+      <tr><th style="width:26%">Item</th><th>Cost</th></tr>
+      <tr><td><b>Public category read</b></td>
+        <td>A new function beside <code>get_public_storefront_products</code> returning
+          <code>name</code>, <code>image_url</code> and a live product count, joining
+          <code>categories</code> to <code>products.category</code> <b>by name</b> (they are not
+          FK-linked — see <code>0004_categories_tags.sql</code>). Must be <code>anon</code>-callable,
+          and must respect the same “published only” gate the products function does. Add it to the
+          narrowed anon surface in <code>20261009000100_narrow_the_anon_rpc_surface.sql</code>
+          deliberately, not by accident.</td></tr>
+      <tr><td><b>Preview parity</b></td>
+        <td>The editor reads products admin-side via <code>getStorefrontPreviewProducts</code>
+          precisely because the public RPC returns nothing while unpublished. Categories need the
+          same admin-side twin or the preview shows an empty band on the one run the shop is looking
+          at it.</td></tr>
+      <tr><td><b>Two derived tokens</b></td>
+        <td>Pure addition to <code>storefront-catalog.ts</code> plus cases in
+          <code>storefront-catalog.test.ts</code> asserting ≥4.5:1 on all six palettes, and one
+          asserting <code>stockOut ≠ accent</code> — the Saffron collision, pinned so it cannot come
+          back.</td></tr>
+      <tr><td><b>Counter’s flyer rule</b></td>
+        <td class="no">Untouched. Counter renders no flyers <em>by design</em>, pinned in
+          <code>storefront-flyer-placement.test.tsx</code>. The category band follows the same
+          logic — Counter already groups by category, so it gets no band either.</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>9 · Past the visual pass — what would make it feel <em>built</em></h2>
+    <p class="h2sub">
+      Sections 2–7 fix how the storefront <b>looks</b>. These six fix how it <b>feels</b>, and three of
+      them are worth more than everything above. Ordered by felt difference per line of code.
+    </p>
+
+    <div class="call">
+      <b>The subject, stated, because it should drive every call below.</b> This page arrives as a
+      forwarded WhatsApp link and opens in an in-app browser, on a phone, often on a slow connection.
+      The customer usually already knows the shop — many have stood in it. They want three things:
+      <b>what is in, what it costs, and how to get it.</b> They are not here to be told a brand story,
+      and they will pay a person, not the page. That rules out most of what a generic e-commerce
+      template would add, and it makes latency and touch response matter more than ornament.
+    </div>
+
+    <div class="tw"><table>
+      <tr><th style="width:4%"></th><th style="width:30%">Gap</th><th>Why it is worth doing</th></tr>
+      <tr><td><b>1</b></td><td><b>Nothing responds to touch</b></td>
+        <td><b>Not one <code>Pressable</code> in the whole storefront has a pressed state</b> — no
+          <code>style</code> callback, no <code>android_ripple</code>, anywhere. Tap Add and the page
+          does nothing until a number changes in the corner. This is the single loudest “cheap” tell on
+          a phone, and it is one shared helper away.</td></tr>
+      <tr><td><b>2</b></td><td><b>The shop’s own words are thrown away</b></td>
+        <td><code>products.description</code> is selected by the public RPC, mapped in
+          <code>storefront.ts:148</code>, and <b>rendered by no theme at all</b>. Shopkeepers type it;
+          no customer has ever seen it. Dead data, already paid for on every page load.</td></tr>
+      <tr><td><b>3</b></td><td><b>First paint is a white screen and a spinner</b></td>
+        <td><code>store/[slug].tsx:67-73</code> — a bare <code>ActivityIndicator</code> on
+          <code>#ffffff</code>. That is the first second of <em>every</em> visit, over the slowest
+          connection in the flow.</td></tr>
+      <tr><td><b>4</b></td><td><b>No way to find anything</b></td>
+        <td>Counter exists for “a long catalogue with no photos” — a 200-line pharmacy — and there is
+          no search field on the public page at all. The one theme built for scale has the least
+          navigation.</td></tr>
+      <tr><td><b>5</b></td><td><b>Three themes, three unrelated scales</b></td>
+        <td>Shop name is 19px in Market, 15px in Window, 18px in Counter; page padding 14 / 16 / 14.
+          Nothing is wrong individually; together there is no system, which is <em>why</em> it reads
+          unfinished.</td></tr>
+      <tr><td><b>6</b></td><td><b>The empty state is a full stop</b></td>
+        <td>“Nothing listed yet.” — on a page whose whole purpose is to start a conversation, next to
+          a WhatsApp number it declines to offer.</td></tr>
+    </table></div>
+
+    <h3>1 · Touch feedback — press these two</h3>
+    <p class="note">
+      The difference is not describable, so it is built into this page. <b>Press and hold each
+      button.</b> The left pair is the storefront today; the right pair is the proposal.
+    </p>
+    <div class="ba" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+      <div>
+        <div class="baHead"><b>Today</b><span class="tag before">Before</span></div>
+        <div class="demoPad">
+          <span class="dBtn add">Add</span><span class="dBtn ask">Ask</span>
+        </div>
+        <p class="baNote">Nothing. The tap is registered and unacknowledged — on a slow phone the
+          customer taps again, and adds two.</p>
+      </div>
+      <div>
+        <div class="baHead"><b>Proposed</b><span class="tag after">After</span></div>
+        <div class="demoPad">
+          <span class="dBtn add live">Add</span><span class="dBtn ask live">Ask</span>
+        </div>
+        <p class="baNote">Scale to <code>0.97</code> and drop opacity for the duration of the press;
+          <code>android_ripple</code> in the palette’s accent on Android. <b>One helper in
+          <code>theme-shared.tsx</code>, applied to every <code>Pressable</code> in one pass</b> —
+          Add, Ask, Cart, checkout bar, category chip, sheet close.</p>
+      </div>
+    </div>
+
+    <h3>2, 4 &amp; 6 · The three screens that don’t exist yet</h3>
+    <div class="ba">
+      <div>
+        <div class="baHead"><b>Product sheet</b><span class="tag after">New</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fbfcfa;--s:#eef4ef;--i:#12211a;--a:#1f6b45;--m:#616c66;">
+            <div class="shTop"><span class="shGrab"></span></div>
+            <div class="shPhoto" style="background:linear-gradient(150deg,#8d9b6e,#4d5836)"></div>
+            <div style="padding:16px 16px 18px">
+              <div style="font-size:19px;font-weight:800;letter-spacing:-.4px;line-height:1.2">Basmati Rice 5kg</div>
+              <div style="display:flex;align-items:baseline;gap:10px;margin-top:9px">
+                <span style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px">$12</span>
+                <span class="stockPill" style="margin-top:0" data-tok="ok" data-pal="palm">In stock</span>
+              </div>
+              <div style="font-size:13.5px;color:var(--m);line-height:1.55;margin-top:12px">
+                Long-grain, aged twelve months. Sold by the sack; we can split a sack between two
+                customers if you ask.
+              </div>
+              <div style="font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--m);margin-top:14px">Dry goods</div>
+              <div class="acts" style="margin-top:14px">
+                <b class="add" style="padding:11px 0">Add to cart</b><b class="ask" style="padding:11px 0">Ask</b>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">Makes the tile tappable — which is every customer’s instinct — and is the
+          only place <code>description</code> has ever had to live. <b>No new data, no new RPC:</b>
+          the field is already on every product in the payload.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Counter, with search</b><span class="tag after">New</span></div>
+        <div class="phone">
+          <div class="sf" style="--g:#fdfbf6;--s:#f6efe0;--i:#241d10;--a:#8a5a05;--m:#6e695e;">
+            <div class="nav" style="border-bottom:2px solid var(--i);padding-bottom:12px">
+              <div class="nameblk"><div class="shopname" style="font-size:18px;letter-spacing:.4px">Hooyo Pharmacy</div><div class="city">Hargeisa</div></div>
+              <div class="navact"><span class="pill cart">Cart</span></div>
+              <div class="searchField">Search 214 items</div>
+            </div>
+            <div class="sect">
+              <div class="sectHead">ANALGESICS</div>
+              <div class="crow"><div class="cname"><div class="cn2">Paracetamol 500mg × 20</div>
+                <div class="cstate"><span class="stockPill" style="margin-top:0" data-tok="ok" data-pal="saffron">In stock</span></div></div>
+                <div class="cp">$2.50</div></div>
+              <div class="crow"><div class="cname"><div class="cn2">Ibuprofen 200mg × 24</div>
+                <div class="cstate"><span class="stockPill" style="margin-top:0" data-tok="out" data-pal="saffron">Ask us</span></div></div>
+                <div class="cp">$3.10</div></div>
+              <div class="crow"><div class="cname"><div class="cn2">Aspirin 300mg × 16</div>
+                <div class="cstate"><span class="stockPill" style="margin-top:0" data-tok="ok" data-pal="saffron">In stock</span></div></div>
+                <div class="cp">$1.80</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">Sticky under the nav, filtering by name and category as you type — the same
+          case-insensitive trim <code>filterByCategory</code> already uses. <b>Counter first</b>, since
+          it is the theme built for a catalogue this long; Market and Window get it past a product
+          threshold rather than always.</p>
+      </div>
+
+      <div>
+        <div class="baHead"><b>Empty &amp; loading</b><span class="tag after">New</span></div>
+        <div class="phone" style="margin-bottom:14px">
+          <div class="sf" style="--g:#fbfcfa;--s:#eef4ef;--i:#12211a;--a:#1f6b45;--m:#616c66;">
+            <div class="nav">
+              <div class="nameblk"><div class="shopname">Barwaaqo Grocers</div><div class="city">Hargeisa</div></div>
+            </div>
+            <div style="padding:30px 20px 34px;text-align:center">
+              <div style="font-size:16px;font-weight:800;letter-spacing:-.3px">Nothing listed yet.</div>
+              <div style="font-size:13px;color:var(--m);margin-top:7px;line-height:1.5">
+                We’re still putting the shop online. Message us and we’ll tell you what’s in today.
+              </div>
+              <span class="pill wa" style="display:inline-block;margin-top:14px">Message on WhatsApp</span>
+            </div>
+          </div>
+        </div>
+        <div class="phone">
+          <div class="sf" style="--g:#fff;--s:#f1f1f3;--i:#141418;--a:#141418;--m:#77777f;">
+            <div class="nav"><div class="nameblk"><div class="sk skName"></div><div class="sk skCity"></div></div>
+              <div class="navact"><div class="sk skPill"></div></div></div>
+            <div class="grid" style="padding-top:6px">
+              <div><div class="sk skImg"></div><div class="sk skLine"></div><div class="sk skLine short"></div></div>
+              <div><div class="sk skImg"></div><div class="sk skLine"></div><div class="sk skLine short"></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="baNote">An empty shop is <b>an invitation, not a full stop</b> — and the number to
+          act on is already on the page object. Below it: a skeleton in the grid’s real shape, so the
+          layout doesn’t jump when data lands. Replaces a spinner on white as the first second of
+          every visit.</p>
+      </div>
+    </div>
+
+    <div class="call warnT">
+      <b>The honest constraint on the skeleton.</b> The shop’s palette arrives <em>with</em> the fetch,
+      so the first paint cannot be in the shop’s colours without shipping theme and palette ahead of
+      the payload. The skeleton above is therefore neutral by necessity, and earns its place on
+      <b>layout stability</b> rather than branding — the grid lands where the placeholders were.
+      Colouring it properly is a separate, larger piece of work about what the server sends first.
+    </div>
+
+    <h3>5 · One scale, three themes</h3>
+    <p class="note">
+      Not a look change — a consistency change, and the reason the set reads unfinished today. Sizes
+      below are the existing values reconciled to one ramp, not new inventions.
+    </p>
+    <div class="tw"><table>
+      <tr><th style="width:20%">Role</th><th style="width:16%">Today</th><th style="width:14%">One scale</th><th>Note</th></tr>
+      <tr><td><b>Shop name</b></td><td>19 / 15 / 18</td><td><b>19</b></td>
+        <td>Window keeps its uppercase tracking treatment at the shared size — the <em>treatment</em>
+          is the theme’s, the <em>size</em> isn’t.</td></tr>
+      <tr><td><b>Hero headline</b></td><td>22 / 28 / 19</td><td><b>22 / 28</b></td>
+        <td>Window is deliberately the loud one; Counter stops pretending to be a third value.</td></tr>
+      <tr><td><b>Body</b></td><td>13 / 13.5 / 13</td><td><b>13.5</b></td>
+        <td>The 0.5px spread is invisible and costs a token.</td></tr>
+      <tr><td><b>Page padding</b></td><td>14 / 16 / 14</td><td><b>16</b></td>
+        <td>Window is right; the others are cramped on a modern phone.</td></tr>
+      <tr><td><b>Meta / eyebrow</b></td><td>11 / 11.5 / 11.5</td><td><b>11</b></td>
+        <td>With <code>+0.09em</code> tracking, per §3.</td></tr>
+    </table></div>
+
+    <div class="call">
+      <b>If only three of these ship, make it 1, 2 and 3.</b> Touch feedback changes how every screen
+      feels for about fifteen lines. The product sheet turns data the shop already typed into the
+      reason a customer stays. And the loading state is the first second of every single visit — the
+      one moment no amount of polish further down the page can reach.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section>
+    <h2>10 · Acceptance</h2>
+    <ul class="checks">
+      <li><b>Stock reads off-palette nowhere.</b> No <code>#1f7a4d</code> / <code>#8a5a05</code>
+        literal survives in <code>product-tile.tsx</code> or <code>theme-counter.tsx</code>; both
+        come from <code>paletteColors()</code>.</li>
+      <li><b>Every palette clears 4.5:1</b> on both new tokens, asserted in
+        <code>storefront-catalog.test.ts</code>, and <code>stockOut ≠ accent</code> on Saffron.</li>
+      <li><b>Stock state survives greyscale.</b> Pill shape and wording carry it; colour is the
+        second signal, never the only one.</li>
+      <li><b>Window’s hero is legible over a dark photo</b> — verified on device with a real upload,
+        not in a jest snapshot.</li>
+      <li><b>Window’s hero without a photo looks intentional</b>, which is the test every theme in
+        this set had to pass.</li>
+      <li><b>The category band renders only at 2+ categories</b>, and tapping one drives the existing
+        <code>filterByCategory</code> state with <code>CategoryFilterBar</code> as the way out.</li>
+      <li><b>A shop with no category photos</b> gets gradient tiles that read as designed, not as
+        missing images.</li>
+      <li><b>Column counts still come from <code>gridColumnsForWidth</code></b> — band and grid agree
+        at every width.</li>
+      <li><b>Picker rows are still derived</b> from <code>THEMES</code> / <code>PALETTES</code>.</li>
+      <li><b>Editable/read-only unchanged:</b> name, headline, about, hero photo, WhatsApp, layout and
+        palette stay per-shop and editable; products stay read-only and backend-synced.</li>
+      <li><b>Verified on web, iOS and Android</b> — this pass touches RN layout, and
+        <code>/testing-kaiibi</code> exists for exactly this.</li>
+      <li class="out"><b>Not in scope:</b> a display serif, a low-stock third state, a 900px
+        breakpoint, renaming or adding a layout, any change to what a shop can edit.</li>
+    </ul>
+  </section>
+
+  <p class="foot">
+    Sources: <code>src/lib/storefront-catalog.ts</code>, <code>src/lib/contrast.ts</code>,
+    <code>src/components/storefront/theme-{market,window,counter,shared}.tsx</code>,
+    <code>product-tile.tsx</code>, <code>editor/design-strip.tsx</code>,
+    <code>src/app/(admin)/storefront.tsx</code>,
+    <code>supabase/migrations/{0004_categories_tags,0016_brand_category_media,20260924000100_storefront_public_read}.sql</code>.
+    Swatches on this page are computed live by the WCAG maths ported from <code>contrast.ts</code>.
+  </p>
+</div>
+
+<script>
+/* ── The real maths, ported verbatim from src/lib/contrast.ts ─────────── */
+function parseHex(hex){
+  const raw = String(hex).trim().replace(/^#/,'');
+  const full = raw.length === 3 ? raw.split('').map(c=>c+c).join('') : raw;
+  if(!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  return { r:parseInt(full.slice(0,2),16), g:parseInt(full.slice(2,4),16), b:parseInt(full.slice(4,6),16) };
+}
+function toHex({r,g,b}){
+  const c = n => Math.max(0, Math.min(255, Math.round(n)));
+  return '#' + [r,g,b].map(n=>c(n).toString(16).padStart(2,'0')).join('');
+}
+function relativeLuminance({r,g,b}){
+  const ch = v => { const s = v/255; return s <= 0.03928 ? s/12.92 : Math.pow((s+0.055)/1.055, 2.4); };
+  return 0.2126*ch(r) + 0.7152*ch(g) + 0.0722*ch(b);
+}
+function contrastRatio(a,b){
+  const ca = parseHex(a), cb = parseHex(b);
+  if(!ca || !cb) return 1;
+  const la = relativeLuminance(ca), lb = relativeLuminance(cb);
+  const [hi,lo] = la >= lb ? [la,lb] : [lb,la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+function stepUntilContrast(color, against, minRatio){
+  const rgb = parseHex(color), ground = parseHex(against);
+  if(!rgb || !ground) return color;
+  if(contrastRatio(color, against) >= minRatio) return color;
+  const towardWhite = contrastRatio('#ffffff', against) >= contrastRatio('#000000', against);
+  let cur = {...rgb};
+  for(let i=0;i<24;i++){
+    cur = towardWhite
+      ? { r:cur.r+(255-cur.r)*0.12, g:cur.g+(255-cur.g)*0.12, b:cur.b+(255-cur.b)*0.12 }
+      : { r:cur.r*0.88, g:cur.g*0.88, b:cur.b*0.88 };
+    const cand = toHex(cur);
+    if(contrastRatio(cand, against) >= minRatio) return cand;
+  }
+  return towardWhite ? '#ffffff' : '#000000';
+}
+function blendHex(from, to, amount){
+  const a = parseHex(from), b = parseHex(to);
+  if(!a || !b) return from;
+  const mix = (x,y) => x + (y-x)*amount;
+  return toHex({ r:mix(a.r,b.r), g:mix(a.g,b.g), b:mix(a.b,b.b) });
+}
+
+/* ── The six palettes, verbatim from storefront-catalog.ts ────────────── */
+const PALETTES = {
+  ink:     { label:'Ink',     ground:'#ffffff', soft:'#f4f4f5', ink:'#141418', accent:'#141418' },
+  palm:    { label:'Palm',    ground:'#fbfcfa', soft:'#eef4ef', ink:'#12211a', accent:'#1f6b45' },
+  clay:    { label:'Clay',    ground:'#fdfaf7', soft:'#f5ede6', ink:'#241a14', accent:'#98452a' },
+  sea:     { label:'Sea',     ground:'#fafcfd', soft:'#eaf1f5', ink:'#101f28', accent:'#155b78' },
+  saffron: { label:'Saffron', ground:'#fdfbf6', soft:'#f6efe0', ink:'#241d10', accent:'#8a5a05' },
+  plum:    { label:'Plum',    ground:'#fdfafc', soft:'#f5ecf2', ink:'#221420', accent:'#8a2c62' },
+};
+
+const MUTED_BLEND = 0.34;
+const DANGER_BASE = '#b3261e', DANGER_INK_BLEND = 0.12;
+/* Proposed: same shape as dangerInk. Anchors kept at today's literals so the
+   familiar green and amber are the STARTING point, not the shipped value. */
+const STOCK_OK_BASE = '#1f7a4d', STOCK_OUT_BASE = '#8a5a05', STOCK_INK_BLEND = 0.12;
+
+const derive = {
+  muted:    p => blendHex(p.ink, p.ground, MUTED_BLEND),
+  danger:   p => stepUntilContrast(blendHex(DANGER_BASE,   p.ink, DANGER_INK_BLEND), p.ground, 4.5),
+  stockOk:  p => stepUntilContrast(blendHex(STOCK_OK_BASE, p.ink, STOCK_INK_BLEND), p.ground, 4.5),
+  stockOut: p => stepUntilContrast(blendHex(STOCK_OUT_BASE,p.ink, STOCK_INK_BLEND), p.ground, 4.5),
+};
+
+/* Pill wash: the token lightened far toward ground, so the pill reads as a
+   tint of its own ink rather than a fourth colour nobody chose. */
+function wash(token, ground){ return blendHex(token, ground, 0.86); }
+
+const ROWS = [
+  { key:'ink',      label:'ink',       stored:true,  get:p=>p.ink },
+  { key:'accent',   label:'accent',    stored:true,  get:p=>p.accent },
+  { key:'muted',    label:'muted',     stored:false, get:derive.muted },
+  { key:'danger',   label:'danger',    stored:false, get:derive.danger },
+  { key:'stockOk',  label:'stockOk',   stored:false, get:derive.stockOk,  proposed:true },
+  { key:'stockOut', label:'stockOut',  stored:false, get:derive.stockOut, proposed:true },
+];
+
+(function buildTokenGrid(){
+  const host = document.getElementById('tokgrid');
+  const keys = Object.keys(PALETTES);
+
+  const head = document.createElement('div');
+  head.className = 'tokrow head';
+  head.innerHTML = '<div class="rk">Token</div>' +
+    keys.map(k => `<div class="cell">${PALETTES[k].label}</div>`).join('');
+  host.appendChild(head);
+
+  for(const row of ROWS){
+    const el = document.createElement('div');
+    el.className = 'tokrow';
+    const name = row.proposed
+      ? `${row.label} <span style="font-weight:800;color:#075e34;font-size:9px;letter-spacing:.06em;margin-left:5px">NEW</span>`
+      : `${row.label}<span style="font-weight:600;color:var(--mut);font-size:9.5px;margin-left:5px">${row.stored?'stored':'derived'}</span>`;
+    el.innerHTML = `<div class="rk" style="flex-direction:column;align-items:flex-start;gap:0;justify-content:center">${name}</div>` +
+      keys.map(k => {
+        const p = PALETTES[k];
+        const c = row.get(p);
+        const ratio = contrastRatio(c, p.ground).toFixed(1);
+        const clash = (row.key === 'stockOut' || row.key === 'stockOk') && c.toLowerCase() === p.accent.toLowerCase();
+        return `<div class="cell">
+            <div class="chip" style="background:${p.ground};color:${c};border:1px solid ${blendHex(c,p.ground,.72)}">${c}</div>
+            <span class="ratio">${ratio}:1${clash?' ⚠︎':''}</span>
+          </div>`;
+      }).join('');
+    host.appendChild(el);
+  }
+
+  /* One extra row showing today's literal, for the comparison the argument rests on. */
+  const today = document.createElement('div');
+  today.className = 'tokrow';
+  today.style.background = 'var(--badwash)';
+  today.innerHTML = `<div class="rk" style="color:#8c1d16">today’s<br>literal</div>` +
+    keys.map(k => {
+      const p = PALETTES[k];
+      const clash = STOCK_OUT_BASE.toLowerCase() === p.accent.toLowerCase();
+      const ratio = contrastRatio(STOCK_OUT_BASE, p.ground).toFixed(1);
+      return `<div class="cell">
+          <div class="chip" style="background:${p.ground};color:${STOCK_OUT_BASE};border:1px solid #e8d6ab">${STOCK_OUT_BASE}</div>
+          <span class="ratio" style="${clash?'color:#b3261e;font-weight:800':''}">${clash?'= accent ⚠︎':ratio+':1'}</span>
+        </div>`;
+    }).join('');
+  host.appendChild(today);
+})();
+
+/* Paint every stock pill in the frames from the same derived tokens. */
+document.querySelectorAll('.stockPill').forEach(el => {
+  const p = PALETTES[el.dataset.pal];
+  const token = el.dataset.tok === 'ok' ? derive.stockOk(p) : derive.stockOut(p);
+  el.style.color = token;
+  el.style.background = wash(token, p.ground);
+});
+</script>

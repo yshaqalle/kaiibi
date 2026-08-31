@@ -50,6 +50,23 @@ declare
     'get_public_storefront',
     'get_public_storefront_products',
     'place_storefront_order',
+    -- ADDED BY 20261018000000, for the same reason as the four above: a
+    -- logged-out customer browsing a shop calls it. It is the "shop by
+    -- category" band -- a way INTO a long catalogue, which Market and Window
+    -- had none of.
+    --
+    -- A READ, and a narrower one than get_public_storefront_products, which it
+    -- sits alongside: it returns a category NAME, a picture and a COUNT, and
+    -- no row-level product data at all. It filters on the identical three
+    -- conditions -- published, is_listed_online, module on -- so it cannot
+    -- expose a category the products function would not already have exposed
+    -- the products of. It also excludes anything with no stock, so it returns
+    -- strictly LESS than that function does.
+    --
+    -- What it must never return is a category from a shop that is not
+    -- published, or one whose products are all unlisted; both are asserted in
+    -- verify-storefront-categories.sql rather than left to this comment.
+    'get_public_storefront_categories',
     -- ADDED BY 20261017000000, and this list going from four to five is a
     -- deliberate act rather than a consequence -- this check is what made it
     -- one, by going red the moment the function was granted.

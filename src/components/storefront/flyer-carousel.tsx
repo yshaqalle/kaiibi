@@ -4,6 +4,7 @@ import {
   useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { openExternalUrl } from '@/lib/external-url';
 import { offerCopyFor } from '@/lib/poster';
 import { waLink } from '@/lib/storefront';
@@ -400,7 +401,7 @@ function FlyerSlide({
       // Tabbing to an off-screen slide has to bring it on screen, or the
       // keyboard route through the band is invisible to the person using it.
       onFocus={onFocus}
-      style={styles.slide}
+      style={pressable(styles.slide)}
     >
       {body}
     </Pressable>

@@ -76,7 +76,7 @@ describe('ProductTile', () => {
 
   it('marks an out-of-stock product without hiding it', () => {
     const texts = renderTile({ ...base, stock: 0 });
-    expect(texts).toContain('Out of stock — ask us');
+    expect(texts).toContain('Out of stock');
   });
 
   it('says in stock when there is stock', () => {
@@ -105,7 +105,7 @@ describe('ProductTile', () => {
     const texts = renderTile({ ...base, stock: 0 }, { whatsappE164: '+252634418820' });
     expect(texts).not.toContain('Add');
     expect(texts).toContain('Ask');
-    expect(texts).toContain('Out of stock — ask us');
+    expect(texts).toContain('Out of stock');
   });
 
   it('shows Ask alongside Add when in stock', () => {

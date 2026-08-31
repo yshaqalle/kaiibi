@@ -110,7 +110,7 @@ describe('CartSheet', () => {
   it('shows an honest empty state rather than a bare sheet', () => {
     const { tree } = renderSheet(emptyCart);
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
-    expect(texts).toContain('Your basket is empty.');
+    expect(texts).toContain('Your cart is empty.');
   });
 
   it('renders nothing when not visible', () => {
@@ -126,11 +126,11 @@ describe('CartSheet', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  // ── B7: checking out from inside the basket ─────────────────────────────
-  // Before this, reviewing the basket was a dead end -- the only way onward
+  // ── B7: checking out from inside the cart ─────────────────────────────
+  // Before this, reviewing the cart was a dead end -- the only way onward
   // was closing the sheet and finding the theme's own sticky bar underneath.
 
-  it('offers a way to check out from inside the basket', () => {
+  it('offers a way to check out from inside the cart', () => {
     const { tree, onCheckout } = renderSheet(cartWithLines);
     // Pressable is composite and forwards testID down through a forwardRef
     // View to its own host node, so one on-screen button surfaces as
@@ -142,7 +142,7 @@ describe('CartSheet', () => {
     expect(onCheckout).toHaveBeenCalled();
   });
 
-  it('offers no checkout action for an empty basket', () => {
+  it('offers no checkout action for an empty cart', () => {
     const { tree } = renderSheet(emptyCart);
     const checkout = tree.root.findAll((node) => node.props?.testID === 'cart-sheet-checkout');
     expect(checkout).toHaveLength(0);

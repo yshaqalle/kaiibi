@@ -1,6 +1,8 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { ProductActions } from '@/components/storefront/theme-shared';
+import { TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
@@ -17,11 +19,15 @@ type Props = {
   // of both options: the customer taps and the app shrugs.
   shopName?: string;
   whatsappE164?: string | null;
-  // Deliberately a callback, not an import of storefront-cart.ts: a basket
+  // Deliberately a callback, not an import of storefront-cart.ts: a cart
   // held in a stranger's browser has no business living inside a display
   // component, and every other storefront component reaches its data this
   // same prop-driven way (see ThemeProps).
   onAdd?: (product: StorefrontProduct) => void;
+  // Opens the product sheet -- the only place products.description has ever
+  // been rendered. Optional so a caller that has no sheet to open (every
+  // test predating it) still gets a tile, just a non-interactive one.
+  onOpen?: (product: StorefrontProduct) => void;
 };
 
 // The no-photo branch is not an error state.
@@ -31,35 +37,76 @@ type Props = {
 // working shop look abandoned. Setting the product name large on the soft tone
 // instead gives a tile that reads like a price label -- deliberate at a glance,
 // and legible on a phone, which is where nearly all of this traffic will be.
-export function ProductTile({ product, colors, shopName, whatsappE164, onAdd }: Props) {
+export function ProductTile({ product, colors, shopName, whatsappE164, onAdd, onOpen }: Props) {
   const outOfStock = product.stock <= 0;
+
+  // THE OPEN TARGET IS THE INFORMATION, NOT THE WHOLE TILE, and that is a
+  // correctness constraint rather than a taste one.
+  //
+  // Wrapping the entire tile -- Add and Ask included -- put a Pressable inside
+  // a Pressable, which react-native-web renders as a <button> inside a
+  // <button>. That is invalid HTML and React reports it as a hydration error;
+  // this page is opened in a browser far more often than in an app, so "works
+  // on native" is not good enough. Nothing in jest catches it either, because
+  // react-test-renderer does not validate HTML nesting -- it showed up the
+  // first time this was loaded in a real browser.
+  //
+  // Splitting it is also the better interaction: a thumb going for Add should
+  // never be ambiguous about whether it opens the sheet instead.
+  const Info = onOpen ? Pressable : View;
+  const infoProps = onOpen
+    ? {
+        testID: 'product-tile-open',
+        accessibilityRole: 'button' as const,
+        accessibilityLabel: `${product.name}, ${formatCents(product.priceCents)}`,
+        onPress: () => onOpen(product),
+        style: pressable(styles.info),
+      }
+    : { style: styles.info };
 
   return (
     <View style={[styles.tile, { borderColor: colors.soft }]}>
-      {product.imageUrl ? (
-        <Image source={{ uri: product.imageUrl }} style={styles.image} resizeMode="cover" />
-      ) : (
-        <View style={[styles.image, styles.fallback, { backgroundColor: colors.soft }]}>
-          <Text style={[styles.fallbackText, { color: colors.ink }]} numberOfLines={3}>
-            {product.name}
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.body}>
+      <Info {...infoProps}>
         {product.imageUrl ? (
-          <Text style={[styles.name, { color: colors.ink }]} numberOfLines={2}>
-            {product.name}
-          </Text>
-        ) : null}
-        <Text style={[styles.price, { color: colors.ink }]}>{formatCents(product.priceCents)}</Text>
-        <Text style={[styles.stock, { color: outOfStock ? '#8a5a05' : '#1f7a4d' }]}>
-          {outOfStock ? 'Out of stock — ask us' : 'In stock'}
-        </Text>
+          <Image source={{ uri: product.imageUrl }} style={styles.image} resizeMode="cover" />
+        ) : (
+          <View style={[styles.image, styles.fallback, { backgroundColor: colors.soft }]}>
+            <Text style={[styles.fallbackText, { color: colors.ink }]} numberOfLines={3}>
+              {product.name}
+            </Text>
+          </View>
+        )}
 
-        <View style={styles.actions}>
-          <ProductActions product={product} colors={colors} shopName={shopName} whatsappE164={whatsappE164} onAdd={onAdd} />
+        <View style={styles.body}>
+          {product.imageUrl ? (
+            <Text style={[styles.name, { color: colors.ink }]} numberOfLines={2}>
+              {product.name}
+            </Text>
+          ) : null}
+          <Text style={[styles.price, { color: colors.ink }]}>{formatCents(product.priceCents)}</Text>
+        {/* Shape carries the state, colour is the second signal -- never the
+            only one. In stock is the state nearly every product is in, so it
+            is set in plain ink and spends no colour; sold out is the
+            exception, so it gets the pill AND the palette's own derived
+            amber. Both used to be fixed literals ('#1f7a4d' / '#8a5a05'),
+            which made "In stock" the WhatsApp affordance green on every
+            palette and "Out of stock" indistinguishable from the Add button
+            on Saffron. See storefront-catalog.ts on why there is no
+            stockOk to match stockOut. */}
+          {outOfStock ? (
+            <View style={[styles.stockPill, { backgroundColor: colors.soft }]}>
+              <Text style={[styles.stockPillText, { color: colors.stockOut }]}>Out of stock</Text>
+            </View>
+          ) : (
+            <Text style={[styles.stock, { color: colors.ink }]}>In stock</Text>
+          )}
         </View>
+      </Info>
+
+      {/* A SIBLING of the open target, never a child -- see the comment above
+          on nested buttons. */}
+      <View style={styles.actions}>
+        <ProductActions product={product} colors={colors} shopName={shopName} whatsappE164={whatsappE164} onAdd={onAdd} />
       </View>
     </View>
   );
@@ -70,9 +117,17 @@ const styles = StyleSheet.create({
   image: { aspectRatio: 1, width: '100%' },
   fallback: { justifyContent: 'flex-end', padding: 10 },
   fallbackText: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
-  body: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 11 },
+  info: {},
+  body: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 3 },
   name: { fontSize: 12.5, fontWeight: '700', lineHeight: 16, minHeight: 32 },
-  price: { fontSize: 15, fontWeight: '800', marginTop: 5 },
-  stock: { fontSize: 11, fontWeight: '700', marginTop: 1 },
-  actions: { marginTop: 8 },
+  price: { fontSize: TYPE.price, fontWeight: '800', marginTop: 5, ...TABULAR },
+  stock: { fontSize: TYPE.meta, fontWeight: '700', marginTop: 1 },
+  // `alignSelf` keeps the pill hugging its own label rather than stretching
+  // the full tile width -- a full-width bar would read as a banner, not a
+  // status.
+  stockPill: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, marginTop: 3 },
+  stockPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.2 },
+  // Padding matches `body` so Add/Ask line up with the price above them,
+  // now that they are a sibling block rather than inside it.
+  actions: { paddingHorizontal: 10, paddingBottom: 11, paddingTop: 8 },
 });

@@ -16,15 +16,15 @@ jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
 jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
 // Task 10: at a 390px viewport the header row (shop name + "Message on
-// WhatsApp" + "Basket · N") did not fit, and the row overflowed the screen
+// WhatsApp" + "Cart · N") did not fit, and the row overflowed the screen
 // rather than dropping to a second line -- `right: 458` on a 390px viewport,
-// with the basket button entirely off-screen and unreachable. A unit test
+// with the cart button entirely off-screen and unreachable. A unit test
 // cannot measure pixels or reproduce a real viewport, so this asserts the
 // structural property that makes overflow possible in the first place: the
 // header's own container must be allowed to wrap (`flexWrap: 'wrap'`), and
 // nothing inside it may be pinned to a fixed pixel width that a 320-390px
 // phone could not hold. Either regressing back to a rigid single-line row,
-// or giving WhatsApp/Basket a fixed width wide enough to force one, fails
+// or giving WhatsApp/Cart a fixed width wide enough to force one, fails
 // this test before it ever needs a browser to catch it.
 const colors = paletteColors('ink');
 

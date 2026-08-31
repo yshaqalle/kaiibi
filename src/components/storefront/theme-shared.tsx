@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
+import { pressable } from '@/components/storefront/press-feedback';
+import { SPACE, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -12,7 +14,7 @@ import {
 import { collectLocation } from '@/lib/storefront-collect';
 import { placeOrder, placeOrderViaWhatsApp, type PlacedOrder } from '@/lib/storefront-order';
 import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
-import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 // The parts every theme needs. Kept out of any one theme so that Market is a
 // theme and nothing else -- Counter importing its empty state from Market would
@@ -27,6 +29,11 @@ export type ThemeProps = {
   products: StorefrontProduct[];
   colors: PaletteColors;
   areas?: PublicDeliveryArea[];
+  // Optional and defaulting to [] for the same reason `areas` is: every
+  // theme-level test predating the band passes none, and a theme with no
+  // categories to offer must render exactly as it did before the band
+  // existed -- CategoryBand returns null below its minimum anyway.
+  categories?: StorefrontCategory[];
 };
 
 // Returns null when the shop has no number. Publishing requires one, so this is
@@ -36,14 +43,85 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
   if (!storefront.whatsappE164) return null;
   const href = waLink(storefront.whatsappE164, `Hello ${storefront.shopName}, I have a question.`);
   return (
-    <Pressable style={styles.wa} onPress={() => openExternalUrl(href)} accessibilityRole="link">
+    <Pressable style={pressable(styles.wa)} onPress={() => openExternalUrl(href)} accessibilityRole="link">
       <Text style={styles.waText}>Message on WhatsApp</Text>
     </Pressable>
   );
 }
 
-export function EmptyState({ colors }: { colors: PaletteColors }) {
-  return <Text style={[styles.empty, { color: colors.ink }]}>Nothing listed yet.</Text>;
+// Two different empties, and they must not say the same thing.
+//
+// This used to render one line -- "Nothing listed yet." -- for both of them: a
+// shop that has listed nothing, and a grid a flyer has just filtered down to a
+// category that happens to be sold out. The second case tells a customer
+// standing in front of a FULL catalogue that the shop is empty, which is both
+// wrong and a dead end.
+//
+// The shop-is-empty case is also the one place on this page where a full stop
+// is worst. Every other screen here exists to start a conversation, and this
+// one had a WhatsApp number in scope and declined to offer it.
+export function EmptyState({
+  colors, storefront, category, onClearCategory,
+}: {
+  colors: PaletteColors;
+  // Optional so the theme-level tests that predate this still type-check, and
+  // so a caller with no shop context degrades to the bare line rather than
+  // failing to render.
+  storefront?: PublicStorefront;
+  // Set only while a flyer's category filter is applied -- see filterByCategory.
+  category?: string | null;
+  onClearCategory?: () => void;
+}) {
+  if (category) {
+    return (
+      <View style={styles.emptyBlock}>
+        <Text style={[styles.emptyHead, { color: colors.ink }]}>Nothing in {category} right now.</Text>
+        <Text style={[styles.emptyBody, { color: colors.muted }]}>
+          The rest of the shop is still here.
+        </Text>
+        {onClearCategory ? (
+          <Pressable
+            testID="storefront-empty-clear-category"
+            accessibilityRole="button"
+            onPress={onClearCategory}
+            style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+          >
+            <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
+  const number = storefront?.whatsappE164;
+
+  return (
+    <View style={styles.emptyBlock}>
+      <Text style={[styles.emptyHead, { color: colors.ink }]}>Nothing listed yet.</Text>
+      {/* The second sentence is only true when there is somewhere to send
+          them -- promising "message us" with no number to message would be
+          the same dead end ProductActions refuses to render. */}
+      <Text style={[styles.emptyBody, { color: colors.muted }]}>
+        {number
+          ? "We're still putting the shop online. Message us and we'll tell you what's in today."
+          : "We're still putting the shop online. Check back shortly."}
+      </Text>
+      {number && storefront ? (
+        <Pressable
+          testID="storefront-empty-whatsapp"
+          accessibilityRole="link"
+          onPress={() => openExternalUrl(waLink(number, `Hello ${storefront.shopName}, what do you have in today?`))}
+          style={pressable(styles.emptyWa)}
+        >
+          {/* NOT "Message on WhatsApp" -- that is already the label on the
+              nav button a few pixels above, and two identical buttons on one
+              screen make the reader work out whether they do the same thing.
+              This one names the answer it gets back. */}
+          <Text style={styles.emptyWaText}>Ask what&apos;s in today</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
 type ProductActionsProps = {
@@ -98,7 +176,7 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
         <Pressable
           testID="product-tile-add"
           accessibilityRole="button"
-          style={[styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }]}
+          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }])}
           onPress={() => onAdd?.(product)}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: colors.ground }]}>Add</Text>
@@ -109,7 +187,7 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
         <Pressable
           testID="product-tile-ask"
           accessibilityRole="button"
-          style={[styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }]}
+          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }])}
           onPress={handleAsk}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
@@ -120,7 +198,7 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
 }
 
 // The cart entry point every theme needs -- including Counter, which has no
-// product grid and so no Add button of its own. The basket is keyed by shop
+// product grid and so no Add button of its own. The cart is keyed by shop
 // slug, not by theme (see storefront-cart.ts), so a customer who added items
 // under Market and then lands on Counter -- or whose shop simply switched
 // themes -- still needs a way to see and change what is already in it.
@@ -129,12 +207,83 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
     <Pressable
       testID="storefront-cart-button"
       accessibilityRole="button"
-      accessibilityLabel={count > 0 ? `Open basket, ${count} item${count === 1 ? '' : 's'}` : 'Open basket'}
+      accessibilityLabel={count > 0 ? `Open cart, ${count} item${count === 1 ? '' : 's'}` : 'Open cart'}
       onPress={onPress}
-      style={[styles.cart, { backgroundColor: colors.accent }]}
+      style={pressable([styles.cart, { backgroundColor: colors.accent }])}
     >
-      <Text style={[styles.cartText, { color: colors.ground }]}>{count > 0 ? `Basket · ${count}` : 'Basket'}</Text>
+      <Text style={[styles.cartText, { color: colors.ground }]}>{count > 0 ? `Cart · ${count}` : 'Cart'}</Text>
     </Pressable>
+  );
+}
+
+// The way into a long catalogue. Renders only when there is enough of one to
+// be worth a control -- see shouldOfferSearch in storefront-search.ts.
+//
+// A plain TextInput and no submit button: the list filters as you type, so
+// there is nothing to submit, and a phone keyboard's own "search" key would
+// only dismiss itself. `clearButtonMode` is iOS-only, so the explicit Clear
+// below is what Android and web get -- and a filter with no visible way out
+// is the same dead end CategoryFilterBar exists to avoid.
+export function SearchField({
+  colors, value, onChange, count,
+}: {
+  colors: PaletteColors;
+  value: string;
+  onChange: (next: string) => void;
+  count: number;
+}) {
+  return (
+    <View style={styles.searchRow}>
+      <TextInput
+        testID="storefront-search"
+        accessibilityLabel={`Search ${count} items`}
+        placeholder={`Search ${count} items`}
+        placeholderTextColor={colors.muted}
+        value={value}
+        onChangeText={onChange}
+        autoCorrect={false}
+        autoCapitalize="none"
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+        style={[styles.search, { borderColor: colors.soft, color: colors.ink, backgroundColor: colors.ground }]}
+      />
+      {value.length > 0 ? (
+        <Pressable
+          testID="storefront-search-clear"
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
+          onPress={() => onChange('')}
+          style={pressable([styles.searchClear, { backgroundColor: colors.soft }])}
+        >
+          <Text style={[styles.searchClearText, { color: colors.ink }]}>Clear</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// What a search that found nothing should say. Distinct from both other
+// empties: the shop is not empty and no category is filtering -- the customer
+// simply typed something this shop does not stock, and the useful next move is
+// to ask rather than to keep typing.
+export function NoSearchResults({
+  colors, query, onClear,
+}: { colors: PaletteColors; query: string; onClear: () => void }) {
+  return (
+    <View style={styles.emptyBlock}>
+      <Text style={[styles.emptyHead, { color: colors.ink }]}>Nothing matches “{query}”.</Text>
+      <Text style={[styles.emptyBody, { color: colors.muted }]}>
+        Try a shorter word, or ask the shop — they may have it behind the counter.
+      </Text>
+      <Pressable
+        testID="storefront-search-empty-clear"
+        accessibilityRole="button"
+        onPress={onClear}
+        style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+      >
+        <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -167,7 +316,7 @@ export function CategoryFilterBar({
       accessibilityRole="button"
       accessibilityLabel={`Showing ${category} only. Show everything`}
       onPress={onClear}
-      style={[styles.filterChip, { backgroundColor: colors.soft }]}
+      style={pressable([styles.filterChip, { backgroundColor: colors.soft }])}
     >
       <Text style={[styles.filterChipText, { color: colors.ink }]}>{category} · Show everything ✕</Text>
     </Pressable>
@@ -185,7 +334,7 @@ export function gridColumnsForWidth(width: number): number {
   return 4;
 }
 
-// The basket lives in `storefront-cart.ts`, keyed by shop slug, and every
+// The cart lives in `storefront-cart.ts`, keyed by shop slug, and every
 // theme needs to read it, add to it, and change a line's quantity the same
 // way -- so that logic is a hook here rather than copied into Market, Window
 // and Counter separately. Deliberately not exported as a class or a context:
@@ -213,7 +362,7 @@ export function useStorefrontCart(slug: string) {
   // placeOrder (storefront-order.ts) already clears the STORED cart the
   // moment an order is accepted -- this brings the in-memory copy every theme
   // reads back in sync with that, so a customer who places a second order
-  // doesn't see the first one's lines still sitting in the basket. Never
+  // doesn't see the first one's lines still sitting in the cart. Never
   // called on a rejected order: the caller only reaches this after
   // placeOrder/placeOrderViaWhatsApp has resolved, never from a catch block.
   function clearCart() {
@@ -234,17 +383,17 @@ export function useStorefrontCart(slug: string) {
   };
 }
 
-// The direct path from a non-empty basket to checkout. CartSheet (the basket
+// The direct path from a non-empty cart to checkout. CartSheet (the cart
 // review modal) has a fixed prop surface --
 // visible/onClose/cart/colors/onChangeQuantity, see cart-sheet.tsx -- and
 // gained no checkout affordance of its own, so this sticky bar is what every
 // theme renders instead: named after the subtotal, gone the moment the
-// basket is empty, so it can never invite a checkout with nothing in it.
+// cart is empty, so it can never invite a checkout with nothing in it.
 // B6: the bar itself is `position: absolute`, so it takes no space in the
 // document flow it floats over -- nothing pushes the browsing view's own
 // content up to make room for it. Each theme's scrollable container adds
 // this much bottom padding of its own, but ONLY while `itemCount > 0` (the
-// same condition CheckoutBar below uses to render at all): an empty basket
+// same condition CheckoutBar below uses to render at all): an empty cart
 // must not carry dead space at the bottom of a page with no bar to clear.
 // Sized to the bar's own layout -- paddingVertical 14 top and bottom plus a
 // ~17px line of 14px/800-weight text is ~45px, plus the 14px gap the bar
@@ -262,7 +411,7 @@ export function CheckoutBar({
       testID="storefront-checkout-bar"
       accessibilityRole="button"
       onPress={onPress}
-      style={[styles.checkoutBar, { backgroundColor: colors.accent }]}
+      style={pressable([styles.checkoutBar, { backgroundColor: colors.accent }])}
     >
       <Text style={[styles.checkoutBarText, { color: colors.ground }]}>Checkout · {formatCents(subtotalCents)}</Text>
     </Pressable>
@@ -295,14 +444,14 @@ const ORDER_ERROR_MESSAGES: Record<string, string> = {
   invalid_note: 'Shorten your note and try again.',
   delivery_unavailable: "This shop doesn't offer delivery. Choose collection instead.",
   unknown_delivery_area: "That delivery area isn't available any more. Pick another one.",
-  empty_cart: 'Your basket is empty. Add something before checking out.',
-  cart_too_large: 'There are too many items in your basket. Remove a few and try again.',
-  invalid_quantity: 'One of the quantities in your basket looks wrong. Adjust it and try again.',
+  empty_cart: 'Your cart is empty. Add something before checking out.',
+  cart_too_large: 'There are too many items in your cart. Remove a few and try again.',
+  invalid_quantity: 'One of the quantities in your cart looks wrong. Adjust it and try again.',
   // The one code the brief calls out by name: the action is to remove the
   // item, not just be told about it -- CheckoutScreen below renders an
-  // "Edit basket" action whenever this exact code comes back, wired to
-  // reopen CartSheet on top of the same basket rather than merely saying so.
-  unavailable_item: 'One of the items in your basket is no longer available. Remove it to continue.',
+  // "Edit cart" action whenever this exact code comes back, wired to
+  // reopen CartSheet on top of the same cart rather than merely saying so.
+  unavailable_item: 'One of the items in your cart is no longer available. Remove it to continue.',
 };
 
 // The RPC's error surfaces as `error.message` set to the fixed code word
@@ -392,10 +541,10 @@ export function useCheckoutFlow(opts: {
       setOrder(placed);
       setStage('confirmation');
     } catch (err) {
-      // A rejected order (a stale product, a full basket, a rate limit)
+      // A rejected order (a stale product, a full cart, a rate limit)
       // leaves the cart exactly as placeOrder left it -- untouched, since
       // onOrderPlaced above is never reached -- and keeps the customer on
-      // 'checkout' rather than bouncing them back to an empty-looking basket,
+      // 'checkout' rather than bouncing them back to an empty-looking cart,
       // so what they typed is still on screen to retry with. B2: the message
       // itself is now the RPC's own client-error code translated into a
       // sentence the customer can act on (see ORDER_ERROR_MESSAGES above),
@@ -417,7 +566,7 @@ export function useCheckoutFlow(opts: {
 // address means the same thing on a photo grid or a price list, and only the
 // palette should differ between them -- `colors` already carries that.
 export function CheckoutScreen({
-  storefront, cart, areas, colors, submitting, error, errorCode, onBack, onSubmit, onEditBasket,
+  storefront, cart, areas, colors, submitting, error, errorCode, onBack, onSubmit, onEditCart,
 }: {
   storefront: PublicStorefront;
   cart: StorefrontCart;
@@ -431,16 +580,24 @@ export function CheckoutScreen({
   errorCode?: string | null;
   onBack: () => void;
   onSubmit: (details: CheckoutDetails, via: 'direct' | 'whatsapp') => void;
-  // B2/B7: reopens the basket on 'unavailable_item' so removing the stale
+  // B2/B7: reopens the cart on 'unavailable_item' so removing the stale
   // line is one tap away, not a message the customer has to act on by
   // guessing where to go. Optional so a caller mid-migration (and every
   // existing test that predates this) still type-checks.
-  onEditBasket?: () => void;
+  onEditCart?: () => void;
 }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <View style={styles.screenNav}>
-        <Pressable testID="storefront-checkout-back" accessibilityRole="button" onPress={onBack} hitSlop={8}>
+        {/* No background of its own -- `pressable(undefined)` still returns
+            the callback, so the opacity/scale applies to the bare text. */}
+        <Pressable
+          testID="storefront-checkout-back"
+          accessibilityRole="button"
+          onPress={onBack}
+          hitSlop={8}
+          style={pressable(undefined)}
+        >
           <Text style={[styles.screenBack, { color: colors.ink }]}>‹ Back</Text>
         </Pressable>
         <Text style={[styles.screenTitle, { color: colors.ink }]}>Checkout</Text>
@@ -449,15 +606,15 @@ export function CheckoutScreen({
         {error ? <Text style={[styles.screenError, { color: colors.danger }]}>{error}</Text> : null}
         {/* B2: "remove the item" is the action -- so make it possible from
             right here, not just say it and leave the customer to work out
-            that the basket is back through the nav bar. */}
-        {errorCode === 'unavailable_item' && onEditBasket ? (
+            that the cart is back through the nav bar. */}
+        {errorCode === 'unavailable_item' && onEditCart ? (
           <Pressable
-            testID="storefront-checkout-edit-basket"
+            testID="storefront-checkout-edit-cart"
             accessibilityRole="button"
-            onPress={onEditBasket}
-            style={[styles.editBasket, { borderColor: colors.danger }]}
+            onPress={onEditCart}
+            style={pressable([styles.editCart, { borderColor: colors.danger }])}
           >
-            <Text style={[styles.editBasketText, { color: colors.danger }]}>Edit basket</Text>
+            <Text style={[styles.editCartText, { color: colors.danger }]}>Edit cart</Text>
           </Pressable>
         ) : null}
         <CheckoutForm
@@ -505,7 +662,7 @@ export function ConfirmationScreen({
           testID="storefront-continue-shopping"
           accessibilityRole="button"
           onPress={onDone}
-          style={[styles.continueButton, { backgroundColor: colors.soft }]}
+          style={pressable([styles.continueButton, { backgroundColor: colors.soft }])}
         >
           <Text style={[styles.continueText, { color: colors.ink }]}>Continue shopping</Text>
         </Pressable>
@@ -519,6 +676,19 @@ const styles = StyleSheet.create({
   wa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   waText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
+  emptyBlock: { paddingHorizontal: 24, paddingVertical: 30, alignItems: 'center' },
+  emptyHead: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
+  emptyBody: { fontSize: 13, lineHeight: 19, marginTop: 7, textAlign: 'center', maxWidth: 320 },
+  emptyAction: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14 },
+  emptyActionText: { fontSize: 12.5, fontWeight: '800' },
+  // WhatsApp's own fixed colours, same as WhatsAppButton above -- never the
+  // shop's palette.
+  emptyWa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
+  emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page, paddingTop: 10 },
+  search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 10, fontSize: TYPE.body },
+  searchClear: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8 },
+  searchClearText: { fontSize: 12.5, fontWeight: '800' },
   cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   cartText: { fontSize: 12.5, fontWeight: '800' },
   filterChip: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14, marginTop: 12 },
@@ -531,7 +701,21 @@ const styles = StyleSheet.create({
   // Row scale: Counter's dense price list, where the pair sits inline next
   // to the stock label rather than filling a row's width.
   actionsCompact: { gap: 4 },
-  buttonCompact: { flex: 0, borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
+  // `flexGrow/Shrink/Basis` spelled out rather than the `flex: 0` shorthand
+  // this used to carry, because THE SHORTHAND DOES NOT MEAN THE SAME THING ON
+  // THE TWO PLATFORMS.
+  //
+  // React Native reads `flex: 0` as grow 0 / shrink 0 / basis auto -- the
+  // button hugs its label, which is what Counter's dense row wants. CSS reads
+  // it as `0 1 0%`: basis ZERO, so on react-native-web the button collapsed to
+  // its own horizontal padding and clipped the label -- "Add" rendered as
+  // "Adc" on every Counter shop. Native was fine, so nothing in the app
+  // surfaced it, and jest cannot see it because react-test-renderer does no
+  // layout. It showed up the first time Counter was opened in a browser --
+  // which is where nearly all of this page's traffic actually is.
+  //
+  // The longhand is identical on both.
+  buttonCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
   buttonTextCompact: { fontSize: 10.5 },
   // Floats over the browsing view's own content -- the parent View every
   // theme renders is flex:1 with no explicit `position`, which React Native
@@ -548,8 +732,8 @@ const styles = StyleSheet.create({
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  editBasket: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
-  editBasketText: { fontSize: 12.5, fontWeight: '800' },
+  editCart: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  editCartText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
   continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
   continueText: { fontSize: 14, fontWeight: '800' },

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { formatCents } from '@/lib/currency';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
@@ -235,11 +236,11 @@ export function CheckoutForm({
           testID="checkout-form-fulfilment-collect"
           accessibilityRole="button"
           onPress={() => selectFulfilment('collect')}
-          style={[
+          style={pressable([
             styles.segment,
             { borderColor: colors.soft },
             fulfilment === 'collect' && { backgroundColor: colors.accent, borderColor: colors.accent },
-          ]}
+          ])}
         >
           <Text style={[styles.segmentText, { color: fulfilment === 'collect' ? colors.ground : colors.ink }]}>
             Store pick-up
@@ -250,11 +251,11 @@ export function CheckoutForm({
             testID="checkout-form-fulfilment-deliver"
             accessibilityRole="button"
             onPress={() => selectFulfilment('deliver')}
-            style={[
+            style={pressable([
               styles.segment,
               { borderColor: colors.soft },
               fulfilment === 'deliver' && { backgroundColor: colors.accent, borderColor: colors.accent },
-            ]}
+            ])}
           >
             <Text style={[styles.segmentText, { color: fulfilment === 'deliver' ? colors.ground : colors.ink }]}>
               Deliver
@@ -285,11 +286,11 @@ export function CheckoutForm({
                   testID={`checkout-form-area-${area.name}`}
                   accessibilityRole="button"
                   onPress={() => selectArea(area.name)}
-                  style={[
+                  style={pressable([
                     styles.areaRow,
                     { borderColor: colors.soft },
                     selected && { backgroundColor: colors.soft, borderColor: colors.accent },
-                  ]}
+                  ])}
                 >
                   <Text style={[styles.areaName, { color: colors.ink }]}>{area.name}</Text>
                   <Text style={[styles.areaFee, { color: colors.muted }]}>{formatCents(area.feeCents)}</Text>
@@ -359,7 +360,7 @@ export function CheckoutForm({
         accessibilityRole="button"
         disabled={submitting}
         onPress={() => handleSubmit('direct')}
-        style={[styles.submit, { backgroundColor: colors.accent }, submitting && styles.submitDisabled]}
+        style={pressable([styles.submit, { backgroundColor: colors.accent }, submitting && styles.submitDisabled])}
       >
         <Text style={[styles.submitText, { color: colors.ground }]}>{submitting ? 'Placing order…' : 'Place order'}</Text>
       </Pressable>
@@ -378,7 +379,7 @@ export function CheckoutForm({
           accessibilityRole="button"
           disabled={submitting}
           onPress={() => handleSubmit('whatsapp')}
-          style={[styles.submitWhatsapp, { backgroundColor: WHATSAPP_BUTTON_GREEN }, submitting && styles.submitDisabled]}
+          style={pressable([styles.submitWhatsapp, { backgroundColor: WHATSAPP_BUTTON_GREEN }, submitting && styles.submitDisabled])}
         >
           <Text style={[styles.submitWhatsappText, { color: WHATSAPP_INK }]}>
             {submitting ? 'Placing order…' : 'Send this order on WhatsApp'}

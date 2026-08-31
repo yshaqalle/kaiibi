@@ -15,6 +15,58 @@ import {
 // screen.
 const theme = Colors.light;
 
+// A drawing of each layout, in the shape of the page it produces: Market's
+// even grid, Counter's stacked price rows, Window's one big opening panel over
+// larger tiles. Bars, not a screenshot -- a screenshot would be a second thing
+// to keep in step with the themes, and would be wrong the first time one
+// changed.
+//
+// Switches on the theme KEY rather than taking a shape as data, so a fourth
+// layout fails to compile here until someone draws it. That is the intended
+// behaviour: a layout with no preview is the problem this component exists to
+// fix.
+function LayoutWireframe({ theme: key, active }: { theme: StorefrontTheme; active: boolean }) {
+  const bar = [styles.wireBar, active && styles.wireBarActive];
+
+  return (
+    <View style={[styles.wire, active && styles.wireActive]}>
+      {key === 'market' ? (
+        <>
+          <View style={[...bar, styles.wireHead]} />
+          <View style={styles.wireRow}>
+            <View style={[...bar, styles.wireCell]} />
+            <View style={[...bar, styles.wireCell]} />
+          </View>
+          <View style={styles.wireRow}>
+            <View style={[...bar, styles.wireCell]} />
+            <View style={[...bar, styles.wireCell]} />
+          </View>
+        </>
+      ) : null}
+
+      {key === 'counter' ? (
+        <>
+          <View style={[...bar, styles.wireHead]} />
+          <View style={[...bar, styles.wireLine]} />
+          <View style={[...bar, styles.wireLine]} />
+          <View style={[...bar, styles.wireLine]} />
+          <View style={[...bar, styles.wireLine]} />
+        </>
+      ) : null}
+
+      {key === 'window' ? (
+        <>
+          <View style={[...bar, styles.wireHero]} />
+          <View style={styles.wireRow}>
+            <View style={[...bar, styles.wireCell]} />
+            <View style={[...bar, styles.wireCell]} />
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 // The row of theme tiles and colour swatches a shop picks its public page's
 // look from. Both rows are DERIVED from THEMES/PALETTES, never a hand-typed
 // list -- a seventh palette needs no change here.
@@ -65,7 +117,17 @@ export function DesignStrip({
               accessibilityState={{ selected: active }}
               style={[styles.tile, active && styles.tileActive]}
             >
-              <Text style={[styles.tileLabel, active && styles.tileLabelActive]}>{t.label}</Text>
+              {/* A drawing of the layout, above the words for it.
+                  "Even grid, price forward" asks a shop to picture something
+                  they have never seen; three grey bars in the shape of the
+                  actual page do not. Derived from the theme key, so a fourth
+                  layout gets a wireframe by adding one case here rather than
+                  by shipping an image. */}
+              <LayoutWireframe theme={t.key} active={active} />
+              <Text style={[styles.tileLabel, active && styles.tileLabelActive]}>
+                {t.label}
+                {active ? <Text style={styles.tick}> ✓</Text> : null}
+              </Text>
               <Text
                 style={[styles.tileDescription, active && styles.tileDescriptionActive]}
                 numberOfLines={3}
@@ -101,12 +163,19 @@ export function DesignStrip({
               accessibilityState={{ selected: active }}
               style={[styles.swatchTile, active && styles.swatchTileActive]}
             >
+              {/* One band, not three dots. Three 18px squares is not enough
+                  surface to judge a palette by -- and the accent, the colour
+                  the shop is really choosing, was the same size as the two
+                  near-whites beside it. It now takes the larger share. */}
               <View style={styles.swatchRow}>
-                <View style={[styles.swatch, { backgroundColor: colors.ground }]} />
-                <View style={[styles.swatch, { backgroundColor: colors.soft }]} />
-                <View style={[styles.swatch, styles.swatchAccent, { backgroundColor: colors.accent }]} />
+                <View style={[styles.swatchBand, { backgroundColor: colors.ground }]} />
+                <View style={[styles.swatchBand, { backgroundColor: colors.soft }]} />
+                <View style={[styles.swatchBand, styles.swatchBandAccent, { backgroundColor: colors.accent }]} />
               </View>
-              <Text style={[styles.swatchLabel, active && styles.swatchLabelActive]}>{p.label}</Text>
+              <Text style={[styles.swatchLabel, active && styles.swatchLabelActive]}>
+                {p.label}
+                {active ? <Text style={styles.tick}> ✓</Text> : null}
+              </Text>
               <Text style={styles.swatchSuits} numberOfLines={1}>
                 {p.suits}
               </Text>
@@ -130,6 +199,30 @@ const styles = StyleSheet.create({
   paletteEyebrow: { marginTop: 16 },
   scroll: { flexGrow: 0 },
   row: { flexDirection: 'row', gap: 10, paddingBottom: 2, paddingRight: 4 },
+
+  // A drawing of the layout, at the size the label needs anyway.
+  wire: {
+    height: 54,
+    borderRadius: 9,
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    padding: 6,
+    gap: 3,
+    marginBottom: 9,
+    overflow: 'hidden',
+  },
+  // On the inverted (selected) tile the wireframe's own white card would glare,
+  // so it drops to a translucent panel and its bars lighten to match.
+  wireActive: { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: 'transparent' },
+  wireBar: { backgroundColor: theme.bentoLine, borderRadius: 2 },
+  wireBarActive: { backgroundColor: 'rgba(255,255,255,0.45)' },
+  wireHead: { height: 5, width: '38%' },
+  wireHero: { height: 22 },
+  wireLine: { height: 4 },
+  wireRow: { flexDirection: 'row', gap: 3, flex: 1 },
+  wireCell: { flex: 1, height: '100%' },
+  tick: { fontSize: 11 },
 
   tile: {
     width: 158,
@@ -164,15 +257,22 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   swatchTileActive: { borderColor: theme.bentoInk, borderWidth: 2, padding: 9 },
-  swatchRow: { flexDirection: 'row', gap: 4, marginBottom: 8 },
-  swatch: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
+  // One continuous band rather than three separated squares: the three values
+  // are a palette, and a palette is judged as a whole.
+  swatchRow: {
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: 9,
+    overflow: 'hidden',
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.bentoLine,
   },
-  swatchAccent: { borderColor: 'transparent' },
+  swatchBand: { flex: 1 },
+  // The one the shop is actually choosing -- ground and soft are both
+  // near-white in every palette, and giving all three equal width made the
+  // decision look like a choice between two whites.
+  swatchBandAccent: { flex: 1.4 },
   swatchLabel: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, marginBottom: 2 },
   swatchLabelActive: { color: theme.bentoInk },
   swatchSuits: { fontSize: 10.5, color: theme.bentoMuted2 },

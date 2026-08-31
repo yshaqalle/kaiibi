@@ -2,6 +2,7 @@ import { AccessibilityInfo, type EmitterSubscription, FlatList } from 'react-nat
 import { act, create } from 'react-test-renderer';
 
 import { ThemeWindow } from '@/components/storefront/theme-window';
+import { SPACE } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
@@ -63,7 +64,7 @@ const products: StorefrontProduct[] = [
 // storefront-cart.ts's native-platform cache (`nativeCache`, a module-level
 // Map with no reset hook by design -- same note storefront-route.test.tsx's
 // own setup carries) persists for the life of this test file. Each test
-// below renders its own shop slug so one test's basket can never leak into
+// below renders its own shop slug so one test's cart can never leak into
 // another's, without needing the web/localStorage fake other storefront
 // test files use.
 // FlatList (via VirtualizedList) schedules a cell-measurement update on a
@@ -82,8 +83,8 @@ async function renderWindow(slug: string) {
 describe('ThemeWindow', () => {
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
   // space of its own -- without this, its last-row content sits underneath
-  // it the moment the basket goes from empty to non-empty.
-  it('reserves extra bottom space for the sticky checkout bar once the basket is non-empty', async () => {
+  // it the moment the cart goes from empty to non-empty.
+  it('reserves extra bottom space for the sticky checkout bar once the cart is non-empty', async () => {
     const tree = await renderWindow('xamdi-window-b6-nonempty');
     const before = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
 
@@ -99,9 +100,144 @@ describe('ThemeWindow', () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   });
 
-  it('reserves no extra space while the basket is empty', async () => {
+  it('reserves no extra space while the cart is empty', async () => {
     const tree = await renderWindow('xamdi-window-b6-empty');
     const bottom = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
-    expect(bottom).toBe(16);
+    // The page gutter, not a number of its own -- both themes take it
+    // from the shared scale now, so this asserts "no clearance added"
+    // rather than pinning a padding that is free to be retuned.
+    expect(bottom).toBe(SPACE.page);
+  });
+});
+
+// Window is the ONLY theme that reads hero_image_url, and it used to lay that
+// photo across the panel with StyleSheet.absoluteFill and then set the
+// headline on top in `colors.ink` -- a near-black -- with nothing between
+// them. A shop uploading a dark or busy photo got an unreadable headline, and
+// no amount of choosing a good photo helps the shop that chooses a bad one.
+//
+// The scrim is the fix. These assert both halves: that it exists over a
+// photo, and that the type stops being near-black once it does.
+describe('ThemeWindow hero over a photo', () => {
+  async function renderWithHero(heroImageUrl: string | null) {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeWindow
+          storefront={{ ...shop, slug: 'xamdi-hero', heroImageUrl, headline: 'Power that stays on.' }}
+          products={products}
+          colors={colors}
+        />,
+      );
+    });
+    return tree;
+  }
+
+  function headlineColor(tree: ReturnType<typeof create>) {
+    const node = tree.root.findAll((n) => n.props?.testID === 'storefront-headline')[0];
+    const flat = [node.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+      color?: string;
+    };
+    return flat.color;
+  }
+
+  it('lays a scrim between the photo and the headline', async () => {
+    const tree = await renderWithHero('https://example.test/hero.jpg');
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-hero-scrim').length).toBeGreaterThan(0);
+  });
+
+  it('stops setting the headline in near-black once a photo is behind it', async () => {
+    const tree = await renderWithHero('https://example.test/hero.jpg');
+    expect(headlineColor(tree)).not.toBe(colors.ink);
+  });
+
+  // The no-photo hero is not a degraded state -- it is the majority case, and
+  // it must keep reading as the shop's own palette rather than inheriting a
+  // treatment meant for a photo that isn't there.
+  it('renders no scrim, and keeps ink type, when there is no photo', async () => {
+    const tree = await renderWithHero(null);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-hero-scrim')).toHaveLength(0);
+    expect(headlineColor(tree)).toBe(colors.ink);
+  });
+});
+
+// The wordmark is the answer to "whose shop is this", which is the first
+// question a forwarded WhatsApp link has to answer -- so it leads the hero
+// rather than sitting at 15px above a louder slogan, and it appears exactly
+// once on the page.
+describe('ThemeWindow wordmark', () => {
+  async function renderWith(over: Partial<PublicStorefront>) {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeWindow storefront={{ ...shop, slug: 'xamdi-wordmark', ...over }} products={products} colors={colors} />,
+      );
+    });
+    return tree;
+  }
+
+  // Walks the SERIALISED tree, not `root.findAll`. RN renders a <Text> as a
+  // composite element wrapping a host one, and both carry the same children --
+  // so findAll counts every string twice and "appears once" can never pass.
+  function allText(tree: ReturnType<typeof create>): string[] {
+    const out: string[] = [];
+    const walk = (node: unknown): void => {
+      if (node == null) return;
+      if (typeof node === 'string') { out.push(node); return; }
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      walk((node as { children?: unknown }).children);
+    };
+    walk(tree.toJSON());
+    return out;
+  }
+
+  it('names the shop in the hero', async () => {
+    const tree = await renderWith({});
+    const mark = tree.root.findAll((n) => n.props?.testID === 'storefront-wordmark');
+    expect(mark.length).toBeGreaterThan(0);
+  });
+
+  // It used to be in the nav AND would now also be in the hero -- the same
+  // name twice on a 390px screen.
+  it('does not also repeat the name in the nav', async () => {
+    const tree = await renderWith({});
+    const occurrences = allText(tree).filter((t) => t === shop.shopName || t === shop.shopName.toUpperCase());
+    expect(occurrences).toHaveLength(1);
+  });
+
+  it('sets the wordmark larger than the headline it leads', async () => {
+    const tree = await renderWith({ headline: 'Power that stays on.' });
+    const size = (testID: string) => {
+      const node = tree.root.findAll((n) => n.props?.testID === testID)[0];
+      const flat = [node.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+        fontSize?: number;
+      };
+      return flat.fontSize ?? 0;
+    };
+    expect(size('storefront-wordmark')).toBeGreaterThan(size('storefront-headline'));
+  });
+
+  // Composed from city + collectLocation, both already on the page object, so
+  // it is never a lone separator with nothing either side of it.
+  it('carries an eyebrow built from the shop’s own location', async () => {
+    const tree = await renderWith({ city: 'Hargeisa', collectNeighborhood: 'Jigjiga Yar' });
+    const eyebrow = tree.root.findAll((n) => n.props?.testID === 'storefront-eyebrow')[0];
+    const text = [eyebrow.props.children].flat(Infinity).join('');
+    expect(text).toContain('Hargeisa');
+    expect(text).not.toMatch(/^ *·|· *$/);
+  });
+
+  it('renders no eyebrow at all when the shop has no location to name', async () => {
+    const tree = await renderWith({ city: null, collectAddress: null, collectNeighborhood: null });
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-eyebrow')).toHaveLength(0);
+  });
+
+  it('flips the wordmark to white over a photo', async () => {
+    const tree = await renderWith({ heroImageUrl: 'https://example.test/hero.jpg' });
+    const node = tree.root.findAll((n) => n.props?.testID === 'storefront-wordmark')[0];
+    const flat = [node.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+      color?: string;
+    };
+    expect(flat.color).not.toBe(colors.ink);
   });
 });

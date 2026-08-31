@@ -112,7 +112,7 @@ const flyers: StorefrontFlyer[] = [
 // here, lets that settle inside the test rather than firing later and
 // logging an "update not wrapped in act()" against whatever is running by
 // then. Each render takes its own slug so storefront-cart.ts's module-level
-// native cache cannot leak one test's basket into another's.
+// native cache cannot leak one test's cart into another's.
 async function render(Theme: typeof ThemeMarket, slug: string, over: Partial<PublicStorefront> = {}) {
   let tree!: ReturnType<typeof create>;
   await act(async () => {

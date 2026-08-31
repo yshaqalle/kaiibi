@@ -3,7 +3,7 @@ import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
-import type { StorefrontFlyerLinkKind, StorefrontProduct } from '@/types/models';
+import type { StorefrontCategory, StorefrontFlyerLinkKind, StorefrontProduct } from '@/types/models';
 
 // The shop-side counterpart to storefront.ts's public reads: everything a
 // shop does to its OWN page -- the editor screen holds layout and state, this
@@ -635,6 +635,46 @@ function compareStorefrontProducts(a: StorefrontProduct, b: StorefrontProduct): 
 // order are kept byte-for-byte identical to that RPC -- the preview is
 // supposed to be what a customer will see the moment this shop publishes,
 // not a different query that happens to look similar.
+// The preview's category band, and the admin-side twin of
+// get_public_storefront_categories for exactly the reason the products twin
+// below exists: the public RPC returns nothing while `published_at is null`,
+// which is the precise moment a shop is looking at this preview for the first
+// time. Without this the band would be empty on its first run and present the
+// moment they publish, which reads as the editor being wrong.
+//
+// Derived from `products` and left-joined to `categories` by NAME, the same
+// way the RPC does it -- see the migration on why the two are not FK-linked.
+// The filters are kept in step with that function deliberately: listed online,
+// in stock, non-null category. `published_at` is the one condition NOT
+// mirrored, which is the whole point of the twin.
+export async function getStorefrontPreviewCategories(shopId: string): Promise<StorefrontCategory[]> {
+  const [{ data: rows, error }, { data: media, error: mediaError }] = await Promise.all([
+    supabase
+      .from('products')
+      .select('category')
+      .eq('shop_id', shopId)
+      .eq('is_listed_online', true)
+      .gt('stock', 0)
+      .not('category', 'is', null),
+    supabase.from('categories').select('name, image_url').eq('shop_id', shopId),
+  ]);
+  if (error) throw error;
+  if (mediaError) throw mediaError;
+
+  const photos = new Map((media ?? []).map((m) => [m.name as string, (m.image_url as string) ?? null]));
+  const counts = new Map<string, number>();
+  for (const row of rows ?? []) {
+    const name = row.category as string;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+
+  // Same ordering as the RPC -- biggest department first, then alphabetical --
+  // so the preview is the page, not a query that happens to look similar.
+  return [...counts.entries()]
+    .map(([name, productCount]) => ({ name, imageUrl: photos.get(name) ?? null, productCount }))
+    .sort((a, b) => b.productCount - a.productCount || a.name.localeCompare(b.name));
+}
+
 export async function getStorefrontPreviewProducts(shopId: string): Promise<StorefrontProduct[]> {
   const { data, error } = await supabase
     .from('products')
