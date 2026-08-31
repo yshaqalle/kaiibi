@@ -23,7 +23,12 @@
 \echo ''
 \echo '=== 1. The last ten migrations this database records as applied ==='
 \echo '    Compare against: ls supabase/migrations | tail -10'
-\echo '    20261010000100 and 20261011000000 are the two that matter today.'
+\echo '    20261010000100 and 20261014000000 are the two that matter today.'
+\echo '    20261014000000, NOT 20261011000000 -- the same register fix under'
+\echo '    a number db push can still reach. And READ THIS LIST FOR CONTEXT,'
+\echo '    NEVER FOR A VERDICT: a recorded version proves a number was'
+\echo '    written down, not that its body ran. Check 2 answers the register'
+\echo '    question. This check cannot.'
 select version
   from supabase_migrations.schema_migrations
  order by version desc
@@ -78,9 +83,15 @@ select p.proname,
 \echo '    order link. A SEVENTH is a decision, not an accident: the surface'
 \echo '    was deliberately narrowed from 74 to 4, and every addition since'
 \echo '    has had to argue for itself in verify-anon-rpc-surface.sql.'
-\echo '    confirm_public_order is the only WRITE on this list. It stamps an'
-\echo '    agreement and nothing else -- it cannot alter a line, a total, a'
-\echo '    status, or cancel anything.'
+\echo '    TWO of these WRITE, and the other four only read. Say both out'
+\echo '    loud, because a list that names one write reads as a promise that'
+\echo '    there is only one. place_storefront_order is the older and the'
+\echo '    larger: it creates the order, its lines and its number, and has'
+\echo '    been anon-callable since the storefront shipped. Its safety is'
+\echo '    that it writes only rows it authors, never rows it was handed.'
+\echo '    confirm_public_order is the one the order link added, and it'
+\echo '    stamps an agreement and nothing else -- it cannot alter a line, a'
+\echo '    total, a status, or cancel anything.'
 select p.proname
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
