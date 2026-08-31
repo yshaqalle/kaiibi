@@ -27,8 +27,13 @@
 -- tile promising eleven things and showing four.
 --
 -- IN STOCK ONLY. A category whose every product is sold out is not a way in,
--- it is a dead end with a photo on it -- so it does not come back at all, and
--- `having count(*) > 0` is what drops it.
+-- it is a dead end with a photo on it -- so `p.stock > 0` in the WHERE clause
+-- is what drops it. There is deliberately no HAVING: an earlier draft carried
+-- `having count(*) > 0`, which reads like the guard for this and is in fact
+-- dead code -- GROUP BY cannot produce an empty group, so it is true for every
+-- row it sees. Filtering the rows before grouping is the only thing that
+-- removes a category, and doing it in one place is why that is the only place
+-- to look.
 create or replace function public.get_public_storefront_categories(p_slug text)
 returns table (
   name          text,
@@ -55,7 +60,6 @@ as $$
     and p.stock > 0
     and public.shop_has_module(s.id, 'storefront')
   group by p.category
-  having count(*) > 0
   order by count(*) desc, p.category;
 $$;
 
