@@ -44,17 +44,22 @@ done
 # reflowing a comment above either list cannot silently empty this check.
 pin_list="$(
   awk '/v_expected text\[\] := array\[/{on=1; next} on && /^[[:space:]]*\];/{exit} on' "$PIN" \
-    | grep -oE "'[a-z_]+'" | tr -d "'" | sort -u
+    | grep -oE "'[a-z0-9_]+'" | tr -d "'" | sort -u
 )"
 
 diag_list="$(
   awk '/>>> PINNED ANON SURFACE >>>/{on=1; next} on && /<<< PINNED ANON SURFACE <<</{exit} on' "$DIAG" \
-    | grep -oE "'[a-z_]+'" | tr -d "'" | sort -u
+    | grep -oE "'[a-z0-9_]+'" | tr -d "'" | sort -u
 )"
 
+# The character class includes DIGITS. It did not at first, which meant a name
+# like get_public_order_v2 was invisible to this script: add it to one file and
+# not the other and this check passed, silently, on the exact disagreement it
+# exists to catch. A guard against silent success is not allowed to have one.
+#
 # An empty list is a broken extraction, not a passing check. Without this, a
 # renamed marker would make both sides empty and this script would cheerfully
-# report agreement -- the exact failure mode it was written to prevent.
+# report agreement -- the same failure wearing a different hat.
 [ -n "$pin_list" ]  || fail "extracted no names from $(basename "$PIN") -- has the array or its marker changed?"
 [ -n "$diag_list" ] || fail "extracted no names from $(basename "$DIAG") -- has the array or its marker changed?"
 

@@ -145,7 +145,10 @@ with expected(proname) as (values
   -- <<< PINNED ANON SURFACE <<<
 ),
 actual(proname) as (
-  select p.proname
+  -- DISTINCT, matching the array_agg(distinct ...) in the pin file. Both sides
+  -- of this comparison have to fold overloads the same way or the two checks
+  -- disagree on a database neither of them is wrong about.
+  select distinct p.proname
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
@@ -160,16 +163,31 @@ diff as (
     from expected e
     full outer join actual a on a.proname = e.proname
 )
--- The verdict is UNION'd in rather than run as a second query, so that this
--- check can never print zero rows the way check 2 once did. It sorts first
--- because '(' precedes every letter.
-select anon_callable, status from diff
-union all
-select '(verdict)',
-       case when exists (select 1 from diff where status <> 'pinned and present')
-            then 'DRIFT -- read the UNEXPECTED or MISSING row above'
-            else 'OK -- exactly the pinned surface, nothing more' end
- order by 1;
+-- WHAT THIS PINS IS NAMES, NOT SIGNATURES, and so does the file it mirrors.
+-- A SECOND OVERLOAD of a name already on the list -- anon-callable, different
+-- arguments -- reads as "pinned and present" here and passes CI there. That
+-- is a real gap and it is the shape the register hole actually had: a second
+-- complete_sale, same name, one extra argument. It is left as a gap rather
+-- than closed quietly here, because closing it on one side only would make
+-- the two lists disagree about a database neither is wrong about. Check 2 is
+-- what covers that shape for the one function where it has bitten.
+--
+-- The verdict is UNION'd in rather than run as a second query, so this check
+-- can never print zero rows the way check 2 once did. It carries an explicit
+-- sort key rather than relying on '(' sorting before letters, which is true
+-- in every collation this was tested against and still not something worth
+-- depending on in a script that runs against a database whose collation
+-- nobody checked.
+select anon_callable, status
+  from (
+    select 1 as sort_key, anon_callable, status from diff
+    union all
+    select 0, '(verdict)',
+           case when exists (select 1 from diff where status <> 'pinned and present')
+                then 'DRIFT -- read the UNEXPECTED or MISSING row above'
+                else 'OK -- exactly the pinned surface, nothing more' end
+  ) rows
+ order by sort_key, anon_callable;
 
 \echo ''
 \echo '=== 5. Is the pick-up address live? ==='
