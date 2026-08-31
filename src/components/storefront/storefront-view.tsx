@@ -5,7 +5,7 @@ import {
   DEFAULT_PALETTE, DEFAULT_THEME, paletteColors,
   type StorefrontPalette, type StorefrontTheme,
 } from '@/lib/storefront-catalog';
-import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 const RENDERERS = {
   market: ThemeMarket,
@@ -25,14 +25,16 @@ export function StorefrontView({
   storefront,
   products,
   areas = [],
+  categories = [],
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
   areas?: PublicDeliveryArea[];
+  categories?: StorefrontCategory[];
 }) {
   const hasTheme = Object.prototype.hasOwnProperty.call(RENDERERS, storefront.theme);
   const themeKey = (hasTheme ? storefront.theme : DEFAULT_THEME) as StorefrontTheme;
   const Renderer = RENDERERS[themeKey];
   const colors = paletteColors((storefront.palette ?? DEFAULT_PALETTE) as StorefrontPalette);
-  return <Renderer storefront={storefront} products={products} colors={colors} areas={areas} />;
+  return <Renderer storefront={storefront} products={products} colors={colors} areas={areas} categories={categories} />;
 }

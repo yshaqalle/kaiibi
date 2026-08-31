@@ -31,6 +31,7 @@ import {
   discardDraft,
   ensureStorefront,
   getMyStorefront,
+  getStorefrontPreviewCategories,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
   listDeliveryAreas,
@@ -49,7 +50,9 @@ import {
   type ShopFlyer,
   type ShopStorefront,
 } from '@/lib/storefront-admin';
-import type { Promotion, PublicStorefront, StorefrontFlyer, StorefrontProduct } from '@/types/models';
+import type {
+  Promotion, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontProduct,
+} from '@/types/models';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
 // admin screen. The PREVIEW below is exempt: it renders the shop's own
@@ -143,6 +146,7 @@ function StorefrontEditor() {
   const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
   const [onlineProductCount, setOnlineProductCount] = useState(0);
   const [previewProducts, setPreviewProducts] = useState<StorefrontProduct[]>([]);
+  const [previewCategories, setPreviewCategories] = useState<StorefrontCategory[]>([]);
   const [flyers, setFlyers] = useState<ShopFlyer[]>([]);
   // EVERY unarchived promotion, not only the running ones. The picker offers
   // only what is running (below), but the preview needs the whole list to
@@ -245,6 +249,16 @@ function StorefrontEditor() {
       })
       .catch(() => {
         if (!cancelled) setPreviewProducts([]);
+      });
+    // The band, read the same admin-side way and for the same reason -- see
+    // getStorefrontPreviewCategories. Its own catch: the band is a navigation
+    // aid, so losing it must not blank the preview's catalogue alongside it.
+    getStorefrontPreviewCategories(shopId)
+      .then((categories) => {
+        if (!cancelled) setPreviewCategories(categories ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewCategories([]);
       });
     return () => {
       cancelled = true;
@@ -848,7 +862,11 @@ function StorefrontEditor() {
         — except delivery areas, which save straight to your live page as soon as you add or edit them.
       </Caveat>
       <View style={styles.previewFrame}>
-        <StorefrontView storefront={previewStorefront} products={previewProducts} />
+        <StorefrontView
+          storefront={previewStorefront}
+          products={previewProducts}
+          categories={previewCategories}
+        />
       </View>
     </BentoCard>
   );

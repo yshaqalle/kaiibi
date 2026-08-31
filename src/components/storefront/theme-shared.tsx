@@ -14,7 +14,7 @@ import {
 import { collectLocation } from '@/lib/storefront-collect';
 import { placeOrder, placeOrderViaWhatsApp, type PlacedOrder } from '@/lib/storefront-order';
 import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
-import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 // The parts every theme needs. Kept out of any one theme so that Market is a
 // theme and nothing else -- Counter importing its empty state from Market would
@@ -29,6 +29,11 @@ export type ThemeProps = {
   products: StorefrontProduct[];
   colors: PaletteColors;
   areas?: PublicDeliveryArea[];
+  // Optional and defaulting to [] for the same reason `areas` is: every
+  // theme-level test predating the band passes none, and a theme with no
+  // categories to offer must render exactly as it did before the band
+  // existed -- CategoryBand returns null below its minimum anyway.
+  categories?: StorefrontCategory[];
 };
 
 // Returns null when the shop has no number. Publishing requires one, so this is

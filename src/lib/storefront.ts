@@ -3,7 +3,7 @@ import { DEFAULT_PALETTE, DEFAULT_THEME } from '@/lib/storefront-catalog';
 import { supabase } from '@/lib/supabase';
 import { whatsappLink } from '@/lib/whatsapp';
 import type {
-  PublicDeliveryArea, PublicStorefront, StorefrontFlyer, StorefrontFlyerLinkKind,
+  PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontFlyerLinkKind,
   StorefrontFlyerOffer, StorefrontProduct,
 } from '@/types/models';
 
@@ -150,6 +150,24 @@ export async function getPublicStorefrontProducts(slug: string): Promise<Storefr
     priceCents: row.price_cents as number,
     stock: row.stock as number,
     imageUrl: (row.image_url as string) ?? null,
+  }));
+}
+
+// The band above the grid on Market and Window -- see
+// 20261018000000_storefront_public_categories.sql for why the count comes from
+// `products` and the picture from `categories`, and why the join is by name.
+//
+// Returns [] rather than throwing on a failed read, unlike the products call
+// above: a category band is a NAVIGATION AID over a grid that is already on
+// screen, so losing it costs a shortcut. Losing the products costs the page.
+// store/[slug].tsx applies the same reasoning to delivery areas.
+export async function getPublicStorefrontCategories(slug: string): Promise<StorefrontCategory[]> {
+  const { data, error } = await supabase.rpc('get_public_storefront_categories', { p_slug: slug });
+  if (error) throw error;
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    name: row.name as string,
+    imageUrl: (row.image_url as string) ?? null,
+    productCount: row.product_count as number,
   }));
 }
 

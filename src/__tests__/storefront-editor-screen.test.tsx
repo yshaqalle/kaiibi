@@ -63,6 +63,7 @@ import {
   publishBlockers,
   ensureStorefront,
   getMyStorefront,
+  getStorefrontPreviewCategories,
   getStorefrontPreviewProducts,
   listFlyers,
   publishDraft,
@@ -151,6 +152,9 @@ describe('storefront editor', () => {
     // default to empty so a test that doesn't care about products isn't
     // left with an unresolved automock jest.fn() (undefined has no .then).
     (getStorefrontPreviewProducts as jest.Mock).mockResolvedValue([]);
+    // The preview's category band. Empty by default -- every test here is
+    // about the editor's own controls, not the band.
+    (getStorefrontPreviewCategories as jest.Mock).mockResolvedValue([]);
     (listFlyers as jest.Mock).mockResolvedValue([]);
     (listPromotions as jest.Mock).mockResolvedValue([]);
   });

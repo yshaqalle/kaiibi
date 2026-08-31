@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
+import { CategoryBand } from '@/components/storefront/category-band';
 import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
@@ -15,7 +16,7 @@ import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { StorefrontProduct } from '@/types/models';
 
-export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeProps) {
+export function ThemeMarket({ storefront, products, colors, areas = [], categories = [] }: ThemeProps) {
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
   const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
@@ -113,6 +114,10 @@ export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeP
         onSelectCategory={setCategory}
         autoAdvance={storefront.autoAdvance}
       />
+      {/* Above the filter chip, not below: the band is how a customer
+          CHOOSES a category and the chip is how they leave one, so the
+          chip belongs next to the grid it is narrowing. */}
+      <CategoryBand categories={categories} colors={colors} active={category} onSelect={setCategory} />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
       {shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />

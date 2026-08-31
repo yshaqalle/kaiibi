@@ -18,6 +18,7 @@ jest.mock('@/lib/storefront', () => ({
   getPublicStorefront: jest.fn(),
   getPublicStorefrontProducts: jest.fn(),
   getPublicDeliveryAreas: jest.fn(),
+  getPublicStorefrontCategories: jest.fn(),
   waLink: (e: string, m: string) => `https://wa.me/${e.replace(/^\+/, '')}?text=${encodeURIComponent(m)}`,
 }));
 // Placing an order is Task 7's job (storefront-order.test.ts covers the RPC
@@ -30,7 +31,9 @@ jest.mock('@/lib/storefront-order', () => ({
   placeOrderViaWhatsApp: jest.fn(),
 }));
 
-import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
+import {
+  getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontCategories, getPublicStorefrontProducts,
+} from '@/lib/storefront';
 import { placeOrder, placeOrderViaWhatsApp } from '@/lib/storefront-order';
 import StorefrontScreen from '@/app/store/[slug]';
 
@@ -158,6 +161,9 @@ describe('storefront route', () => {
     mockSlug = 'xamdi';
     webStorage.clear();
     (getPublicDeliveryAreas as jest.Mock).mockResolvedValue([]);
+    // The band is a navigation aid; every test here is about the grid,
+    // the cart or checkout, so it stays empty unless a test says otherwise.
+    (getPublicStorefrontCategories as jest.Mock).mockResolvedValue([]);
   });
 
   it('renders the shop once loaded', async () => {

@@ -1339,6 +1339,18 @@ export type PublicStorefront = {
   autoAdvance: boolean;
 };
 
+// A way INTO a catalogue, not a thing you can buy -- which is why it carries a
+// count rather than a price. `imageUrl` is nullable and usually null: it comes
+// from `categories.image_url` (migration 0016), a table a shop may never have
+// created a row in, joined to `products.category` BY NAME because the two are
+// not FK-linked. A tile with no photo is the majority case and renders as a
+// palette gradient, not as a missing image.
+export type StorefrontCategory = {
+  name: string;
+  imageUrl: string | null;
+  productCount: number;
+};
+
 export type StorefrontProduct = {
   id: string;
   name: string;

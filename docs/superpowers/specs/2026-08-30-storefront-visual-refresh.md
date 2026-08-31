@@ -1,7 +1,9 @@
 # Storefront visual refresh — design
 
 **Date:** 2026-08-30
-**Status:** Partly built — the three defect fixes have shipped; the design work is still awaiting review
+**Status:** Built. Every gap in this spec is closed except the deliberate
+non-goals listed at the end. The remaining *visual* proposals — the wordmark
+hero, the picker wireframes, a display serif — are still awaiting review.
 **Mockup:** `docs/design/storefront-visual-refresh-mockup.html`
 **Scope:** A visual pass on the public storefront's three themes and the editor's
 design picker. No change to what a shop can edit, where content comes from, or
@@ -374,3 +376,33 @@ Separately, if the "past the visual pass" items are taken:
 A display serif. A low-stock third state. A 900px breakpoint. Renaming, adding or
 removing a layout or palette. Any change to what a shop can edit, or to the
 cart/checkout/order path.
+
+
+## Category band — built, and what it cost
+
+Built in `20261018000000_storefront_public_categories.sql` plus
+`category-band.tsx`. Three things worth recording:
+
+**It is a fifth name on the anon RPC surface.** `verify-anon-rpc-surface.sql`
+is a strict allowlist — #119 had just tightened it — so the function is
+registered there with its justification rather than allowed to appear as a
+regression. It is a read, narrower than `get_public_storefront_products` which
+it sits beside: category name, picture and count, no row-level product data,
+the identical published / listed-online / module-on filters, and it drops
+anything with no stock. It therefore returns strictly less than the products
+function already does.
+
+**The join is by name, and it is a LEFT join.** `products.category` is free
+text and `categories` is a separate per-shop table; an inner join would hide
+any category a shop typed onto products without creating a row for, while the
+grid below still showed it. Asserted, along with "a `categories` row must not
+duplicate the count", in `verify-storefront-categories.sql`.
+
+**It needed an admin-side twin.** The public RPC returns nothing while
+`published_at is null`, which is exactly when a shop first looks at the
+preview — so `getStorefrontPreviewCategories` exists for the same reason
+`getStorefrontPreviewProducts` does.
+
+Capped at four tiles: the RPC returns every shoppable category biggest-first,
+and a shop with twelve would push the goods six rows down. A way in that has to
+be scrolled past is not one; search covers the rest.
