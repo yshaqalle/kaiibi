@@ -750,6 +750,9 @@ function StorefrontEditor() {
     <>
       <PublishBar
         status={status}
+        // The bar renders Preview/Edit only on the stacked layout, where they
+        // have somewhere to go -- see its own note on this prop.
+        isWide={isWide}
         blockers={blockers}
         dirty={dirty}
         // The CLAIMED address, not the draft one being typed in the drawer:

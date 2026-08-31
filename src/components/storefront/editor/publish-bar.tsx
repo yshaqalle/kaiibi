@@ -92,6 +92,7 @@ export function PublishBar({
   shopName = '',
   unpublishedBy = null,
   onEdit,
+  isWide,
   onFocusBlocker,
   onGoToInventory,
   onTogglePreview,
@@ -131,6 +132,18 @@ export function PublishBar({
   unpublishedBy?: LapseReason | null;
   /** The Edit button. Opens the editor; knows nothing about blockers. */
   onEdit: () => void;
+  /**
+   * Whether the editor is showing its two-column layout. On a wide screen the
+   * content drawer and the preview are both permanently on screen, so Preview
+   * and Edit have nothing to navigate to -- their handlers on the screen are
+   * `if (!isWide)` no-ops. Passed down so the BUTTONS can be absent rather than
+   * present and inert: the same rule theme-shared.tsx states for the
+   * customer-facing Ask button.
+   *
+   * Optional, defaulting to the narrow layout, so a caller that predates this
+   * still renders the full row rather than silently losing two controls.
+   */
+  isWide?: boolean;
   /**
    * Jumps to the field that fixes this blocker, on this screen. Called only
    * for the blockers BLOCKER_ACTION marks `here` -- which is why it takes the
@@ -200,12 +213,19 @@ export function PublishBar({
       }
     >
       <View style={styles.actionsRow}>
-        <Pressable testID="publish-bar-preview" onPress={onTogglePreview} style={styles.secondaryButton}>
-          <Text style={styles.secondaryButtonText}>Preview</Text>
-        </Pressable>
-        <Pressable testID="publish-bar-edit" onPress={onEdit} style={styles.secondaryButton}>
-          <Text style={styles.secondaryButtonText}>Edit</Text>
-        </Pressable>
+        {/* Only where they can act -- see the `isWide` prop's own note. On the
+            two-column layout the drawer and the preview are already on screen,
+            so these two would be buttons that shrug. */}
+        {isWide ? null : (
+          <>
+            <Pressable testID="publish-bar-preview" onPress={onTogglePreview} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>Preview</Text>
+            </Pressable>
+            <Pressable testID="publish-bar-edit" onPress={onEdit} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>Edit</Text>
+            </Pressable>
+          </>
+        )}
         {status === 'live' ? (
           <Pressable
             testID="publish-bar-unpublish"
@@ -297,9 +317,16 @@ export function PublishBar({
 
       {confirmingUnpublish ? (
         <>
+          {/* A QUESTION, not a status line. This used to read "Customers
+              won't be able to reach your page until you publish it again",
+              which describes a settled fact -- so a shop that had only ARMED
+              the confirm read it as already unpublished, with a red
+              "Unpublish now" underneath that then made no sense. Nothing has
+              changed at this point: the page is still live until that button
+              is pressed. */}
           <Caveat tone="context" onDismiss={() => setConfirmingUnpublish(false)}>
-            Customers won&apos;t be able to reach your page until you publish it again. You can publish it again any
-            time.
+            Unpublish this page? Customers won&apos;t be able to reach it until you publish again — which you can do
+            any time.
           </Caveat>
           <Pressable testID="publish-bar-unpublish-confirm" onPress={confirmUnpublish} style={styles.confirmButton}>
             <Text style={styles.confirmButtonText}>Unpublish now</Text>
