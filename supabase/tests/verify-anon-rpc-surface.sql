@@ -65,9 +65,19 @@ declare
     'get_public_order',
     -- ALSO 20261017000000, AND THIS ONE WRITES.
     --
-    -- Every other name on this list is a read. confirm_public_order is the
-    -- first write this application has ever granted to anon, so it gets the
-    -- longest note here rather than the shortest.
+    -- It is the SECOND write on this list, not the first: place_storefront_order
+    -- above creates an order, its lines and its number, and has been granted to
+    -- anon since the storefront shipped. Stating that here because the sentence
+    -- this replaces claimed confirm_public_order was the only anon write this
+    -- application had ever granted, and that reading propagated into
+    -- scripts/diagnose-production.sql's check 4 banner, where it told an
+    -- operator auditing the anonymous surface that one of its two writes did
+    -- not exist. The count is what someone checks this list for.
+    --
+    -- What distinguishes the two is whose rows they touch. place_storefront_order
+    -- only ever writes rows it authors in the same call; confirm_public_order is
+    -- the first anon grant that writes to a row the SHOP already owns, which is
+    -- why the rest of this note is about how narrow that write is.
     --
     -- It is safe not because the token is hard to guess -- an order link is
     -- sent over WhatsApp and will eventually be forwarded, screenshotted and
