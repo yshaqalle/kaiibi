@@ -1,9 +1,9 @@
 import { act, create } from 'react-test-renderer';
-import { FlatList } from 'react-native';
+import { FlatList, Text } from 'react-native';
 
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import {
-  WIDE_SHOP_WIDTH, gridColumnsForWidth, isWideShop, padFinalRow,
+  StockCard, WIDE_SHOP_WIDTH, gridColumnsForWidth, isWideShop, padFinalRow,
 } from '@/components/storefront/theme-shared';
 import { SHOP_MAX_WIDTH } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -133,5 +133,43 @@ describe('breakpoints', () => {
     expect(isWideShop(WIDE_SHOP_WIDTH - 1)).toBe(false);
     expect(isWideShop(WIDE_SHOP_WIDTH)).toBe(true);
     expect(WIDE_SHOP_WIDTH).not.toBe(1024);
+  });
+});
+
+// The stock card counts what is listed. `inStock === total` is TRUE at zero, so
+// the cheerful branch fired on a shop that has listed nothing -- printing "all
+// in stock today" directly above the EmptyState that says "Nothing listed yet."
+describe('the stock card on an empty shop', () => {
+  function textsOf(products: StorefrontProduct[]): string[] {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<StockCard products={products} colors={colors} />);
+    });
+    // The count is a NUMBER child (`{total}`), not a string, so a
+    // string-only collector silently misses the one value this card exists
+    // to show -- and at zero the value IS `0`, which is also falsy. Both
+    // traps in one line.
+    return tree.root.findAllByType(Text).flatMap((n) => {
+      const c = n.props.children;
+      if (typeof c === 'string') return [c];
+      if (typeof c === 'number') return [String(c)];
+      return [];
+    });
+  }
+
+  it('claims no stock news when nothing is listed', () => {
+    const texts = textsOf([]);
+    expect(texts).toContain('0');
+    expect(texts).not.toContain('all in stock today');
+    expect(texts.some((t) => t.includes('in stock'))).toBe(false);
+  });
+
+  it('still says everything is in when everything is in', () => {
+    expect(textsOf([product('a'), product('b')])).toContain('all in stock today');
+  });
+
+  it('names the shortfall when something is out', () => {
+    const out = { ...product('c'), stock: 0 };
+    expect(textsOf([product('a'), out])).toContain('1 of 2 in stock');
   });
 });

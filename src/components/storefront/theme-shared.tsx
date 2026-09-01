@@ -309,9 +309,16 @@ export function StockCard({
             ))}
           </View>
         ) : null}
-        <Text style={[styles.stockLine, { color: colors.muted }]}>
-          {inStock === total ? 'all in stock today' : `${inStock} of ${total} in stock`}
-        </Text>
+        {/* NOTHING AT ALL ON AN EMPTY SHOP. `inStock === total` is true at
+            zero, so this line shipped saying "all in stock today" on a shop
+            that has listed nothing -- immediately above the EmptyState that
+            says "Nothing listed yet." Two claims, one page, and the cheerful
+            one is the lie. A shop with no goods has no stock news. */}
+        {total > 0 ? (
+          <Text style={[styles.stockLine, { color: colors.muted }]}>
+            {inStock === total ? 'all in stock today' : `${inStock} of ${total} in stock`}
+          </Text>
+        ) : null}
       </View>
     </ShopCard>
   );
