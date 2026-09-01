@@ -208,3 +208,56 @@ describe('PublishBar', () => {
     expect(unpublishButton).toHaveLength(0);
   });
 });
+
+// Preview and Edit are NAVIGATION AIDS for the stacked layout: Edit opens the
+// content drawer as a sheet, Preview scrolls down to where the preview sits.
+// On a wide screen the drawer and the preview are both already on screen as
+// their own columns, so both handlers were guarded `if (!isWide)` and did
+// nothing -- while the bar rendered the buttons anyway. Two controls that look
+// live, press like buttons and shrug.
+//
+// This is the rule theme-shared.tsx states for the customer-facing Ask button
+// ("the customer taps and the app shrugs"), broken in the admin editor. A
+// control that cannot act must not render.
+describe('Preview and Edit only exist where they can act', () => {
+  it('offers both on a narrow screen, where they navigate', () => {
+    const texts = renderBarTexts({ isWide: false });
+    expect(texts).toContain('Preview');
+    expect(texts).toContain('Edit');
+  });
+
+  it('offers neither on a wide screen, where both would do nothing', () => {
+    const texts = renderBarTexts({ isWide: true });
+    expect(texts).not.toContain('Preview');
+    expect(texts).not.toContain('Edit');
+  });
+
+  // Unpublish and Publish act on the PAGE, not on this screen's layout, so
+  // they are unaffected by width and must survive the change above.
+  it('keeps the controls that act on the page at every width', () => {
+    const texts = renderBarTexts({ isWide: true, status: 'live' });
+    expect(texts).toContain('Unpublish');
+    expect(texts).toContain('Publish');
+  });
+});
+
+// "Unpublish" only ARMS the confirm -- the page stays live until "Unpublish
+// now". The banner in between described the consequence in a settled tense
+// ("Customers won't be able to reach your page..."), which reads as a status
+// the shop is already in rather than one it is being asked to choose.
+describe('the unpublish confirm asks rather than announces', () => {
+  it('does not state the consequence as though it had already happened', () => {
+    const tree = renderBar({ status: 'live' });
+    // Same approach the unpublish tests above use -- the testID is on the
+    // Pressable, which is where onPress lives.
+    const unpublish = tree.root.findAll((node) => node.props?.testID === 'publish-bar-unpublish');
+    act(() => {
+      unpublish[0].props.onPress();
+    });
+
+    const copy = textsIn(tree.toJSON()).join(' ');
+    // Still live at this point -- the confirm is armed, nothing has changed.
+    expect(copy).toContain('Unpublish now');
+    expect(copy).toMatch(/\?/);
+  });
+});
