@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { type ReactNode, useRef, useState } from 'react';
+import {
+  Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle,
+} from 'react-native';
 
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
-import { SPACE, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -46,6 +48,370 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
     <Pressable style={pressable(styles.wa)} onPress={() => openExternalUrl(href)} accessibilityRole="link">
       <Text style={styles.waText}>Message on WhatsApp</Text>
     </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BENTO SURFACES
+//
+// The app's own system, recoloured. Dashboard and Accounting are a page tone,
+// borderless 26px cards floating on it, one inverted anchor card and an
+// eyebrow/value type ramp; this page predated all of that. Bento is a SURFACE
+// system rather than a colour scheme, which is exactly why it survives being
+// recoloured six ways.
+//
+// Three roles out of two tokens the palette already stores, at bento's own
+// proportion (`bentoPage` #f4f4f5 sits 3% from `bentoSurface` #ffffff):
+//
+//   page              = the palette's `soft`
+//   card              = the palette's `ground`
+//   a plate INSIDE a card = `soft` again, which reads as the page showing through
+//   the anchor card   = the palette's `ink`, with its type in `ground`
+//
+// What is NOT taken: BentoGrid, BentoCard, StatTile, Badge. Every one of them
+// pins `Colors.light` (the skill says so in as many words), and this page
+// renders in one of six palettes for a stranger with no account. The system
+// comes across; the app's tokens do not.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Type ON the scrim, and so deliberately fixed -- the same pair, and the same
+// reasoning, as the constants this replaces in theme-window.tsx: the ground
+// underneath is an unknown photograph, and a palette's own ink would vanish
+// into it. Lives here now because the shop card is shared by all three themes
+// rather than being Window's alone.
+export const ON_SCRIM_INK = '#ffffff';
+export const ON_SCRIM_MUTED = '#e8e6e0';
+
+// A card. Borderless and unshadowed on purpose: the separation is the page
+// tone behind it, which is the whole of what makes a bento page read as
+// floating rather than as boxes ruled onto a background.
+export function ShopCard({
+  colors, style, children, testID,
+}: {
+  colors: PaletteColors;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+  testID?: string;
+}) {
+  return (
+    <View testID={testID} style={[styles.card, { backgroundColor: colors.ground }, style]}>
+      {children}
+    </View>
+  );
+}
+
+// THE ANCHOR CARD, and the single decision this whole redesign turns on.
+//
+// Dashboard has exactly one near-black card (Takings) and it is what stops that
+// page reading as a field of white rectangles. The storefront's equivalent is
+// the shop itself -- so the wordmark, where it is, what it says and how to
+// reach it all move onto one `ink` card, and the page finally has a centre of
+// gravity instead of the 1,472px panel of `soft` that prompted this.
+//
+// The photo branch is Window's old hero, unchanged in substance: the image
+// fills the card, a flat 0.55 scrim goes over it, and the type takes the two
+// fixed on-scrim values above. What changed is only that it is now a card in a
+// row of cards rather than a full-bleed panel of its own.
+export function ShopAnchor({
+  storefront, colors, style, wide, children,
+}: {
+  storefront: PublicStorefront;
+  colors: PaletteColors;
+  style?: StyleProp<ViewStyle>;
+  // One clamp, not two designs: the wordmark that anchors a 1,080px card would
+  // wrap to three lines at 390px, and the one that fits 390px is lost on a
+  // laptop. Passed rather than measured here so a tile-level component never
+  // subscribes to window dimensions of its own.
+  wide?: boolean;
+  // The WhatsApp button, on the layouts that put it here. Narrow layouts pass
+  // nothing and keep it in the button row above, because the same button in
+  // both places is the same control twice on a 390px screen.
+  children?: ReactNode;
+}) {
+  const onPhoto = Boolean(storefront.heroImageUrl);
+  const ink = onPhoto ? ON_SCRIM_INK : colors.ground;
+  const muted = onPhoto ? ON_SCRIM_MUTED : colors.onDarkMuted;
+  // Composed the same way the checkout and confirmation screens compose it, so
+  // the counter named at the top of the page is the one named at the bottom of
+  // it. `?? city` rather than joining both -- collectLocation already ends with
+  // the city whenever there is one.
+  const place =
+    collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city) ?? storefront.city;
+
+  return (
+    <View
+      testID="storefront-shop-card"
+      style={[styles.card, styles.anchor, { backgroundColor: colors.ink }, style]}
+    >
+      {onPhoto ? (
+        <>
+          <Image source={{ uri: storefront.heroImageUrl! }} style={styles.anchorPhoto} resizeMode="cover" />
+          <View testID="storefront-hero-scrim" style={styles.anchorScrim} pointerEvents="none" />
+        </>
+      ) : null}
+
+      <Text style={[styles.eyebrow, { color: muted }]}>The shop</Text>
+
+      {/* The biggest thing on the page, because "whose shop is this" is the
+          first question a forwarded link has to answer. adjustsFontSizeToFit
+          carries the genuinely long names down rather than letting them wrap
+          to three lines -- shop names are not length-limited anywhere. */}
+      <Text
+        testID="storefront-wordmark"
+        style={[styles.wordmark, wide && styles.wordmarkWide, { color: ink }, onPhoto && styles.onScrimText]}
+        numberOfLines={2}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+      >
+        {storefront.shopName}
+      </Text>
+
+      {place ? (
+        <Text testID="storefront-eyebrow" style={[styles.place, { color: muted }, onPhoto && styles.onScrimText]}>
+          {place}
+        </Text>
+      ) : null}
+
+      {storefront.headline ? (
+        <Text
+          testID="storefront-headline"
+          style={[styles.anchorHead, { color: ink }, onPhoto && styles.onScrimText]}
+        >
+          {storefront.headline}
+        </Text>
+      ) : null}
+
+      {storefront.about ? (
+        <Text
+          testID="storefront-about"
+          style={[styles.anchorAbout, { color: muted }, onPhoto && styles.onScrimText]}
+        >
+          {storefront.about}
+        </Text>
+      ) : null}
+
+      {children ? <View style={styles.anchorFoot}>{children}</View> : null}
+    </View>
+  );
+}
+
+// What a customer asks before they order, which is three lines this page has
+// always held and never printed. Every value is already on PublicStorefront or
+// on the areas the route already fetches -- nothing new is stored or read.
+export function CollectingCard({
+  storefront, areas, colors, style, stacked, children,
+}: {
+  storefront: PublicStorefront;
+  areas: PublicDeliveryArea[];
+  colors: PaletteColors;
+  style?: StyleProp<ViewStyle>;
+  // Label above value instead of label-left/value-right. On a phone this card
+  // is half the screen -- about 150px of usable width -- and a two-column row
+  // there wrapped BOTH sides: "Collect from" broke over two lines and so did
+  // "Jiija, Hargeisa" beside it. Stacking gives each the full width and costs
+  // one line per fact.
+  stacked?: boolean;
+  // The Cart button, on layouts that put it here.
+  children?: ReactNode;
+}) {
+  const where = collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city);
+  // Named from the CHEAPEST area rather than a flat "Available": a customer
+  // deciding whether to order wants the number, and the cheapest is the only
+  // one that is true for at least somebody. A shop that offers delivery but
+  // has no areas priced yet keeps the honest vaguer word.
+  const cheapestCents = areas.length > 0 ? Math.min(...areas.map((a) => a.feeCents)) : null;
+  const delivery = !storefront.offersDelivery
+    ? 'Collection only'
+    : cheapestCents === null
+      ? 'Available'
+      : cheapestCents === 0
+        ? 'Free'
+        : `From ${formatCents(cheapestCents)}`;
+
+  return (
+    <ShopCard colors={colors} style={style} testID="storefront-collecting-card">
+      <Text style={[styles.eyebrow, { color: colors.muted }]}>Collecting</Text>
+      <View style={styles.factList}>
+        {where ? <Fact colors={colors} label="Collect from" value={where} stacked={stacked} /> : null}
+        <Fact colors={colors} label="Delivery" value={delivery} stacked={stacked} />
+        {/* storefronts.payment_mode is the single literal 'on_collection'
+            today, so this is a fixed line rather than a branch -- and it is
+            worth printing precisely because it is the answer to "do I need to
+            pay now?", which is why a stranger hesitates. */}
+        <Fact colors={colors} label="Pay" value="On collection" stacked={stacked} />
+      </View>
+      {children ? <View style={styles.cardFoot}>{children}</View> : null}
+    </ShopCard>
+  );
+}
+
+function Fact({
+  colors, label, value, stacked,
+}: { colors: PaletteColors; label: string; value: string; stacked?: boolean }) {
+  return (
+    <View style={[styles.fact, stacked && styles.factStacked, { borderBottomColor: colors.soft }]}>
+      <Text style={[styles.factLabel, { color: colors.muted }]}>{label}</Text>
+      <Text
+        style={[styles.factValue, stacked && styles.factValueStacked, { color: colors.ink }]}
+        numberOfLines={2}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+// A dot per product, hollow when it is out of stock -- the shape of the app's
+// "7/7 products sold have a cost set" card, carrying the one fact a customer
+// most wants at a glance.
+//
+// SHAPE CARRIES THE STATE AND COLOUR IS THE SECOND SIGNAL, which is the rule
+// storefront-catalog.ts already sets by refusing to ship a `stockOk`: an
+// out-of-stock dot is hollow AND amber, never amber alone.
+export const MAX_STOCK_DOTS = 24;
+
+export function StockCard({
+  products, colors, style,
+}: {
+  products: StorefrontProduct[];
+  colors: PaletteColors;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const total = products.length;
+  const inStock = products.filter((p) => p.stock > 0).length;
+  // A dot each stops being a glance somewhere past two rows of them, and a
+  // 200-product shop would render 200. Past the cap the line alone says it.
+  const showDots = total > 0 && total <= MAX_STOCK_DOTS;
+
+  return (
+    <ShopCard colors={colors} style={[styles.stockCard, style]} testID="storefront-stock-card">
+      <Text style={[styles.eyebrow, { color: colors.muted }]}>In the shop</Text>
+      <Text style={[styles.value, { color: colors.ink }]}>{total}</Text>
+      <Text style={[styles.valueLabel, { color: colors.muted }]}>
+        {total === 1 ? 'item listed' : 'items listed'}
+      </Text>
+      {/* `marginTop: 'auto'` on the wrapper, not on the dots: on a wide layout
+          this card is stretched to the anchor card's height, and without the
+          push the bottom third of it is dead air. */}
+      <View style={styles.stockFoot}>
+        {showDots ? (
+          <View style={styles.dots} testID="storefront-stock-dots">
+            {products.map((p) => (
+              <View
+                key={p.id}
+                style={[
+                  styles.dot,
+                  p.stock > 0
+                    ? { backgroundColor: colors.accent }
+                    : { borderColor: colors.stockOut, borderWidth: 1.5 },
+                ]}
+              />
+            ))}
+          </View>
+        ) : null}
+        <Text style={[styles.stockLine, { color: colors.muted }]}>
+          {inStock === total ? 'all in stock today' : `${inStock} of ${total} in stock`}
+        </Text>
+      </View>
+    </ShopCard>
+  );
+}
+
+// A pill. The app's black "Show my tasks · 2" button, in the shop's own ink.
+export function ShopPill({
+  colors, label, onPress, tone = 'ink', style, testID, accessibilityLabel,
+}: {
+  colors: PaletteColors;
+  label: string;
+  onPress: () => void;
+  // 'wa' takes WhatsApp's own fixed green -- a recognised affordance, never
+  // the shop's palette. 'onDark' is the ground-filled pill for the anchor card.
+  tone?: 'ink' | 'wa' | 'onDark' | 'quiet';
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+  accessibilityLabel?: string;
+}) {
+  const fills: Record<string, { background: string; text: string }> = {
+    ink: { background: colors.ink, text: colors.ground },
+    wa: { background: WHATSAPP_BUTTON_GREEN, text: WHATSAPP_INK },
+    onDark: { background: colors.ground, text: colors.ink },
+    quiet: { background: colors.soft, text: colors.ink },
+  };
+  const fill = fills[tone];
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      onPress={onPress}
+      style={pressable([styles.pill, { backgroundColor: fill.background }, style])}
+    >
+      <Text style={[styles.pillText, { color: fill.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// The three cards, in the arrangement the width can carry. `wide` rather than
+// a raw pixel test so the caller decides once, from the same measurement it
+// already takes to pick a column count.
+export function ShopHeader({
+  storefront, products, areas, colors, wide, itemCount, onOpenCart,
+}: {
+  storefront: PublicStorefront;
+  products: StorefrontProduct[];
+  areas: PublicDeliveryArea[];
+  colors: PaletteColors;
+  wide: boolean;
+  itemCount: number;
+  onOpenCart: () => void;
+}) {
+  const cartLabel = itemCount > 0 ? `Cart · ${itemCount}` : 'Cart';
+  const cartA11y = itemCount > 0 ? `Open cart, ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'Open cart';
+
+  if (wide) {
+    return (
+      <View style={styles.header} testID="storefront-header">
+        <ShopAnchor storefront={storefront} colors={colors} wide style={styles.anchorWide}>
+          {storefront.whatsappE164 ? <WhatsAppButton storefront={storefront} /> : null}
+        </ShopAnchor>
+        <CollectingCard storefront={storefront} areas={areas} colors={colors} style={styles.collectingWide}>
+          <ShopPill
+            colors={colors}
+            label={cartLabel}
+            accessibilityLabel={cartA11y}
+            onPress={onOpenCart}
+            testID="storefront-cart-button"
+            style={styles.blockPill}
+          />
+        </CollectingCard>
+        <StockCard products={products} colors={colors} style={styles.stockWide} />
+      </View>
+    );
+  }
+
+  // Narrow: the buttons lead, then the anchor full width, then the two smaller
+  // cards side by side. The WhatsApp button is in the row and NOT in the card,
+  // for the reason theme-window.tsx has always given about the wordmark -- the
+  // same control twice on a 390px screen is one too many.
+  return (
+    <View style={styles.headerNarrow} testID="storefront-header">
+      <View style={styles.buttonRow}>
+        <WhatsAppButton storefront={storefront} />
+        <ShopPill
+          colors={colors}
+          label={cartLabel}
+          accessibilityLabel={cartA11y}
+          onPress={onOpenCart}
+          testID="storefront-cart-button"
+          style={styles.tightPill}
+        />
+      </View>
+      <ShopAnchor storefront={storefront} colors={colors} />
+      <View style={styles.headerPair}>
+        <CollectingCard storefront={storefront} areas={areas} colors={colors} style={styles.pairCard} stacked />
+        <StockCard products={products} colors={colors} style={styles.pairCard} />
+      </View>
+    </View>
   );
 }
 
@@ -332,6 +698,37 @@ export function gridColumnsForWidth(width: number): number {
   if (width < 640) return 2;
   if (width < 1024) return 3;
   return 4;
+}
+
+// Where the three shop cards stop stacking and sit in a row. Deliberately its
+// own number rather than reusing a grid breakpoint: the header is three cards
+// of very different content widths, and the point it stops working is not the
+// point a product grid gains a column.
+export const WIDE_SHOP_WIDTH = 900;
+
+export function isWideShop(width: number): boolean {
+  return width >= WIDE_SHOP_WIDTH;
+}
+
+// A SHORT FINAL ROW MUST LEAVE A GAP, NOT INFLATE.
+//
+// This is the defect that produced the screenshot this redesign came from.
+// FlatList lays a short final row out with only the cells it has, and the cell
+// style is `flex: 1` -- so three products at four columns became three cells
+// each a THIRD of the width rather than a quarter. With `aspectRatio: 1` on the
+// image that made a 480px-tall tile whose name and price fell below the fold,
+// and it read as a layout accident rather than as a shop with three things in
+// it.
+//
+// Padding the data is the fix rather than sizing the cell by percentage:
+// percentages have to account for the inter-column gap, which changes with the
+// column count, and getting that arithmetic subtly wrong is how a grid ends up
+// one pixel short and wraps. A placeholder cell is exact at every width.
+export function padFinalRow<T>(items: T[], numColumns: number): (T | null)[] {
+  if (numColumns <= 1 || items.length === 0) return items;
+  const remainder = items.length % numColumns;
+  if (remainder === 0) return items;
+  return [...items, ...Array<null>(numColumns - remainder).fill(null)];
 }
 
 // The cart lives in `storefront-cart.ts`, keyed by shop slug, and every
@@ -671,7 +1068,76 @@ export function ConfirmationScreen({
   );
 }
 
+// The hairline above the anchor card's button, and the only rule drawn on that
+// card. Fixed white-at-low-alpha rather than a palette value for the same
+// reason ON_SCRIM_INK is fixed: it is drawn on `ink`, which is a near-black on
+// every palette, and a derived token would be six values doing one job.
+const ON_INK_HAIRLINE = 'rgba(255,255,255,0.14)';
+
 const styles = StyleSheet.create({
+  // ── bento surfaces ──
+  card: { borderRadius: RADIUS.card, padding: SPACE.card },
+  // `overflow: hidden` so a hero photograph is clipped to the card's own
+  // radius rather than squaring off its corners.
+  anchor: { overflow: 'hidden' },
+  anchorPhoto: { ...StyleSheet.absoluteFill },
+  // A FLAT scrim covering the whole card, not a bottom-weighted gradient: the
+  // type flows from the TOP of this card, so the area needing darkening is all
+  // of it. What 0.55 does and does not buy is unchanged from the panel this
+  // replaces -- comfortable against a mid or dark photo, not sufficient against
+  // a near-white one, which is what the text shadow below carries.
+  anchorScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
+  onScrimText: { textShadowColor: 'rgba(0,0,0,0.65)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  eyebrow: {
+    fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
+  },
+  wordmark: {
+    fontFamily: DISPLAY_FONT, fontSize: 30, fontWeight: '700',
+    letterSpacing: LETTER.displayLoud, lineHeight: 34, marginTop: 12,
+  },
+  wordmarkWide: { fontSize: 40, lineHeight: 44 },
+  place: {
+    fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta,
+    textTransform: 'uppercase', marginTop: 10,
+  },
+  anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
+  anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
+  anchorFoot: {
+    marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: ON_INK_HAIRLINE,
+    flexDirection: 'row', gap: 8, flexWrap: 'wrap',
+  },
+  factList: { marginTop: 14 },
+  fact: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderBottomWidth: 1 },
+  factStacked: { flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
+  factLabel: { fontSize: 12.5, fontWeight: '600' },
+  factValue: { fontSize: 12.5, fontWeight: '800', textAlign: 'right', flexShrink: 1 },
+  factValueStacked: { textAlign: 'left' },
+  cardFoot: { marginTop: 14 },
+  stockCard: { flexDirection: 'column' },
+  stockFoot: { marginTop: 'auto' },
+  value: { fontSize: TYPE.value, fontWeight: '800', letterSpacing: -1.1, marginTop: 12, ...TABULAR },
+  valueLabel: { fontSize: 12.5, marginTop: 2 },
+  dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 14 },
+  dot: { width: 9, height: 9, borderRadius: RADIUS.pill },
+  stockLine: { fontSize: 11.5, marginTop: 10 },
+  pill: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 12, alignItems: 'center' },
+  pillText: { fontSize: 13, fontWeight: '800' },
+  blockPill: { alignSelf: 'stretch' },
+  tightPill: { paddingHorizontal: 14, paddingVertical: 8 },
+  // `flexWrap` on BOTH arrangements, and asserted by
+  // storefront-theme-header-overflow.test.tsx: nothing in this row may run off
+  // the side of a screen. The three cards take `flex: n` (grow n, basis 0), so
+  // they have no hypothetical width of their own to overflow with and the wrap
+  // is a backstop rather than the mechanism.
+  header: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.cardGap, alignItems: 'stretch' },
+  anchorWide: { flex: 5 },
+  collectingWide: { flex: 4 },
+  stockWide: { flex: 3 },
+  headerNarrow: { flexWrap: 'wrap', gap: SPACE.cardGap },
+  buttonRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' },
+  headerPair: { flexDirection: 'row', gap: SPACE.cardGap, alignItems: 'stretch' },
+  pairCard: { flex: 1 },
+
   // Fixed green in every palette: a recognised affordance, not a brand colour.
   wa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   waText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },

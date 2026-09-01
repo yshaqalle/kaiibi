@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import {
-  CartButton, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  NoSearchResults, ProductActions, SearchField, WhatsAppButton, useCheckoutFlow, useStorefrontCart,
-  type ThemeProps,
+  CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
+  NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, isWideShop, useCheckoutFlow,
+  useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
-import { LETTER, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import { LETTER, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
@@ -38,6 +38,8 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
 }
 
 export function ThemeCounter({ storefront, products, colors, areas = [] }: ThemeProps) {
+  const { width } = useWindowDimensions();
+  const wide = isWideShop(width);
   // The cart is keyed by shop slug, not by theme (see theme-shared.tsx's
   // useStorefrontCart) -- a customer can still arrive here with items a
   // grid theme already put in it, or a shop can switch themes with a cart
@@ -93,18 +95,9 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
   }
 
   return (
-    <View style={{ backgroundColor: colors.ground, flex: 1 }}>
-      <View style={[styles.nav, { borderBottomColor: colors.ink }]} testID="storefront-header">
-        <View style={styles.nameBlock}>
-          <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName}</Text>
-          {storefront.city ? <Text style={[styles.sub, { color: colors.muted }]}>{storefront.city}</Text> : null}
-        </View>
-        <View style={styles.navActions}>
-          <WhatsAppButton storefront={storefront} />
-          <CartButton colors={colors} count={itemCount} onPress={() => setCartOpen(true)} />
-        </View>
-      </View>
-
+    // Page tone, not card tone -- see theme-market.tsx. The price list itself
+    // becomes a card floating on it below.
+    <View style={{ backgroundColor: colors.soft, flex: 1 }}>
       {/* A plain View never scrolls on native, and Expo Router's web reset sets
           `body { overflow: hidden }` -- either way, a catalogue longer than one
           viewport is unreachable without an explicit scroll container. This is
@@ -121,19 +114,30 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, itemCount > 0 && styles.scrollContentWithCheckoutBar]}
       >
-        {storefront.headline ? (
-          <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
-        ) : null}
-        {storefront.about ? <Text style={[styles.about, { color: colors.muted }]}>{storefront.about}</Text> : null}
+        <ShopHeader
+          storefront={storefront}
+          products={products}
+          areas={areas}
+          colors={colors}
+          wide={wide}
+          itemCount={itemCount}
+          onOpenCart={() => setCartOpen(true)}
+        />
 
         {shown.length === 0 && query.trim() ? (
           <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
         ) : shown.length === 0 ? (
           <EmptyState colors={colors} storefront={storefront} />
         ) : (
-          groupByCategory(shown).map(([category, items]) => (
+          // ONE card holding the whole list, not a card per category. A price
+          // list is read DOWN, which is the case the bento skill says takes a
+          // single full-width card rather than a grid -- a card per section
+          // would put a 26px gap between rows a customer is scanning as one
+          // column of prices.
+          <ShopCard colors={colors} style={styles.listCard}>
+            {groupByCategory(shown).map(([category, items]) => (
             <View key={category} style={styles.section}>
-              <Text style={[styles.sectionHead, { color: colors.accent }]}>{category.toUpperCase()}</Text>
+              <Text style={[styles.sectionHead, { color: colors.muted }]}>{category.toUpperCase()}</Text>
               {items.map((p) => (
                 <View key={p.id} style={[styles.row, { borderBottomColor: colors.soft }]}>
                   <View style={styles.rowName}>
@@ -170,7 +174,8 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
                 </View>
               ))}
             </View>
-          ))
+            ))}
+          </ShopCard>
         )}
       </ScrollView>
 
@@ -192,23 +197,19 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
 }
 
 const styles = StyleSheet.create({
-  // See theme-market.tsx's identical comment: `flexWrap` lets WhatsApp +
-  // Cart drop to their own line instead of overrunning a phone screen,
-  // and `marginLeft: 'auto'` on `navActions` keeps that pair right-aligned
-  // either way. `borderBottomWidth` is Counter's own treatment (Market and
-  // Window have no border here) and stays untouched by this fix.
-  nav: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', padding: SPACE.page, gap: SPACE.gap, borderBottomWidth: 2 },
-  nameBlock: { flexShrink: 1 },
-  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 24 },
+  // The reading column -- see theme-market.tsx's identical `scroller`.
+  scroll: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
+  scrollContent: { padding: SPACE.page, paddingBottom: 24 },
+  // Less vertical padding than a normal card: the first thing inside is a
+  // section eyebrow that brings its own leading, and the rows below it are
+  // meant to run close together.
+  listCard: { marginTop: SPACE.cardGap, paddingVertical: 8 },
   scrollContentWithCheckoutBar: { paddingBottom: 24 + CHECKOUT_BAR_CLEARANCE },
-  shopName: { fontSize: TYPE.name, fontWeight: '800', letterSpacing: 0.4 },
-  sub: { fontSize: TYPE.nameSub },
-  headline: { fontSize: TYPE.headline, fontWeight: '700', paddingHorizontal: SPACE.page, paddingTop: 12 },
-  about: { fontSize: TYPE.body, paddingHorizontal: SPACE.page, paddingTop: 5 },
-  section: { paddingHorizontal: SPACE.page, paddingTop: SPACE.page },
-  sectionHead: { fontSize: TYPE.meta, fontWeight: '800', letterSpacing: LETTER.metaWide },
+  // No horizontal padding of its own now that this sits INSIDE a card that
+  // already has some -- it used to be the page gutter, and keeping it here
+  // would indent every price twice.
+  section: { paddingTop: SPACE.page },
+  sectionHead: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.metaWide },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1 },
   rowName: { flex: 1 },
   name: { fontSize: TYPE.bodyDense, fontWeight: '600' },

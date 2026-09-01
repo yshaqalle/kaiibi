@@ -1,0 +1,672 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — Bento</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:76ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:58px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:76ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;word-break:break-word;}
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:82ch;}
+  .call b{color:var(--ink);}
+  .call.okT{border-left-color:#008340;}
+
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:620px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+     background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+
+  /* ── frame chrome ───────────────────────────────────────────────────────── */
+  .fw{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;}
+  .caption{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+     color:var(--mut);margin:0 0 9px;}
+  .caption .win{font-weight:600;letter-spacing:0;text-transform:none;color:var(--mut);opacity:.8;}
+  .scaler{position:relative;width:1000px;overflow:hidden;border:1px solid var(--ln);
+     border-radius:14px;}
+  .scaled{width:1504px;transform:scale(.66489);transform-origin:top left;}
+  .phonewrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;}
+  .phone{width:390px;border:1px solid var(--ln);border-radius:22px;overflow:hidden;flex:0 0 auto;}
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     THE SHOP, IN BENTO.
+
+     Bento is a SURFACE system, not a colour scheme: a page tone, borderless
+     26px cards floating on it, one inverted anchor card, an eyebrow/value type
+     ramp. Every one of those survives being recoloured — so the storefront can
+     take the whole system and still be the shop's own palette.
+
+     Three roles out of two existing tokens, in exactly bento's own proportion
+     (page #f4f4f5 to surface #ffffff is a 3% step):
+       page = the palette's `soft`     card = the palette's `ground`
+       tile inside a card = `soft` again, which reads as the page showing through
+       anchor card = the palette's `ink`, type in `ground`
+     Shown on Clay. Nothing here is a new stored value.
+     ═════════════════════════════════════════════════════════════════════════ */
+  .shop{
+    --ground:#fdfaf7; --soft:#f5ede6; --paper:#241a14; --accent:#98452a;
+    --muted:#6e6661; --wa:#1f7a4d; --out:#8a5320;
+    /* the mirror of mutedInk(): ground blended 34% toward ink, for type on the
+       anchor card. Derived the same way, never a literal. */
+    --onDarkMuted:#b3aeaa;
+    --hair:rgba(36,26,20,.09); --hairDark:rgba(253,250,247,.14);
+    --serif:Georgia,"Times New Roman",serif;
+    background:var(--soft);color:var(--paper);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .shop *{box-sizing:border-box;}
+  .shop .tab{font-variant-numeric:tabular-nums;}
+
+  /* page + grid */
+  .b-page{padding:22px 24px 26px;}
+  .b-col{max-width:1080px;margin:0 auto;}
+  .b-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;}
+  .sp5{grid-column:span 5;} .sp4{grid-column:span 4;} .sp3{grid-column:span 3;}
+  .sp12{grid-column:span 12;}
+
+  /* the card — borderless, 26px, no shadow. Separation is the page tone. */
+  .b-card{background:var(--ground);border-radius:26px;padding:22px;}
+  .b-card.dark{background:var(--paper);color:var(--ground);}
+
+  /* the type ramp, lifted from the app */
+  .b-eye{font-size:10.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
+     color:var(--muted);}
+  .dark .b-eye{color:var(--onDarkMuted);}
+  .b-val{font-size:34px;font-weight:800;letter-spacing:-1.1px;line-height:1.05;}
+  .b-lab{font-size:12.5px;color:var(--muted);}
+  .dark .b-lab{color:var(--onDarkMuted);}
+
+  /* the glyph chip the app puts in a card corner */
+  .b-chip{width:30px;height:30px;border-radius:999px;background:var(--soft);
+     display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted);}
+  .b-cardhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+
+  /* pills */
+  .b-pill{border-radius:999px;padding:12px 18px;font-size:13px;font-weight:800;text-align:center;
+     display:inline-block;}
+  .b-pill.ink{background:var(--paper);color:var(--ground);}
+  .b-pill.onDark{background:var(--ground);color:var(--paper);}
+  .b-pill.wa{background:var(--wa);color:#fff;}
+  .b-pill.quiet{background:var(--soft);color:var(--paper);}
+
+  /* ── the anchor card: the shop itself ── */
+  .b-word{font-family:var(--serif);font-size:42px;font-weight:700;letter-spacing:-1.2px;
+     line-height:1.02;}
+  .b-place{font-size:10.5px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;
+     color:var(--onDarkMuted);margin-top:11px;}
+  .b-head{font-size:17px;font-weight:750;letter-spacing:-.3px;line-height:1.35;margin-top:18px;}
+  .b-about{font-size:13px;line-height:1.55;color:var(--onDarkMuted);margin-top:7px;}
+  .b-anchorfoot{border-top:1px solid var(--hairDark);margin-top:20px;padding-top:16px;
+     display:flex;gap:8px;}
+
+  /* ── the facts card ── */
+  .b-row{display:flex;justify-content:space-between;gap:14px;padding:9px 0;
+     border-bottom:1px solid var(--hair);font-size:12.5px;}
+  .b-row:last-of-type{border-bottom:0;}
+  .b-row .k{color:var(--muted);font-weight:600;}
+  .b-row .v{font-weight:800;text-align:right;}
+
+  /* ── the stock card: a dot per product, the app's cost-set card ──
+     Column-flex so the dot row and its caption sit against the bottom edge
+     rather than leaving the card's stretched height as dead air. */
+  .b-stock{display:flex;flex-direction:column;}
+  .b-stock .b-dots{margin-top:auto;}
+  .b-dots{display:flex;flex-wrap:wrap;gap:5px;margin-top:14px;}
+  .b-dot{width:9px;height:9px;border-radius:999px;background:var(--accent);}
+  .b-dot.off{background:transparent;box-shadow:inset 0 0 0 1.5px var(--out);}
+
+  /* ── section head ── */
+  .b-sec{display:flex;align-items:baseline;justify-content:space-between;padding:26px 2px 12px;}
+  .b-sec .cnt{font-size:11.5px;font-weight:700;color:var(--muted);}
+
+  /* ── category pills ── */
+  .b-cats{display:flex;gap:8px;flex-wrap:wrap;}
+  .b-catpill{background:var(--ground);border-radius:999px;padding:10px 16px;font-size:12.5px;
+     font-weight:700;}
+  .b-catpill.on{background:var(--paper);color:var(--ground);}
+  .b-catpill .n{font-weight:800;}
+  .b-catpill .c{color:var(--muted);font-weight:700;margin-left:6px;}
+  .b-catpill.on .c{color:var(--onDarkMuted);}
+
+  /* ── the product card ── */
+  .b-pgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;}
+  .b-prod{background:var(--ground);border-radius:26px;padding:14px;display:flex;flex-direction:column;}
+  .b-box{aspect-ratio:1;border-radius:18px;overflow:hidden;position:relative;background:var(--soft);}
+  .b-shot{position:absolute;inset:0;}
+  /* the no-photo plate: the shop's own label board, not a missing photograph */
+  .b-plate{height:100%;display:flex;flex-direction:column;padding:14px;}
+  .b-plate .pk{font-size:9.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;
+     color:var(--muted);padding-bottom:9px;border-bottom:1px solid var(--hair);}
+  .b-plate .pn{font-family:var(--serif);font-size:21px;font-weight:700;line-height:1.18;
+     letter-spacing:-.4px;flex:1;display:flex;align-items:center;}
+  .b-pfoot{padding:13px 4px 2px;}
+  /* reserved on every card, filled only when there is a photo — otherwise no two
+     prices in a row sit on the same baseline. An empty View in RN, not :has(). */
+  .b-pn{font-size:13px;font-weight:700;line-height:1.3;min-height:34px;}
+  .b-pfoot:not(:has(.b-pn))::before{content:'';display:block;min-height:34px;}
+  .b-pp{font-size:23px;font-weight:800;letter-spacing:-.8px;margin-top:2px;}
+  .b-ps{font-size:11.5px;font-weight:700;color:var(--muted);margin-top:3px;}
+  .b-ps.out{color:var(--out);}
+  .b-pacts{display:flex;gap:7px;margin-top:13px;}
+  .b-pacts .b-pill{flex:1;padding:9px;font-size:12.5px;}
+
+  .b-foot{display:flex;justify-content:space-between;padding:26px 4px 4px;font-size:11.5px;
+     color:var(--muted);font-weight:600;}
+
+  /* photographs, stood in for by gradients */
+  .sh1{background:linear-gradient(168deg,#b9c6cf 0%,#8fa2ae 34%,#6f8577 60%,#c9bb9a 100%);}
+  .sh2{background:linear-gradient(160deg,#d9c7a6,#a8834f);}
+  .sh3{background:linear-gradient(160deg,#c3ccc0,#7b8a72);}
+  .sh4{background:linear-gradient(160deg,#cbb9b0,#8a6152);}
+  .sh5{background:linear-gradient(160deg,#c9cdd6,#767f92);}
+  .sh6{background:linear-gradient(160deg,#dcccb2,#b19467);}
+
+  /* ── phone ── */
+  .m-page{padding:14px 14px 18px;}
+  .m-top{display:flex;gap:8px;justify-content:flex-end;padding-bottom:12px;}
+  .m-top .b-pill{padding:9px 14px;font-size:12px;}
+  .m-stack{display:flex;flex-direction:column;gap:12px;}
+  .m-word{font-size:32px;letter-spacing:-.9px;}
+  .m-two{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  /* The ramp steps DOWN on a phone rather than being a second design: the
+     value size that anchors a 1,080px card would cost a browsing screen half
+     its rows at 390px. Price 20 not 23, name slot 30 not 34, tighter pills. */
+  .m-pgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .m-pgrid .b-pn{min-height:30px;font-size:12.5px;}
+  .m-pgrid .b-pfoot{padding:11px 3px 2px;}
+  .m-pgrid .b-pfoot:not(:has(.b-pn))::before{min-height:30px;}
+  .m-pgrid .b-pp{font-size:20px;letter-spacing:-.6px;}
+  .m-pgrid .b-ps{font-size:11px;}
+  .m-pgrid .b-pacts{margin-top:10px;}
+  .m-pgrid .b-pacts .b-pill{padding:8px;font-size:12px;}
+  .m-plate .pn{font-size:17px;}
+  .m-bar{background:var(--paper);color:var(--ground);border-radius:999px;padding:15px;
+     text-align:center;font-size:14px;font-weight:800;margin-top:14px;}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Storefront · design</p>
+  <h1>The app has a design system. The storefront never got it.</h1>
+  <p class="lede">
+    Dashboard and Accounting are Bento: a page tone, borderless 26px cards floating on it, one
+    inverted anchor card, an eyebrow-and-value type ramp. The storefront predates that and is still
+    a phone layout stretched across a laptop. This redraws it in Bento — the same surfaces and the
+    same type ramp the shopkeeper already uses, recoloured into their own palette.
+  </p>
+
+  <hr class="rule" />
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>What carries over, and how</h2>
+    <p class="h2sub">
+      Bento is a surface system, not a colour scheme — which is exactly why it survives being
+      recoloured six ways. Every row below is an existing token or an existing component role.
+    </p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th style="width:27%">In the app</th><th style="width:33%">On the storefront</th><th>Where it comes from</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Grey page, white cards</b><br><code>bentoPage</code> / <code>bentoSurface</code></td>
+            <td>The palette's <code>soft</code> is the page; <code>ground</code> is the card. A 3% step —
+                the same distance <code>#f4f4f5</code> sits from <code>#ffffff</code>.</td>
+            <td>Both already in <code>storefront-catalog.ts</code>. No new stored value.</td>
+          </tr>
+          <tr>
+            <td><b>The one dark card</b><br>Takings, on Dashboard</td>
+            <td><b>The shop itself.</b> Wordmark, place, headline, and the WhatsApp button, on
+                <code>ink</code> with <code>ground</code> type. The page finally has a centre of gravity
+                instead of a field of cream.</td>
+            <td>Contrast is already proven: every palette's <code>ink</code> clears 7:1 on its
+                <code>ground</code>, and inverting a pair does not change the ratio.</td>
+          </tr>
+          <tr>
+            <td><b>Eyebrow / value ramp</b><br>10.5px·800·tracked, then 34px·800·−1.1</td>
+            <td>Section heads and the price. A price is the number the customer came for — it should be
+                set like the app sets a figure.</td>
+            <td>Replaces four ad-hoc sizes in <code>scale.ts</code>.</td>
+          </tr>
+          <tr>
+            <td><b>Borderless, radius 26</b></td>
+            <td>Every card and product tile. Product photos inset at 18.</td>
+            <td><code>BENTO_RADIUS</code>. Drops the 1px tile border the grid has today.</td>
+          </tr>
+          <tr>
+            <td><b>The dot row</b><br>“7/7 products sold have a cost set”</td>
+            <td>A dot per product, hollow when it is out of stock. Honest and legible at three items
+                and at thirty.</td>
+            <td>Same card shape, new content. Shape carries the state, colour is the second signal —
+                the rule <code>storefront-catalog.ts</code> already sets.</td>
+          </tr>
+          <tr>
+            <td><b>Black pill button</b><br>“Show my tasks · 2”</td>
+            <td>Cart and Checkout. WhatsApp keeps its fixed green — a recognised affordance, never a
+                brand colour.</td>
+            <td><code>WHATSAPP_BUTTON_GREEN</code>, unchanged.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="call">
+      <b>What Bento does not bring.</b> No <code>BentoGrid</code> import — that component pins
+      <code>Colors.light</code>, and this page renders in one of six palettes for a stranger who has
+      no account. The storefront takes the <i>system</i>: the surfaces, the radius, the ramp, the
+      anchor card. It keeps its own tokens. Same reason <code>StatTile</code> and <code>Badge</code>
+      cannot be dropped on it as-is — the skill already flags that they hardcode a palette.
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The same shop, the same three products</h2>
+    <p class="h2sub">
+      Nothing added to the data: <code>yusefshop</code>, Jijia in Hargeisa, headline <code>hi</code>,
+      about <code>gggg</code>, three products, one photograph, delivery off.
+    </p>
+
+    <p class="caption">Bento <span class="win">· 1,504px window, shown at 66%</span></p>
+    <div class="fw">
+      <div class="scaler" style="height:578px">
+        <div class="scaled shop">
+          <div class="b-page"><div class="b-col">
+
+            <div class="b-grid">
+              <div class="sp5 b-card dark">
+                <div class="b-eye">The shop</div>
+                <div class="b-word" style="margin-top:14px">yusefshop</div>
+                <div class="b-place">Jijia · Hargeisa</div>
+                <div class="b-head">hi</div>
+                <div class="b-about">gggg</div>
+                <div class="b-anchorfoot">
+                  <span class="b-pill wa">Message on WhatsApp</span>
+                </div>
+              </div>
+
+              <div class="sp4 b-card">
+                <div class="b-cardhead">
+                  <span class="b-eye">Collecting</span>
+                  <span class="b-chip">◎</span>
+                </div>
+                <div class="b-row"><span class="k">Collect from</span><span class="v">Jijia, Hargeisa</span></div>
+                <div class="b-row"><span class="k">Delivery</span><span class="v">Collection only</span></div>
+                <div class="b-row"><span class="k">Pay</span><span class="v">On collection</span></div>
+                <div style="margin-top:16px"><span class="b-pill ink" style="display:block">Cart</span></div>
+              </div>
+
+              <div class="sp3 b-card b-stock">
+                <div class="b-cardhead">
+                  <span class="b-eye">In the shop</span>
+                  <span class="b-chip">▦</span>
+                </div>
+                <div class="b-val tab">3</div>
+                <div class="b-lab" style="margin-top:4px">items listed</div>
+                <div class="b-dots">
+                  <span class="b-dot"></span><span class="b-dot"></span><span class="b-dot"></span>
+                </div>
+                <div class="b-lab" style="margin-top:10px;font-size:11.5px">all in stock today</div>
+              </div>
+            </div>
+
+            <div class="b-sec"><span class="b-eye">What&rsquo;s in today</span><span class="cnt tab">3 items</span></div>
+
+            <div class="b-pgrid">
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-plate">
+                  <span class="pk">yusefshop</span><span class="pn">test</span></div></div>
+                <div class="b-pfoot">
+                  <div class="b-pp tab">$6.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div>
+                </div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-shot sh1"></div></div>
+                <div class="b-pfoot">
+                  <div class="b-pn">Gg</div>
+                  <div class="b-pp tab">$12.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div>
+                </div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-plate">
+                  <span class="pk">yusefshop</span><span class="pn">item2</span></div></div>
+                <div class="b-pfoot">
+                  <div class="b-pp tab">$4.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="b-foot"><span>yusefshop · Jijia, Hargeisa</span><span>Powered by kaiibi</span></div>
+
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="call okT">
+      <b>Three products now fill the top of the page without being inflated to fill it.</b> The
+      identity, the collecting terms and the stock count are three cards that are genuinely worth
+      that much room — so the goods can be goods-sized underneath, and a short row leaves a gap
+      instead of stretching to 480px tiles.
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>A shop that has filled itself in</h2>
+    <p class="h2sub">
+      Same cards, same column: eight products, four categories, most with photographs, delivery on,
+      one line out of stock.
+    </p>
+
+    <p class="caption">Bento, fuller shop <span class="win">· 1,504px window, shown at 66%</span></p>
+    <div class="fw">
+      <div class="scaler" style="height:959px">
+        <div class="scaled shop">
+          <div class="b-page"><div class="b-col">
+
+            <div class="b-grid">
+              <div class="sp5 b-card dark">
+                <div class="b-eye">The shop</div>
+                <div class="b-word" style="margin-top:14px">Xamdi Electronics</div>
+                <div class="b-place">Jigjiga Yar · Hargeisa</div>
+                <div class="b-head">Phones, panels and the cable you actually needed.</div>
+                <div class="b-about">Open since 2016, two doors down from the main market. If it is not
+                  on the page, ask — most of it is behind the counter.</div>
+                <div class="b-anchorfoot">
+                  <span class="b-pill wa">Message on WhatsApp</span>
+                </div>
+              </div>
+
+              <div class="sp4 b-card">
+                <div class="b-cardhead">
+                  <span class="b-eye">Collecting</span>
+                  <span class="b-chip">◎</span>
+                </div>
+                <div class="b-row"><span class="k">Collect from</span><span class="v">Jigjiga Yar</span></div>
+                <div class="b-row"><span class="k">Delivery</span><span class="v tab">From $2.00</span></div>
+                <div class="b-row"><span class="k">Pay</span><span class="v">On collection</span></div>
+                <div style="margin-top:16px"><span class="b-pill ink" style="display:block">Cart · 2</span></div>
+              </div>
+
+              <div class="sp3 b-card b-stock">
+                <div class="b-cardhead">
+                  <span class="b-eye">In the shop</span>
+                  <span class="b-chip">▦</span>
+                </div>
+                <div class="b-val tab">8</div>
+                <div class="b-lab" style="margin-top:4px">items listed</div>
+                <div class="b-dots">
+                  <span class="b-dot"></span><span class="b-dot"></span><span class="b-dot"></span>
+                  <span class="b-dot"></span><span class="b-dot off"></span><span class="b-dot"></span>
+                  <span class="b-dot"></span><span class="b-dot"></span>
+                </div>
+                <div class="b-lab" style="margin-top:10px;font-size:11.5px">7 of 8 in stock</div>
+              </div>
+            </div>
+
+            <div class="b-sec"><span class="b-eye">Shop by category</span><span class="cnt tab">4 categories</span></div>
+            <div class="b-cats">
+              <span class="b-catpill on"><span class="n">Everything</span><span class="c tab">8</span></span>
+              <span class="b-catpill"><span class="n">Solar</span><span class="c tab">3</span></span>
+              <span class="b-catpill"><span class="n">Cables</span><span class="c tab">2</span></span>
+              <span class="b-catpill"><span class="n">Lighting</span><span class="c tab">2</span></span>
+              <span class="b-catpill"><span class="n">Batteries</span><span class="c tab">1</span></span>
+            </div>
+
+            <div class="b-sec"><span class="b-eye">What&rsquo;s in today</span><span class="cnt tab">8 items</span></div>
+            <div class="b-pgrid">
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-shot sh2"></div></div>
+                <div class="b-pfoot"><div class="b-pn">100W solar panel</div><div class="b-pp tab">$88.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-plate">
+                  <span class="pk">Xamdi Electronics</span><span class="pn">USB-C cable, 2m</span></div></div>
+                <div class="b-pfoot"><div class="b-pp tab">$4.50</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-shot sh5"></div></div>
+                <div class="b-pfoot"><div class="b-pn">Charge controller, 20A</div><div class="b-pp tab">$26.00</div>
+                  <div class="b-ps out">○ Out of stock</div>
+                  <div class="b-pacts"><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-shot sh3"></div></div>
+                <div class="b-pfoot"><div class="b-pn">LED bulb, 9W</div><div class="b-pp tab">$3.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-plate">
+                  <span class="pk">Xamdi Electronics</span><span class="pn">Extension board, 4-way</span></div></div>
+                <div class="b-pfoot"><div class="b-pp tab">$9.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-shot sh4"></div></div>
+                <div class="b-pfoot"><div class="b-pn">Deep-cycle battery, 100Ah</div><div class="b-pp tab">$140.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-shot sh6"></div></div>
+                <div class="b-pfoot"><div class="b-pn">Inverter, 1000W</div><div class="b-pp tab">$95.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="sp3 b-prod">
+                <div class="b-box"><div class="b-plate">
+                  <span class="pk">Xamdi Electronics</span><span class="pn">Torch, rechargeable</span></div></div>
+                <div class="b-pfoot"><div class="b-pp tab">$7.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+            </div>
+
+            <div class="b-foot"><span>Xamdi Electronics · Jigjiga Yar, Hargeisa</span><span>Powered by kaiibi</span></div>
+
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Phone</h2>
+    <p class="h2sub">
+      390px, true size. The three cards stack, the fact card and the stock card pair up, the grid
+      stays at two. Same cards, same ramp — the phone is not a different design.
+    </p>
+
+    <div class="phonewrap">
+      <div>
+        <p class="caption">Bento <span class="win">· 390px, true size</span></p>
+        <div class="phone shop">
+          <div class="m-page">
+            <div class="m-top">
+              <span class="b-pill wa">Message on WhatsApp</span>
+              <span class="b-pill ink">Cart</span>
+            </div>
+
+            <div class="m-stack">
+              <div class="b-card dark">
+                <div class="b-eye">The shop</div>
+                <div class="b-word m-word" style="margin-top:12px">yusefshop</div>
+                <div class="b-place">Jijia · Hargeisa</div>
+                <div class="b-head">hi</div>
+                <div class="b-about">gggg</div>
+              </div>
+
+              <div class="m-two">
+                <div class="b-card" style="padding:18px">
+                  <div class="b-eye">Collecting</div>
+                  <div style="font-size:14px;font-weight:800;margin-top:10px;line-height:1.3">Jijia,<br>Hargeisa</div>
+                  <div class="b-lab" style="margin-top:8px;font-size:11.5px">Collection only ·<br>pay on collection</div>
+                </div>
+                <div class="b-card" style="padding:18px">
+                  <div class="b-eye">In the shop</div>
+                  <div class="b-val tab" style="font-size:30px;margin-top:8px">3</div>
+                  <div class="b-lab" style="font-size:11.5px">items listed</div>
+                  <div class="b-dots">
+                    <span class="b-dot"></span><span class="b-dot"></span><span class="b-dot"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="b-sec" style="padding:22px 2px 10px">
+              <span class="b-eye">What&rsquo;s in today</span><span class="cnt tab">3</span>
+            </div>
+
+            <div class="m-pgrid">
+              <div class="b-prod" style="padding:12px">
+                <div class="b-box"><div class="b-plate m-plate" style="padding:12px">
+                  <span class="pk">yusefshop</span><span class="pn">test</span></div></div>
+                <div class="b-pfoot"><div class="b-pp tab">$6.00</div><div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="b-prod" style="padding:12px">
+                <div class="b-box"><div class="b-shot sh1"></div></div>
+                <div class="b-pfoot"><div class="b-pn">Gg</div><div class="b-pp tab">$12.00</div>
+                  <div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+              <div class="b-prod" style="padding:12px">
+                <div class="b-box"><div class="b-plate m-plate" style="padding:12px">
+                  <span class="pk">yusefshop</span><span class="pn">item2</span></div></div>
+                <div class="b-pfoot"><div class="b-pp tab">$4.00</div><div class="b-ps">In stock</div>
+                  <div class="b-pacts"><span class="b-pill ink">Add</span><span class="b-pill wa">Ask</span></div></div>
+              </div>
+            </div>
+
+            <div class="m-bar tab">Checkout · $18.00</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:320px">
+        <p class="caption">Card by card</p>
+        <div class="tw">
+          <table style="min-width:0">
+            <tbody>
+              <tr><td style="width:32%"><b>The shop</b></td><td>Dark, full width. Wordmark, place, headline, about. On a phone the WhatsApp button moves up to the button row, where it already lives — not repeated in the card.</td></tr>
+              <tr><td><b>Collecting</b></td><td>Half width. The three lines a customer asks before they order.</td></tr>
+              <tr><td><b>In the shop</b></td><td>Half width. Count, then a dot per product. Reads at a glance whether the shop is stocked.</td></tr>
+              <tr><td><b>Products</b></td><td>Two columns, unchanged from today's breakpoints. Only the card styling changes.</td></tr>
+              <tr><td><b>Checkout bar</b></td><td>The ink pill, still absolute, still gone at an empty cart.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:16px">
+          A hero photograph, when the shop has uploaded one, becomes the dark card's background with
+          the scrim already in <code>theme-window.tsx</code> — the type is already white on it, so that
+          branch needs no new colour and no new rule.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>What this costs in code</h2>
+    <p class="h2sub">
+      No migration, no new column, no new dependency, no change to the palette set or the contrast
+      tests. One derived token, and it is derived the way <code>mutedInk</code> already is.
+    </p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th style="width:33%">File</th><th>Change</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>storefront-catalog.ts</code></td>
+            <td>Add <code>onDarkMuted</code> — <code>ground</code> blended 34% toward <code>ink</code>,
+                the mirror of <code>mutedInk</code>. Contrast-tested alongside it, against
+                <code>ink</code> rather than <code>ground</code>.</td>
+          </tr>
+          <tr>
+            <td><code>scale.ts</code></td>
+            <td>Replace the ad-hoc sizes with the Bento ramp: eyebrow 10.5·800·+1, value 34·800·−1.1,
+                price 23·800·−0.8, body 13. Add <code>SHOP_MAX_WIDTH = 1080</code> and
+                <code>RADIUS = { card: 26, inset: 18, pill: 999 }</code>.</td>
+          </tr>
+          <tr>
+            <td><code>theme-shared.tsx</code></td>
+            <td>New <code>ShopPage</code> (page tone, 1,080 column) and <code>ShopCard</code>
+                (borderless, radius 26). New <code>ShopAnchor</code>, <code>CollectingCard</code> and
+                <code>StockCard</code>. Grid rule fixed so a short final row pads rather than flexes.</td>
+          </tr>
+          <tr>
+            <td><code>theme-window.tsx</code>, <code>theme-market.tsx</code>, <code>theme-counter.tsx</code></td>
+            <td>Each renders the three cards, then its own body. Window's hero photo becomes the
+                anchor card's background, scrim and <code>ON_SCRIM_INK</code> unchanged.</td>
+          </tr>
+          <tr>
+            <td><code>product-tile.tsx</code></td>
+            <td>Card at 26, photo inset at 18, price on the value ramp, reserved name slot,
+                <code>Add</code>/<code>Ask</code> as pills. Border removed.</td>
+          </tr>
+          <tr>
+            <td><code>category-band.tsx</code></td>
+            <td>Tiles become the pill row above. The four accent shades and the two-row cap go —
+                a pill row scrolls and needs neither.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="call">
+      <b>One judgement call worth naming.</b> The category band today is four photo-sized tiles in
+      shades of the accent; here it is a pill row. Pills are what the app uses for the same job (the
+      range and tab rows on Dashboard), they scroll rather than capping at four, and they stop the
+      band from outweighing the goods it is a route into. If you want the picture tiles kept, that is
+      the one piece to say so about — everything else in this mockup is the app's own vocabulary
+      applied unchanged.
+    </div>
+  </section>
+
+</div>

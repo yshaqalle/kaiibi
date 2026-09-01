@@ -151,13 +151,57 @@ describe('ThemeWindow hero over a photo', () => {
     expect(headlineColor(tree)).not.toBe(colors.ink);
   });
 
-  // The no-photo hero is not a degraded state -- it is the majority case, and
-  // it must keep reading as the shop's own palette rather than inheriting a
-  // treatment meant for a photo that isn't there.
-  it('renders no scrim, and keeps ink type, when there is no photo', async () => {
-    const tree = await renderWithHero(null);
+  // The no-photo branch is not a degraded state -- it is the majority case, and
+  // it must read as the shop's own palette rather than inheriting a treatment
+  // meant for a photo that isn't there.
+  //
+  // WHAT "THE SHOP'S OWN PALETTE" MEANS HERE CHANGED WITH THE BENTO PASS, and
+  // the defect being guarded did not. It used to be `ink` type on a `soft`
+  // panel; the shop card is now filled with `ink`, so the type is the palette's
+  // own `ground`. Both are light-on-dark, which is why the original bug -- a
+  // near-black headline set directly over an arbitrary photograph -- cannot
+  // recur on either branch now.
+  //
+  // Asserted on CLAY rather than the file's `ink` palette on purpose: ink's
+  // ground is #ffffff, which is also ON_SCRIM_INK, so the two branches would be
+  // indistinguishable and this test would pass without measuring anything.
+  // Clay's ground is #fdfaf7.
+  it('sets the headline in the palette’s own ground, not the on-scrim white, with no photo', async () => {
+    const clay = paletteColors('clay');
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeWindow
+          storefront={{ ...shop, slug: 'xamdi-hero-clay', heroImageUrl: null, headline: 'Power that stays on.' }}
+          products={products}
+          colors={clay}
+        />,
+      );
+    });
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-hero-scrim')).toHaveLength(0);
-    expect(headlineColor(tree)).toBe(colors.ink);
+    expect(headlineColor(tree)).toBe(clay.ground);
+    expect(headlineColor(tree)).not.toBe('#ffffff');
+  });
+
+  // The claim the whole pass turns on: there is one inverted card, and it is
+  // the shop. Without this, "bento" is just rounded corners.
+  it('fills the shop card with the palette’s ink', async () => {
+    const clay = paletteColors('clay');
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeWindow
+          storefront={{ ...shop, slug: 'xamdi-card-clay', heroImageUrl: null }}
+          products={products}
+          colors={clay}
+        />,
+      );
+    });
+    const card = tree.root.findAll((n) => n.props?.testID === 'storefront-shop-card')[0];
+    const flat = [card.props.style].flat(Infinity).reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as {
+      backgroundColor?: string;
+    };
+    expect(flat.backgroundColor).toBe(clay.ink);
   });
 });
 

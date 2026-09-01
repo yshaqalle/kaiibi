@@ -27,7 +27,23 @@ import { Platform } from 'react-native';
 // Themes still differ in LAYOUT -- grid vs price list, hero vs no hero,
 // uppercase vs sentence case. They no longer differ in the size of the same
 // thing.
+// THE BENTO RAMP. The four values above the old set are lifted from the app's
+// own surface system (see .claude/skills/building-bento-screens and
+// theme.ts's `bento*` tokens), because a shopkeeper who has just come from
+// Dashboard should not arrive somewhere that sets a figure differently.
+//
+// `price` went 15 -> 23 and that is the substantive change here, not a nudge:
+// a price is the number the customer opened the link for, and at 15 it was
+// set smaller than the shop's own city subtitle used to be.
 export const TYPE = {
+  /** A card's label. Always uppercase, always with LETTER.meta. */
+  eyebrow: 10.5,
+  /** The one big figure on a card -- the item count. */
+  value: 34,
+  /** A price on a product card. */
+  price: 23,
+  /** The same price at two columns, where 23 costs a browsing screen its rows. */
+  priceDenseGrid: 20,
   /** The shop's own name in the nav. */
   name: 19,
   /** A city or neighbourhood under the name. */
@@ -38,8 +54,6 @@ export const TYPE = {
   body: 13.5,
   /** A product name inside a dense Counter row. */
   bodyDense: 13.5,
-  /** Prices. Always with `tabular` below. */
-  price: 15,
   /** Prices in a Counter row, where the column is the point. */
   priceDense: 14.5,
   /** Eyebrows, section heads, stock pills, counts. */
@@ -86,6 +100,37 @@ export const SPACE = {
   page: 16,
   /** Between grid cells. */
   gap: 12,
+  /** Inside a card, between its edge and its content. */
+  card: 20,
+  /** Between cards, in both directions. */
+  cardGap: 14,
+} as const;
+
+// WHAT ACTUALLY CAUSED THE SCREENSHOT THIS REDESIGN CAME FROM.
+//
+// Nothing in this folder bounded its own width -- `grep -rn maxWidth
+// src/components/storefront` returned one hit, on empty-state body copy -- so
+// every number in this file, tuned at 390px and correct there, was multiplied
+// by four on a 1,504px laptop. The hero panel came out 1,472px wide holding a
+// 26px wordmark.
+//
+// 1080 rather than a percentage: the page is read at arm's length on a phone
+// and across a desk on a laptop, and a measure that grows with the window
+// stops being a measure. Matches the app's own reading column.
+export const SHOP_MAX_WIDTH = 1080;
+
+// Bento's radii. `card` is BENTO_RADIUS (theme.ts) by value and by intent --
+// not imported, because that constant lives beside `Colors.light` and this
+// page renders in one of six palettes for a stranger with no account. Copying
+// the number keeps the two surfaces looking alike without dragging the app's
+// palette onto the public page.
+export const RADIUS = {
+  /** A card. */
+  card: 26,
+  /** A photo or a plate INSIDE a card -- always a step tighter than the card. */
+  inset: 18,
+  /** Buttons, chips, the checkout bar. */
+  pill: 999,
 } as const;
 
 // Tracking is what makes a system face read as SET rather than typed, and it
