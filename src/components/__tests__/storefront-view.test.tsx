@@ -1,3 +1,4 @@
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
@@ -30,7 +31,22 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
 async function renderView(storefront: PublicStorefront, products: StorefrontProduct[]): Promise<string[]> {
   let tree: ReturnType<typeof create> | undefined;
   await act(async () => {
-    tree = create(<StorefrontView storefront={storefront} products={products} />);
+    tree = create(
+      // See storefront-view.tsx: it reads useSafeAreaInsets so the status bar
+      // stops sitting on the WhatsApp and Cart buttons. react-navigation
+      // supplies the provider around every screen in the real app; `create()`
+      // mounts this component outside that tree, so the test supplies one.
+      // Zero insets -- this file asserts on which theme rendered and what it
+      // says, never on padding.
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, left: 0, right: 0, bottom: 0 },
+        }}
+      >
+        <StorefrontView storefront={storefront} products={products} />
+      </SafeAreaProvider>,
+    );
   });
   return textsIn(tree!.toJSON() as ReactTestRendererJSON);
 }

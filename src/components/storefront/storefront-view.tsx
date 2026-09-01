@@ -1,3 +1,6 @@
+import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { ThemeWindow } from '@/components/storefront/theme-window';
@@ -36,5 +39,23 @@ export function StorefrontView({
   const themeKey = (hasTheme ? storefront.theme : DEFAULT_THEME) as StorefrontTheme;
   const Renderer = RENDERERS[themeKey];
   const colors = paletteColors((storefront.palette ?? DEFAULT_PALETTE) as StorefrontPalette);
-  return <Renderer storefront={storefront} products={products} colors={colors} areas={areas} categories={categories} />;
+  const insets = useSafeAreaInsets();
+
+  // THE STATUS BAR WAS SITTING ON THE BUTTONS, on every theme, and nothing on
+  // this route had ever asked for an inset -- not this file, not
+  // src/app/store/[slug].tsx, not the public layout. The old nav was a bare
+  // `padding: 16`, which is less than the status bar on any phone sold in the
+  // last five years, so the shop's own name and the WhatsApp button have been
+  // rendering under the clock and the battery icon the whole time.
+  //
+  // Invisible on web, where every inset is 0 and where this page was verified;
+  // found the first time it was opened on an Android emulator. It is fixed here
+  // rather than in each theme because this is the one place all three converge,
+  // and because the page tone is already computed here -- padding the wrapper
+  // without also filling it would trade the collision for a white band.
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.soft, paddingTop: insets.top, paddingBottom: insets.bottom }}>
+      <Renderer storefront={storefront} products={products} colors={colors} areas={areas} categories={categories} />
+    </View>
+  );
 }
