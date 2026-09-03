@@ -7,7 +7,7 @@
 --
 -- No new function and no new grant: this is one more column on
 -- list_public_storefronts, which already carries an explicit anon grant. The
--- anon surface stays at seven.
+-- anon surface stays at eight.
 --
 -- WHAT THIS DOES NOT DO: change the ORDER. The list is still fullest-shop
 -- first. Sorting open shops to the top is tempting and wrong here -- the
@@ -18,7 +18,12 @@
 --
 -- COPIED FORWARD IN FULL from 20261019000000, per the convention.
 
-create or replace function public.list_public_storefronts(
+-- DROPPED first, not `create or replace`: this migration adds an output column,
+-- which changes the row type OUT parameters define, and Postgres refuses to
+-- replace a function's return type in place.
+drop function if exists public.list_public_storefronts(text, integer);
+
+create function public.list_public_storefronts(
   p_city  text default null,
   p_limit integer default 60
 )
@@ -94,8 +99,15 @@ as $$
 $$;
 
 -- The EXPLICIT anon grant, not the PUBLIC default -- the distinction
--- 20261009000100 exists to enforce. This is the seventh function on that
--- surface and verify-anon-rpc-surface.sql is updated in the same change, so
--- the count moving from six to seven is a decision somebody wrote down rather
--- than a diff nobody read.
+-- 20261009000100 exists to enforce. It is the EIGHTH function on that
+-- surface, added by 20261019000000; this migration adds no function and no
+-- grant, and the count is unchanged.
+-- AND THE REVOKE IS LOAD-BEARING HERE, not ceremony. Dropping the function
+-- above threw away its grants; creating it again hands EXECUTE straight back to
+-- PUBLIC, which includes anon. Without this line the grant below would be a
+-- no-op that reads like a decision, and the function would be anon-callable
+-- through the default nobody chose -- the exact shape of the leak
+-- 20261009000100 exists to have closed. Same pattern get_public_storefront
+-- follows every time it is recreated.
+revoke execute on function public.list_public_storefronts(text, integer) from public;
 grant execute on function public.list_public_storefronts(text, integer) to anon, authenticated;

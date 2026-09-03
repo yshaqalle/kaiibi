@@ -101,8 +101,15 @@ as $$
 $$;
 
 -- The EXPLICIT anon grant, not the PUBLIC default -- the distinction
--- 20261009000100 exists to enforce. This is the seventh function on that
--- surface and verify-anon-rpc-surface.sql is updated in the same change, so
--- the count moving from six to seven is a decision somebody wrote down rather
--- than a diff nobody read.
+-- 20261009000100 exists to enforce. This is the EIGHTH function on that
+-- surface -- the pin already held seven -- and verify-anon-rpc-surface.sql is
+-- updated in the same change, so the count moving from seven to eight is a
+-- decision somebody wrote down rather than a diff nobody read.
+-- Postgres grants EXECUTE to PUBLIC on every NEW function, so the grant below
+-- is only the whole list of who can call this once PUBLIC has been revoked --
+-- 20260924000100:99-105 makes the same point every time a public RPC is
+-- created. Without this the anon reach would come from the default rather than
+-- from the decision, which is precisely the distinction 20261009000100 spent 70
+-- revokes establishing.
+revoke execute on function public.list_public_storefronts(text, integer) from public;
 grant execute on function public.list_public_storefronts(text, integer) to anon, authenticated;

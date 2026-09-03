@@ -101,14 +101,6 @@ returns table (
   headline        text,
   about           text,
   hero_image_url  text,
-  -- NEW in this migration, with `highlights` below. Both are the rest of the
-  -- same answer `about` starts: who runs this and why buy here. Placed beside
-  -- it for a reader; callers read by name.
-  --
-  -- A YEAR, not a date. "Trading since 2014" is what a shop says out loud, and
-  -- storing a full date would invite a precision nobody has and a birthday
-  -- nobody wants printed. Nullable, and null is the common case.
-  trading_since   smallint,
   offers_delivery boolean,
   -- NEW in this migration, and the only change to this function. Placed beside
   -- offers_delivery because it is the other half of the same question: that
@@ -128,6 +120,14 @@ returns table (
   -- main market')". Without it the pick-up line degrades from an address
   -- straight to a city of a million people.
   collect_neighborhood text,
+  -- NEW in this migration, with `highlights` below. Both are the rest of the
+  -- same answer `about` starts: who runs this and why buy here. Placed beside
+  -- it for a reader; callers read by name.
+  --
+  -- A YEAR, not a date. "Trading since 2014" is what a shop says out loud, and
+  -- storing a full date would invite a precision nobody has and a birthday
+  -- nobody wants printed. Nullable, and null is the common case.
+  trading_since   smallint,
   -- NEW in this migration, and the only change to this function.
   --
   -- Beside the collect_* pair because it answers the other half of the same

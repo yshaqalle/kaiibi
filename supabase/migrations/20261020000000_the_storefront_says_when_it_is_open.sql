@@ -8,7 +8,7 @@
 -- has never been shown it.
 --
 -- This is the whole of the change: one more column on one existing function.
--- No new function, so the anon surface is unchanged and stays at seven; the
+-- No new function, so the anon surface is unchanged and stays at eight; the
 -- explicit grant is re-applied below only because the function is dropped and
 -- recreated, which is the copy-forward convention this repo follows for every
 -- edit to a public RPC.
