@@ -27,6 +27,10 @@ function toSummary(row: Record<string, unknown>): PublicShopSummary {
     heroImageUrl: publicImageUrl((row.hero_image_url as string | null) ?? null),
     offersDelivery: Boolean(row.offers_delivery),
     openingHours: (row.opening_hours as OpeningHours | null) ?? {},
+    // Same rule as `highlights` on the shop page: anything that is not an
+    // array reads as none, so a client ahead of its database renders no chips
+    // rather than throwing on `.map`.
+    categories: Array.isArray(row.categories) ? (row.categories as string[]).filter(Boolean) : [],
     productCount: Number(row.product_count ?? 0),
   };
 }
@@ -101,4 +105,30 @@ export function searchShops(shops: PublicShopSummary[], query: string): PublicSh
     const haystack = [shop.shopName, shop.city ?? '', shopBlurb(shop) ?? ''].join(' ').toLowerCase();
     return words.every((word) => haystack.includes(word));
   });
+}
+
+// The category chips, derived from the rows exactly as the city chips are and
+// for the same reason: they cannot offer a filter the grid below them cannot
+// fill, because they are built from that grid.
+//
+// A shop in two categories contributes to both, so tapping either finds it.
+export function categoriesOf(shops: PublicShopSummary[]): string[] {
+  const seen = new Map<string, string>();
+  for (const shop of shops) {
+    for (const raw of shop.categories) {
+      const name = raw.trim();
+      if (!name) continue;
+      // Case-folded key, first spelling wins -- citiesOf's rule, for the same
+      // reason: two shops that typed "Grocery" and "grocery" are one chip.
+      const key = name.toLowerCase();
+      if (!seen.has(key)) seen.set(key, name);
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+export function inCategory(shops: PublicShopSummary[], category: string | null): PublicShopSummary[] {
+  if (!category) return shops;
+  const wanted = category.trim().toLowerCase();
+  return shops.filter((shop) => shop.categories.some((c) => c.trim().toLowerCase() === wanted));
 }

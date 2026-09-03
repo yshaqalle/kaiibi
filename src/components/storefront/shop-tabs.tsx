@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
@@ -124,3 +125,25 @@ const styles = StyleSheet.create({
   tab: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 9 },
   label: { fontSize: TYPE.meta + 1.5, fontWeight: '800', letterSpacing: LETTER.display },
 });
+
+// WHERE THE TAB LIVES WHEN NOBODY ELSE OWNS IT.
+//
+// The tab is part of the ADDRESS -- /store/<slug>/about opens on About, and
+// pressing About changes the URL -- so on the public route it is owned by the
+// route and handed down. But the same themes render in the storefront EDITOR's
+// preview, which has no router and no address to change, and in a dozen tests
+// that render a theme directly.
+//
+// So the props are optional and this is the fallback, in ONE place rather than
+// once per theme: given a controlled pair, it returns them untouched; given
+// nothing, it keeps its own state. The three themes call it in a line and stop
+// caring which case they are in.
+export function useShopTab(
+  tab?: ShopTabKey,
+  onSelectTab?: (tab: ShopTabKey) => void,
+): [ShopTabKey, (tab: ShopTabKey) => void] {
+  // Always called, never conditionally -- the hook rules do not care that the
+  // value goes unused in the controlled case.
+  const [ownTab, setOwnTab] = useState<ShopTabKey>('shop');
+  return [tab ?? ownTab, onSelectTab ?? setOwnTab];
+}

@@ -13,6 +13,7 @@ import { waLink } from '@/lib/storefront';
 import {
   addLine, cartItemCount, cartSubtotalCents, loadCart, saveCart, setQuantity, type StorefrontCart,
 } from '@/lib/storefront-cart';
+import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import { collectLocation } from '@/lib/storefront-collect';
 import { placeOrder, placeOrderViaWhatsApp, type PlacedOrder } from '@/lib/storefront-order';
 import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
@@ -36,6 +37,19 @@ export type ThemeProps = {
   // categories to offer must render exactly as it did before the band
   // existed -- CategoryBand returns null below its minimum anyway.
   categories?: StorefrontCategory[];
+  // WHICH TAB IS SHOWING, and it is not the theme's state any more.
+  //
+  // All three themes held an identical `useState<ShopTabKey>`, which was fine
+  // while a tab was a local toggle. It stopped being one the moment the tab
+  // became part of the ADDRESS: /store/<slug>/about has to open on About, and
+  // pressing About has to change the URL, and neither is something a theme can
+  // do. StorefrontView owns it now -- from the route when there is one, from
+  // its own state when there is not (the editor preview has no router).
+  // Optional: a caller with no address to change (the editor preview, and
+  // every test that renders a theme directly) omits them and useShopTab keeps
+  // the state locally instead.
+  tab?: ShopTabKey;
+  onSelectTab?: (tab: ShopTabKey) => void;
 };
 
 // Returns null when the shop has no number. Publishing requires one, so this is

@@ -117,6 +117,9 @@ export function ContentDrawer({
   onChangeTradingSince = () => {},
   highlights = [],
   onChangeHighlight = () => {},
+  gallery = [],
+  onAddGalleryImage,
+  onRemoveGalleryImage,
 }: {
   value: ContentDrawerValue;
   onChange: (patch: Partial<ContentDrawerValue>) => void;
@@ -165,6 +168,13 @@ export function ContentDrawer({
   onChangeTradingSince?: (text: string) => void;
   highlights?: { title: string; body: string }[];
   onChangeHighlight?: (index: number, patch: { title?: string; body?: string }) => void;
+  /**
+   * Photographs of the shop, already resolved to URLs. Live rows again, like
+   * the highlights -- and unlike the hero, which is a single staged field.
+   */
+  gallery?: { id: string; url: string }[];
+  onAddGalleryImage?: (localUri: string) => Promise<void>;
+  onRemoveGalleryImage?: (id: string) => Promise<void>;
 }) {
   const [phoneDraft, setPhoneDraft] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -178,6 +188,8 @@ export function ContentDrawer({
   const [copyError, setCopyError] = useState<string | null>(null);
   const [heroUploading, setHeroUploading] = useState(false);
   const [heroError, setHeroError] = useState<string | null>(null);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
   const slugInputRef = useRef<TextInput>(null);
   const suffixInputRef = useRef<TextInput>(null);
   const phoneInputRef = useRef<TextInput>(null);
@@ -394,6 +406,40 @@ export function ContentDrawer({
     setPhoneError(null);
     setPhoneDraft('');
     onChange({ whatsappE164: e164 });
+  }
+
+  async function handleAddGallery() {
+    setGalleryError(null);
+    const result = await pickPhotoFromLibrary();
+    if (result.status === 'canceled') return;
+    if (result.status === 'failed') { setGalleryError(result.message); return; }
+    if (!onAddGalleryImage) {
+      setGalleryError('Photo upload is not available right now.');
+      return;
+    }
+    setGalleryBusy(true);
+    try {
+      await onAddGalleryImage(result.uri);
+    } catch {
+      setGalleryError('Could not upload that photo — try again.');
+    } finally {
+      setGalleryBusy(false);
+    }
+  }
+
+  async function handleRemoveGallery(id: string) {
+    if (!onRemoveGalleryImage) return;
+    setGalleryError(null);
+    setGalleryBusy(true);
+    try {
+      await onRemoveGalleryImage(id);
+    } catch {
+      // Named rather than silent: the object may already be gone from storage
+      // while the row remains, and "try again" is the correct next move.
+      setGalleryError('Could not remove that photo — try again.');
+    } finally {
+      setGalleryBusy(false);
+    }
   }
 
   async function handlePickHero() {
@@ -677,6 +723,38 @@ export function ContentDrawer({
         </View>
       ))}
 
+      <Text style={[styles.eyebrow, styles.spaced]}>Photos of the shop</Text>
+      <Caveat tone="context">
+        Up to six, shown on your About tab. These save straight to your live page.
+      </Caveat>
+      <View style={styles.galleryRow}>
+        {gallery.map((image) => (
+          <View key={image.id} style={styles.galleryItem}>
+            <Image source={{ uri: image.url }} style={styles.galleryThumb} />
+            <Pressable
+              testID={`content-drawer-gallery-remove-${image.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Remove this photo"
+              onPress={() => handleRemoveGallery(image.id)}
+              style={styles.galleryRemove}
+            >
+              <Text style={styles.galleryRemoveText}>✕</Text>
+            </Pressable>
+          </View>
+        ))}
+        {gallery.length < GALLERY_MAX ? (
+          <Pressable
+            testID="content-drawer-gallery-add"
+            onPress={handleAddGallery}
+            disabled={galleryBusy}
+            style={[styles.galleryAdd, galleryBusy && styles.heroButtonDisabled]}
+          >
+            <Text style={styles.galleryAddText}>{galleryBusy ? '…' : '+'}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {galleryError ? <Caveat tone="wrong">{galleryError}</Caveat> : null}
+
       <Text style={[styles.eyebrow, styles.spaced]}>Opening photo</Text>
       <Caveat tone="context">Only the Window layout shows this photo — a shop on Market won&apos;t display it here.</Caveat>
       <View style={styles.heroRow}>
@@ -735,6 +813,11 @@ export function ContentDrawer({
 // good one looks like", not as a blank box. Three different shapes on purpose --
 // a promise, a standard, a service -- so a shop does not write the same
 // sentence three times.
+// Mirrors GALLERY_LIMIT in storefront-admin.ts. Not imported, because this
+// component takes no data layer -- the caller owns that, and a drawer that
+// reached into it would be harder to render in a test than it is worth.
+const GALLERY_MAX = 6;
+
 const HIGHLIGHT_PLACEHOLDERS = [
   { title: 'We fix what we sell', body: 'Anything bought here that stops working inside a year, bring it back.' },
   { title: 'Weighed in front of you', body: 'One scale, on the counter, facing the customer.' },
@@ -742,6 +825,19 @@ const HIGHLIGHT_PLACEHOLDERS = [
 ];
 
 const styles = StyleSheet.create({
+  galleryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  galleryItem: { position: 'relative' },
+  galleryThumb: { width: 78, height: 78, borderRadius: 12 },
+  galleryRemove: {
+    position: 'absolute', top: -6, right: -6, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center',
+  },
+  galleryRemoveText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
+  galleryAdd: {
+    width: 78, height: 78, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed',
+    borderColor: '#c9c9d2', alignItems: 'center', justifyContent: 'center',
+  },
+  galleryAddText: { fontSize: 22, color: '#5e5d65', fontWeight: '700' },
   highlightBlock: { gap: 8, marginTop: 10 },
   highlightBody: { minHeight: 60 },
   eyebrow: {

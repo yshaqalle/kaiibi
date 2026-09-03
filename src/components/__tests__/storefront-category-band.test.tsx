@@ -20,7 +20,7 @@ const shop: PublicStorefront = {
   offersDelivery: true, collectAddress: null, collectNeighborhood: null,
   paymentMode: 'on_collection',
   openingHours: {},
-  tradingSince: null, highlights: [], flyers: [], autoAdvance: false,
+  tradingSince: null, highlights: [], images: [], flyers: [], autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

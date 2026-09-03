@@ -7,8 +7,8 @@ import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import { ShopChrome } from '@/components/storefront/shop-chrome';
+import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
-import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   NoSearchResults, SearchField, ShopHeader, filterByCategory, gridColumnsForWidth, isWideShop, padFinalRow,
@@ -22,7 +22,10 @@ import type { StorefrontProduct } from '@/types/models';
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
 // That is the test every theme in this set had to pass.
-export function ThemeWindow({ storefront, products, colors, areas = [], categories = [] }: ThemeProps) {
+export function ThemeWindow({ storefront, products, colors, areas = [], categories = [], tab, onSelectTab }: ThemeProps) {
+  // Controlled by the route when there is one, local otherwise -- see
+  // useShopTab. One line here instead of a useState in all three themes.
+  const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
   // See theme-market.tsx: two measurements off one width, separate thresholds.
@@ -36,9 +39,6 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   // grid's state, and a flyer only reports the category it names.
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  // See theme-market.tsx's comment on this: what the page is showing is the
-  // page's business, not the rail's.
-  const [tab, setTab] = useState<ShopTabKey>('shop');
   // Search runs on top of the category filter, not instead of it: a
   // customer who arrived through a flyer and then searches expects to be
   // searching WITHIN what the flyer showed them. Both ways out stay
@@ -152,8 +152,8 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         areas={areas}
         colors={colors}
         wide={wide}
-        tab={tab}
-        onSelectTab={setTab}
+        tab={activeTab}
+        onSelectTab={selectTab}
       >
       <FlatList
         testID="storefront-goods"

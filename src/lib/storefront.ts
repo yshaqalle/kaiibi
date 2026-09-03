@@ -156,6 +156,15 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // as none at all, so a client ahead of its database renders the block
     // absent rather than throwing on `.map`.
     highlights: Array.isArray(row.highlights) ? (row.highlights as StorefrontHighlight[]) : [],
+    // Resolved to absolute URLs here, and an entry whose path will not resolve
+    // is DROPPED rather than passed on as null: a gallery is a row of
+    // photographs, and a hole in it reads as a broken page rather than as a
+    // shop that uploaded five instead of six.
+    images: Array.isArray(row.images)
+      ? (row.images as { id: string; image_path: string }[])
+          .map((image) => ({ id: image.id, url: publicImageUrl(image.image_path) }))
+          .filter((image) => image.url !== null)
+      : [],
   };
 }
 

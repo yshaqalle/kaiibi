@@ -32,8 +32,12 @@ import {
   ensureStorefront,
   getMyStorefront,
   isValidTradingSince,
+  addGalleryImage,
+  listGalleryImages,
   listHighlights,
+  removeGalleryImage,
   replaceHighlights,
+  type ShopImage,
   setTradingSince,
   getStorefrontPreviewCategories,
   getStorefrontPreviewProducts,
@@ -135,6 +139,7 @@ function StorefrontEditor() {
   // What is IN the three boxes, which is not the same as what is saved: a
   // half-typed card is a legitimate state and must not be written or dropped.
   const [draftHighlights, setDraftHighlights] = useState<{ title: string; body: string }[]>([]);
+  const [gallery, setGallery] = useState<ShopImage[]>([]);
   // A string, not a number -- "20" on the way to "2014" must survive being
   // typed. Parsed on save, never on keystroke.
   const [tradingSinceText, setTradingSinceText] = useState('');
@@ -217,9 +222,23 @@ function StorefrontEditor() {
       // here must cost the block, never the page.
       void (async () => {
         try {
+          const images = await listGalleryImages(shopId);
+          // Shape-checked, not just try/caught. `await undefined` resolves
+          // rather than throwing, so a call that returns nothing -- a partial
+          // module mock, a client ahead of its lib -- would sail past the catch
+          // and store `undefined`, and the crash would land at render, far from
+          // the cause. This is the same defect the highlights load had.
+          setGallery(Array.isArray(images) ? images : []);
+        } catch {
+          setGallery([]);
+        }
+      })();
+      void (async () => {
+        try {
           const rows = await listHighlights(shopId);
-          setHighlights(rows);
-          setDraftHighlights(rows.map((row) => ({ title: row.title, body: row.body })));
+          const safe = Array.isArray(rows) ? rows : [];
+          setHighlights(safe);
+          setDraftHighlights(safe.map((row) => ({ title: row.title, body: row.body })));
         } catch {
           setHighlights([]);
         }
@@ -424,6 +443,23 @@ function StorefrontEditor() {
   // helper uploadShopLogo uses -- so there remains exactly one upload path
   // in the app. ContentDrawer stays free of every data-layer import; this is
   // the only place that knows the path a hero photo lands at.
+  // Uploaded to the same bucket and the same per-shop prefix as the hero and
+  // the flyers, timestamped because uploadImage passes `upsert: false`.
+  async function handleAddGalleryImage(localUri: string): Promise<void> {
+    if (!shopId) throw new Error('No shop to upload for.');
+    const path = await uploadImage(`${shopId}/storefront-gallery-${Date.now()}`, localUri);
+    await addGalleryImage(shopId, path);
+    setGallery(await listGalleryImages(shopId));
+  }
+
+  async function handleRemoveGalleryImage(id: string) {
+    if (!shopId) return;
+    const image = gallery.find((item) => item.id === id);
+    if (!image) return;
+    await removeGalleryImage(shopId, image);
+    setGallery(await listGalleryImages(shopId));
+  }
+
   async function handleUploadHeroImage(localUri: string): Promise<string> {
     if (!shopId) throw new Error('No shop to upload for.');
     return uploadImage(`${shopId}/storefront-hero-${Date.now()}`, localUri);
@@ -817,6 +853,10 @@ function StorefrontEditor() {
     // so the preview reads the same rows the published page will.
     tradingSince: working?.tradingSince ?? null,
     highlights,
+    // Resolved for the preview the same way the public reader resolves them,
+    // so the editor shows what a customer will see rather than a bucket path.
+    images: gallery.map((image) => ({ id: image.id, url: publicImageUrl(image.imagePath) }))
+      .filter((image) => image.url !== null),
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,
@@ -838,6 +878,9 @@ function StorefrontEditor() {
         onChangeTradingSince={handleChangeTradingSince}
         highlights={draftHighlights}
         onChangeHighlight={handleChangeHighlight}
+        gallery={gallery.map((image) => ({ id: image.id, url: publicImageUrl(image.imagePath) ?? '' }))}
+        onAddGalleryImage={handleAddGalleryImage}
+        onRemoveGalleryImage={handleRemoveGalleryImage}
     />
   );
 

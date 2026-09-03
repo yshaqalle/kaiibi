@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
@@ -16,16 +16,14 @@ import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, Storefro
 // categories and areas the route already fetches, and every FAQ answer is
 // derived from `offers_delivery`, `payment_mode` and the area list.
 //
-// Two blocks are the shop's own writing, added by 20261021000000: the "why shop
-// here" cards (`storefront_highlights`) and the year it opened
-// (`storefronts.trading_since`). Both are optional and both render as NOTHING
-// when unset -- the rule every block on this page follows.
+// Three blocks are the shop's own: the "why shop here" cards
+// (`storefront_highlights`), the year it opened (`storefronts.trading_since`)
+// and the photographs. All are optional and all render as NOTHING when unset --
+// the rule every block on this page follows.
 //
-// STILL ABSENT, deliberately: the mockup's photo gallery. It needs an upload
-// flow and a storage lifecycle of its own (orphan cleanup when a shop replaces
-// an image), which is its own change rather than a corner of this one. The
-// story simply runs full width without it, and a placeholder square is the one
-// thing this page has never done.
+// The gallery (`storefront_images`, 20261024000000) is the third, and the story
+// simply runs full width when a shop has uploaded none -- a placeholder square
+// is the one thing this page has never done.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE FAQ, AND WHY IT IS GENERATED RATHER THAN TYPED
@@ -196,8 +194,11 @@ export function AboutPanel({
   const shownStats = wide ? stats : stats.slice(0, 3);
 
   return (
-    <View style={styles.panel} testID="storefront-about-panel">
-      <View style={styles.band}>
+    // NOT `styles.panel`'s padding any more: the story band is filled with
+    // `ground` and has to run edge to edge, so the gutter moves inside each
+    // band. See `bandFill` below on why exactly one band changes tone.
+    <View testID="storefront-about-panel">
+      <View style={[styles.band, styles.bandFill, styles.gutter, { backgroundColor: colors.ground }]}>
         <Text style={[styles.eyebrow, { color: colors.muted }]}>About the shop</Text>
         {/* The headline leads here, where it is the subject of the tab, rather
             than competing with the wordmark as it does on the anchor card. A
@@ -215,8 +216,37 @@ export function AboutPanel({
         <Text testID="storefront-about-story" style={[styles.story, { color: colors.muted }]}>
           {storefront.about}
         </Text>
+
+        {/* THE GALLERY, and it is a row of what the shop actually uploaded --
+            never a grid with holes in it. The design draws one wide photo above
+            two squares; that is what a shop with three gets. A shop with one
+            gets one wide photo, because a lone square beside two gaps is a
+            layout accident rather than a gallery. */}
+        {storefront.images.length > 0 ? (
+          <View style={styles.gallery} testID="storefront-about-gallery">
+            <Image
+              source={{ uri: storefront.images[0].url! }}
+              style={[styles.galleryLead, { backgroundColor: colors.soft }]}
+              resizeMode="cover"
+            />
+            {storefront.images.length > 1 ? (
+              <View style={styles.galleryRest}>
+                {storefront.images.slice(1).map((image) => (
+                  <Image
+                    key={image.id}
+                    testID={`storefront-about-photo-${image.id}`}
+                    source={{ uri: image.url! }}
+                    style={[styles.gallerySquare, { backgroundColor: colors.soft }]}
+                    resizeMode="cover"
+                  />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
+      <View style={styles.gutter}>
       <ShopCard colors={colors} style={styles.strip} testID="storefront-about-stats">
         {shownStats.map((stat, index) => (
           <View
@@ -232,13 +262,14 @@ export function AboutPanel({
           </View>
         ))}
       </ShopCard>
+      </View>
 
       {/* WHY SHOP HERE. Up to three claims the shop wrote itself; the whole
           band is absent when it has written none, which is the rule every
           optional block on this page follows. One or two render at that count
           rather than padding out to three with blanks. */}
       {storefront.highlights.length > 0 ? (
-        <View style={styles.band} testID="storefront-about-highlights">
+        <View style={[styles.band, styles.gutter]} testID="storefront-about-highlights">
           <Text style={[styles.eyebrow, { color: colors.muted }]}>Why shop here</Text>
           <View style={[styles.highlights, wide && styles.highlightsWide]}>
             {storefront.highlights.map((highlight) => (
@@ -256,7 +287,7 @@ export function AboutPanel({
         </View>
       ) : null}
 
-      <View style={styles.band}>
+      <View style={[styles.band, styles.gutter, styles.lastBand]}>
         <Text style={[styles.eyebrow, { color: colors.muted }]}>Before you order</Text>
         <Accordion colors={colors} questions={questions} />
       </View>
@@ -266,7 +297,18 @@ export function AboutPanel({
 
 const styles = StyleSheet.create({
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
-  band: { gap: 12 },
+  gutter: { paddingHorizontal: SPACE.page },
+  band: { gap: 12, paddingTop: SPACE.page, paddingBottom: 4 },
+  lastBand: { paddingBottom: SPACE.page },
+  // THE ONE BAND THAT CHANGES TONE, and only one.
+  //
+  // The page is `soft` and cards are `ground`; on the ink palette those sit 3%
+  // apart, so a band that merely alternates changes nothing you can see. What
+  // reads is a FULL-BLEED fill, and it only works on a band carrying no cards:
+  // a `ground` card on a `ground` band is not a card, which is the whole basis
+  // of the surface system. The story band is the only one here made of type
+  // alone, so it is the only one that gets this.
+  bandFill: { paddingBottom: SPACE.page, marginBottom: SPACE.cardGap },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
@@ -276,6 +318,13 @@ const styles = StyleSheet.create({
   },
   titleWide: { fontSize: 34, lineHeight: 39 },
   story: { fontSize: TYPE.body + 1, lineHeight: 22 },
+  gallery: { gap: SPACE.gap, marginTop: 6 },
+  galleryLead: { width: '100%', aspectRatio: 16 / 9, borderRadius: RADIUS.inset },
+  // Wraps, so four or five photographs fill rows instead of shrinking to fit
+  // one. `flexBasis` rather than a fixed width: two per row on a phone, more on
+  // a laptop, with no breakpoint to keep in step.
+  galleryRest: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.gap },
+  gallerySquare: { flexGrow: 1, flexBasis: 140, aspectRatio: 1, borderRadius: RADIUS.inset },
 
   strip: { flexDirection: 'row', paddingVertical: 18, paddingHorizontal: 0 },
   statCell: { flex: 1, paddingHorizontal: SPACE.card },

@@ -7,8 +7,8 @@ import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import { ShopChrome } from '@/components/storefront/shop-chrome';
+import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
-import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   NoSearchResults, SearchField, ShopHeader, filterByCategory, gridColumnsForWidth, isWideShop, padFinalRow,
@@ -19,7 +19,10 @@ import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/sca
 import { collectLocation } from '@/lib/storefront-collect';
 import type { StorefrontProduct } from '@/types/models';
 
-export function ThemeMarket({ storefront, products, colors, areas = [], categories = [] }: ThemeProps) {
+export function ThemeMarket({ storefront, products, colors, areas = [], categories = [], tab, onSelectTab }: ThemeProps) {
+  // Controlled by the route when there is one, local otherwise -- see
+  // useShopTab. One line here instead of a useState in all three themes.
+  const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
   // Two measurements off one width: how many columns of goods, and whether the
@@ -37,11 +40,6 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   // decision in two places.
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  // Which of Shop / About / Visit is on show. Lives here rather than in
-  // ShopChrome for the same reason `category` lives here rather than in the
-  // band: what the page is showing is the page's business, and a display
-  // component holding it would put the same decision in two places.
-  const [tab, setTab] = useState<ShopTabKey>('shop');
   // Search runs on top of the category filter, not instead of it: a
   // customer who arrived through a flyer and then searches expects to be
   // searching WITHIN what the flyer showed them. Both ways out stay
@@ -159,8 +157,8 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         areas={areas}
         colors={colors}
         wide={wide}
-        tab={tab}
-        onSelectTab={setTab}
+        tab={activeTab}
+        onSelectTab={selectTab}
       >
       <FlatList
         testID="storefront-goods"

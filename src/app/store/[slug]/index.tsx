@@ -1,10 +1,12 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { StorefrontSkeleton } from '@/components/storefront/storefront-skeleton';
+import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import { StorefrontView } from '@/components/storefront/storefront-view';
+import { storefrontTabPath } from '@/lib/storefront-host';
 import {
   getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontCategories, getPublicStorefrontProducts,
 } from '@/lib/storefront';
@@ -19,8 +21,12 @@ import type {
 // are on kaiibi, and what they are called, before they have opened. One page, one
 // message, no leak. The read path returns no row for either case, so this screen
 // cannot tell them apart even if a future edit wanted it to.
-export default function StorefrontScreen() {
+// Shared by both route files: /store/<slug> and /store/<slug>/<tab>. The only
+// difference between them is which tab they open on, so the page itself is one
+// component and the routes are two lines each.
+export function StorefrontScreen({ tab = 'shop' }: { tab?: ShopTabKey }) {
   const { slug } = useLocalSearchParams<{ slug: string }>();
+  const router = useRouter();
   const [state, setState] = useState<
     | { status: 'loading' }
     | { status: 'missing' }
@@ -105,6 +111,20 @@ export default function StorefrontScreen() {
         products={state.products}
         areas={state.areas}
         categories={state.categories}
+        tab={tab}
+        // REPLACE, never push. A tab is a view of the same page, not a step in
+        // a journey: pushing would make the device's back button walk back
+        // through every tab the customer glanced at before it finally left the
+        // shop, which is the behaviour that makes people give up and close the
+        // tab instead.
+        onSelectTab={(next: ShopTabKey) => {
+          // `as Href`: typedRoutes generates a union of literal paths and
+          // cannot see through storefrontTabPath, which is exactly where the
+          // rule about this address living in one place is enforced. Casting
+          // here keeps that helper the single source rather than inlining a
+          // template literal the compiler happens to accept.
+          router.replace(storefrontTabPath(String(slug), next) as Href);
+        }}
       />
     </>
   );
@@ -162,3 +182,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '800', letterSpacing: -0.4, marginTop: 12, textAlign: 'center' },
   body: { fontSize: 13.5, color: '#5e5d65', marginTop: 6, textAlign: 'center' },
 });
+
+// `/store/<slug>` -- the shop, on its Shop tab. The address every forwarded
+// link and printed card already carries, unchanged.
+export default function StorefrontIndexRoute() {
+  return <StorefrontScreen tab="shop" />;
+}

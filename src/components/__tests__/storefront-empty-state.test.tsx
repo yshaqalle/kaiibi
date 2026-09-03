@@ -23,7 +23,7 @@ const shop: PublicStorefront = {
   collectNeighborhood: null,
   paymentMode: 'on_collection',
   openingHours: {},
-  tradingSince: null, highlights: [],
+  tradingSince: null, highlights: [], images: [],
   flyers: [],
   autoAdvance: false,
 };

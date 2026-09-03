@@ -16,7 +16,7 @@ function shop(overrides: Partial<PublicStorefront> = {}): PublicStorefront {
     theme: 'market', palette: 'ink', headline: 'Everything that plugs in.', about: null,
     heroImageUrl: null, offersDelivery: false, collectAddress: null,
     collectNeighborhood: 'Jigjiga Yar', paymentMode: 'on_collection', openingHours: {},
-    tradingSince: null, highlights: [],
+    tradingSince: null, highlights: [], images: [],
     flyers: [], autoAdvance: false,
     ...overrides,
   };
@@ -247,6 +247,32 @@ describe('the About panel', () => {
     });
     expect(has(tree, 'storefront-about-highlight-h1')).toBe(true);
     expect(has(tree, 'storefront-about-highlight-h2')).toBe(false);
+  });
+
+  it('renders no gallery for a shop that has uploaded nothing', () => {
+    expect(has(renderAbout({ images: [] }), 'storefront-about-gallery')).toBe(false);
+  });
+
+  it('renders every photograph a shop has uploaded', () => {
+    const tree = renderAbout({
+      images: [
+        { id: 'i1', url: 'https://cdn.test/a.jpg' },
+        { id: 'i2', url: 'https://cdn.test/b.jpg' },
+        { id: 'i3', url: 'https://cdn.test/c.jpg' },
+      ],
+    });
+    expect(has(tree, 'storefront-about-gallery')).toBe(true);
+    // The first is the lead image and has no testID of its own; the rest are
+    // the squares beside it.
+    expect(has(tree, 'storefront-about-photo-i2')).toBe(true);
+    expect(has(tree, 'storefront-about-photo-i3')).toBe(true);
+  });
+
+  // A lone square beside two gaps is a layout accident, not a gallery.
+  it('shows a single photograph as the lead, with no empty squares after it', () => {
+    const tree = renderAbout({ images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }] });
+    expect(has(tree, 'storefront-about-gallery')).toBe(true);
+    expect(has(tree, 'storefront-about-photo-i1')).toBe(false);
   });
 
   it('leads the strip with the year the shop opened, when it has one', () => {

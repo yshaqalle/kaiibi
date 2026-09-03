@@ -131,6 +131,30 @@ const styles = StyleSheet.create({
   stateText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   stateOpen: { color: '#0b7a44' },
   stateShut: { color: '#5e5d65' },
+
+  feature: { borderRadius: RADIUS.card, overflow: 'hidden' },
+  featureArt: { width: '100%' },
+  featureArtWide: { height: 220 },
+  featureArtTall: { aspectRatio: 16 / 10 },
+  featureText: { padding: SPACE.card },
+  featureTextWide: { padding: 28 },
+  featureTag: {
+    fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta,
+    textTransform: 'uppercase',
+  },
+  featureName: {
+    fontFamily: DISPLAY_FONT, fontSize: 26, lineHeight: 30, fontWeight: '700',
+    letterSpacing: LETTER.displayLoud, marginTop: 10,
+  },
+  featureCity: {
+    fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta,
+    textTransform: 'uppercase', marginTop: 8,
+  },
+  featureBlurb: { fontSize: TYPE.body, lineHeight: 20, marginTop: 10 },
+  featureFoot: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18, flexWrap: 'wrap' },
+  featureChip: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11 },
+  featureChipText: { fontSize: 12.5, fontWeight: '800' },
+  featureState: { fontSize: 12, fontWeight: '700' },
 });
 
 export const DIRECTORY_GAP = SPACE.cardGap;
@@ -142,4 +166,84 @@ export function directoryColumnsForWidth(width: number): number {
   if (width < 620) return 1;
   if (width < 960) return 2;
   return 3;
+}
+
+
+// THE FEATURED CARD, and the label is the whole argument.
+//
+// The design calls this "Shop of the week", which implies an editor: somebody
+// chose this shop, this week, for a reason. Nobody does. Shipping that label
+// over a deterministic pick would be a small lie told on the front page, and
+// the first shopkeeper to ask "how do I get featured?" would find out there is
+// no answer.
+//
+// So the pick is the FIRST ROW, which the RPC has already sorted fullest-shop
+// first, and the label says what that means. It costs nothing to compute, it
+// cannot disagree with the ordering below it, and it is true.
+//
+// Rendered only when there is a grid for it to lead. One card is not a
+// selection, and a "most to browse" banner over a directory of two shops is a
+// superlative about nothing.
+export const FEATURE_MINIMUM = 3;
+
+export function featuredShop(shops: PublicShopSummary[]): PublicShopSummary | null {
+  if (shops.length < FEATURE_MINIMUM) return null;
+  // A shop with nothing in stock cannot be the one with the most to browse,
+  // even if it sorts first because every other shop is empty too.
+  return shops[0].productCount > 0 ? shops[0] : null;
+}
+
+export function FeaturedShopCard({
+  shop, colors, wide, onPress,
+}: {
+  shop: PublicShopSummary;
+  colors: PaletteColors;
+  wide: boolean;
+  onPress: (slug: string) => void;
+}) {
+  const blurb = shopBlurb(shop);
+  const open = isOpenAt(shop.openingHours ?? {}, new Date());
+
+  return (
+    <Pressable
+      testID={`storefront-directory-featured-${shop.slug}`}
+      accessibilityRole="link"
+      accessibilityLabel={`Most to browse: ${shop.shopName}, ${shop.productCount} items`}
+      onPress={() => onPress(shop.slug)}
+      // `ink`, like the anchor card on a shop page and the Takings card on
+      // Dashboard: one near-black surface is what stops a page of white
+      // rectangles reading as a field of them.
+      style={pressable([styles.feature, { backgroundColor: colors.ink }])}
+    >
+      {shop.heroImageUrl ? (
+        <Image
+          source={{ uri: shop.heroImageUrl }}
+          style={[styles.featureArt, wide ? styles.featureArtWide : styles.featureArtTall]}
+          resizeMode="cover"
+        />
+      ) : null}
+      <View style={[styles.featureText, wide && styles.featureTextWide]}>
+        <Text style={[styles.featureTag, { color: colors.onDarkMuted }]}>Most to browse</Text>
+        <Text style={[styles.featureName, { color: colors.ground }]} numberOfLines={2}>{shop.shopName}</Text>
+        {shop.city ? (
+          <Text style={[styles.featureCity, { color: colors.onDarkMuted }]}>{shop.city}</Text>
+        ) : null}
+        {blurb ? (
+          <Text style={[styles.featureBlurb, { color: colors.onDarkMuted }]} numberOfLines={2}>{blurb}</Text>
+        ) : null}
+        <View style={styles.featureFoot}>
+          <View style={[styles.featureChip, { backgroundColor: colors.ground }]}>
+            <Text style={[styles.featureChipText, { color: colors.ink }]}>
+              Browse {shop.productCount} items
+            </Text>
+          </View>
+          {isConfigured(shop.openingHours) ? (
+            <Text style={[styles.featureState, { color: colors.onDarkMuted }]}>
+              {open ? 'Open now' : 'Closed now'}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
 }

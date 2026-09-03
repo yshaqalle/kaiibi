@@ -1,4 +1,6 @@
-import { citiesOf, listPublicShops, searchShops, shopBlurb } from '@/lib/storefront-directory';
+import {
+  categoriesOf, citiesOf, inCategory, listPublicShops, searchShops, shopBlurb,
+} from '@/lib/storefront-directory';
 import type { PublicShopSummary } from '@/types/models';
 
 // `mock`-prefixed because jest.mock's factory is hoisted above this line and
@@ -15,7 +17,7 @@ beforeEach(() => mockRpc.mockReset());
 function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary {
   return {
     shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
-    headline: null, about: null, heroImageUrl: null, offersDelivery: false, openingHours: {}, productCount: 4,
+    headline: null, about: null, heroImageUrl: null, offersDelivery: false, openingHours: {}, categories: ['Electronics'], productCount: 4,
     ...overrides,
   };
 }
@@ -48,6 +50,7 @@ describe('reading the directory', () => {
         headline: 'Everything that plugs in.', about: 'A long story.',
         hero_image_url: 'heroes/alpha.jpg', offers_delivery: true, product_count: 12,
         opening_hours: { mon: [{ open: '08:00', close: '18:00' }] },
+        categories: ['Electronics', 'Hardware'],
       }],
       error: null,
     });
@@ -56,7 +59,8 @@ describe('reading the directory', () => {
       shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
       headline: 'Everything that plugs in.', about: 'A long story.',
       heroImageUrl: 'https://cdn.test/heroes/alpha.jpg', offersDelivery: true,
-      openingHours: { mon: [{ open: '08:00', close: '18:00' }] }, productCount: 12,
+      openingHours: { mon: [{ open: '08:00', close: '18:00' }] },
+      categories: ['Electronics', 'Hardware'], productCount: 12,
     });
   });
 
@@ -72,6 +76,7 @@ describe('reading the directory', () => {
     expect(shop.heroImageUrl).toBeNull();
     expect(shop.offersDelivery).toBe(false);
     expect(shop.openingHours).toEqual({});
+    expect(shop.categories).toEqual([]);
     expect(shop.productCount).toBe(0);
   });
 
@@ -155,5 +160,35 @@ describe('searching the directory', () => {
   it('requires all words, so a city plus a trade narrows rather than widens', () => {
     expect(searchShops(shops, 'borama grocers').map((s) => s.slug)).toEqual(['b']);
     expect(searchShops(shops, 'borama pharmacy')).toEqual([]);
+  });
+});
+
+// Derived from the rows, exactly as the city chips are, so a chip can never
+// offer a filter the grid below it cannot fill.
+describe('the category chips', () => {
+  const shops = [
+    summary({ slug: 'a', categories: ['Electronics'] }),
+    summary({ slug: 'b', categories: ['Grocery', 'Pharmacy'] }),
+    summary({ slug: 'c', categories: ['grocery'] }),
+    summary({ slug: 'd', categories: [] }),
+  ];
+
+  it('lists each trade once, alphabetically, folding case', () => {
+    expect(categoriesOf(shops)).toEqual(['Electronics', 'Grocery', 'Pharmacy']);
+  });
+
+  // A shop that is both a pharmacy and a grocer is genuinely both, and must be
+  // found under either chip.
+  it('finds a shop under every category it claims', () => {
+    expect(inCategory(shops, 'Pharmacy').map((s) => s.slug)).toEqual(['b']);
+    expect(inCategory(shops, 'Grocery').map((s) => s.slug)).toEqual(['b', 'c']);
+  });
+
+  it('returns everything for no category', () => {
+    expect(inCategory(shops, null)).toHaveLength(4);
+  });
+
+  it('offers no chip for a shop that claims none', () => {
+    expect(categoriesOf([summary({ categories: [] })])).toEqual([]);
   });
 });

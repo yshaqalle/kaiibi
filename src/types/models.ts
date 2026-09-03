@@ -1344,6 +1344,10 @@ export type PublicStorefront = {
   // reason `flyers` is: a shop with none and a shop that has not been asked
   // must read alike, so a renderer has one empty state rather than two.
   highlights: StorefrontHighlight[];
+  // Photographs of the shop, in its own order. Already absolute URLs by the
+  // time they reach a renderer -- storefront.ts runs each path through
+  // publicImageUrl, the same way it does the hero and the flyers.
+  images: StorefrontImage[];
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a
@@ -1393,6 +1397,13 @@ export type StorefrontHighlight = {
   body: string;
 };
 
+// One photograph. `url` is absolute and may be null when a stored path fails to
+// resolve -- the gallery drops that entry rather than rendering a broken image.
+export type StorefrontImage = {
+  id: string;
+  url: string | null;
+};
+
 export type PublicDeliveryArea = {
   name: string;
   feeCents: number;
@@ -1422,5 +1433,10 @@ export type PublicShopSummary = {
   // the reader's own clock can answer it. `{}` means never set, which renders
   // as no badge at all rather than as "closed".
   openingHours: OpeningHours;
+  // What the shop says it sells, from `shops.categories` -- the list the owner
+  // picked at signup. A shop can be in more than one, and is filtered by any
+  // of them; picking a primary here would hide a pharmacy-and-grocer from
+  // whichever chip the customer actually tapped.
+  categories: string[];
   productCount: number;
 };

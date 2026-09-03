@@ -35,6 +35,7 @@ import {
   orderPath,
   STOREFRONT_SEGMENT,
   storefrontPath,
+  storefrontTabPath,
 } from '@/lib/storefront-host';
 
 // A real 26-character Crockford token shape -- no i, l, o or u.
@@ -52,12 +53,22 @@ const LegacyStorefrontRoute = () => require('@/app/s/[slug]').default();
 const APP_DIR = path.join(__dirname, '..', 'app');
 
 // The route file a given public path would be served by, under Expo Router's
-// file-based convention. `/store/xamdi` is served by `src/app/store/[slug].tsx`
-// -- the concrete slug is whatever fills the dynamic segment, so it is the
-// segment plus `[slug]` that has to exist on disk.
-function routeFileFor(publicPath: string, param = 'slug'): string {
+// file-based convention. `/store/xamdi` is served by the segment plus
+// `[slug]` -- which Expo Router answers from EITHER `[slug].tsx` or
+// `[slug]/index.tsx`, and the choice between them is not what this test is
+// about. It became `[slug]/index.tsx` when the tab routes landed
+// (`/store/<slug>/about`), which needed `[slug]` to be a directory.
+//
+// Checking both forms rather than the one on disk today: the invariant is that
+// a real file answers the address a shop has printed on its cards, not that
+// the file has a particular name.
+function routeFileFor(publicPath: string, param = 'slug'): string | null {
   const segment = publicPath.split('/').filter(Boolean)[0];
-  return path.join(APP_DIR, segment, `[${param}].tsx`);
+  const flat = path.join(APP_DIR, segment, `[${param}].tsx`);
+  const nested = path.join(APP_DIR, segment, `[${param}]`, 'index.tsx');
+  if (fs.existsSync(flat)) return flat;
+  if (fs.existsSync(nested)) return nested;
+  return null;
 }
 
 describe('the canonical public address is a route that exists', () => {
@@ -66,7 +77,7 @@ describe('the canonical public address is a route that exists', () => {
 
     // Not a restatement of the constant: this resolves the built path to the
     // file Expo Router would need in order to answer it, and looks.
-    expect(fs.existsSync(routeFileFor(built))).toBe(true);
+    expect(routeFileFor(built)).not.toBeNull();
     expect(built).toBe(`/${STOREFRONT_SEGMENT}/xamdi`);
   });
 
@@ -76,7 +87,7 @@ describe('the canonical public address is a route that exists', () => {
   // wildcard-dns.md) -- so every link a shop has printed or sent is a `/s/`
   // link. Removing the file is how those become 404s.
   it('still serves the old /s/<slug> from a real route file, so a shared link survives', () => {
-    expect(fs.existsSync(routeFileFor(`/${LEGACY_STOREFRONT_SEGMENT}/xamdi`))).toBe(true);
+    expect(routeFileFor(`/${LEGACY_STOREFRONT_SEGMENT}/xamdi`)).not.toBeNull();
   });
 
   it('sends the old address to the canonical one rather than rendering a second copy of the page', () => {
@@ -111,7 +122,7 @@ describe('the canonical public address is a route that exists', () => {
 describe('the order link is a route that exists', () => {
   it('serves /o/<token> from a real route file', () => {
     const built = orderPath(TOKEN);
-    expect(fs.existsSync(routeFileFor(built, 'token'))).toBe(true);
+    expect(routeFileFor(built, 'token')).not.toBeNull();
     expect(built).toBe(`/${ORDER_SEGMENT}/${TOKEN}`);
   });
 
@@ -138,5 +149,26 @@ describe('the order link is a route that exists', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const host = require('@/lib/storefront-host');
     expect(host.LEGACY_ORDER_SEGMENT).toBeUndefined();
+  });
+});
+
+// A TAB IS PART OF THE ADDRESS, and the canonical one must not move.
+//
+// The failure this guards is subtle and expensive: making /store/<slug>/shop
+// the real address for the Shop tab would silently orphan every card a shop
+// has printed and every link already forwarded. The Shop tab keeps the bare
+// address; only About and Visit get a segment.
+describe('the tab routes', () => {
+  it('leaves the canonical address alone for the tab a customer lands on', () => {
+    expect(storefrontTabPath('xamdi', 'shop')).toBe(storefrontPath('xamdi'));
+  });
+
+  it('gives the other tabs an address of their own', () => {
+    expect(storefrontTabPath('xamdi', 'about')).toBe('/store/xamdi/about');
+    expect(storefrontTabPath('xamdi', 'visit')).toBe('/store/xamdi/visit');
+  });
+
+  it('serves those from a real route file', () => {
+    expect(fs.existsSync(path.join(APP_DIR, 'store', '[slug]', '[tab].tsx'))).toBe(true);
   });
 });

@@ -3,8 +3,8 @@ import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-n
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { ShopChrome } from '@/components/storefront/shop-chrome';
+import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
-import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import {
   CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, isWideShop, useCheckoutFlow,
@@ -44,7 +44,10 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
 // band -- it groups its own price list by `products.category` instead, and has
 // no use for the shoppable-category list. The About tab counts them, so the
 // prop is passed through to ShopChrome rather than dropped on the floor.
-export function ThemeCounter({ storefront, products, colors, areas = [], categories = [] }: ThemeProps) {
+export function ThemeCounter({ storefront, products, colors, areas = [], categories = [], tab, onSelectTab }: ThemeProps) {
+  // Controlled by the route when there is one, local otherwise -- see
+  // useShopTab. One line here instead of a useState in all three themes.
+  const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
   const { width } = useWindowDimensions();
   const wide = isWideShop(width);
   // The cart is keyed by shop slug, not by theme (see theme-shared.tsx's
@@ -58,10 +61,6 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
   // that needs it most: 'a long catalogue with no photos' is what a shop
   // picks Counter FOR.
   const [query, setQuery] = useState('');
-  // See theme-market.tsx. Counter renders no flyers and no category band, but
-  // "whose shop is this and can you reach me" is not a question density
-  // exempts a theme from answering.
-  const [tab, setTab] = useState<ShopTabKey>('shop');
   const shown = searchProducts(products, query);
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
@@ -116,8 +115,8 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         areas={areas}
         colors={colors}
         wide={wide}
-        tab={tab}
-        onSelectTab={setTab}
+        tab={activeTab}
+        onSelectTab={selectTab}
       >
       {/* A plain View never scrolls on native, and Expo Router's web reset sets
           `body { overflow: hidden }` -- either way, a catalogue longer than one

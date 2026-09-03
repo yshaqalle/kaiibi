@@ -8,10 +8,12 @@ import {
 import { pressable } from '@/components/storefront/press-feedback';
 import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
 import {
-  DIRECTORY_GAP, ShopDirectoryCard, directoryColumnsForWidth,
+  DIRECTORY_GAP, FeaturedShopCard, ShopDirectoryCard, directoryColumnsForWidth, featuredShop,
 } from '@/components/storefront/shop-directory-card';
 import { paletteColors } from '@/lib/storefront-catalog';
-import { citiesOf, listPublicShops, searchShops } from '@/lib/storefront-directory';
+import {
+  categoriesOf, citiesOf, inCategory, listPublicShops, searchShops,
+} from '@/lib/storefront-directory';
 import { padFinalRow } from '@/components/storefront/theme-shared';
 import type { PublicShopSummary } from '@/types/models';
 
@@ -45,6 +47,7 @@ export default function StoreDirectoryScreen() {
   // outgrows one page -- named here so the next person knows it is there.
   const [city, setCity] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<string | null>(null);
   const [state, setState] = useState<
     | { status: 'loading' }
     | { status: 'failed' }
@@ -84,12 +87,22 @@ export default function StoreDirectoryScreen() {
   // the shop page's own search follows: a customer who has narrowed to Borama
   // and then types expects to be searching WITHIN Borama. Both ways out stay
   // visible, the chip row and the Clear button.
-  const inCity = city ? shops.filter((s) => s.city?.trim().toLowerCase() === city.toLowerCase()) : shops;
-  const shown = searchShops(inCity, query);
+  const byCity = city ? shops.filter((s) => s.city?.trim().toLowerCase() === city.toLowerCase()) : shops;
+  // Category narrows within the city, and search within both -- each control
+  // composes with the ones above it rather than replacing them, so a customer
+  // never loses a filter by using another.
+  // Off the CITY-filtered list, so the chips only ever offer trades actually
+  // present in the city on screen.
+  const categories = categoriesOf(byCity);
+  const shown = searchShops(inCategory(byCity, category), query);
   // Same padding as the product grid, for the same reason: a short final row
   // must leave a gap rather than inflating its cells to fill the width. See
   // padFinalRow in theme-shared.tsx.
   const cells = padFinalRow(shown, columns);
+  // Off `shown`, not `shops`: a customer who has filtered to Borama or typed a
+  // search should be shown the best of what they are looking at, not the best
+  // of a page they are not.
+  const featured = featuredShop(shown);
 
   const header = (
     <View>
@@ -142,11 +155,52 @@ export default function StoreDirectoryScreen() {
           everything, which is the rule CategoryBand already applies. */}
       {cities.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          <CityChip label="All cities" active={city === null} onPress={() => setCity(null)} />
+          <CityChip label="All cities" active={city === null} onPress={() => { setCity(null); setCategory(null); }} />
           {cities.map((name) => (
-            <CityChip key={name} label={name} active={city === name} onPress={() => setCity(name)} />
+            <CityChip
+              key={name}
+              label={name}
+              active={city === name}
+              // The category chips are derived from the CITY-filtered list, so
+              // a trade that exists in Hargeisa and not in Borama would leave
+              // the page filtered to a chip that is no longer on it. Clearing
+              // is the honest move: changing city is choosing a new list.
+              onPress={() => { setCity(name); setCategory(null); }}
+            />
           ))}
         </ScrollView>
+      ) : null}
+
+      {categories.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          <CityChip label="Everything" active={category === null} onPress={() => setCategory(null)} />
+          {categories.map((name) => (
+            <CityChip
+              key={name}
+              label={name}
+              active={category === name}
+              onPress={() => setCategory(name)}
+              testIDPrefix="storefront-directory-category"
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+
+      {/* Leads the grid rather than sitting in it: a double-width cell inside a
+          FlatList would have to fight numColumns at every breakpoint, and the
+          featured shop is also the first row of the grid below -- so it is a
+          header, and the grid still contains it. Deliberately NOT removed from
+          the list underneath: a customer scanning alphabetically should still
+          find it where they expect. */}
+      {featured ? (
+        <View style={styles.featureWrap}>
+          <FeaturedShopCard
+            shop={featured}
+            colors={colors}
+            wide={columns > 1}
+            onPress={(slug) => router.push(`/store/${slug}`)}
+          />
+        </View>
       ) : null}
 
       {shown.length > 0 ? (
@@ -262,10 +316,16 @@ const HOW_IT_WORKS = [
   { title: 'Pay on collection', body: 'Nothing is charged online. You pay the shop when you take it.' },
 ];
 
-function CityChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+// One chip, two rows. The city row and the category row are the same control
+// doing the same job on a different axis, so they are the same component --
+// only the testID prefix differs, and only so a test can tell which row it is
+// pressing.
+function CityChip({
+  label, active, onPress, testIDPrefix = 'storefront-directory-city',
+}: { label: string; active: boolean; onPress: () => void; testIDPrefix?: string }) {
   return (
     <Pressable
-      testID={`storefront-directory-city-${label}`}
+      testID={`${testIDPrefix}-${label}`}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
@@ -362,6 +422,8 @@ const styles = StyleSheet.create({
   },
   searchClear: { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
+
+  featureWrap: { paddingBottom: 4 },
 
   hero: { paddingTop: 34, paddingBottom: 22, maxWidth: 620 },
   eyebrow: {

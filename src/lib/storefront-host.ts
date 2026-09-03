@@ -83,6 +83,14 @@ export function storefrontPath(slug: string): string {
 // follows from one edit. slugFromHostname below is untouched by that choice
 // and stays working either way -- it is what serves the subdomain form the
 // moment DNS makes it reachable.
+// `/store/<slug>/<tab>`, and `/store/<slug>` for the Shop tab -- the canonical
+// address stays exactly what it was for the page a customer normally lands on.
+// A shop's printed cards and every forwarded link carry that form, so the tab
+// route must never become the default one.
+export function storefrontTabPath(slug: string, tab: string): string {
+  return tab === 'shop' ? storefrontPath(slug) : `${storefrontPath(slug)}/${tab}`;
+}
+
 export function storefrontAddress(slug: string): string {
   return `${APP_DOMAIN}${storefrontPath(slug)}`;
 }

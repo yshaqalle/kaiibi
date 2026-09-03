@@ -185,7 +185,14 @@ describe('sharing a live page', () => {
     expect(servedPath.endsWith(`/${SLUG}`)).toBe(true);
 
     const segment = servedPath.split('/').filter(Boolean)[0];
-    const routeFile = path.join(__dirname, '..', '..', 'app', segment, '[slug].tsx');
+    // Either form: Expo Router answers `[slug]` from `[slug].tsx` OR
+    // `[slug]/index.tsx`, and it became the latter when the tab routes landed
+    // (/store/<slug>/about needed `[slug]` to be a directory). What this test
+    // is about is that a real file answers the address a shop is TOLD to
+    // share -- not what that file is named.
+    const flat = path.join(__dirname, '..', '..', 'app', segment, '[slug].tsx');
+    const nested = path.join(__dirname, '..', '..', 'app', segment, '[slug]', 'index.tsx');
+    const routeFile = fs.existsSync(flat) ? flat : nested;
     expect(fs.existsSync(routeFile)).toBe(true);
   });
 

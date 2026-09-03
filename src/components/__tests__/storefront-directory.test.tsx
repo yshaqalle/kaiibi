@@ -22,7 +22,7 @@ function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary 
   return {
     shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
     headline: 'Everything that plugs in.', about: null, heroImageUrl: null,
-    offersDelivery: true, openingHours: {}, productCount: 4,
+    offersDelivery: true, openingHours: {}, categories: ['Electronics'], productCount: 4,
     ...overrides,
   };
 }

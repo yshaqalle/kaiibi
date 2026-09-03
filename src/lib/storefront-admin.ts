@@ -2,6 +2,7 @@ import { findShortfalls, type OrderShortfall } from '@/lib/order-fulfilment';
 import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type {
   StorefrontCategory, StorefrontFlyerLinkKind, StorefrontHighlight, StorefrontProduct,
@@ -1467,6 +1468,74 @@ export async function setTradingSince(shopId: string, year: number | null): Prom
   const { error } = await supabase
     .from('storefronts')
     .update({ trading_since: year })
+    .eq('shop_id', shopId);
+  if (error) throw error;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE GALLERY, and the orphan problem it brings with it.
+//
+// Every other image on this page is a single slot: the hero and a flyer each
+// hold one path, and replacing one overwrites the field. A gallery is a LIST,
+// which means a shop can add six photographs and remove three, and the three
+// objects those rows pointed at stay in the bucket forever unless something
+// deletes them.
+//
+// The bucket is not reachable from SQL, so `on delete cascade` cannot help: a
+// deleted row takes no object with it. That makes cleanup the client's job, and
+// the ORDER is the whole of the care required -- see removeGalleryImage.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const GALLERY_LIMIT = 6;
+
+export type ShopImage = { id: string; imagePath: string; sortOrder: number };
+
+export async function listGalleryImages(shopId: string): Promise<ShopImage[]> {
+  const { data, error } = await supabase
+    .from('storefront_images')
+    .select('id, image_path, sort_order')
+    .eq('shop_id', shopId)
+    .order('sort_order')
+    .order('created_at');
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id, imagePath: row.image_path, sortOrder: row.sort_order,
+  }));
+}
+
+// Appended at the end. `sort_order` is the count rather than max+1 because the
+// two agree for a list only this function appends to, and a shop that has
+// removed one has already had its remaining rows left where they were -- the
+// order a customer sees is the order they were added, minus what went.
+export async function addGalleryImage(shopId: string, imagePath: string): Promise<void> {
+  const existing = await listGalleryImages(shopId);
+  if (existing.length >= GALLERY_LIMIT) throw new Error('gallery_limit');
+  const { error } = await supabase.from('storefront_images').insert({
+    shop_id: shopId,
+    image_path: imagePath,
+    sort_order: existing.length,
+  });
+  if (error) throw error;
+}
+
+// THE OBJECT GOES FIRST, THEN THE ROW, and that order is the decision.
+//
+// Deleting the row first and the object second looks equivalent and is not: if
+// the second step fails, row-first leaves an object nobody can reach and nobody
+// can name -- a permanent orphan, because the only pointer to it has been
+// destroyed. Object-first leaves a ROW pointing at a missing object, which is
+// visible (the page drops the entry, see storefront.ts), diagnosable, and
+// removable by pressing the same button again.
+//
+// So the failure mode of this order is a photo that stays on the page one
+// moment longer than the shop wanted. The failure mode of the other is storage
+// billed forever for something nobody can find.
+export async function removeGalleryImage(shopId: string, image: ShopImage): Promise<void> {
+  await deleteImageByPublicUrl(image.imagePath);
+  const { error } = await supabase
+    .from('storefront_images')
+    .delete()
+    .eq('id', image.id)
     .eq('shop_id', shopId);
   if (error) throw error;
 }
