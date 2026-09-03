@@ -27,6 +27,12 @@ export type PaletteColors = {
   muted: string;  // secondary type -- a city subtitle, an about paragraph
   danger: string; // form error text -- never the out-of-stock amber, and never a stray hex at the call site
   stockOut: string; // "Ask us" on a sold-out product -- derived, never a literal, never the accent
+  // A RULE. Row rules inside a card, and the line between two bands that share
+  // a tone. Deliberately faint -- see hairlineInk.
+  hairline: string;
+  // A CONTROL'S BOUNDARY: the search field, a category pill. Never a card.
+  // Clears 3:1, which `hairline` does not and must not -- see edgeInk.
+  edge: string;
   // `muted`'s mirror, for the ONE inverted surface this page has: the shop card,
   // which is filled with `ink` and sets its type in `ground`. Secondary lines on
   // it (the place, the about paragraph) need the same step down that `muted`
@@ -73,7 +79,10 @@ export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 // omitted here is derived below and must never appear in COLORS -- the omission
 // is what makes forgetting to derive one a compile error rather than a colour
 // nobody notices is wrong.
-type BasePaletteColors = Omit<PaletteColors, 'muted' | 'danger' | 'stockOut' | 'onDarkMuted'>;
+type BasePaletteColors = Omit<
+  PaletteColors,
+  'muted' | 'danger' | 'stockOut' | 'onDarkMuted' | 'hairline' | 'edge'
+>;
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   ink:     { ground: '#ffffff', soft: '#f4f4f5', ink: '#141418', accent: '#141418' },
@@ -136,6 +145,49 @@ export function onDarkMutedInk(palette: StorefrontPalette): string {
   return blendHex(c.ground, c.ink, MUTED_BLEND);
 }
 
+// A RULE AND A CONTROL EDGE ARE TWO JOBS, AND `soft` WAS DOING BOTH BADLY.
+//
+// Every rule on this page -- the fact rows in the Collecting card, the border on
+// the search field, the divider under a section head -- was drawn in `soft`. On
+// the ink palette `soft` is #f4f4f5 and `ground` is #ffffff: 1.04:1. So none of
+// them were visible, on the palette every shop starts on.
+//
+// Bento's principle is that the page tone IS the separation and a card
+// therefore needs no border. That is right about a card, which is a large
+// filled shape read by its mass, and wrong about everything smaller. A text
+// input whose fill sits 3% from the page has no mass to read: its boundary is
+// the only thing saying it can be typed in, and at 1.04:1 there is no boundary.
+//
+// Hence two tokens rather than one darker `soft`:
+//
+//   hairline -- rules INSIDE a card and between two same-tone bands. Faint on
+//               purpose. A rule as loud as a word is a border, and bordering
+//               the cards is exactly what bento is avoiding.
+//   edge     -- bounds a CONTROL, and is the one place on this page WCAG 1.4.11
+//               Non-text Contrast applies: 3:1 against the adjacent colour.
+//
+// Both are derived from the palette on the same pattern as `muted`, so neither
+// is ever a hex at a call site and a new palette gets both for free.
+const HAIRLINE_BLEND = 0.88;
+
+export function hairlineInk(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  return blendHex(c.ink, c.ground, HAIRLINE_BLEND);
+}
+
+// Walked from the hairline rather than picked, so the two are the same colour
+// at two weights instead of two unrelated greys.
+//
+// Stepped against SOFT, not ground, for the reason stockOutInk is: a control
+// sits on the page tone as often as on a card, every palette's ground is
+// lighter than its soft, and so clearing the ratio on the darker of the two
+// surfaces clears it on both. The tests assert it from both ends rather than
+// leaving that to this comment.
+export function edgeInk(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  return stepUntilContrast(hairlineInk(palette), c.soft, 3);
+}
+
 // Checkout form errors ("Add your name...", a bad phone, a missing landmark)
 // used to hard-code clay's own accent (#98452a) as the error colour on every
 // palette -- so a shop on ink, palm, sea, saffron or plum saw an unrelated
@@ -195,6 +247,8 @@ export function paletteColors(palette: StorefrontPalette): PaletteColors {
     danger: dangerInk(key),
     stockOut: stockOutInk(key),
     onDarkMuted: onDarkMutedInk(key),
+    hairline: hairlineInk(key),
+    edge: edgeInk(key),
   };
 }
 

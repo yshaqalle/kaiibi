@@ -242,11 +242,40 @@ describe('ThemeWindow wordmark', () => {
   });
 
   // It used to be in the nav AND would now also be in the hero -- the same
-  // name twice on a 390px screen.
+  // name twice on a 390px screen. That is what this guards, and it is a claim
+  // about the HEADER: two occurrences within one screenful, neither of which
+  // tells you anything the other did not.
+  //
+  // The footer prints the name once more, at the very bottom of the page, and
+  // that is deliberate rather than a regression of this rule. A customer who
+  // has scrolled a 200-product catalogue no longer has the wordmark on screen,
+  // and a closing block of contact details and terms with no name on it is a
+  // signature from nobody. Both facts are pinned below so neither can drift:
+  // once in the header, once as the sign-off, and nowhere else at all.
+  // Host elements only. `findAll` returns BOTH the composite `Text` and the
+  // host element it renders to, and both carry the same `children`, so
+  // counting every instance double-counts every string on the page.
+  function namesUnder(node: ReturnType<ReturnType<typeof create>['root']['find']>) {
+    return [node, ...node.findAll(() => true)]
+      .filter((n) => typeof n.type === 'string')
+      .flatMap((n) => [n.props?.children].flat(Infinity))
+      .filter((c): c is string => typeof c === 'string')
+      .filter((t) => t === shop.shopName || t === shop.shopName.toUpperCase());
+  }
+
   it('does not also repeat the name in the nav', async () => {
     const tree = await renderWith({});
-    const occurrences = allText(tree).filter((t) => t === shop.shopName || t === shop.shopName.toUpperCase());
-    expect(occurrences).toHaveLength(1);
+    const header = tree.root.find((n) => n.props?.testID === 'storefront-header');
+    expect(namesUnder(header)).toHaveLength(1);
+  });
+
+  it('signs the page off in the footer, and says the name nowhere else', async () => {
+    const tree = await renderWith({});
+    const footer = tree.root.find((n) => n.props?.testID === 'storefront-footer');
+    expect(namesUnder(footer)).toHaveLength(1);
+
+    const everywhere = allText(tree).filter((t) => t === shop.shopName || t === shop.shopName.toUpperCase());
+    expect(everywhere).toHaveLength(2);
   });
 
   it('sets the wordmark larger than the headline it leads', async () => {

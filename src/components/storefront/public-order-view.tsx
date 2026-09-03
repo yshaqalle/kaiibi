@@ -155,7 +155,7 @@ export function PublicOrderView({
             <Text style={[styles.money, { color: colors.ink }]}>{formatCents(order.deliveryFeeCents)}</Text>
           </View>
         ) : null}
-        <View style={[styles.totalRow, { borderTopColor: colors.soft }]}>
+        <View style={[styles.totalRow, { borderTopColor: colors.hairline }]}>
           <Text style={[styles.totalLabel, { color: colors.ink }]}>
             {order.fulfilment === 'deliver' ? 'Pay on delivery' : 'Pay on collection'}
           </Text>
@@ -217,7 +217,7 @@ export function PublicOrderView({
           onPress={onMessageShop}
           accessibilityLabel="Something is wrong — message the shop"
           accessibilityRole="button"
-          style={pressable([styles.secondary, { borderColor: colors.soft }])}
+          style={pressable([styles.secondary, { borderColor: colors.edge }])}
         >
           <Text style={[styles.secondaryText, { color: colors.ink }]}>Something is wrong — message the shop</Text>
         </Pressable>

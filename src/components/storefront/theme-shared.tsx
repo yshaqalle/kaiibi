@@ -249,7 +249,7 @@ function Fact({
   colors, label, value, stacked,
 }: { colors: PaletteColors; label: string; value: string; stacked?: boolean }) {
   return (
-    <View style={[styles.fact, stacked && styles.factStacked, { borderBottomColor: colors.soft }]}>
+    <View style={[styles.fact, stacked && styles.factStacked, { borderBottomColor: colors.hairline }]}>
       <Text style={[styles.factLabel, { color: colors.muted }]}>{label}</Text>
       <Text
         style={[styles.factValue, stacked && styles.factValueStacked, { color: colors.ink }]}
@@ -618,7 +618,7 @@ export function SearchField({
         autoCapitalize="none"
         returnKeyType="search"
         clearButtonMode="while-editing"
-        style={[styles.search, { borderColor: colors.soft, color: colors.ink, backgroundColor: colors.ground }]}
+        style={[styles.search, { borderColor: colors.edge, color: colors.ink, backgroundColor: colors.ground }]}
       />
       {value.length > 0 ? (
         <Pressable

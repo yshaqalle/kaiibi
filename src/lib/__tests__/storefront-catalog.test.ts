@@ -143,6 +143,68 @@ describe('out-of-stock text', () => {
   });
 });
 
+// TWO TOKENS FOR LINES, BECAUSE A RULE AND A CONTROL EDGE ARE NOT THE SAME JOB.
+//
+// Both used to be `soft`, and on the ink palette soft-on-ground is 1.04:1 --
+// so a card's row rules were invisible, and so was the border on the search
+// field. The field was the worse half: bento's own principle is that the page
+// tone is the separation, which is true of a CARD (a large filled shape read by
+// its mass) and false of a text input, whose fill is 3% from the page and whose
+// only remaining cue that it can be typed in is its boundary.
+//
+// So `hairline` rules a card's rows and separates two bands sharing a tone, and
+// stays deliberately faint -- a rule as loud as a word is a border, and bento
+// does not border cards. `edge` bounds a CONTROL and is the one place WCAG
+// 1.4.11 Non-text Contrast applies: 3:1 against the adjacent colour.
+describe('rules and control edges', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s draws a hairline that is not simply the surface it rules', (key) => {
+    const c = paletteColors(key);
+    expect(c.hairline).not.toBe(c.ground);
+    expect(c.hairline).not.toBe(c.soft);
+  });
+
+  it.each(keys)('%s keeps the hairline quieter than its muted text', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.hairline, c.ground)).toBeLessThan(contrastRatio(c.muted, c.ground));
+  });
+
+  it.each(keys)('%s clears 3:1 for a control edge on the page tone', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.edge, c.soft)).toBeGreaterThanOrEqual(3);
+  });
+
+  // Stepped against `soft` rather than `ground` for the reason stockOutInk is:
+  // every palette's ground is lighter than its soft, so clearing the ratio on
+  // the darker of the two surfaces clears it on both. Asserted from both ends
+  // rather than left to that argument.
+  it.each(keys)('%s clears 3:1 for a control edge on its card ground too', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.edge, c.ground)).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(keys)('%s makes edge and hairline genuinely different weights', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.edge, c.ground)).toBeGreaterThan(contrastRatio(c.hairline, c.ground));
+  });
+
+  // An edge is a boundary, not type. If it ever reaches full ink it has stopped
+  // being a line around a control and become the control.
+  it.each(keys)('%s keeps the control edge quieter than its own ink', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.edge, c.ground)).toBeLessThan(contrastRatio(c.ink, c.ground));
+  });
+
+  // The defect both tokens exist for, pinned so nobody reaches for `soft`
+  // again on the assumption that it shows up.
+  it('pins why soft could never have been the line: it is invisible on ground', () => {
+    const c = paletteColors('ink');
+    expect(contrastRatio(c.soft, c.ground)).toBeLessThan(1.1);
+    expect(contrastRatio(c.edge, c.ground)).toBeGreaterThanOrEqual(3);
+  });
+});
+
 // There is deliberately NO `stockOk`. In-stock is the state nearly every
 // product is in, so a colour on it would be spent where it carries no
 // information -- and the green it would have been derived from lands within

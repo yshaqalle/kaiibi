@@ -195,7 +195,7 @@ export function CheckoutForm({
       <Text style={[styles.label, { color: colors.ink }]}>Your name</Text>
       <TextInput
         testID="checkout-form-name-input"
-        style={[styles.input, { borderColor: colors.soft, color: colors.ink }]}
+        style={[styles.input, { borderColor: colors.edge, color: colors.ink }]}
         value={name}
         onChangeText={(t) => {
           setName(t);
@@ -209,7 +209,7 @@ export function CheckoutForm({
       <Text style={[styles.label, styles.spaced, { color: colors.ink }]}>Phone</Text>
       <TextInput
         testID="checkout-form-phone-input"
-        style={[styles.input, { borderColor: colors.soft, color: colors.ink }]}
+        style={[styles.input, { borderColor: colors.edge, color: colors.ink }]}
         value={phone}
         onChangeText={(t) => {
           setPhone(t);
@@ -238,7 +238,7 @@ export function CheckoutForm({
           onPress={() => selectFulfilment('collect')}
           style={pressable([
             styles.segment,
-            { borderColor: colors.soft },
+            { borderColor: colors.edge },
             fulfilment === 'collect' && { backgroundColor: colors.accent, borderColor: colors.accent },
           ])}
         >
@@ -253,7 +253,7 @@ export function CheckoutForm({
             onPress={() => selectFulfilment('deliver')}
             style={pressable([
               styles.segment,
-              { borderColor: colors.soft },
+              { borderColor: colors.edge },
               fulfilment === 'deliver' && { backgroundColor: colors.accent, borderColor: colors.accent },
             ])}
           >
@@ -288,7 +288,7 @@ export function CheckoutForm({
                   onPress={() => selectArea(area.name)}
                   style={pressable([
                     styles.areaRow,
-                    { borderColor: colors.soft },
+                    { borderColor: colors.edge },
                     selected && { backgroundColor: colors.soft, borderColor: colors.accent },
                   ])}
                 >
@@ -302,7 +302,7 @@ export function CheckoutForm({
 
           <TextInput
             testID="checkout-form-landmark-input"
-            style={[styles.input, styles.spaced, { borderColor: colors.soft, color: colors.ink }]}
+            style={[styles.input, styles.spaced, { borderColor: colors.edge, color: colors.ink }]}
             value={landmark}
             onChangeText={(t) => {
               setLandmark(t);
@@ -322,7 +322,7 @@ export function CheckoutForm({
       <Text style={[styles.label, styles.spaced, { color: colors.ink }]}>Anything else? (optional)</Text>
       <TextInput
         testID="checkout-form-note-input"
-        style={[styles.input, { borderColor: colors.soft, color: colors.ink }]}
+        style={[styles.input, { borderColor: colors.edge, color: colors.ink }]}
         value={note}
         onChangeText={setNote}
         placeholder="e.g. call when you arrive"
@@ -330,7 +330,7 @@ export function CheckoutForm({
         multiline
       />
 
-      <View style={[styles.breakdown, { borderTopColor: colors.soft }]}>
+      <View style={[styles.breakdown, { borderTopColor: colors.hairline }]}>
         <View style={styles.breakdownRow}>
           <Text style={[styles.breakdownLabel, { color: colors.muted }]}>Goods</Text>
           <Text style={[styles.breakdownValue, { color: colors.ink }]}>{formatCents(goodsCents)}</Text>

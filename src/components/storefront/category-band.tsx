@@ -82,9 +82,18 @@ export function CategoryBand({
               accessibilityState={{ selected }}
               accessibilityLabel={`${category.name}, ${category.productCount} products`}
               onPress={() => onSelect(category.name)}
+              // A pill is a CONTROL, and an unselected one is `ground` sitting
+              // on `soft` -- 1.04:1 on the ink palette, so it had no boundary
+              // at all and read as a word floating on the page. `edge` is the
+              // token that clears 3:1 for exactly this. The selected pill
+              // borders in its own fill rather than dropping the border, so the
+              // two states are the same size and the row does not shift by 2px
+              // when one is tapped.
               style={pressable([
                 styles.pill,
-                { backgroundColor: selected ? colors.ink : colors.ground },
+                selected
+                  ? { backgroundColor: colors.ink, borderColor: colors.ink }
+                  : { backgroundColor: colors.ground, borderColor: colors.edge },
               ])}
             >
               <Text style={[styles.name, { color: selected ? colors.ground : colors.ink }]} numberOfLines={1}>
@@ -114,6 +123,7 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 10,
+    borderWidth: 1,
   },
   name: { fontSize: 12.5, fontWeight: '800' },
   meta: { fontSize: 12.5, fontWeight: '700', ...TABULAR },

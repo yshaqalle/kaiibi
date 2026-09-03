@@ -6,6 +6,9 @@ import { CategoryBand } from '@/components/storefront/category-band';
 import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
+import { ShopChrome } from '@/components/storefront/shop-chrome';
+import { ShopFooter } from '@/components/storefront/shop-footer';
+import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   NoSearchResults, SearchField, ShopHeader, filterByCategory, gridColumnsForWidth, isWideShop, padFinalRow,
@@ -34,6 +37,11 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   // decision in two places.
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Which of Shop / About / Visit is on show. Lives here rather than in
+  // ShopChrome for the same reason `category` lives here rather than in the
+  // band: what the page is showing is the page's business, and a display
+  // component holding it would put the same decision in two places.
+  const [tab, setTab] = useState<ShopTabKey>('shop');
   // Search runs on top of the category filter, not instead of it: a
   // customer who arrived through a flyer and then searches expects to be
   // searching WITHIN what the flyer showed them. Both ways out stay
@@ -124,7 +132,11 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
       ) : null}
       {shown.length > 0 ? (
-        <View style={styles.sectionHead}>
+        // Ruled, now that there is a token that shows up. This head is the only
+        // thing standing between the filter controls and an undifferentiated
+        // field of tiles, and unruled it read as a caption on the first row
+        // rather than as the start of a section.
+        <View style={[styles.sectionHead, { borderBottomColor: colors.hairline }]}>
           <Text style={[styles.sectionTitle, { color: colors.muted }]}>What&apos;s in today</Text>
           <Text style={[styles.sectionCount, { color: colors.muted }]}>
             {shown.length} {shown.length === 1 ? 'item' : 'items'}
@@ -140,6 +152,16 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
     // made a borderless card impossible: a card the same colour as the page
     // is not a card.
     <View style={{ backgroundColor: colors.soft, flex: 1 }}>
+      <ShopChrome
+        storefront={storefront}
+        products={products}
+        categories={categories}
+        areas={areas}
+        colors={colors}
+        wide={wide}
+        tab={tab}
+        onSelectTab={setTab}
+      >
       <FlatList
         testID="storefront-goods"
         // Padded so a short final row leaves a gap rather than inflating its
@@ -174,6 +196,10 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         // reserves no space of its own -- without this, its last row sits
         // underneath the bar the moment the cart is non-empty.
         contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
+        // Closes the page. Inside the list rather than below it so it scrolls
+        // with the goods -- a footer pinned under a 200-product grid would be
+        // chrome permanently occupying the bottom of every browsing screen.
+        ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
         renderItem={({ item }) => (
           <View style={styles.cell}>
             {item ? (
@@ -190,6 +216,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
           </View>
         )}
       />
+      </ShopChrome>
 
       <ProductSheet
         product={openProduct}
@@ -224,7 +251,7 @@ const styles = StyleSheet.create({
   scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
-    paddingTop: 26, paddingBottom: 4,
+    paddingTop: 26, paddingBottom: 10, marginBottom: 4, borderBottomWidth: 1,
   },
   sectionTitle: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   sectionCount: { fontSize: TYPE.metaSmall, fontWeight: '700' },

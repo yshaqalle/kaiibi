@@ -58,7 +58,7 @@ export function OrderPlaced({ order, shopName, collectLocation, colors }: Props)
           `undefined` in the middle of it -- a link that looks real and goes
           nowhere is worse than no link, which is the #108 defect restated. */}
       {order.shareToken ? (
-        <View style={[styles.linkBlock, { borderTopColor: colors.soft }]}>
+        <View style={[styles.linkBlock, { borderTopColor: colors.hairline }]}>
           <Text style={[styles.linkLabel, { color: colors.muted }]}>Check on this order any time</Text>
           <Text style={[styles.linkValue, { color: colors.ink }]} selectable>
             {orderAddress(order.shareToken)}
@@ -66,7 +66,7 @@ export function OrderPlaced({ order, shopName, collectLocation, colors }: Props)
         </View>
       ) : null}
 
-      <View style={[styles.payRow, { borderTopColor: colors.soft }]}>
+      <View style={[styles.payRow, { borderTopColor: colors.hairline }]}>
         <Text style={[styles.payLabel, { color: colors.ink }]}>
           {order.fulfilment === 'deliver' ? 'Pay on delivery' : 'Pay on collection'}
         </Text>
