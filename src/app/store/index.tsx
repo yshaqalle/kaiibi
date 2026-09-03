@@ -27,10 +27,6 @@ import type { PublicShopSummary } from '@/types/models';
 // one page would be eight brands rather than a list.
 const colors = paletteColors('ink');
 
-// Below this a directory is READ, not searched -- the same argument
-// shouldOfferSearch (storefront-search.ts) makes about a short catalogue: a
-// control that filters three cards costs more attention than it saves.
-export const DIRECTORY_SEARCH_MINIMUM = 6;
 
 export default function StoreDirectoryScreen() {
   const router = useRouter();
@@ -106,8 +102,42 @@ export default function StoreDirectoryScreen() {
 
   const header = (
     <View>
+      {/* THE DIRECTORY'S OWN NAV. /store sits at the app root, outside the
+          (public) group, so it inherits none of the marketing chrome -- which
+          left the page opening on a headline with no way back to anything and
+          no way for a shopkeeper reading it to sign up. */}
+      <View style={[styles.nav, { borderBottomColor: colors.hairline }]}>
+        <Pressable
+          testID="storefront-directory-home"
+          accessibilityRole="link"
+          onPress={() => router.push('/')}
+          style={pressable(styles.brand)}
+        >
+          <View style={[styles.brandMark, { backgroundColor: colors.ink }]}>
+            <Text style={[styles.brandMarkText, { color: colors.ground }]}>K</Text>
+          </View>
+          <Text style={[styles.brandName, { color: colors.ink }]}>Kaiibi</Text>
+        </Pressable>
+        <View style={styles.navSpacer} />
+        <Pressable
+          testID="storefront-directory-open-shop"
+          accessibilityRole="link"
+          onPress={() => router.push('/signup')}
+          style={pressable([styles.navCta, { backgroundColor: colors.ink }])}
+        >
+          <Text style={[styles.navCtaText, { color: colors.ground }]} numberOfLines={1}>
+            {width >= 560 ? 'Open your own shop' : 'Open a shop'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* CENTRED, which is the design and was the thing most visibly wrong:
+          a left-aligned hero over centred chips and a centred grid reads as
+          two pages stacked. */}
       <View style={styles.hero}>
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Shops on Kaiibi</Text>
+        <View style={[styles.heroTag, { backgroundColor: colors.ground }]}>
+          <Text style={[styles.eyebrow, { color: colors.muted }]}>Shops on Kaiibi</Text>
+        </View>
         <Text style={[styles.title, width >= 720 && styles.titleWide, { color: colors.ink }]}>
           Buy from a real shop down the road
         </Text>
@@ -115,41 +145,47 @@ export default function StoreDirectoryScreen() {
           Every shop here is a business someone runs in person. Browse what they have in today,
           order on WhatsApp, and pay when you collect.
         </Text>
-      </View>
 
-      {/* Offered only once there is enough of a directory to be worth
-          searching -- the rule shouldOfferSearch applies on the shop page. Two
-          shops are read, not searched. */}
-      {shops.length >= DIRECTORY_SEARCH_MINIMUM ? (
-        <View style={styles.searchRow}>
+        {/* ALWAYS RENDERED, and the minimum that used to gate it is gone.
+            It was borrowed from shouldOfferSearch on the shop page, where a
+            search sits above a grid and genuinely earns its place by count.
+            Here it is part of the HERO -- the composition is tag, headline,
+            lede, field -- so hiding it below a threshold does not simplify the
+            page, it breaks it, which is exactly what a two-shop directory
+            showed. A field over two shops is redundant; a hero with a hole in
+            it is broken, and redundant beats broken. */}
+        <View style={[styles.searchRow, { backgroundColor: colors.ground, borderColor: colors.edge }]}>
+          <Text style={[styles.searchIcon, { color: colors.muted }]}>🔍</Text>
           <TextInput
             testID="storefront-directory-search"
             accessibilityLabel={`Search ${shops.length} shops`}
-            placeholder={`Search ${shops.length} shops`}
+            placeholder="Search shops, or a city"
             placeholderTextColor={colors.muted}
             value={query}
             onChangeText={setQuery}
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"
-            clearButtonMode="while-editing"
-            style={[styles.search, { borderColor: colors.edge, color: colors.ink, backgroundColor: colors.ground }]}
+            style={[styles.search, { color: colors.ink }]}
           />
-          {/* clearButtonMode is iOS-only, so this is what Android and web get,
-              and a filter with no visible way out is a dead end. */}
+          {/* The design puts a Search button here. It does NOT submit anything
+              -- the list filters as you type, so there is nothing to submit --
+              so the slot carries Clear instead, which is the control this
+              actually needs and the one a filter with no visible way out is
+              missing. Rendered only while there is something to clear. */}
           {query.length > 0 ? (
             <Pressable
               testID="storefront-directory-search-clear"
               accessibilityRole="button"
               accessibilityLabel="Clear search"
               onPress={() => setQuery('')}
-              style={pressable([styles.searchClear, { backgroundColor: colors.ground, borderColor: colors.edge }])}
+              style={pressable([styles.searchClear, { backgroundColor: colors.ink }])}
             >
-              <Text style={[styles.searchClearText, { color: colors.ink }]}>Clear</Text>
+              <Text style={[styles.searchClearText, { color: colors.ground }]}>Clear</Text>
             </Pressable>
           ) : null}
         </View>
-      ) : null}
+      </View>
 
       {/* Only once there is a choice to make -- one city is a filter to
           everything, which is the rule CategoryBand already applies. */}
@@ -204,11 +240,22 @@ export default function StoreDirectoryScreen() {
       ) : null}
 
       {shown.length > 0 ? (
-        <View style={[styles.count, { borderBottomColor: colors.hairline }]}>
-          <Text style={[styles.countText, { color: colors.muted }]}>
-            {shown.length} {shown.length === 1 ? 'shop' : 'shops'}{city ? ` in ${city}` : ''}
-          </Text>
-          <Text style={[styles.countText, { color: colors.muted }]}>Fullest shops first</Text>
+        <View style={[styles.rowHead, { borderBottomColor: colors.hairline }]}>
+          <View style={styles.rowHeadLeft}>
+            <Text style={[styles.rowHeadTitle, { color: colors.ink }]}>
+              {shown.length} {shown.length === 1 ? 'shop' : 'shops'}
+              {city ? ` in ${city}` : ''}{category ? ` · ${category}` : ''}
+            </Text>
+            <Text style={[styles.rowHeadSub, { color: colors.muted }]}>
+              Shops with the most in stock first.
+            </Text>
+          </View>
+          {/* The design says "Sorted by · Open now". It is not: the server
+              cannot know what time it is where the reader is standing (local
+              wall-clock hours, no timezone), so ordering by openness would
+              disagree with the badges on the cards. This says what the order
+              actually is. */}
+          <Text style={[styles.rowHeadSort, { color: colors.muted }]}>Sorted by · Stock</Text>
         </View>
       ) : null}
     </View>
@@ -264,7 +311,9 @@ export default function StoreDirectoryScreen() {
         // Closes the page, the same way ShopFooter closes a shop's. Only once
         // there are shops: under a "no shops yet" card it would be chrome
         // wrapped around an apology.
-        ListFooterComponent={shown.length > 0 ? <DirectoryFooter /> : null}
+        ListFooterComponent={shown.length > 0
+          ? <DirectoryFooter wideHow={columns > 1} onOpenShop={() => router.push('/signup')} />
+          : null}
         renderItem={({ item }) => (
           <View style={styles.cell}>
             {item ? (
@@ -284,15 +333,18 @@ export default function StoreDirectoryScreen() {
 // HOW IT WORKS, and then the sign-off. Both are static: this page has no
 // account, no basket and no checkout of its own, and saying so plainly is what
 // stops a customer looking for a cart that is not there.
-function DirectoryFooter() {
+function DirectoryFooter({ wideHow, onOpenShop }: { wideHow: boolean; onOpenShop: () => void }) {
   return (
     <View testID="storefront-directory-footer">
       <View style={styles.howBand}>
         <Text style={[styles.eyebrow, { color: colors.muted }]}>How it works</Text>
         <Text style={[styles.howTitle, { color: colors.ink }]}>Three steps, no account</Text>
-        <View style={styles.howRow}>
+        <View style={[styles.howRow, wideHow && styles.howRowWide]}>
           {HOW_IT_WORKS.map((step) => (
-            <View key={step.title} style={[styles.howCard, { backgroundColor: colors.ground }]}>
+            <View
+              key={step.title}
+              style={[styles.howCard, wideHow && styles.howCardWide, { backgroundColor: colors.ground }]}
+            >
               <Text style={[styles.howCardTitle, { color: colors.ink }]}>{step.title}</Text>
               <Text style={[styles.howCardBody, { color: colors.muted }]}>{step.body}</Text>
             </View>
@@ -305,6 +357,14 @@ function DirectoryFooter() {
         <Text style={[styles.footerLine, { color: colors.onDarkMuted }]}>
           Prices in USD · Pay on collection
         </Text>
+        <Pressable
+          testID="storefront-directory-footer-cta"
+          accessibilityRole="link"
+          onPress={onOpenShop}
+          style={pressable([styles.footerCta, { backgroundColor: colors.ground }])}
+        >
+          <Text style={[styles.footerCtaText, { color: colors.ink }]}>Open your own shop</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -415,36 +475,57 @@ const styles = StyleSheet.create({
   row: { gap: DIRECTORY_GAP },
   cell: { flex: 1 },
 
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 14 },
-  search: {
-    flex: 1, borderWidth: 1, borderRadius: RADIUS.pill,
-    paddingHorizontal: 18, paddingVertical: 13, fontSize: TYPE.body + 1,
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'stretch',
+    marginTop: 24, borderWidth: 1, borderRadius: RADIUS.pill,
+    paddingLeft: 18, paddingRight: 6, paddingVertical: 6,
   },
-  searchClear: { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
+  searchIcon: { fontSize: 15 },
+  search: { flex: 1, paddingVertical: 10, fontSize: TYPE.body + 1.5 },
+  searchClear: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11 },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
 
   featureWrap: { paddingBottom: 4 },
 
-  hero: { paddingTop: 34, paddingBottom: 22, maxWidth: 620 },
+  nav: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1,
+  },
+  navSpacer: { flex: 1 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandMark: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  brandMarkText: { fontSize: 15, fontWeight: '800' },
+  brandName: { fontSize: 18, fontWeight: '800', letterSpacing: LETTER.displayLoud },
+  navCta: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11 },
+  navCtaText: { fontSize: 13, fontWeight: '800' },
+
+  // Centred, and bounded independently of the grid: a 1,080px measure is right
+  // for a row of cards and far too wide for a sentence.
+  hero: { paddingTop: 40, paddingBottom: 26, alignItems: 'center', alignSelf: 'center', maxWidth: 640, width: '100%' },
+  heroTag: { borderRadius: RADIUS.pill, paddingHorizontal: 14, paddingVertical: 7 },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
   title: {
     fontFamily: DISPLAY_FONT, fontSize: 30, lineHeight: 35, fontWeight: '700',
-    letterSpacing: LETTER.displayLoud, marginTop: 12,
+    letterSpacing: LETTER.displayLoud, marginTop: 16, textAlign: 'center',
   },
   titleWide: { fontSize: 40, lineHeight: 45 },
-  lede: { fontSize: TYPE.body + 1.5, lineHeight: 23, marginTop: 14 },
+  lede: { fontSize: TYPE.body + 1.5, lineHeight: 23, marginTop: 14, textAlign: 'center' },
 
   chips: { flexDirection: 'row', gap: 8, paddingBottom: 6, paddingRight: SPACE.page },
   chip: { borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1 },
   chipText: { fontSize: 12.5, fontWeight: '800' },
 
-  count: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
-    paddingTop: 22, paddingBottom: 10, marginBottom: 2, borderBottomWidth: 1,
+  rowHead: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+    gap: 16, flexWrap: 'wrap',
+    paddingTop: 24, paddingBottom: 12, marginBottom: 2, borderBottomWidth: 1,
   },
-  countText: {
+  rowHeadLeft: { flexShrink: 1 },
+  rowHeadTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  rowHeadSub: { fontSize: TYPE.body, marginTop: 4 },
+  rowHeadSort: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
 
@@ -460,6 +541,8 @@ const styles = StyleSheet.create({
   // Column at every width. Three cards of prose side by side at 390px is three
   // columns of two words -- and this band is a footnote, not the page.
   howRow: { gap: DIRECTORY_GAP, marginTop: 8 },
+  howRowWide: { flexDirection: 'row', alignItems: 'stretch' },
+  howCardWide: { flex: 1 },
   howCard: { borderRadius: RADIUS.card, padding: SPACE.card },
   howCardTitle: { fontSize: 15.5, fontWeight: '800', letterSpacing: -0.2 },
   howCardBody: { fontSize: TYPE.body, lineHeight: 19, marginTop: 6 },
@@ -467,6 +550,8 @@ const styles = StyleSheet.create({
   footer: { borderRadius: RADIUS.card, padding: SPACE.card, marginTop: 32 },
   footerMark: { fontFamily: DISPLAY_FONT, fontSize: 20, fontWeight: '700', letterSpacing: LETTER.display },
   footerLine: { fontSize: TYPE.metaSmall + 1, marginTop: 8 },
+  footerCta: { borderRadius: RADIUS.pill, paddingHorizontal: 20, paddingVertical: 12, alignSelf: 'flex-start', marginTop: 18 },
+  footerCtaText: { fontSize: 13, fontWeight: '800' },
 
   empty: { borderRadius: RADIUS.card, paddingVertical: 46, paddingHorizontal: 24, alignItems: 'center' },
   emptyTitle: { fontSize: 17, fontWeight: '800', letterSpacing: LETTER.display, textAlign: 'center' },

@@ -203,12 +203,23 @@ describe('the directory screen', () => {
     expect(has(tree, 'storefront-directory-card-dir-alpha')).toBe(true);
   });
 
-  // Six is DIRECTORY_SEARCH_MINIMUM: below that a directory is read, not
-  // searched, and a control that filters three cards costs more than it saves.
-  it('offers no search box for a directory short enough to read', async () => {
+  // THE SEARCH FIELD IS PART OF THE HERO, not a control that earns its place by
+  // count. It used to be gated behind a six-shop minimum borrowed from the shop
+  // page, and on a two-shop directory that left the hero with a hole in it --
+  // the composition is tag, headline, lede, field. Redundant beats broken.
+  it('shows the search field even for a directory of two', async () => {
     mockList.mockResolvedValue([summary(), summary({ slug: 'b' })]);
     const tree = await renderScreen();
-    expect(has(tree, 'storefront-directory-search')).toBe(false);
+    expect(has(tree, 'storefront-directory-search')).toBe(true);
+  });
+
+  it('offers a way back to the marketing site and a way to open a shop', async () => {
+    mockList.mockResolvedValue([summary()]);
+    const tree = await renderScreen();
+    press(tree, 'storefront-directory-home');
+    expect(mockPush).toHaveBeenCalledWith('/');
+    press(tree, 'storefront-directory-open-shop');
+    expect(mockPush).toHaveBeenCalledWith('/signup');
   });
 
   it('narrows to what was typed, without going back to the network', async () => {
