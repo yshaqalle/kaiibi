@@ -16,6 +16,7 @@ function shop(overrides: Partial<PublicStorefront> = {}): PublicStorefront {
     theme: 'market', palette: 'ink', headline: 'Everything that plugs in.', about: null,
     heroImageUrl: null, offersDelivery: false, collectAddress: null,
     collectNeighborhood: 'Jigjiga Yar', paymentMode: 'on_collection', openingHours: {},
+    tradingSince: null, highlights: [],
     flyers: [], autoAdvance: false,
     ...overrides,
   };
@@ -219,6 +220,43 @@ describe('the About panel', () => {
     expect(stats).not.toContain('categor');
     expect(stats).not.toContain('delivery area');
     expect(stats).toContain('items listed');
+  });
+
+  // Added by 20261021000000. Both are the shop's own writing, both optional,
+  // and both must render as NOTHING when unset -- the rule every block on this
+  // page follows.
+  it('renders no "why shop here" band for a shop that has written none', () => {
+    expect(has(renderAbout({ highlights: [] }), 'storefront-about-highlights')).toBe(false);
+  });
+
+  it('renders the cards a shop has written', () => {
+    const tree = renderAbout({
+      highlights: [
+        { id: 'h1', title: 'We fix what we sell', body: 'Bring it back inside a year.' },
+        { id: 'h2', title: 'Real solar, tested', body: 'Run for a day on our own roof.' },
+      ],
+    });
+    expect(has(tree, 'storefront-about-highlight-h1')).toBe(true);
+    expect(textOf(tree, 'storefront-about-highlight-h2')).toContain('Real solar, tested');
+  });
+
+  // One or two render at that count rather than padding out to three.
+  it('does not pad a short set out to three', () => {
+    const tree = renderAbout({
+      highlights: [{ id: 'h1', title: 'Only one', body: 'And that is fine.' }],
+    });
+    expect(has(tree, 'storefront-about-highlight-h1')).toBe(true);
+    expect(has(tree, 'storefront-about-highlight-h2')).toBe(false);
+  });
+
+  it('leads the strip with the year the shop opened, when it has one', () => {
+    expect(textOf(renderAbout({ tradingSince: 2014 }), 'storefront-about-stats'))
+      .toContain('trading since');
+  });
+
+  it('says nothing about a year the shop never set', () => {
+    expect(textOf(renderAbout({ tradingSince: null }), 'storefront-about-stats'))
+      .not.toContain('trading since');
   });
 
   it('opens the first question and closes it again when pressed', () => {

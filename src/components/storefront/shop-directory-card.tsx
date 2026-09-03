@@ -2,6 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import { isConfigured, isOpenAt } from '@/lib/store-hours';
 import { shopBlurb } from '@/lib/storefront-directory';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicShopSummary } from '@/types/models';
@@ -28,12 +29,20 @@ export function ShopDirectoryCard({
   // no-photo fallback in this folder has to pass (see ProductTile's plate and
   // CategoryBand's dropped image_url).
   const initial = shop.shopName.trim().charAt(0).toUpperCase() || '?';
+  const open = isOpenAt(shop.openingHours ?? {}, new Date());
 
   return (
     <Pressable
       testID={`storefront-directory-card-${shop.slug}`}
       accessibilityRole="link"
-      accessibilityLabel={`${shop.shopName}${shop.city ? `, ${shop.city}` : ''}, ${shop.productCount} items`}
+    accessibilityLabel={[
+        shop.shopName,
+        shop.city,
+        // Announced in the label rather than left to a coloured pill sighted
+        // users read at a glance.
+        isConfigured(shop.openingHours) ? (open ? 'open now' : 'closed now') : null,
+        `${shop.productCount} items`,
+      ].filter(Boolean).join(', ')}
       onPress={() => onPress(shop.slug)}
       style={pressable([styles.card, { backgroundColor: colors.ground }])}
     >
@@ -43,6 +52,19 @@ export function ShopDirectoryCard({
         ) : (
           <Text style={[styles.monogram, { color: colors.muted }]}>{initial}</Text>
         )}
+        {/* Computed HERE, on the device, and never on the server: the stored
+            times are local wall-clock strings with no timezone, so only the
+            reader's own clock can answer this. No badge at all for a shop that
+            has never set hours -- absent is honest, "Closed" would not be.
+            Sits on a fixed near-white plate rather than the palette's ground
+            because it is over an unknown photograph. */}
+        {isConfigured(shop.openingHours) ? (
+          <View testID={`storefront-directory-state-${shop.slug}`} style={styles.state}>
+            <Text style={[styles.stateText, open ? styles.stateOpen : styles.stateShut]}>
+              {open ? 'Open' : 'Closed'}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.body}>
@@ -98,6 +120,17 @@ const styles = StyleSheet.create({
   foot: { flexDirection: 'row', gap: 6, marginTop: 12, flexWrap: 'wrap' },
   chip: { borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 5 },
   chipText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4, ...TABULAR },
+  // Fixed values, not palette ones: this sits over a photograph the palette
+  // knows nothing about -- the same reasoning ON_SCRIM_INK follows in
+  // theme-shared.tsx.
+  state: {
+    position: 'absolute', top: 10, right: 10,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5,
+  },
+  stateText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  stateOpen: { color: '#0b7a44' },
+  stateShut: { color: '#5e5d65' },
 });
 
 export const DIRECTORY_GAP = SPACE.cardGap;

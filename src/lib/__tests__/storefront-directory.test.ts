@@ -15,7 +15,7 @@ beforeEach(() => mockRpc.mockReset());
 function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary {
   return {
     shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
-    headline: null, about: null, heroImageUrl: null, offersDelivery: false, productCount: 4,
+    headline: null, about: null, heroImageUrl: null, offersDelivery: false, openingHours: {}, productCount: 4,
     ...overrides,
   };
 }
@@ -47,6 +47,7 @@ describe('reading the directory', () => {
         shop_name: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
         headline: 'Everything that plugs in.', about: 'A long story.',
         hero_image_url: 'heroes/alpha.jpg', offers_delivery: true, product_count: 12,
+        opening_hours: { mon: [{ open: '08:00', close: '18:00' }] },
       }],
       error: null,
     });
@@ -54,7 +55,8 @@ describe('reading the directory', () => {
     expect(shop).toEqual({
       shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
       headline: 'Everything that plugs in.', about: 'A long story.',
-      heroImageUrl: 'https://cdn.test/heroes/alpha.jpg', offersDelivery: true, productCount: 12,
+      heroImageUrl: 'https://cdn.test/heroes/alpha.jpg', offersDelivery: true,
+      openingHours: { mon: [{ open: '08:00', close: '18:00' }] }, productCount: 12,
     });
   });
 
@@ -69,6 +71,7 @@ describe('reading the directory', () => {
     expect(shop.headline).toBeNull();
     expect(shop.heroImageUrl).toBeNull();
     expect(shop.offersDelivery).toBe(false);
+    expect(shop.openingHours).toEqual({});
     expect(shop.productCount).toBe(0);
   });
 

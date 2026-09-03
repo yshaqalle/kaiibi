@@ -1,4 +1,5 @@
 import { publicImageUrl } from '@/lib/storage';
+import type { OpeningHours } from '@/lib/store-hours';
 import { supabase } from '@/lib/supabase';
 import type { PublicShopSummary } from '@/types/models';
 
@@ -25,6 +26,7 @@ function toSummary(row: Record<string, unknown>): PublicShopSummary {
     // image lives in.
     heroImageUrl: publicImageUrl((row.hero_image_url as string | null) ?? null),
     offersDelivery: Boolean(row.offers_delivery),
+    openingHours: (row.opening_hours as OpeningHours | null) ?? {},
     productCount: Number(row.product_count ?? 0),
   };
 }

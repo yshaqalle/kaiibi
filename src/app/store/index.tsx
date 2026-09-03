@@ -207,6 +207,10 @@ export default function StoreDirectoryScreen() {
             />
           )
         }
+        // Closes the page, the same way ShopFooter closes a shop's. Only once
+        // there are shops: under a "no shops yet" card it would be chrome
+        // wrapped around an apology.
+        ListFooterComponent={shown.length > 0 ? <DirectoryFooter /> : null}
         renderItem={({ item }) => (
           <View style={styles.cell}>
             {item ? (
@@ -222,6 +226,41 @@ export default function StoreDirectoryScreen() {
     </View>
   );
 }
+
+// HOW IT WORKS, and then the sign-off. Both are static: this page has no
+// account, no basket and no checkout of its own, and saying so plainly is what
+// stops a customer looking for a cart that is not there.
+function DirectoryFooter() {
+  return (
+    <View testID="storefront-directory-footer">
+      <View style={styles.howBand}>
+        <Text style={[styles.eyebrow, { color: colors.muted }]}>How it works</Text>
+        <Text style={[styles.howTitle, { color: colors.ink }]}>Three steps, no account</Text>
+        <View style={styles.howRow}>
+          {HOW_IT_WORKS.map((step) => (
+            <View key={step.title} style={[styles.howCard, { backgroundColor: colors.ground }]}>
+              <Text style={[styles.howCardTitle, { color: colors.ink }]}>{step.title}</Text>
+              <Text style={[styles.howCardBody, { color: colors.muted }]}>{step.body}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <View style={[styles.footer, { backgroundColor: colors.ink }]}>
+        <Text style={[styles.footerMark, { color: colors.ground }]}>Kaiibi</Text>
+        <Text style={[styles.footerLine, { color: colors.onDarkMuted }]}>
+          Prices in USD · Pay on collection
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const HOW_IT_WORKS = [
+  { title: 'Find a shop near you', body: 'Filter by city, or search for what you need.' },
+  { title: 'Order what is in today', body: 'Stock is what the shop actually has on the shelf, not a catalogue.' },
+  { title: 'Pay on collection', body: 'Nothing is charged online. You pay the shop when you take it.' },
+];
 
 function CityChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -353,6 +392,19 @@ const styles = StyleSheet.create({
   skeletonPhoto: { aspectRatio: 16 / 10, borderRadius: RADIUS.inset },
   skeletonLine: { height: 11, borderRadius: 6, marginTop: 14, marginHorizontal: 6 },
   skeletonShort: { width: '52%', height: 9, marginTop: 9 },
+
+  howBand: { paddingTop: 40, paddingBottom: 8, gap: 12 },
+  howTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.6 },
+  // Column at every width. Three cards of prose side by side at 390px is three
+  // columns of two words -- and this band is a footnote, not the page.
+  howRow: { gap: DIRECTORY_GAP, marginTop: 8 },
+  howCard: { borderRadius: RADIUS.card, padding: SPACE.card },
+  howCardTitle: { fontSize: 15.5, fontWeight: '800', letterSpacing: -0.2 },
+  howCardBody: { fontSize: TYPE.body, lineHeight: 19, marginTop: 6 },
+
+  footer: { borderRadius: RADIUS.card, padding: SPACE.card, marginTop: 32 },
+  footerMark: { fontFamily: DISPLAY_FONT, fontSize: 20, fontWeight: '700', letterSpacing: LETTER.display },
+  footerLine: { fontSize: TYPE.metaSmall + 1, marginTop: 8 },
 
   empty: { borderRadius: RADIUS.card, paddingVertical: 46, paddingHorizontal: 24, alignItems: 'center' },
   emptyTitle: { fontSize: 17, fontWeight: '800', letterSpacing: LETTER.display, textAlign: 'center' },

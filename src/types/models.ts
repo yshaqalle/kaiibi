@@ -1335,6 +1335,15 @@ export type PublicStorefront = {
   // keep in step. `{}` means never set, which every renderer must treat as
   // "say nothing" rather than as "closed" -- see isConfigured.
   openingHours: OpeningHours;
+  // The year the shop opened. A YEAR and not a date, because "Trading since
+  // 2014" is what a shop says out loud. Null is the common case and renders as
+  // nothing, never as a zero.
+  tradingSince: number | null;
+  // Up to three claims the shop writes about itself, in its own order.
+  // Required and never optional, coalesced to [] by the RPC for the same
+  // reason `flyers` is: a shop with none and a shop that has not been asked
+  // must read alike, so a renderer has one empty state rather than two.
+  highlights: StorefrontHighlight[];
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a
@@ -1375,6 +1384,15 @@ export type StorefrontProduct = {
 // function already returns them pre-sorted (order by a.sort_order, a.name)
 // and a checkout form has no use for an area's id, only its name (the value
 // place_storefront_order matches against) and its fee.
+// One "why shop here" card. Deliberately three fields and no icon: the design's
+// icons are decorative, and asking a shopkeeper to pick an emoji is a decision
+// with no right answer that blocks them writing the sentence that matters.
+export type StorefrontHighlight = {
+  id: string;
+  title: string;
+  body: string;
+};
+
 export type PublicDeliveryArea = {
   name: string;
   feeCents: number;
@@ -1399,5 +1417,10 @@ export type PublicShopSummary = {
   about: string | null;
   heroImageUrl: string | null;
   offersDelivery: boolean;
+  // Whether the shop is open is computed on the DEVICE from these, never on the
+  // server: the times are local wall-clock strings with no timezone, so only
+  // the reader's own clock can answer it. `{}` means never set, which renders
+  // as no badge at all rather than as "closed".
+  openingHours: OpeningHours;
   productCount: number;
 };

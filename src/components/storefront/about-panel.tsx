@@ -9,15 +9,23 @@ import { collectLocation } from '@/lib/storefront-collect';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
-// The About tab, built entirely from what the shop has ALREADY filled in.
+// The About tab.
 //
-// Nothing here reads a column that does not exist yet. The story is
-// `storefronts.about`, the figures are counted from the products, categories
-// and areas the route already fetches, and every answer in the FAQ is composed
-// from `offers_delivery`, `payment_mode` and the area list. The gallery,
-// highlight cards and "trading since" in the mockup are the parts that need new
-// tables, and they are deliberately absent rather than stubbed -- a placeholder
-// square is the one thing this page has never done.
+// Most of it is composed from what the shop has already filled in elsewhere:
+// the story is `storefronts.about`, the figures are counted from the products,
+// categories and areas the route already fetches, and every FAQ answer is
+// derived from `offers_delivery`, `payment_mode` and the area list.
+//
+// Two blocks are the shop's own writing, added by 20261021000000: the "why shop
+// here" cards (`storefront_highlights`) and the year it opened
+// (`storefronts.trading_since`). Both are optional and both render as NOTHING
+// when unset -- the rule every block on this page follows.
+//
+// STILL ABSENT, deliberately: the mockup's photo gallery. It needs an upload
+// flow and a storage lifecycle of its own (orphan cleanup when a shop replaces
+// an image), which is its own change rather than a corner of this one. The
+// story simply runs full width without it, and a placeholder square is the one
+// thing this page has never done.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE FAQ, AND WHY IT IS GENERATED RATHER THAN TYPED
@@ -158,9 +166,17 @@ export function AboutPanel({
   // Counted, never stored. Three cells at most, and a cell with nothing to
   // count is not rendered -- a shop with no categories should not be told it
   // has zero of them.
-  const stats: { value: string; label: string }[] = [
-    { value: String(products.length), label: products.length === 1 ? 'item listed' : 'items listed' },
-  ];
+  const stats: { value: string; label: string }[] = [];
+  // Leads the strip when there is one, because it is the only figure here that
+  // is not derivable from the page a customer is already looking at -- and the
+  // one that answers "have these people been doing this a while".
+  if (storefront.tradingSince) {
+    stats.push({ value: String(storefront.tradingSince), label: 'trading since' });
+  }
+  stats.push({
+    value: String(products.length),
+    label: products.length === 1 ? 'item listed' : 'items listed',
+  });
   if (categories.length > 0) {
     stats.push({
       value: String(categories.length),
@@ -173,6 +189,11 @@ export function AboutPanel({
       label: areas.length === 1 ? 'delivery area' : 'delivery areas',
     });
   }
+  // Four cells is 90px each on a 390px phone, which is narrower than the
+  // figures they hold. The strip keeps the first three at that width -- and the
+  // order above is deliberate, so what gets dropped is always the least
+  // interesting of them rather than whichever happened to be last.
+  const shownStats = wide ? stats : stats.slice(0, 3);
 
   return (
     <View style={styles.panel} testID="storefront-about-panel">
@@ -197,20 +218,43 @@ export function AboutPanel({
       </View>
 
       <ShopCard colors={colors} style={styles.strip} testID="storefront-about-stats">
-        {stats.map((stat, index) => (
+        {shownStats.map((stat, index) => (
           <View
             key={stat.label}
             style={[
               styles.statCell,
               // A rule between cells, not around them -- and never after the
               // last, which would be a line drawn against the card's own edge.
-              index < stats.length - 1 && { borderRightWidth: 1, borderRightColor: colors.hairline },
+              index < shownStats.length - 1 && { borderRightWidth: 1, borderRightColor: colors.hairline },
             ]}
           >
             <Stat colors={colors} value={stat.value} label={stat.label} />
           </View>
         ))}
       </ShopCard>
+
+      {/* WHY SHOP HERE. Up to three claims the shop wrote itself; the whole
+          band is absent when it has written none, which is the rule every
+          optional block on this page follows. One or two render at that count
+          rather than padding out to three with blanks. */}
+      {storefront.highlights.length > 0 ? (
+        <View style={styles.band} testID="storefront-about-highlights">
+          <Text style={[styles.eyebrow, { color: colors.muted }]}>Why shop here</Text>
+          <View style={[styles.highlights, wide && styles.highlightsWide]}>
+            {storefront.highlights.map((highlight) => (
+              <ShopCard
+                key={highlight.id}
+                colors={colors}
+                style={wide ? styles.highlightWide : undefined}
+                testID={`storefront-about-highlight-${highlight.id}`}
+              >
+                <Text style={[styles.highlightTitle, { color: colors.ink }]}>{highlight.title}</Text>
+                <Text style={[styles.highlightBody, { color: colors.muted }]}>{highlight.body}</Text>
+              </ShopCard>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.band}>
         <Text style={[styles.eyebrow, { color: colors.muted }]}>Before you order</Text>
@@ -238,6 +282,15 @@ const styles = StyleSheet.create({
   stat: { gap: 4 },
   statValue: { fontSize: 28, fontWeight: '800', letterSpacing: -1, ...TABULAR },
   statLabel: { fontSize: 12, lineHeight: 15 },
+
+  // Stacked on a phone and a row of three on a laptop. NOT a wrapping grid:
+  // three cards of different copy lengths wrap into a ragged second row at
+  // exactly the widths this page is most read at.
+  highlights: { gap: SPACE.cardGap },
+  highlightsWide: { flexDirection: 'row', alignItems: 'stretch' },
+  highlightWide: { flex: 1 },
+  highlightTitle: { fontSize: TYPE.body + 2.5, fontWeight: '800', letterSpacing: LETTER.display },
+  highlightBody: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
 
   faq: { gap: 8 },
   q: { borderRadius: RADIUS.inset, overflow: 'hidden' },

@@ -31,6 +31,10 @@ import {
   discardDraft,
   ensureStorefront,
   getMyStorefront,
+  isValidTradingSince,
+  listHighlights,
+  replaceHighlights,
+  setTradingSince,
   getStorefrontPreviewCategories,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
@@ -51,7 +55,8 @@ import {
   type ShopStorefront,
 } from '@/lib/storefront-admin';
 import type {
-  Promotion, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontProduct,
+  Promotion, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontHighlight,
+  StorefrontProduct,
 } from '@/types/models';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
@@ -124,6 +129,16 @@ function StorefrontEditor() {
   // refetch the row afterward rather than guessing at the server's new
   // shape client-side.
   const [working, setWorking] = useState<ShopStorefront | null>(null);
+  // Live-saving children, like the delivery areas: held here so the preview
+  // renders exactly what the published page will.
+  const [highlights, setHighlights] = useState<StorefrontHighlight[]>([]);
+  // What is IN the three boxes, which is not the same as what is saved: a
+  // half-typed card is a legitimate state and must not be written or dropped.
+  const [draftHighlights, setDraftHighlights] = useState<{ title: string; body: string }[]>([]);
+  // A string, not a number -- "20" on the way to "2014" must survive being
+  // typed. Parsed on save, never on keystroke.
+  const [tradingSinceText, setTradingSinceText] = useState('');
+  const [tradingSinceError, setTradingSinceError] = useState<string | null>(null);
   const [livePublished, setLivePublished] = useState<EditableFields | null>(null);
 
   // Patches not yet sent to saveDraft, and the timer that will flush them.
@@ -190,6 +205,25 @@ function StorefrontEditor() {
     setLoadError(null);
     try {
       const existing = await getMyStorefront(shopId);
+      if (existing?.tradingSince) setTradingSinceText(String(existing.tradingSince));
+      // `.catch(() => [])` for the same reason the public route does it on
+      // areas and categories: highlights are an optional block, and a blip on
+      // this read must cost the block, not the whole editor.
+      // Wrapped rather than chained off the call. `.then()` on the RESULT
+      // assumes the call returned a promise, and the whole editor goes down
+      // with a TypeError if it ever does not -- which is exactly what a
+      // partial module mock does, and what a client running ahead of a
+      // deployed lib would do too. Highlights are an optional block; a blip
+      // here must cost the block, never the page.
+      void (async () => {
+        try {
+          const rows = await listHighlights(shopId);
+          setHighlights(rows);
+          setDraftHighlights(rows.map((row) => ({ title: row.title, body: row.body })));
+        } catch {
+          setHighlights([]);
+        }
+      })();
       const row = existing ?? (await ensureStorefront(shopId));
       setLivePublished(editableFieldsOf(row));
       // Overlay: the live row, with any leftover draft from a previous,
@@ -719,6 +753,52 @@ function StorefrontEditor() {
       } : null,
     }));
 
+  // WRITTEN THROUGH on change, because this drawer has no Save button -- every
+  // other field in it stages into `draft` and is published later, and these two
+  // cannot (see storefront-admin.ts). The alternative is a shop typing three
+  // cards, closing the drawer, and losing them.
+  async function commitHighlights(next: { title: string; body: string }[]) {
+    if (!shopId) return;
+    try {
+      await replaceHighlights(shopId, next);
+      setHighlights(await listHighlights(shopId));
+    } catch {
+      // Left on screen rather than reverted: the shop can still see what it
+      // typed and try again, which is better than the text vanishing.
+    }
+  }
+
+  function handleChangeHighlight(index: number, patch: { title?: string; body?: string }) {
+    setDraftHighlights((prev) => {
+      const next = [0, 1, 2].map((i) => prev[i] ?? { title: '', body: '' });
+      next[index] = { ...next[index], ...patch };
+      void commitHighlights(next);
+      return next;
+    });
+  }
+
+  function handleChangeTradingSince(text: string) {
+    // Digits only, so a stray letter never reaches the parse below.
+    const digits = text.replace(/[^0-9]/g, '').slice(0, 4);
+    setTradingSinceText(digits);
+    if (digits.length === 0) {
+      setTradingSinceError(null);
+      if (shopId) void setTradingSince(shopId, null).catch(() => {});
+      return;
+    }
+    // Only a complete four-digit year is worth validating: "20" is on its way
+    // to "2014", and complaining about it mid-word is the editor arguing with
+    // somebody who is still typing.
+    if (digits.length < 4) { setTradingSinceError(null); return; }
+    const year = Number(digits);
+    if (!isValidTradingSince(year)) {
+      setTradingSinceError('That year looks wrong — check it and try again.');
+      return;
+    }
+    setTradingSinceError(null);
+    if (shopId) void setTradingSince(shopId, year).catch(() => {});
+  }
+
   const previewStorefront: PublicStorefront = {
     shopName: shop?.name ?? '',
     city: primaryCity,
@@ -733,6 +813,10 @@ function StorefrontEditor() {
     collectAddress: primaryAddress,
     collectNeighborhood: primaryNeighborhood,
     openingHours: primaryHours,
+    // Both save LIVE rather than through `draft` (see the migration on why),
+    // so the preview reads the same rows the published page will.
+    tradingSince: working?.tradingSince ?? null,
+    highlights,
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,
@@ -749,6 +833,11 @@ function StorefrontEditor() {
       suffixSuggestions={addressSuffixes}
       onUploadHeroImage={handleUploadHeroImage}
       focusRequest={focusRequest}
+        tradingSince={tradingSinceText}
+        tradingSinceError={tradingSinceError}
+        onChangeTradingSince={handleChangeTradingSince}
+        highlights={draftHighlights}
+        onChangeHighlight={handleChangeHighlight}
     />
   );
 

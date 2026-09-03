@@ -22,7 +22,7 @@ function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary 
   return {
     shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
     headline: 'Everything that plugs in.', about: null, heroImageUrl: null,
-    offersDelivery: true, productCount: 4,
+    offersDelivery: true, openingHours: {}, productCount: 4,
     ...overrides,
   };
 }
@@ -239,6 +239,40 @@ describe('the directory screen', () => {
     expect(textOf(tree, 'storefront-directory-empty')).toContain('Nothing matches');
     press(tree, 'storefront-directory-empty-action');
     expect(has(tree, 'storefront-directory-card-a')).toBe(true);
+  });
+
+  // Computed on the DEVICE: the stored times are local wall-clock strings with
+  // no timezone, so only the reader's clock can answer it.
+  it('badges a shop whose hours say it is open right now', async () => {
+    const allDay = { open: '00:00', close: '23:59' };
+    mockList.mockResolvedValue([summary({
+      openingHours: { mon: [allDay], tue: [allDay], wed: [allDay], thu: [allDay], fri: [allDay], sat: [allDay], sun: [allDay] },
+    })]);
+    const tree = await renderScreen();
+    expect(textOf(tree, 'storefront-directory-state-dir-alpha')).toBe('Open');
+  });
+
+  it('badges a shop that is shut right now as closed', async () => {
+    mockList.mockResolvedValue([summary({
+      openingHours: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
+    })]);
+    const tree = await renderScreen();
+    expect(textOf(tree, 'storefront-directory-state-dir-alpha')).toBe('Closed');
+  });
+
+  // Absent is honest; "Closed" would not be.
+  it('shows no badge at all for a shop that never set hours', async () => {
+    mockList.mockResolvedValue([summary({ openingHours: {} })]);
+    const tree = await renderScreen();
+    expect(has(tree, 'storefront-directory-state-dir-alpha')).toBe(false);
+  });
+
+  it('closes the page with how-it-works, but not over an empty one', async () => {
+    mockList.mockResolvedValue([summary()]);
+    expect(has(await renderScreen(), 'storefront-directory-footer')).toBe(true);
+
+    mockList.mockResolvedValue([]);
+    expect(has(await renderScreen(), 'storefront-directory-footer')).toBe(false);
   });
 
   it('says so plainly when no shop has opened yet', async () => {

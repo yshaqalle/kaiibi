@@ -109,6 +109,14 @@ export function ContentDrawer({
   suffixSuggestions = [],
   onUploadHeroImage,
   focusRequest,
+  // Optional with inert defaults, the same posture `shopName` and
+  // `claimedSlug` already take: a caller that has not wired these yet renders
+  // the fields read-only rather than failing to compile.
+  tradingSince = '',
+  tradingSinceError = null,
+  onChangeTradingSince = () => {},
+  highlights = [],
+  onChangeHighlight = () => {},
 }: {
   value: ContentDrawerValue;
   onChange: (patch: Partial<ContentDrawerValue>) => void;
@@ -142,6 +150,21 @@ export function ContentDrawer({
   onUploadHeroImage?: (localUri: string) => Promise<string>;
   /** See `ContentDrawerFocusRequest`. Omitted by a caller with no blocker to jump to. */
   focusRequest?: ContentDrawerFocusRequest | null;
+  /**
+   * The year the shop opened, as typed. A STRING and not a number: a
+   * half-typed "20" is a legitimate intermediate state, and parsing on every
+   * keystroke would delete the second character as it was entered.
+   *
+   * This and the highlights below save LIVE, like the delivery areas and
+   * auto-advance -- publish_storefront copies a fixed list of keys out of
+   * `draft` and neither is on it, so staging them would silently never
+   * publish. The Caveats on both say so on screen.
+   */
+  tradingSince?: string;
+  tradingSinceError?: string | null;
+  onChangeTradingSince?: (text: string) => void;
+  highlights?: { title: string; body: string }[];
+  onChangeHighlight?: (index: number, patch: { title?: string; body?: string }) => void;
 }) {
   const [phoneDraft, setPhoneDraft] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -613,6 +636,47 @@ export function ContentDrawer({
         numberOfLines={3}
       />
 
+      <Text style={[styles.eyebrow, styles.spaced]}>Trading since</Text>
+      <Caveat tone="context">Saves straight to your live page, like your delivery areas — it isn&apos;t held until you publish.</Caveat>
+      <TextInput
+        testID="content-drawer-trading-since"
+        style={styles.textInput}
+        value={tradingSince}
+        onChangeText={onChangeTradingSince}
+        placeholder="2014"
+        keyboardType="number-pad"
+        maxLength={4}
+      />
+      {tradingSinceError ? <Caveat tone="wrong">{tradingSinceError}</Caveat> : null}
+
+      <Text style={[styles.eyebrow, styles.spaced]}>Why shop here</Text>
+      <Caveat tone="context">
+        Up to three things you want customers to know. Both lines are needed for a card to show — and these
+        save straight to your live page.
+      </Caveat>
+      {[0, 1, 2].map((index) => (
+        <View key={index} style={styles.highlightBlock}>
+          <TextInput
+            testID={`content-drawer-highlight-title-${index}`}
+            style={styles.textInput}
+            value={highlights[index]?.title ?? ''}
+            onChangeText={(text) => onChangeHighlight(index, { title: text })}
+            placeholder={HIGHLIGHT_PLACEHOLDERS[index].title}
+            maxLength={60}
+          />
+          <TextInput
+            testID={`content-drawer-highlight-body-${index}`}
+            style={[styles.textInput, styles.multiline, styles.highlightBody]}
+            value={highlights[index]?.body ?? ''}
+            onChangeText={(text) => onChangeHighlight(index, { body: text })}
+            placeholder={HIGHLIGHT_PLACEHOLDERS[index].body}
+            multiline
+            numberOfLines={2}
+            maxLength={240}
+          />
+        </View>
+      ))}
+
       <Text style={[styles.eyebrow, styles.spaced]}>Opening photo</Text>
       <Caveat tone="context">Only the Window layout shows this photo — a shop on Market won&apos;t display it here.</Caveat>
       <View style={styles.heroRow}>
@@ -667,7 +731,19 @@ export function ContentDrawer({
   );
 }
 
+// Placeholders that do real work: an empty field must read as "this is what a
+// good one looks like", not as a blank box. Three different shapes on purpose --
+// a promise, a standard, a service -- so a shop does not write the same
+// sentence three times.
+const HIGHLIGHT_PLACEHOLDERS = [
+  { title: 'We fix what we sell', body: 'Anything bought here that stops working inside a year, bring it back.' },
+  { title: 'Weighed in front of you', body: 'One scale, on the counter, facing the customer.' },
+  { title: 'Same-day delivery', body: 'Order before 16:00 and it reaches you the same evening.' },
+];
+
 const styles = StyleSheet.create({
+  highlightBlock: { gap: 8, marginTop: 10 },
+  highlightBody: { minHeight: 60 },
   eyebrow: {
     fontSize: 10.5,
     fontWeight: '800',

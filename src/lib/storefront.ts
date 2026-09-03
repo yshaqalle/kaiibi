@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { whatsappLink } from '@/lib/whatsapp';
 import type {
   PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontFlyerLinkKind,
-  StorefrontFlyerOffer, StorefrontProduct,
+  StorefrontFlyerOffer, StorefrontHighlight, StorefrontProduct,
 } from '@/types/models';
 
 // Reads the public page. Every one of these calls the RPCs in
@@ -147,6 +147,15 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // the values came from its own editor; a parse step in this file would be
     // a second opinion on a shape that module already defines.
     openingHours: (row.opening_hours as OpeningHours | null) ?? {},
+    // `?? null` and Number(...) rather than a bare read: the column is a
+    // smallint, supabase-js hands it back as a number, and a client shipped
+    // ahead of its database sees no column at all -- which must arrive as the
+    // null a shop that never set a year already produces.
+    tradingSince: row.trading_since == null ? null : Number(row.trading_since),
+    // Same rule the flyers array follows: anything that is not an array reads
+    // as none at all, so a client ahead of its database renders the block
+    // absent rather than throwing on `.map`.
+    highlights: Array.isArray(row.highlights) ? (row.highlights as StorefrontHighlight[]) : [],
   };
 }
 

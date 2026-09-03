@@ -19,7 +19,8 @@ const shop: PublicStorefront = {
   theme: 'market', palette: 'palm', headline: null, about: null, heroImageUrl: null,
   offersDelivery: true, collectAddress: null, collectNeighborhood: null,
   paymentMode: 'on_collection',
-  openingHours: {}, flyers: [], autoAdvance: false,
+  openingHours: {},
+  tradingSince: null, highlights: [], flyers: [], autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

@@ -3,7 +3,9 @@ import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
-import type { StorefrontCategory, StorefrontFlyerLinkKind, StorefrontProduct } from '@/types/models';
+import type {
+  StorefrontCategory, StorefrontFlyerLinkKind, StorefrontHighlight, StorefrontProduct,
+} from '@/types/models';
 
 // The shop-side counterpart to storefront.ts's public reads: everything a
 // shop does to its OWN page -- the editor screen holds layout and state, this
@@ -68,6 +70,11 @@ export type ShopStorefront = {
   // and the editor already tells the shop those save straight to the live
   // page.
   autoAdvance: boolean;
+  // The year the shop opened. Like autoAdvance and the delivery areas, and
+  // UNLIKE everything in EditableFields, this saves LIVE rather than through
+  // `draft`: publish_storefront copies a fixed list of keys and this is not
+  // one of them, so a value staged there would never reach the live column.
+  tradingSince: number | null;
   // Unpublished edits, staged server-side (20260925000200_storefront_draft.sql)
   // so a shop that writes its page and taps Back loses nothing. Null means
   // "nothing staged" -- every field the shop has touched but not published is
@@ -125,6 +132,7 @@ function mapStorefrontRow(
     lapse_unpublished_at?: string | null;
     lapse_unpublished_reason?: string | null;
     auto_advance?: boolean | null;
+    trading_since?: number | null;
     draft?: Record<string, unknown> | null;
   }
 ): ShopStorefront {
@@ -150,6 +158,7 @@ function mapStorefrontRow(
         ? sf.lapse_unpublished_reason
         : null,
     autoAdvance: Boolean(sf.auto_advance),
+    tradingSince: sf.trading_since ?? null,
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
 }
@@ -1381,4 +1390,83 @@ export async function checkOrdersFulfilment(
 export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
   const byOrder = await checkOrdersFulfilment(shopId, [orderId]);
   return byOrder[orderId] ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIGHLIGHTS, and the year the shop opened.
+//
+// Both save LIVE, the same posture the delivery areas and auto_advance already
+// take, and for the same structural reason: publish_storefront copies a FIXED
+// list of keys out of `storefronts.draft` (20260925000200), so anything staged
+// there that is not on that list never reaches a live column. The editor says
+// so on screen rather than leaving a shop to discover it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const HIGHLIGHT_LIMIT = 3;
+
+export async function listHighlights(shopId: string): Promise<StorefrontHighlight[]> {
+  const { data, error } = await supabase
+    .from('storefront_highlights')
+    .select('id, title, body')
+    .eq('shop_id', shopId)
+    .order('sort_order')
+    .order('created_at');
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, title: row.title, body: row.body }));
+}
+
+// Replace-all rather than a diff. There are at most three of them, they are
+// edited as a set (the design is a row of three, not a list you append to), and
+// a diff would have to reconcile reorders, edits and deletes to save at most
+// three rows -- more moving parts than the thing it manages. The delete and the
+// insert are two statements and NOT a transaction, which is the honest cost:
+// a failure between them leaves the shop with none rather than with the old
+// set. Acceptable here because the blast radius is three sentences the shop
+// still has on screen and can save again, and because the alternative is an RPC
+// for a feature that does not need one.
+export async function replaceHighlights(
+  shopId: string,
+  items: { title: string; body: string }[],
+): Promise<void> {
+  const clean = items
+    .map((item) => ({ title: item.title.trim(), body: item.body.trim() }))
+    // A half-filled card is not a card. Both halves or neither -- the database
+    // says the same thing with its length checks, and this keeps a shop from
+    // meeting that as an error message.
+    .filter((item) => item.title.length > 0 && item.body.length > 0)
+    .slice(0, HIGHLIGHT_LIMIT);
+
+  const { error: delError } = await supabase
+    .from('storefront_highlights')
+    .delete()
+    .eq('shop_id', shopId);
+  if (delError) throw delError;
+
+  if (clean.length === 0) return;
+
+  const { error } = await supabase.from('storefront_highlights').insert(
+    clean.map((item, index) => ({
+      shop_id: shopId,
+      title: item.title,
+      body: item.body,
+      sort_order: index,
+    })),
+  );
+  if (error) throw error;
+}
+
+// Null clears it. Anything outside the database's own 1900..2200 sanity range
+// is rejected here too rather than sent -- the shop gets a message from the
+// editor, not a Postgres constraint name.
+export function isValidTradingSince(year: number | null): boolean {
+  return year === null || (Number.isInteger(year) && year >= 1900 && year <= 2200);
+}
+
+export async function setTradingSince(shopId: string, year: number | null): Promise<void> {
+  if (!isValidTradingSince(year)) throw new Error('invalid_trading_since');
+  const { error } = await supabase
+    .from('storefronts')
+    .update({ trading_since: year })
+    .eq('shop_id', shopId);
+  if (error) throw error;
 }
