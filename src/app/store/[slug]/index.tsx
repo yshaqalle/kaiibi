@@ -24,6 +24,41 @@ import type {
 // Shared by both route files: /store/<slug> and /store/<slug>/<tab>. The only
 // difference between them is which tab they open on, so the page itself is one
 // component and the routes are two lines each.
+// WHY THERE IS A CACHE HERE AT ALL.
+//
+// The Shop tab is served by this file and About/Visit by `[tab].tsx` -- two
+// different route components. Moving between them UNMOUNTS one and MOUNTS the
+// other, so without this the screen dropped back to `loading`, flashed the
+// full-page skeleton and refetched all four RPCs every time somebody pressed a
+// tab. The "one page, two doors" comment on [tab].tsx was true of the component
+// and false of the experience.
+//
+// Stale-while-revalidate rather than a plain cache: a cached payload renders
+// immediately with no skeleton, AND a fresh read still runs and replaces it.
+// So a tab press costs nothing visible, and a customer returning to a shop
+// after an hour is not shown an hour-old price while it loads.
+//
+// Module-level and unbounded, deliberately: entries are one shop each, a
+// visitor sees a handful in a session, and the page is reloaded far more often
+// than it is navigated. A TTL or an LRU here would be machinery guarding
+// against a session nobody has.
+//
+// THE IDIOMATIC FIX IS A `_layout.tsx` for `[slug]` that fetches once and keeps
+// both tab routes as its children -- a layout stays mounted while its children
+// swap, so the remount would not happen at all. It is not done here because the
+// fetch, the skeleton, the missing page and the Head tag are all asserted
+// against THIS component by storefront-route.test.tsx (28 tests), and testing a
+// layout that renders <Slot /> needs a router the suite does not have. Worth
+// doing; worth doing on its own.
+type CachedShop = {
+  shop: PublicStorefront;
+  products: StorefrontProduct[];
+  areas: PublicDeliveryArea[];
+  categories: StorefrontCategory[];
+};
+
+const SHOP_CACHE = new Map<string, CachedShop>();
+
 export function StorefrontScreen({ tab = 'shop' }: { tab?: ShopTabKey }) {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
@@ -41,12 +76,18 @@ export function StorefrontScreen({ tab = 'shop' }: { tab?: ShopTabKey }) {
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: 'loading' });
+    // A cached shop paints straight away and the read below still runs --
+    // stale-while-revalidate. Only a slug with nothing cached shows a skeleton.
+    const cached = SHOP_CACHE.get(String(slug));
+    setState(cached ? { status: 'ready', ...cached } : { status: 'loading' });
     (async () => {
       try {
         const shop = await getPublicStorefront(String(slug));
         if (cancelled) return;
         if (!shop) {
+          // An unpublished or deleted shop drops out of the cache too, so the
+          // next visit does not paint a page the database no longer serves.
+          SHOP_CACHE.delete(String(slug));
           setState({ status: 'missing' });
           return;
         }
@@ -75,11 +116,18 @@ export function StorefrontScreen({ tab = 'shop' }: { tab?: ShopTabKey }) {
           shop.offersDelivery ? getPublicDeliveryAreas(String(slug)).catch(() => []) : Promise.resolve([]),
           getPublicStorefrontCategories(String(slug)).catch(() => []),
         ]);
+        SHOP_CACHE.set(String(slug), { shop, products, areas, categories });
         if (!cancelled) setState({ status: 'ready', shop, products, areas, categories });
       } catch {
         // A failed read is indistinguishable from an unknown shop on purpose --
         // an error page would confirm the shop exists.
-        if (!cancelled) setState({ status: 'missing' });
+        //
+        // But NOT when something is already on screen: a revalidation that
+        // fails behind a shop the customer is reading must leave it alone
+        // rather than replace a working page with "there's no shop at this
+        // address". The cache is the test for that, not the state, because
+        // `state` here is the closed-over value from mount.
+        if (!cancelled && !SHOP_CACHE.has(String(slug))) setState({ status: 'missing' });
       }
     })();
     return () => {

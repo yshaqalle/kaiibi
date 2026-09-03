@@ -35,12 +35,30 @@ function toSummary(row: Record<string, unknown>): PublicShopSummary {
   };
 }
 
+// The most this reads in one call, and the RPC's own clamp ceiling. Past this
+// the directory is silently partial -- the chips, the search and the featured
+// pick all reason over what was fetched, not over what exists -- so this is the
+// number to change when pagination arrives, and the number to keep the SQL's
+// `least(greatest(...), 100)` in step with.
+export const DIRECTORY_PAGE_SIZE = 100;
+
 export async function listPublicShops(city?: string | null): Promise<PublicShopSummary[]> {
   // `p_city: null` rather than omitting the argument: the function defaults it
   // to null anyway, but passing it explicitly means a trimmed-to-empty filter
   // ("   ") reads as "every city" here rather than as a city no shop is in.
   const wanted = city?.trim() ? city.trim() : null;
-  const { data, error } = await supabase.rpc('list_public_storefronts', { p_city: wanted });
+  // `p_limit` PASSED, not left to the function's default. The default is 60 and
+  // the clamp ceiling is 100 -- so leaving it out quietly capped the directory
+  // at 60 while this file's own comments (and the chips, and the search) all
+  // reasoned about 100. Asking for the ceiling makes the number the comments
+  // describe the number the caller actually gets.
+  //
+  // DIRECTORY_PAGE_SIZE is that ceiling by name, so the day this needs
+  // pagination there is one constant to find rather than a literal to hunt.
+  const { data, error } = await supabase.rpc('list_public_storefronts', {
+    p_city: wanted,
+    p_limit: DIRECTORY_PAGE_SIZE,
+  });
   if (error) throw error;
   return (data ?? []).map(toSummary);
 }

@@ -156,10 +156,14 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // as none at all, so a client ahead of its database renders the block
     // absent rather than throwing on `.map`.
     highlights: Array.isArray(row.highlights) ? (row.highlights as StorefrontHighlight[]) : [],
-    // Resolved to absolute URLs here, and an entry whose path will not resolve
-    // is DROPPED rather than passed on as null: a gallery is a row of
-    // photographs, and a hole in it reads as a broken page rather than as a
-    // shop that uploaded five instead of six.
+    // Resolved to absolute URLs here. The filter below drops an entry that
+    // will not resolve -- which in practice is only a row whose `image_path`
+    // is empty or malformed, NOT one whose object has been deleted:
+    // uploadImage returns an absolute URL, the column stores it, and
+    // publicImageUrl passes absolute URLs straight through without asking
+    // storage anything. A row pointing at a deleted object still yields a
+    // perfectly well-formed URL. AboutPanel's `onError` is what catches that
+    // one, and it is the only thing that can.
     images: Array.isArray(row.images)
       ? (row.images as { id: string; image_path: string }[])
           .map((image) => ({ id: image.id, url: publicImageUrl(image.image_path) }))

@@ -144,6 +144,12 @@ function StorefrontEditor() {
   // typed. Parsed on save, never on keystroke.
   const [tradingSinceText, setTradingSinceText] = useState('');
   const [tradingSinceError, setTradingSinceError] = useState<string | null>(null);
+  const [highlightsError, setHighlightsError] = useState<string | null>(null);
+  const pendingHighlightsRef = useRef<{ title: string; body: string }[] | null>(null);
+  const highlightsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightsInFlightRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingYearRef = useRef<number | null | undefined>(undefined);
+  const yearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [livePublished, setLivePublished] = useState<EditableFields | null>(null);
 
   // Patches not yet sent to saveDraft, and the timer that will flush them.
@@ -413,6 +419,22 @@ function StorefrontEditor() {
   useEffect(() => () => {
     flushAutosave();
   }, [flushAutosave]);
+
+  // The two live-saving fields flush on unmount too, and for the identical
+  // reason: cancelling instead would silently drop up to AUTOSAVE_DEBOUNCE_MS
+  // of typing every time a shopkeeper closes the drawer mid-pause.
+  //
+  // Through a ref rather than a dependency array, and rather than a disable
+  // comment: the flushers close over fresh state every render, so listing them
+  // as deps would tear down and re-create the unmount effect on every
+  // keystroke, and suppressing the warning would just hide that. The ref is
+  // reassigned each render and read once, at unmount, when it holds the latest.
+  const flushLiveFieldsRef = useRef<() => void>(() => {});
+  flushLiveFieldsRef.current = () => {
+    void flushHighlights();
+    void flushYear();
+  };
+  useEffect(() => () => flushLiveFieldsRef.current(), []);
 
   // Every edit does two things: shows immediately in `working` (and so in
   // the preview), and queues an autosave into the server-side draft. Never a
@@ -793,24 +815,57 @@ function StorefrontEditor() {
   // other field in it stages into `draft` and is published later, and these two
   // cannot (see storefront-admin.ts). The alternative is a shop typing three
   // cards, closing the drawer, and losing them.
-  async function commitHighlights(next: { title: string; body: string }[]) {
+  // SERIALISED, because replaceHighlights deletes every row and re-inserts:
+  // two of those overlapping is a delete landing between another call's delete
+  // and insert, which is how a shop ends up with rows it did not ask for or
+  // none at all. The ref holds the in-flight promise and each call waits for
+  // it, so the writes queue rather than race.
+  async function flushHighlights() {
     if (!shopId) return;
-    try {
-      await replaceHighlights(shopId, next);
-      setHighlights(await listHighlights(shopId));
-    } catch {
-      // Left on screen rather than reverted: the shop can still see what it
-      // typed and try again, which is better than the text vanishing.
-    }
+    const next = pendingHighlightsRef.current;
+    if (!next) return;
+    pendingHighlightsRef.current = null;
+    const run = async () => {
+      try {
+        await replaceHighlights(shopId, next);
+        const rows = await listHighlights(shopId);
+        setHighlights(Array.isArray(rows) ? rows : []);
+        setHighlightsError(null);
+      } catch {
+        // NAMED, not swallowed. The old empty catch meant a shop could type
+        // three cards, see them in the preview, and have none of it on the live
+        // page with nothing on screen saying so.
+        setHighlightsError('Could not save that — check your connection and try again.');
+      }
+    };
+    highlightsInFlightRef.current = highlightsInFlightRef.current.then(run, run);
+    await highlightsInFlightRef.current;
   }
 
+  // DEBOUNCED, and the write is OUT of the setState updater.
+  //
+  // This used to call commitHighlights from inside the updater, on every
+  // keystroke. Three things were wrong with that and they compound: an updater
+  // must be pure (StrictMode double-invokes it, so every keystroke fired the
+  // write twice), replaceHighlights is a non-atomic DELETE-all + INSERT, and
+  // nothing serialised the calls -- so overlapping requests raced, some hit the
+  // `enforce_highlight_limit` trigger against rows another call had not yet
+  // deleted, and the error went into an empty catch while the live page kept
+  // older text.
+  //
+  // Now it queues the same way every other field in this editor does, on the
+  // same 800ms pause, and commitHighlights itself serialises.
   function handleChangeHighlight(index: number, patch: { title?: string; body?: string }) {
-    setDraftHighlights((prev) => {
-      const next = [0, 1, 2].map((i) => prev[i] ?? { title: '', body: '' });
-      next[index] = { ...next[index], ...patch };
-      void commitHighlights(next);
-      return next;
-    });
+    const next = [0, 1, 2].map((i) => draftHighlights[i] ?? { title: '', body: '' });
+    next[index] = { ...next[index], ...patch };
+    setDraftHighlights(next);
+    queueHighlights(next);
+  }
+
+  function queueHighlights(next: { title: string; body: string }[]) {
+    pendingHighlightsRef.current = next;
+    if (highlightsTimerRef.current) clearTimeout(highlightsTimerRef.current);
+    highlightsTimerRef.current = setTimeout(() => { void flushHighlights(); }, AUTOSAVE_DEBOUNCE_MS);
   }
 
   function handleChangeTradingSince(text: string) {
@@ -819,7 +874,7 @@ function StorefrontEditor() {
     setTradingSinceText(digits);
     if (digits.length === 0) {
       setTradingSinceError(null);
-      if (shopId) void setTradingSince(shopId, null).catch(() => {});
+      queueYear(null);
       return;
     }
     // Only a complete four-digit year is worth validating: "20" is on its way
@@ -832,7 +887,27 @@ function StorefrontEditor() {
       return;
     }
     setTradingSinceError(null);
-    if (shopId) void setTradingSince(shopId, year).catch(() => {});
+    queueYear(year);
+  }
+
+  // Same debounce as the highlights and the draft: a four-digit year typed one
+  // digit at a time is one save, not four.
+  function queueYear(year: number | null) {
+    pendingYearRef.current = year;
+    if (yearTimerRef.current) clearTimeout(yearTimerRef.current);
+    yearTimerRef.current = setTimeout(() => { void flushYear(); }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  async function flushYear() {
+    const year = pendingYearRef.current;
+    if (!shopId || year === undefined) return;
+    pendingYearRef.current = undefined;
+    try {
+      await setTradingSince(shopId, year);
+      setWorking((w) => (w ? { ...w, tradingSince: year } : w));
+    } catch {
+      setTradingSinceError('Could not save that — check your connection and try again.');
+    }
   }
 
   const previewStorefront: PublicStorefront = {
@@ -874,7 +949,7 @@ function StorefrontEditor() {
       onUploadHeroImage={handleUploadHeroImage}
       focusRequest={focusRequest}
         tradingSince={tradingSinceText}
-        tradingSinceError={tradingSinceError}
+        tradingSinceError={tradingSinceError ?? highlightsError}
         onChangeTradingSince={handleChangeTradingSince}
         highlights={draftHighlights}
         onChangeHighlight={handleChangeHighlight}

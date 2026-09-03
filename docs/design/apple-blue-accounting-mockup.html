@@ -1,0 +1,545 @@
+<meta charset="utf-8" />
+<title>Apple blue, read against the app as built</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  }
+  /* The viewer's own toggle, which must win over the OS preference in both
+     directions. Only the DOCUMENT chrome flips: the `.doc` frame tokens below
+     stay light on purpose, because they mirror a light-only app. */
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+  /* The shipped bento tokens, copied from src/constants/theme.ts. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+        --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+        --profit:#008340; --loss:#d72b3e; --warn:#b07206; --chartAccent:#2a78d6; --accentInk:#1b47b8;
+        /* What a solid action wears. The default is the shipped one. */
+        --cta:#0b0b0d; --cta-ink:#fff; --quiet:#f6f6f7; --quiet-ink:#1a1a1e; --tile:#f6f6f7; --tile-ink:#1a1a1e; }
+  /* The proposal, applied to the same frames. */
+  .doc.blue{ --cta:#0071e3; --cta-ink:#fff; --quiet:#e8f2fe; --quiet-ink:#0071e3; --tile:#e8f2fe; --tile-ink:#0071e3; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 12px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  h3.sub{font-size:14px;font-weight:800;margin:26px 0 8px;letter-spacing:-.01em;}
+  section{margin-top:56px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap;}
+  .tag.now{background:rgba(0,131,64,.13);color:#0b7a44;}
+  .tag.door{background:rgba(47,107,255,.14);color:#2350c8;}
+  .tag.gap{background:rgba(200,121,26,.16);color:#a3620f;}
+  .tag.no{background:rgba(215,43,62,.13);color:#b52233;}
+  .tag.later{background:rgba(119,119,127,.16);color:#5e5d65;}
+  /* The washes are translucent, so on a dark ground the ink has to come up to
+     meet them rather than staying the light-mode step. */
+  @media (prefers-color-scheme: dark){
+    .tag.now{color:#5fd39a;} .tag.door{color:#8fb4ff;} .tag.gap{color:#e0a244;}
+    .tag.no{color:#ff8a93;} .tag.later{color:#a9a9b3;}
+    .pass{color:#5fd39a;} .fail{color:#ff8a93;}
+  }
+  :root[data-theme="dark"] .tag.now{color:#5fd39a;} :root[data-theme="dark"] .tag.door{color:#8fb4ff;}
+  :root[data-theme="dark"] .tag.gap{color:#e0a244;} :root[data-theme="dark"] .tag.no{color:#ff8a93;}
+  :root[data-theme="dark"] .tag.later{color:#a9a9b3;}
+  :root[data-theme="dark"] .pass{color:#5fd39a;} :root[data-theme="dark"] .fail{color:#ff8a93;}
+  :root[data-theme="light"] .tag.now{color:#0b7a44;} :root[data-theme="light"] .tag.door{color:#2350c8;}
+  :root[data-theme="light"] .tag.gap{color:#a3620f;} :root[data-theme="light"] .tag.no{color:#b52233;}
+  :root[data-theme="light"] .tag.later{color:#5e5d65;}
+  :root[data-theme="light"] .pass{color:#0b7a44;} :root[data-theme="light"] .fail{color:#b52233;}
+  .switch button:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;background:var(--pg);padding:12px 0;z-index:5;border-bottom:1px solid var(--ln);}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;grid-template-columns:1fr;} .pair > div{min-width:0;}
+  @media (min-width:1100px){ .pair.two{grid-template-columns:1fr 1fr;} }
+
+  /* ---- shipped screen furniture ---- */
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap;}
+  .head .ey{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);margin:0 0 2px;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .ctrl{display:flex;gap:6px;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:12px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 14px;font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--cta);color:var(--cta-ink);border-color:var(--cta);}
+  .tabrow span.ghost{opacity:.42;border-style:dashed;}
+
+  .group{font-size:12.5px;font-weight:800;color:var(--d-ink);margin:18px 0 10px;}
+  .group i{font-style:normal;font-weight:500;font-size:11.5px;color:var(--d-mut);}
+  .hubgrid{display:grid;gap:12px;} .w1280 .hubgrid{grid-template-columns:repeat(4,1fr);} .w380 .hubgrid{grid-template-columns:1fr;}
+  .hubcard{background:var(--d-sf);border-radius:26px;padding:18px;display:flex;flex-direction:column;}
+  .hubcard .ic{width:30px;height:30px;border-radius:9px;background:var(--tile);color:var(--tile-ink);
+    display:flex;align-items:center;justify-content:center;margin-bottom:10px;font-size:14px;}
+  .hubcard b{font-size:13.5px;font-weight:800;letter-spacing:-.005em;}
+  .hubcard p{margin:4px 0 0;font-size:11.5px;color:var(--d-mut);line-height:1.38;flex:1;}
+  .foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;}
+  .foot .sc{font-size:11px;color:var(--d-mut2);}
+  .foot .sc.warn{color:var(--warn);font-weight:800;}
+  .act{border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:800;background:var(--quiet);color:var(--quiet-ink);white-space:nowrap;}
+  .act.solid{background:var(--cta);color:var(--cta-ink);}
+  .hubcard.dim{opacity:.5;}
+  .foot .wait{font-size:11.5px;font-weight:800;color:var(--d-mut2);}
+
+  .caveat{display:flex;gap:10px;background:var(--d-sf);border-radius:26px;padding:16px 18px;margin-top:16px;font-size:12px;color:var(--d-mut);line-height:1.5;}
+  .caveat .g{color:var(--d-mut2);font-weight:800;}
+
+  /* the proposal's own card, drawn to its own spec */
+  .propcard{background:#fff;border:1px solid #e2e2e5;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;}
+  .propcard .ic{width:36px;height:36px;border-radius:10px;background:#e8f2fe;color:#0071e3;display:flex;align-items:center;justify-content:center;font-size:16px;}
+  .propcard h4{font-size:15px;font-weight:600;margin:0;}
+  .propcard p{font-size:12.5px;color:#6e6e73;margin:0;line-height:1.5;flex:1;}
+  .propcard .pf{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .propcard .pm{font-size:11.5px;color:#9a9a9e;}
+  .propcard .pb{background:#0071e3;color:#fff;border-radius:980px;padding:7px 14px;font-size:12.5px;font-weight:600;}
+  .propframe{background:#f5f5f7;border:1px solid var(--ln);border-radius:16px;padding:18px;}
+
+  /* ---- colour study ---- */
+  .swatches{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));margin-top:16px;}
+  .sw{border:1px solid var(--ln);border-radius:14px;overflow:hidden;background:var(--sf);}
+  .sw .chip{height:62px;} .sw .m{padding:10px 12px;}
+  .sw .n{font-size:12.5px;font-weight:750;} .sw .h{font-size:11.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;}
+  .sw .r{font-size:11px;color:var(--mut);margin-top:3px;}
+
+  .collide{display:grid;gap:0;grid-template-columns:1fr;border:1px solid var(--ln);border-radius:14px;overflow:hidden;margin-top:16px;}
+  .collide .cr{display:flex;align-items:center;gap:0;border-bottom:1px solid var(--ln);}
+  .collide .cr:last-child{border-bottom:none;}
+  .collide .lab{flex:0 0 210px;padding:12px 14px;font-size:12.5px;font-weight:700;background:var(--sf);}
+  .collide .sq{flex:1;height:46px;min-width:60px;}
+  .collide .de{flex:0 0 190px;padding:12px 14px;font-size:12px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;background:var(--sf);}
+  .collide .de b{color:var(--ink);font-weight:750;}
+  .fail{color:#b52233;font-weight:750;}
+  .pass{color:#0b7a44;font-weight:750;}
+
+  .ctastudy{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-top:16px;}
+  .ctabox{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:16px;}
+  .ctabox .cap{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);margin-bottom:12px;}
+  .demo{background:#f6f6f7;border-radius:12px;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .demo .l{font-size:11px;color:#717078;}
+  .b1{border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:800;}
+
+  ul.reco{max-width:74ch;padding-left:20px;} ul.reco li{margin-bottom:11px;font-size:14px;color:var(--ink2);}
+  ul.reco li b{color:var(--ink);}
+</style>
+
+<div class="wrap doc" id="doc">
+
+<p class="eyebrow">Design review · Accounting</p>
+<h1>Apple blue, read against the app as built</h1>
+<p class="lede">The plan asks for three things: repoint every primary action to <code>#0071e3</code>, add an
+<b>Accounting</b> sub-tab with nine pages, and add a <b>Reports</b> sub-tab with twenty-three reports.</p>
+<p class="lede">Both tabs shipped. Accounting has eleven views, not nine; Reports has a hub of eleven cards
+over seven built reports. So this mockup is not "here is the new thing" — it is the proposal drawn on top of
+what exists, so the two real questions are visible: <b>does the blue land</b>, and <b>which of the
+twenty-three reports are actually missing</b>.</p>
+
+<!-- ============================================================ -->
+<section>
+  <h2>1 · The tab row</h2>
+  <p class="h2sub">The proposal draws eight tabs and marks two as new. The shipped bar has nine — it also
+  carries <b>Owed to you</b>, which the proposal has no equivalent for. Toggle the fill to see the blue
+  applied to the same row.</p>
+
+  <div class="switch" role="tablist">
+    <button role="tab" aria-selected="true" data-fill="ink">Solid ink · as built</button>
+    <button role="tab" aria-selected="false" data-fill="blue">Apple blue · as proposed</button>
+  </div>
+
+  <div class="frameHead"><b>Accounting shell</b> <i>src/app/(admin)/(tabs)/accounting.tsx</i></div>
+  <div class="scroller">
+    <div class="frame w1280">
+      <div class="head">
+        <div>
+          <p class="ey">Accounting</p>
+          <h3>Accounting</h3>
+          <p>The books themselves — accounts, entries and the trail behind them.</p>
+        </div>
+        <div class="ctrl"><span class="btn">7 days ⌄</span><span class="btn">All stores ⌄</span></div>
+      </div>
+      <div class="tabrow">
+        <span>Overview</span><span>Transactions</span><span>Owed to you</span><span>Bills</span>
+        <span>Expenses</span><span>Payroll</span><span>Cash &amp; Budgets</span>
+        <span class="on">Accounting</span><span>Reports</span>
+      </div>
+      <p style="margin:0;font-size:11.5px;color:var(--d-mut2)">Nine tabs. The shell owns the range and the store
+      filter above the row — never inside a tab, because a tab remounts on every switch.</p>
+    </div>
+  </div>
+
+  <table class="dtbl">
+    <tr><th>Proposal</th><th>Shipped</th><th></th></tr>
+    <tr><td>Overview, Transactions, Bills, Expenses, Payroll, Cash &amp; Budgets</td><td>All six, same names</td><td><span class="tag now">Match</span></td></tr>
+    <tr><td>Accounting <i>(new)</i></td><td>Shipped. Eleven views, not nine</td><td><span class="tag now">Built</span></td></tr>
+    <tr><td>Reports <i>(new)</i></td><td>Shipped. Hub of eleven cards over seven reports</td><td><span class="tag now">Built</span></td></tr>
+    <tr><td>—</td><td><b>Owed to you</b> — which customers owe the shop, and since when</td><td><span class="tag gap">Missed</span></td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>2 · The blue, measured</h2>
+  <p class="h2sub">The plan states <code>#0071e3</code> on white is "~4.6:1 … and white on #0071e3 is ~4.6:1 as
+  well". Those are the same check — contrast is symmetric, so one number was reported twice as if it were two
+  passes. The real number is 4.70:1, and it only holds on white.</p>
+
+  <h3 class="sub">Where it fails: the grounds kaiibi cards actually sit on</h3>
+  <table class="dtbl">
+    <tr><th>Blue as text or icon on…</th><th>Ratio</th><th>AA normal text (4.5:1)</th><th>What wears it</th></tr>
+    <tr><td><code>#ffffff</code> — card fill</td><td class="num">4.70:1</td><td><span class="pass">passes</span></td><td>Card titles, link text</td></tr>
+    <tr><td><code>#f6f6f7</code> — <code>bentoSoft</code></td><td class="num">4.35:1</td><td><span class="fail">fails</span></td><td>Every quiet action pill, every KPI tile, the icon tile</td></tr>
+    <tr><td><code>#f4f4f5</code> — <code>bentoPage</code></td><td class="num">4.27:1</td><td><span class="fail">fails</span></td><td>Anything outside a card</td></tr>
+    <tr><td><code>#e8f2fe</code> — the plan's own tint</td><td class="num">4.15:1</td><td><span class="fail">fails</span></td><td><code>.pill-action</code>, the plan's inline "Record payment" / "Edit"</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">The tinted pill is the one that matters most: it is the pattern the plan
+  proposes for the most repeated control in the app, and 11.5px semibold blue on its own tint is 4.15:1. This is
+  the exact failure <code>theme.ts</code> already documents for the muted ramp — a token solved against white,
+  then shipped onto soft grey.</p>
+
+  <h3 class="sub">Where it collides: kaiibi already has this blue, and it means data</h3>
+  <p class="note">The repo's floor for two marks that must not be confused is ΔE00 15, checked under normal,
+  deutan and protan vision. Three of these are under it.</p>
+  <div class="collide">
+    <div class="cr">
+      <div class="lab">Proposed CTA <code>#0071e3</code></div>
+      <div class="sq" style="background:#0071e3"></div>
+      <div class="sq" style="background:#2a78d6"></div>
+      <div class="lab" style="flex:0 0 190px"><code>chartAccent</code> #2a78d6</div>
+      <div class="de">ΔE00 <b class="fail">2.7</b> · deutan 3.1</div>
+    </div>
+    <div class="cr">
+      <div class="lab">Proposed CTA <code>#0071e3</code></div>
+      <div class="sq" style="background:#0071e3"></div>
+      <div class="sq" style="background:#2f6bff"></div>
+      <div class="lab" style="flex:0 0 190px"><code>bentoSeries1</code> #2f6bff</div>
+      <div class="de">ΔE00 <b class="fail">6.0</b> · deutan 3.5</div>
+    </div>
+    <div class="cr">
+      <div class="lab">Proposed tint <code>#e8f2fe</code></div>
+      <div class="sq" style="background:#e8f2fe"></div>
+      <div class="sq" style="background:#e6edff"></div>
+      <div class="lab" style="flex:0 0 190px"><code>bentoAccentWash</code> #e6edff</div>
+      <div class="de">ΔE00 <b class="fail">3.5</b></div>
+    </div>
+    <div class="cr">
+      <div class="lab">Proposed CTA <code>#0071e3</code></div>
+      <div class="sq" style="background:#0071e3"></div>
+      <div class="sq" style="background:#1b47b8"></div>
+      <div class="lab" style="flex:0 0 190px"><code>bentoAccentInk</code> #1b47b8</div>
+      <div class="de">ΔE00 15.1 · deutan <b class="fail">12.2</b></div>
+    </div>
+    <div class="cr">
+      <div class="lab">Shipped CTA <code>bentoInk</code></div>
+      <div class="sq" style="background:#0b0b0d"></div>
+      <div class="sq" style="background:#2a78d6"></div>
+      <div class="lab" style="flex:0 0 190px"><code>chartAccent</code> #2a78d6</div>
+      <div class="de">ΔE00 <b class="pass">42.9</b> · deutan 42.3</div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px"><code>theme.ts</code> states the rule this breaks in its own words, on
+  <code>chartAccent</code>: <i>"Deliberately not <code>accent</code>: that orange is reserved for actionable UI
+  (buttons, selected states), so data ink and call-to-action never share a hue."</i> At ΔE00 2.7 the proposed
+  button fill and the line on the revenue chart are not two hues that are close. They are one hue.</p>
+  <p class="note">This is a live surface, not a hypothetical: the Accounting Overview draws a payment-method mix in
+  <code>bentoSeries1–4</code> and a revenue trend in <code>chartAccent</code>, on the same screen as the buttons
+  the plan wants blue.</p>
+
+  <h3 class="sub">The disabled state</h3>
+  <p class="note">The plan specifies <code>background:#b6b6ba; color:#f0f0f0</code>. That label is
+  <b class="fail">1.77:1</b> on its own fill, and the fill is 2.02:1 on white. WCAG exempts disabled controls, so
+  this is legal and still unreadable — a disabled <i>Charge</i> button whose amount cannot be read is worse than
+  no amount. If a disabled variant is wanted, the label needs to stay legible.</p>
+
+  <h3 class="sub">What a solid action looks like either way</h3>
+  <div class="ctastudy">
+    <div class="ctabox">
+      <div class="cap">As built · bentoInk on soft</div>
+      <div class="demo">
+        <span class="l">31 accounts</span>
+        <span class="b1" style="background:#0b0b0d;color:#fff">+ New entry</span>
+      </div>
+      <p class="note" style="font-size:11.5px;margin-top:10px">19.66:1. Reads as "this writes to the books" without
+      spending a hue.</p>
+    </div>
+    <div class="ctabox">
+      <div class="cap">As proposed · #0071e3 on soft</div>
+      <div class="demo">
+        <span class="l">31 accounts</span>
+        <span class="b1" style="background:#0071e3;color:#fff">+ New entry</span>
+      </div>
+      <p class="note" style="font-size:11.5px;margin-top:10px">Fill is fine — white on blue is 4.70:1. It is the
+      <i>quiet</i> pill beside it that fails.</p>
+    </div>
+    <div class="ctabox">
+      <div class="cap">As proposed · the quiet pill</div>
+      <div class="demo">
+        <span class="l">7 days</span>
+        <span class="b1" style="background:#e8f2fe;color:#0071e3">Run report</span>
+      </div>
+      <p class="note" style="font-size:11.5px;margin-top:10px"><span class="fail">4.15:1</span> at 11.5px. This is
+      the control that repeats eleven times per hub.</p>
+    </div>
+    <div class="ctabox">
+      <div class="cap">As built · the quiet pill</div>
+      <div class="demo" style="background:#fff">
+        <span class="l">7 days</span>
+        <span class="b1" style="background:#f6f6f7;color:#1a1a1e">Run report</span>
+      </div>
+      <p class="note" style="font-size:11.5px;margin-top:10px">16.1:1. Solid means "writes", quiet means "reads" —
+      weight carries it, not colour.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>3 · The card</h2>
+  <p class="h2sub">The proposal's <code>.report-card</code> and kaiibi's shipped hub card are the same idea drawn
+  in two systems. Side by side, at the width they are actually read at.</p>
+
+  <div class="pair two">
+    <div>
+      <div class="frameHead"><b>As proposed</b> <i>border 1px · radius 16 · tint icon · blue pill</i></div>
+      <div class="propframe">
+        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr">
+          <div class="propcard">
+            <div class="ic">▤</div>
+            <h4>Chart of Accounts</h4>
+            <p>The full list of accounts used to categorize every transaction.</p>
+            <div class="pf"><span class="pm">86 accounts</span><span class="pb">+ New account</span></div>
+          </div>
+          <div class="propcard">
+            <div class="ic">✎</div>
+            <h4>General Journal Entry</h4>
+            <p>Post a manual debit/credit entry to the ledger.</p>
+            <div class="pf"><span class="pm">Manual entry</span><span class="pb">+ New entry</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="frameHead"><b>As built</b> <i>borderless · radius 26 · soft tile · weight, not hue</i></div>
+      <div class="frame">
+        <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr">
+          <div class="hubcard">
+            <div class="ic">▤</div>
+            <b>Chart of Accounts</b>
+            <p>Assets, liabilities, equity, revenue and expense accounts.</p>
+            <div class="foot"><span class="sc">31 accounts</span><span class="act">View accounts</span></div>
+          </div>
+          <div class="hubcard">
+            <div class="ic">✎</div>
+            <b>General Journal Entry</b>
+            <p>Post a manual debit/credit entry to the ledger.</p>
+            <div class="foot"><span class="sc">Manual entry</span><span class="act solid">+ New entry</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <table class="dtbl">
+    <tr><th></th><th>Proposed</th><th>Shipped</th><th>Why the shipped one is what it is</th></tr>
+    <tr><td>Card edge</td><td>1px <code>#e2e2e5</code></td><td>None</td><td>Bento separates by fill, not by line — grey page, white cards. A border on one card asks for a border on all of them.</td></tr>
+    <tr><td>Radius</td><td>16</td><td>26 (<code>BENTO_RADIUS</code>)</td><td>One radius for a panel, 18 for a tile under ~150px. 16 is neither.</td></tr>
+    <tr><td>Footer left</td><td>Static meta — "86 accounts"</td><td>Live scope, falls back to static</td><td>The count is fetched. A hardcoded 86 on a shop with 31 is a card that gets believed.</td></tr>
+    <tr><td>Footer right</td><td>Solid blue on every card</td><td>Solid only when the door <i>writes</i></td><td>Reading a report and rewriting a shop's history must not look like the same act.</td></tr>
+    <tr><td>Unavailable</td><td>Not modelled</td><td><code>available:false</code> → dimmed, no press target, reason in place of the pill</td><td>A press target that refuses reads as a broken card.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>4 · The Accounting tab, as it stands</h2>
+  <p class="h2sub">Nine items were asked for. Eleven shipped — the two extra are the ones a set of books needs and
+  a card grid does not suggest: replaying past trading into the ledger, and locking a month so its numbers stop
+  moving. The fill toggle at the top applies to these frames too.</p>
+
+  <div class="scroller">
+    <div class="frame w1280">
+      <p class="group">Ledger and journals</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">▤</div><b>Chart of Accounts</b><p>Assets, liabilities, equity, revenue and expense accounts.</p><div class="foot"><span class="sc">31 accounts</span><span class="act">View accounts</span></div></div>
+        <div class="hubcard"><div class="ic">✎</div><b>General Journal Entry</b><p>Post a manual debit/credit entry to the ledger.</p><div class="foot"><span class="sc">Manual entry</span><span class="act solid">+ New entry</span></div></div>
+        <div class="hubcard"><div class="ic">▦</div><b>Journals</b><p>Every journal entry recorded, in order.</p><div class="foot"><span class="sc">7 days</span><span class="act">View list</span></div></div>
+        <div class="hubcard"><div class="ic">⇄</div><b>Trial Balance</b><p>Every account's debit and credit balance, side by side.</p><div class="foot"><span class="sc">As of today</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">↻</div><b>Post History</b><p>Replay past sales, refunds, deliveries and bills into the ledger.</p><div class="foot"><span class="sc warn">3,973 unposted</span><span class="act solid">+ Post history</span></div></div>
+      </div>
+
+      <p class="group">Financial statements</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">↗</div><b>Income Statement</b><p>Revenue, cost of sales and expenses, down to net profit.</p><div class="foot"><span class="sc">The chosen range</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">⚖</div><b>Balance Sheet</b><p>What the shop owns, what it owes, and what's left over.</p><div class="foot"><span class="sc">As at the range end</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">≈</div><b>Cash Flow</b><p>Where cash actually came from and went. Profit and cash are not the same thing.</p><div class="foot"><span class="sc">The chosen range</span><span class="act">Run report</span></div></div>
+      </div>
+
+      <p class="group">Assets</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">▩</div><b>Fixed Assets</b><p>Equipment and property, what it cost and what it is worth now.</p><div class="foot"><span class="sc">As of today</span><span class="act solid">+ Add asset</span></div></div>
+      </div>
+
+      <p class="group">Oversight</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">🔒</div><b>Close a Period</b><p>Lock a month so its numbers stop moving. This runs itself — you are here to check it.</p><div class="foot"><span class="sc">Every month</span><span class="act solid">+ Close a month</span></div></div>
+        <div class="hubcard"><div class="ic">◷</div><b>Audit Log</b><p>Who changed what, and when.</p><div class="foot"><span class="sc">All time</span><span class="act">View log</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <table class="dtbl">
+    <tr><th>Proposal asks for</th><th>Status</th><th>Where it is</th></tr>
+    <tr><td>Chart of Accounts</td><td><span class="tag now">Shipped</span></td><td><code>ledger/…</code> — <code>view=accounts</code></td></tr>
+    <tr><td>General Journal Entry</td><td><span class="tag now">Shipped</span></td><td><code>journal-entry-view.tsx</code></td></tr>
+    <tr><td>Journals List</td><td><span class="tag now">Shipped</span></td><td><code>view=journals</code></td></tr>
+    <tr><td>Trial Balance</td><td><span class="tag now">Shipped</span></td><td><code>trial-balance-view.tsx</code></td></tr>
+    <tr><td>Cash and Bank Transfers</td><td><span class="tag door">Elsewhere</span></td><td><code>transfer-funds-modal.tsx</code>, opened from Cash &amp; Budgets — a modal, not a hub card</td></tr>
+    <tr><td>Create Bill (credit / cash)</td><td><span class="tag door">Elsewhere</span></td><td>The <b>Bills</b> tab, which is where a shopkeeper looks for a bill</td></tr>
+    <tr><td>Fixed Asset List</td><td><span class="tag now">Shipped</span></td><td><code>fixed-assets-view.tsx</code>, with depreciation</td></tr>
+    <tr><td>Cash Flow</td><td><span class="tag now">Shipped</span></td><td><code>cash-flow-view.tsx</code>, off <code>cash_flow()</code></td></tr>
+    <tr><td>Audit Log</td><td><span class="tag now">Shipped</span></td><td><code>view=audit</code></td></tr>
+    <tr><td>—</td><td><span class="tag now">Extra</span></td><td><b>Post History</b> — replay past trading into the ledger</td></tr>
+    <tr><td>—</td><td><span class="tag now">Extra</span></td><td><b>Close a Period</b> — lock a month, post the close entry</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">The plan's backend section flags Chart of Accounts, Journals, Trial
+  Balance and the Audit Log as blocked on "a ledger table, if one doesn't exist yet", and calls the Audit Log
+  "the largest lift". All four are live against a posted double-entry ledger, and the depreciation and
+  <code>bill_type</code> fields it asks about are modelled. That section can be dropped rather than scheduled.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>5 · The twenty-three reports</h2>
+  <p class="h2sub">Seven are built here, three are doors into the ledger's statements, one is a deliberate
+  signpost, and one card holds the tab this hub replaced. That leaves the genuine gaps — and they are fewer,
+  and different, than twenty-three minus eleven suggests.</p>
+
+  <div class="scroller">
+    <div class="frame w1280">
+      <p class="group">Sales</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">◔</div><b>Sales Reports</b><p>Revenue by day, payment method and store.</p><div class="foot"><span class="sc">7 days</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">▦</div><b>Item Performance</b><p>Top and bottom sellers by units and margin.</p><div class="foot"><span class="sc">7 days</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">☺</div><b>Sales by Employee</b><p>Revenue and baskets per cashier.</p><div class="foot"><span class="sc">7 days</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">≣</div><b>Sales by Category</b><p>Revenue and margin by product category.</p><div class="foot"><span class="sc">7 days</span><span class="act">Run report</span></div></div>
+      </div>
+
+      <p class="group">Inventory</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">▩</div><b>Inventory Balance</b><p>Stock on hand, and what it is worth at cost.</p><div class="foot"><span class="sc">As of today</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">⚠</div><b>Low Stock &amp; Reorder</b><p>Items at or below their reorder point.</p><div class="foot"><span class="sc">As of today</span><span class="act">Run report</span></div></div>
+        <div class="hubcard"><div class="ic">⇄</div><b>Stock Movement</b><p>Deliveries, transfers and stock-takes.</p><div class="foot"><span class="sc">7 days</span><span class="act">Run report</span></div></div>
+      </div>
+
+      <p class="group">Financial statements</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">$</div><b>Profit &amp; Loss</b><p>Revenue, cost of sales and expenses, down to net profit. Opens the Income Statement in Accounting.</p><div class="foot"><span class="sc">The chosen range</span><span class="act">Open in Accounting</span></div></div>
+        <div class="hubcard"><div class="ic">⌂</div><b>Balance Sheet</b><p>What the shop owns, what it owes, and what's left over. Opens in Accounting.</p><div class="foot"><span class="sc">As at the range end</span><span class="act">Open in Accounting</span></div></div>
+        <div class="hubcard"><div class="ic">≈</div><b>Cash Flow</b><p>Where cash actually came from and went. Opens in Accounting.</p><div class="foot"><span class="sc">The chosen range</span><span class="act">Open in Accounting</span></div></div>
+        <div class="hubcard dim"><div class="ic">⚖</div><b>Inventory Valuation</b><p>Stock is valued at a moving weighted average cost, not in layers — so what it is worth is a figure on Inventory Balance.</p><div class="foot"><span class="sc">Weighted average</span><span class="wait">See Inventory Balance</span></div></div>
+      </div>
+
+      <p class="group">Until the ledger takes over</p>
+      <div class="hubgrid">
+        <div class="hubcard"><div class="ic">▤</div><b>P&amp;L, tax and labour</b><p>The Reports tab this hub replaced. It reads sales and expenses directly, not the ledger.</p><div class="foot"><span class="sc">7 days</span><span class="act">Open</span></div></div>
+      </div>
+
+      <div class="caveat"><span class="g">Note</span><span>The three statements read the ledger rather than the sales
+      tables, so they live on the Accounting tab — these cards open them there, for the same dates you picked here.
+      Inventory Valuation is the one card that opens nothing.</span></div>
+    </div>
+  </div>
+
+  <h3 class="sub">All twenty-three, against what exists</h3>
+  <table class="dtbl">
+    <tr><th>Report</th><th>Status</th><th>Note</th></tr>
+    <tr><td>Sales Reports</td><td><span class="tag now">Shipped</span></td><td>Card 1 of the hub</td></tr>
+    <tr><td>Item Performance</td><td><span class="tag now">Shipped</span></td><td></td></tr>
+    <tr><td>Sales by Employee</td><td><span class="tag now">Shipped</span></td><td></td></tr>
+    <tr><td>Sales by Category</td><td><span class="tag now">Shipped</span></td><td>Also a card on the legacy statements screen</td></tr>
+    <tr><td>Profit and Loss Statement</td><td><span class="tag door">Door</span></td><td>Opens the ledger's Income Statement</td></tr>
+    <tr><td>Income Statement</td><td><span class="tag no">Same report</span></td><td>The plan itself asks whether these are one report. They are — and the answer already shipped: the card is titled <b>Profit &amp; Loss</b> and its blurb says it opens the Income Statement, so the title change on arrival is not a surprise. No toggle needed.</td></tr>
+    <tr><td>Balance Sheet</td><td><span class="tag door">Door</span></td><td>As at the range <i>end</i>, not "as of today"</td></tr>
+    <tr><td>Cash Flow</td><td><span class="tag door">Door</span></td><td>Not on the Reports list in the plan — it is under Accounting there, and is in both places here</td></tr>
+    <tr><td>Inventory Balance Summary</td><td><span class="tag now">Shipped</span></td><td></td></tr>
+    <tr><td>Low Stock &amp; Reorder</td><td><span class="tag now">Shipped</span></td><td></td></tr>
+    <tr><td>Stock Movement Log</td><td><span class="tag now">Shipped</span></td><td></td></tr>
+    <tr><td>Inventory Valuation</td><td><span class="tag no">Decided against</span></td><td>The plan flags this as needing "a cost-layer/lot-tracking data model". That question is closed: <code>receive_stock</code> computes a moving weighted average, which IAS 2 permits, so there are no layers to break a valuation into. The card ships as a signpost saying so.</td></tr>
+    <tr><td>Sales Tax Liability</td><td><span class="tag later">Half there</span></td><td>The figure is on the legacy <b>P&amp;L, tax and labour</b> screen. What is missing is the period breakdown, not the tax logic — the plan says this correctly.</td></tr>
+    <tr><td>Payroll Summary</td><td><span class="tag later">Half there</span></td><td>Pay runs are recorded (Payroll tab). A summary <i>report</i> over them is not built.</td></tr>
+    <tr><td>Labor Cost vs Sales</td><td><span class="tag later">Half there</span></td><td>The labour ratio is a card on the legacy statements screen; a time-series report is not.</td></tr>
+    <tr><td>Discounts &amp; Refunds Report</td><td><span class="tag gap">Gap</span></td><td>Refunds are modelled and badged in POS; nothing aggregates them by reason.</td></tr>
+    <tr><td>Budget vs Actual</td><td><span class="tag gap">Gap</span></td><td>Budgets exist (Cash &amp; Budgets, <code>budget-bar.tsx</code>). The comparison report does not.</td></tr>
+    <tr><td>Customer Balance Summary</td><td><span class="tag gap">Gap</span></td><td>The <b>Owed to you</b> tab lists who owes and since when. A per-customer summary report is a thin layer on it.</td></tr>
+    <tr><td>Aging Receivables</td><td><span class="tag gap">Gap</span></td><td>"Owed to you" shows <i>unpaid since</i> — a date, not a bucket. The current/30/60/90 bucketing is the actual missing piece.</td></tr>
+    <tr><td>Aging Payables</td><td><span class="tag gap">Gap</span></td><td>Share one bucketing function with the above, parameterized by direction — the plan is right about this.</td></tr>
+    <tr><td>Vendor Balance Summary</td><td><span class="tag gap">Gap</span></td><td>Vendors are modelled and bills carry one. Nothing rolls up by vendor.</td></tr>
+    <tr><td>Customer Purchase History</td><td><span class="tag gap">Gap</span></td><td>Sales carry a customer; no per-customer lifetime view.</td></tr>
+    <tr><td>Loyalty Points Summary</td><td><span class="tag gap">Gap</span></td><td>Points are earned and shown per sale and per person. Earned/redeemed/outstanding as a report is not built.</td></tr>
+    <tr><td>Purchase Order Report</td><td><span class="tag no">No such thing</span></td><td>kaiibi has no purchase orders. Stock arrives through <b>receive stock</b> / restock, and bills are raised against it. This report cannot be built without first deciding whether the app should have POs at all — which is a product question, not a report.</td></tr>
+  </table>
+
+  <p class="note" style="margin-top:16px"><b>The count:</b> 11 of the 23 exist, 2 are questions already answered
+  (Income Statement, Inventory Valuation), 1 has no data model behind it (Purchase Orders), 3 are half-built, and
+  <b>6 are real, buildable gaps</b>. The two aging reports and the two balance summaries are four of those six, and
+  they share one bucketing calculation and one roll-up — so the honest next step is much smaller than the list
+  looks.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>6 · What I would do</h2>
+  <ul class="reco">
+    <li><b>Drop the blue.</b> Not because black is better in the abstract — because this specific blue is
+    <code>chartAccent</code> at ΔE00 2.7, and the app draws charts and buttons on the same screen. If a hue for
+    actions is genuinely wanted, the constraint is that it must clear ΔE00 15 against
+    <code>#2a78d6</code>, <code>#2f6bff</code> and <code>#1b47b8</code> under deutan and protan — which rules out
+    the whole blue axis and points at the orange <code>accent</code> the cream palette already owns.</li>
+    <li><b>If the blue is adopted anyway, the tint has to go.</b> The solid fill is fine at 4.70:1. The tinted pill
+    is 4.15:1 at 11.5px semibold, and it is the most repeated control in the hub. Keep <code>bentoSoft</code> for
+    quiet actions and use blue only where it fills.</li>
+    <li><b>Drop sections 3 and 4 of the plan as written.</b> Both tabs shipped, with more views than were drawn.
+    What is worth keeping from them is the <i>backend</i> notes — but only the two that are still open: aging
+    buckets, and a vendor roll-up.</li>
+    <li><b>Build the four that share two functions.</b> Aging Receivables, Aging Payables, Customer Balance
+    Summary, Vendor Balance Summary — one bucketing function parameterized by direction, one roll-up parameterized
+    by counterparty. Four cards, two pieces of logic.</li>
+    <li><b>Ask about purchase orders separately.</b> "Purchase Order Report" on a reports list is a product
+    decision wearing a report's clothes.</li>
+    <li><b>Keep "Owed to you".</b> The proposal has no equivalent, and dropping it to match would remove the only
+    place a shopkeeper sees who owes them money.</li>
+  </ul>
+</section>
+
+</div>
+
+<script>
+  const doc = document.getElementById('doc');
+  document.querySelectorAll('.switch button').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.switch button').forEach((o) => o.setAttribute('aria-selected', 'false'));
+      b.setAttribute('aria-selected', 'true');
+      doc.classList.toggle('blue', b.dataset.fill === 'blue');
+    });
+  });
+</script>

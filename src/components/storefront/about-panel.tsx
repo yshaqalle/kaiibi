@@ -161,6 +161,24 @@ export function AboutPanel({
   wide: boolean;
 }) {
   const questions = shopQuestions(storefront, areas);
+
+  // THE ONLY SAFETY NET A DANGLING ROW ACTUALLY HAS.
+  //
+  // removeGalleryImage deletes the storage object BEFORE the row, so a failure
+  // between the two leaves a row pointing at nothing. The reader was said to
+  // catch that by dropping entries whose url is null -- it cannot:
+  // `image_path` holds an ABSOLUTE url (uploadImage returns one) and
+  // publicImageUrl passes those straight through, so it never returns null and
+  // the filter never fires. The row survives and the customer gets a broken
+  // image, potentially the 16:9 lead.
+  //
+  // `onError` is what actually knows: the device tried to fetch it and failed.
+  // Dropping on that is per-render and per-device, which is right -- a photo
+  // missing for a moment on a bad connection comes back on the next visit,
+  // where a persisted "this is broken" would not.
+  const [failed, setFailed] = useState<string[]>([]);
+  const dropImage = (id: string) => setFailed((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  const shownImages = storefront.images.filter((image) => !failed.includes(image.id));
   // Counted, never stored. Three cells at most, and a cell with nothing to
   // count is not rendered -- a shop with no categories should not be told it
   // has zero of them.
@@ -222,20 +240,22 @@ export function AboutPanel({
             two squares; that is what a shop with three gets. A shop with one
             gets one wide photo, because a lone square beside two gaps is a
             layout accident rather than a gallery. */}
-        {storefront.images.length > 0 ? (
+        {shownImages.length > 0 ? (
           <View style={styles.gallery} testID="storefront-about-gallery">
             <Image
-              source={{ uri: storefront.images[0].url! }}
+              source={{ uri: shownImages[0].url! }}
+              onError={() => dropImage(shownImages[0].id)}
               style={[styles.galleryLead, { backgroundColor: colors.soft }]}
               resizeMode="cover"
             />
-            {storefront.images.length > 1 ? (
+            {shownImages.length > 1 ? (
               <View style={styles.galleryRest}>
-                {storefront.images.slice(1).map((image) => (
+                {shownImages.slice(1).map((image) => (
                   <Image
                     key={image.id}
                     testID={`storefront-about-photo-${image.id}`}
                     source={{ uri: image.url! }}
+                    onError={() => dropImage(image.id)}
                     style={[styles.gallerySquare, { backgroundColor: colors.soft }]}
                     resizeMode="cover"
                   />

@@ -610,6 +610,13 @@ describe('storefront route', () => {
 // opened in an in-app browser, on a phone -- so it is worth pinning.
 describe('while the shop is still loading', () => {
   it('shows the page-shaped skeleton, never a bare spinner', async () => {
+    // A slug NO other test in this file has loaded. The screen caches a shop
+    // once it has read one (stale-while-revalidate, see the route), so a slug
+    // an earlier test already resolved would paint straight from that cache and
+    // never show a skeleton at all -- which is the intended behaviour and would
+    // make this test silently assert nothing.
+    mockSlug = 'never-loaded-shop';
+
     // A promise that never settles: the screen stays in `loading` for the
     // whole assertion rather than racing the resolve.
     (getPublicStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));

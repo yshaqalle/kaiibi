@@ -171,7 +171,7 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   const { data, error } = await supabase
     .from('shops')
     .select(
-      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, draft)'
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, trading_since, draft)'
     )
     .eq('id', shopId)
     .maybeSingle();
@@ -1524,8 +1524,14 @@ export async function addGalleryImage(shopId: string, imagePath: string): Promis
 // the second step fails, row-first leaves an object nobody can reach and nobody
 // can name -- a permanent orphan, because the only pointer to it has been
 // destroyed. Object-first leaves a ROW pointing at a missing object, which is
-// visible (the page drops the entry, see storefront.ts), diagnosable, and
-// removable by pressing the same button again.
+// visible, diagnosable, and removable by pressing the same button again.
+//
+// Visible via AboutPanel's `onError`, and NOT -- as this comment used to
+// claim -- via storefront.ts's url filter. That filter cannot see this case:
+// `image_path` holds an ABSOLUTE url (uploadImage returns one), and
+// publicImageUrl passes absolute urls through without asking storage whether
+// the object is still there. A row pointing at a deleted object still produces
+// a perfectly well-formed url.
 //
 // So the failure mode of this order is a photo that stays on the page one
 // moment longer than the shop wanted. The failure mode of the other is storage

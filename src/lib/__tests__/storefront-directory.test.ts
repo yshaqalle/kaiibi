@@ -1,5 +1,6 @@
 import {
-  categoriesOf, citiesOf, inCategory, listPublicShops, searchShops, shopBlurb,
+  DIRECTORY_PAGE_SIZE, categoriesOf, citiesOf, inCategory, listPublicShops, searchShops,
+  shopBlurb,
 } from '@/lib/storefront-directory';
 import type { PublicShopSummary } from '@/types/models';
 
@@ -23,16 +24,25 @@ function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary 
 }
 
 describe('reading the directory', () => {
+  // The RPC clamps at 100 and DEFAULTS to 60, so leaving the limit out capped
+  // the directory at 60 while every comment here reasoned about 100.
+  it('asks for the full page size rather than letting the RPC default to 60', async () => {
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await listPublicShops();
+    expect(DIRECTORY_PAGE_SIZE).toBe(100);
+    expect(mockRpc.mock.calls[0][1].p_limit).toBe(100);
+  });
+
   it('calls the one anon RPC rather than querying a table', async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
     await listPublicShops();
-    expect(mockRpc).toHaveBeenCalledWith('list_public_storefronts', { p_city: null });
+    expect(mockRpc).toHaveBeenCalledWith('list_public_storefronts', { p_city: null, p_limit: DIRECTORY_PAGE_SIZE });
   });
 
   it('passes a city through trimmed', async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
     await listPublicShops('  Hargeisa  ');
-    expect(mockRpc).toHaveBeenCalledWith('list_public_storefronts', { p_city: 'Hargeisa' });
+    expect(mockRpc).toHaveBeenCalledWith('list_public_storefronts', { p_city: 'Hargeisa', p_limit: DIRECTORY_PAGE_SIZE });
   });
 
   // A filter typed down to whitespace means "everywhere", not "a city no shop
@@ -40,7 +50,7 @@ describe('reading the directory', () => {
   it('treats a whitespace-only city as no filter at all', async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
     await listPublicShops('   ');
-    expect(mockRpc).toHaveBeenCalledWith('list_public_storefronts', { p_city: null });
+    expect(mockRpc).toHaveBeenCalledWith('list_public_storefronts', { p_city: null, p_limit: DIRECTORY_PAGE_SIZE });
   });
 
   it('maps the row shape the RPC actually returns', async () => {
