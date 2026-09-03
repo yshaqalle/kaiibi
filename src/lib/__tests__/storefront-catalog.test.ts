@@ -55,6 +55,33 @@ describe('muted secondary text', () => {
   });
 });
 
+// The mirror of the block above, for the shop card -- the one surface on this
+// page filled with `ink` instead of `ground`. Asserted in its own right rather
+// than assumed to inherit `muted`'s headroom: ground and ink are not
+// equidistant from the midpoint on any palette, so running the same blend the
+// other way does NOT land on the same ratio.
+describe('muted secondary text on the shop card', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s keeps onDarkMuted readable on its ink fill', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.onDarkMuted, c.ink)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s makes onDarkMuted quieter than full ground on that fill', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.onDarkMuted, c.ink)).toBeLessThan(contrastRatio(c.ground, c.ink));
+  });
+
+  // The failure this guards is not a ratio at all: reaching for `muted` on the
+  // shop card compiles, renders, and is illegible -- it is ink blended toward
+  // ground, so on an ink fill it is very nearly the fill itself.
+  it.each(keys)('%s would fail if muted were used on the shop card instead', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.muted, c.ink)).toBeLessThan(4.5);
+  });
+});
+
 describe('danger text (form errors)', () => {
   const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
 

@@ -27,6 +27,12 @@ export type PaletteColors = {
   muted: string;  // secondary type -- a city subtitle, an about paragraph
   danger: string; // form error text -- never the out-of-stock amber, and never a stray hex at the call site
   stockOut: string; // "Ask us" on a sold-out product -- derived, never a literal, never the accent
+  // `muted`'s mirror, for the ONE inverted surface this page has: the shop card,
+  // which is filled with `ink` and sets its type in `ground`. Secondary lines on
+  // it (the place, the about paragraph) need the same step down that `muted`
+  // gives them on a light card, and `muted` itself is useless there -- it is ink
+  // blended toward ground, so on an ink fill it is nearly invisible.
+  onDarkMuted: string;
 };
 
 // There is NO stockOk, and that is the design.
@@ -67,7 +73,7 @@ export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 // omitted here is derived below and must never appear in COLORS -- the omission
 // is what makes forgetting to derive one a compile error rather than a colour
 // nobody notices is wrong.
-type BasePaletteColors = Omit<PaletteColors, 'muted' | 'danger' | 'stockOut'>;
+type BasePaletteColors = Omit<PaletteColors, 'muted' | 'danger' | 'stockOut' | 'onDarkMuted'>;
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   ink:     { ground: '#ffffff', soft: '#f4f4f5', ink: '#141418', accent: '#141418' },
@@ -113,6 +119,21 @@ function paletteKey(palette: StorefrontPalette): StorefrontPalette {
 export function mutedInk(palette: StorefrontPalette): string {
   const c = COLORS[paletteKey(palette)];
   return blendHex(c.ink, c.ground, MUTED_BLEND);
+}
+
+// The same blend, run the other way, for the one card on this page that is
+// filled with `ink` rather than `ground` -- the shop card, which is the
+// storefront's answer to the Takings card on Dashboard.
+//
+// Deliberately reuses MUTED_BLEND rather than tuning a second constant: the
+// two tokens do the same job on opposite grounds, and a separate number would
+// be a second thing to keep in step for no gain. The ratio it lands on is not
+// symmetrical with `muted` -- ground and ink are not equidistant from the
+// midpoint on any palette -- so it is contrast-tested against `ink` in its own
+// right rather than assumed to inherit `muted`'s headroom.
+export function onDarkMutedInk(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  return blendHex(c.ground, c.ink, MUTED_BLEND);
 }
 
 // Checkout form errors ("Add your name...", a bad phone, a missing landmark)
@@ -168,7 +189,13 @@ export function stockOutInk(palette: StorefrontPalette): string {
 
 export function paletteColors(palette: StorefrontPalette): PaletteColors {
   const key = paletteKey(palette);
-  return { ...COLORS[key], muted: mutedInk(key), danger: dangerInk(key), stockOut: stockOutInk(key) };
+  return {
+    ...COLORS[key],
+    muted: mutedInk(key),
+    danger: dangerInk(key),
+    stockOut: stockOutInk(key),
+    onDarkMuted: onDarkMutedInk(key),
+  };
 }
 
 // NOT part of any palette, and deliberately not themeable. Green is what makes

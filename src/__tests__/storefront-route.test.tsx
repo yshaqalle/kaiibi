@@ -1,3 +1,4 @@
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import ExpoHead from 'expo-router/head';
 import { AccessibilityInfo, type EmitterSubscription, Platform } from 'react-native';
 import { act, create, type ReactTestRenderer, type ReactTestRendererJSON } from 'react-test-renderer';
@@ -62,10 +63,25 @@ function setText(tree: ReactTestRenderer, testID: string, value: string) {
   act(() => node.props.onChangeText(value));
 }
 
+// The storefront route reads useSafeAreaInsets (see storefront-view.tsx on why:
+// the status bar was sitting on the WhatsApp and Cart buttons on every native
+// theme). react-navigation supplies the provider around every screen in the
+// real app -- verified on an Android emulator -- but `create()` here mounts the
+// screen outside that tree, so these tests have to supply one themselves.
+// Insets are all zero: this file asserts on data and behaviour, not on padding.
+const INITIAL_METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+};
+
 async function render(): Promise<ReactTestRenderer> {
   let tree: ReactTestRenderer | undefined;
   await act(async () => {
-    tree = create(<StorefrontScreen />);
+    tree = create(
+      <SafeAreaProvider initialMetrics={INITIAL_METRICS}>
+        <StorefrontScreen />
+      </SafeAreaProvider>,
+    );
   });
   return tree!;
 }
@@ -590,7 +606,11 @@ describe('while the shop is still loading', () => {
 
     let tree!: ReactTestRenderer;
     await act(async () => {
-      tree = create(<StorefrontScreen />);
+      tree = create(
+      <SafeAreaProvider initialMetrics={INITIAL_METRICS}>
+        <StorefrontScreen />
+      </SafeAreaProvider>,
+    );
     });
 
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-skeleton').length).toBeGreaterThan(0);
@@ -604,7 +624,11 @@ describe('while the shop is still loading', () => {
 
     let tree!: ReactTestRenderer;
     await act(async () => {
-      tree = create(<StorefrontScreen />);
+      tree = create(
+      <SafeAreaProvider initialMetrics={INITIAL_METRICS}>
+        <StorefrontScreen />
+      </SafeAreaProvider>,
+    );
     });
 
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-skeleton')).toHaveLength(0);

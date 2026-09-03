@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { StorefrontSkeleton } from '@/components/storefront/storefront-skeleton';
 import { StorefrontView } from '@/components/storefront/storefront-view';
@@ -114,7 +114,33 @@ export default function StorefrontScreen() {
 // `missing`. A title or description carrying the shop's name on the missing
 // page would leak exactly what that page exists to hide (see the note at the
 // top of this file), so this component must never be reachable from there.
+//
+// WEB ONLY, AND ON iOS THAT IS A CRASH FIX RATHER THAN A TIDY-UP.
+//
+// `expo-router/head` is two different components behind one import. On web it
+// emits real <head> elements, which is the entire reason this exists: a title,
+// a description and the og: tags a forwarded WhatsApp link renders its preview
+// card from. On iOS it resolves to ExpoHead.ios.js, which implements Apple
+// HANDOFF instead -- publishing the route as an NSUserActivity so it can be
+// picked up in Safari or on another device.
+//
+// To build the activity's URL it calls getStaticUrlFromExpoRouter(), which
+// needs the `origin` option on the expo-router config plugin. app.json
+// registers the plugin bare, so that call THROWS -- during render, inside
+// <FocusedHead />, which takes the whole route down. The storefront has not
+// rendered in the iOS app since this component landed (5c9b736, 2026-08-29);
+// it went unseen because this is the one file in the codebase importing
+// expo-router/head, it is a public page opened in browsers rather than in the
+// app, and storefront-route.test.tsx mocks Head, so jest never runs the iOS
+// implementation.
+//
+// Gated rather than fixed with an `origin`: adding one needs a native rebuild
+// and switches on a handoff feature nobody asked for -- handing a shop page
+// off to Safari is meaningless for a shop the app's own user does not own.
+// Every tag below is a web concern, so web is where they belong.
 function StorefrontHead({ shop }: { shop: PublicStorefront }) {
+  if (Platform.OS !== 'web') return null;
+
   const title = shop.city ? `${shop.shopName} — ${shop.city}` : shop.shopName;
   const description = shop.headline ?? shop.about ?? `${shop.shopName} on Kaiibi.`;
 

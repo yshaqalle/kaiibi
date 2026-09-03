@@ -80,15 +80,26 @@ function findByTestId(json: RenderedNode | RenderedNode[] | null, testID: string
   return findByTestId(json.children, testID);
 }
 
+// Anything at or below this is a GLYPH, not a layout box, and cannot be the
+// cause of this defect class: the narrowest screen this page is built for is
+// 320px, and a mark this size neither carries content nor participates in the
+// row's width. The stock card draws a 9px dot per product for exactly that
+// reason -- shape carrying state, per storefront-catalog.ts -- and a rule that
+// failed it would be measuring the wrong thing.
+//
+// Kept well below anything that could be a real box: a button, a swatch or a
+// pinned column would all be far wider, and still fail.
+const GLYPH_WIDTH_CEILING = 24;
+
 // Every fixed pixel width anywhere inside the header -- a numeric `width` on
 // any node in the subtree, however deep. Percentage widths (strings) are not
 // collected: those already scale with the viewport and cannot be the cause
-// of this defect class.
+// of this defect class. Glyph-sized marks are excluded for the reason above.
 function fixedWidthsIn(json: RenderedNode | RenderedNode[] | null): number[] {
   if (json == null || typeof json === 'string') return [];
   if (Array.isArray(json)) return json.flatMap((child) => fixedWidthsIn(child));
   const width = flatten(json.props?.style).width;
-  const own = typeof width === 'number' ? [width] : [];
+  const own = typeof width === 'number' && width > GLYPH_WIDTH_CEILING ? [width] : [];
   return [...own, ...fixedWidthsIn(json.children)];
 }
 

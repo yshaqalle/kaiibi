@@ -44,12 +44,26 @@ function hostNodes(tree: ReturnType<typeof create>): HostNode[] {
   return out;
 }
 
-const LANDMARKS = ['storefront-header', 'storefront-headline', 'storefront-about', 'storefront-flyer-band', 'storefront-goods'];
+// THE GOODS ARE MARKED BY THE FIRST PRODUCT TILE, not by the list container.
+//
+// `storefront-goods` used to be a FlatList rendered as a SIBLING of the header,
+// so its position in document order was the position of the grid. The bento
+// pass moved the header inside that list as its ListHeaderComponent -- which is
+// what lets the shop card scroll away on a phone instead of pinning half the
+// screen -- so the container's testID is now the FIRST landmark in the tree and
+// says nothing about where the goods start.
+//
+// `product-tile-open` is on each tile, so the first one is the top of the grid.
+// That is what these tests were always really asserting the band sits above.
+const LANDMARKS = ['storefront-header', 'storefront-headline', 'storefront-about', 'storefront-flyer-band', 'product-tile-open'];
 
 function landmarkOrder(tree: ReturnType<typeof create>): string[] {
-  return hostNodes(tree)
+  const seen = hostNodes(tree)
     .map((node) => node.props?.testID)
     .filter((id): id is string => typeof id === 'string' && LANDMARKS.includes(id));
+  // One entry per landmark: there is a tile per product, and only the first
+  // marks where the grid begins.
+  return seen.filter((id, i) => seen.indexOf(id) === i);
 }
 
 function withTestId(tree: ReturnType<typeof create>, testID: string): HostNode[] {
@@ -132,7 +146,7 @@ describe('where the flyer band sits', () => {
       'storefront-headline',
       'storefront-about',
       'storefront-flyer-band',
-      'storefront-goods',
+      'product-tile-open',
     ]);
   });
 
@@ -143,7 +157,7 @@ describe('where the flyer band sits', () => {
       'storefront-headline',
       'storefront-about',
       'storefront-flyer-band',
-      'storefront-goods',
+      'product-tile-open',
     ]);
   });
 
@@ -156,7 +170,7 @@ describe('where the flyer band sits', () => {
       'storefront-header',
       'storefront-headline',
       'storefront-about',
-      'storefront-goods',
+      'product-tile-open',
     ]);
   });
 
@@ -182,7 +196,11 @@ describe('a category flyer filters the page', () => {
 
   function gridNames(tree: ReturnType<typeof create>): string[] {
     const list = tree.root.findAll((node) => node.props?.testID === 'storefront-goods' && Array.isArray(node.props?.data));
-    return (list[0].props.data as StorefrontProduct[]).map((p) => p.name);
+    // `data` carries a null per empty cell in a short final row -- see
+    // padFinalRow in theme-shared.tsx, which is what stops three products at
+    // four columns inflating to a third of the width each. They are spacers,
+    // not products, so they are not names.
+    return (list[0].props.data as (StorefrontProduct | null)[]).filter((p) => p !== null).map((p) => p.name);
   }
 
   it('narrows Market to the named category and offers a way back', async () => {
