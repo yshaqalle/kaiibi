@@ -1369,3 +1369,25 @@ export type PublicDeliveryArea = {
   name: string;
   feeCents: number;
 };
+
+// One row of the /store directory -- deliberately NOT a PublicStorefront.
+//
+// It is a strict subset, and the two things it omits are the point. There is no
+// `whatsappE164`: a list of every published shop's phone number is a spam list,
+// and the number is one page away for a customer who arrived at a shop on
+// purpose. There is no `theme` or `palette` either: the directory renders in
+// its OWN palette, not in each shop's, so a row of eight cards reads as one
+// page rather than as eight competing brands.
+//
+// `productCount` is what is listed AND in stock, so the number on a card is a
+// promise about what is actually behind it.
+export type PublicShopSummary = {
+  shopName: string;
+  slug: string;
+  city: string | null;
+  headline: string | null;
+  about: string | null;
+  heroImageUrl: string | null;
+  offersDelivery: boolean;
+  productCount: number;
+};

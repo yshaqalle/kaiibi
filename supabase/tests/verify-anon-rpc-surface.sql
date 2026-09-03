@@ -112,7 +112,34 @@ declare
     -- WHOLE order row is captured before and after with the timestamp
     -- stripped, and compared entire -- so a future edit that also touches a
     -- column no test names still fails.
-    'confirm_public_order'
+    'confirm_public_order',
+    -- ADDED BY 20261019000000, and it is the first entry here that is not
+    -- keyed by a slug or a token. Everything above answers "tell me about THIS
+    -- shop / THIS order, which I already have an identifier for". This one
+    -- answers "which shops are there", and that is the point of it: the
+    -- directory is how a customer finds a shop nobody has forwarded them a
+    -- link to.
+    --
+    -- A READ, and one that returns NO COLUMN get_public_storefront does not
+    -- already return for any slug you care to name -- shop_name, city,
+    -- headline, about, hero_image_url, offers_delivery -- plus a listed-and-in-
+    -- stock count strictly narrower than get_public_storefront_categories'
+    -- per-category counts over the identical filter. So the exposure is not
+    -- the columns.
+    --
+    -- The exposure is ENUMERATION, and the thing that makes it safe is
+    -- `published_at is not null`: a storefront is public because its owner
+    -- pressed publish, having previewed it. It runs the same three gates as
+    -- every read above -- published, module on, no row-level product data --
+    -- so it cannot surface a shop the slug-keyed reads would refuse. What it
+    -- deliberately does NOT return is whatsapp_e164: a list of every published
+    -- shop's phone number is a spam list, and the number is one page away for
+    -- a customer who arrived at a shop on purpose.
+    --
+    -- p_limit is clamped in the function (`least(greatest(...), 100)`) rather
+    -- than trusted, because `limit null` is no limit at all and this argument
+    -- arrives from an unauthenticated HTTP caller.
+    'list_public_storefronts'
   ];
   v_actual  text[];
   v_added   text[];
