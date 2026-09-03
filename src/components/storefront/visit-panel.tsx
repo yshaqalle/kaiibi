@@ -1,8 +1,10 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { WhatsAppButton, ShopCard } from '@/components/storefront/theme-shared';
 import { LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
+import { openExternalUrl } from '@/lib/external-url';
 import {
   DAY_LABELS, WEEK_ORDER, formatDayHours, isConfigured, isOpenAt, rangesFor, weekdayKeyFor,
 } from '@/lib/store-hours';
@@ -112,11 +114,15 @@ function HoursCard({ storefront, colors }: { storefront: PublicStorefront; color
 }
 
 export function VisitPanel({
-  storefront, areas, colors,
+  storefront, areas, colors, wide,
 }: {
   storefront: PublicStorefront;
   areas: PublicDeliveryArea[];
   colors: PaletteColors;
+  // Two columns on a laptop, one on a phone -- the design's own split. Passed
+  // rather than measured here, so a panel never subscribes to window
+  // dimensions of its own (the rule ShopAnchor already follows).
+  wide?: boolean;
 }) {
   const where = collectLocation(
     storefront.collectAddress, storefront.collectNeighborhood, storefront.city,
@@ -129,17 +135,50 @@ export function VisitPanel({
 
   return (
     <View style={styles.panel} testID="storefront-visit-panel">
+      <View style={styles.head}>
+        <Text style={[styles.eyebrow, { color: colors.muted }]}>Visit &amp; deliver</Text>
+        <Text style={[styles.title, wide && styles.titleWide, { color: colors.ink }]}>
+          {/* Two sentences' worth of promise in one line, and it changes with
+              what the shop actually offers -- a collection-only shop reaching
+              this tab through its hours must not be told what delivery costs. */}
+          {areas.length > 0
+            ? 'Where to find us, and what it costs to come to you'
+            : 'Where to find us, and when we are open'}
+        </Text>
+      </View>
+
+      <View style={[styles.columns, wide && styles.columnsWide]}>
+        <View style={[styles.column, wide && styles.columnMain]}>
       {where ? (
         <ShopCard colors={colors} testID="storefront-visit-collect">
-          <Text style={[styles.eyebrow, { color: colors.muted }]}>Collect from</Text>
+          <Text style={[styles.eyebrow, { color: colors.muted }]}>Find us</Text>
           <Text style={[styles.place, { color: colors.ink }]}>{where}</Text>
           <Text style={[styles.note, { color: colors.muted }]}>
             Choose collection at checkout and pick your order up from the counter. Pay when you collect.
           </Text>
+          {/* NO MAP, and that is deliberate rather than missing. A rendered
+              map needs a tile provider and a key, and the shop has no
+              coordinates on file -- only a neighbourhood string. Drawing a
+              decorative grid with a pin on it, as the mockup does, would be a
+              picture of a map rather than a map, and a customer would try to
+              pinch it. This button does the thing the map was there for:
+              hands the place to whatever maps app they already use. */}
+          <Pressable
+            testID="storefront-visit-directions"
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${where} in Maps`}
+            onPress={() => openExternalUrl(mapsUrlFor(where))}
+            style={pressable([styles.mapsButton, { backgroundColor: colors.soft }])}
+          >
+            <Text style={[styles.mapsText, { color: colors.ink }]}>Open in Maps</Text>
+          </Pressable>
         </ShopCard>
       ) : null}
 
       <HoursCard storefront={storefront} colors={colors} />
+        </View>
+
+        <View style={[styles.column, wide && styles.columnSide]}>
 
       {/* Gone entirely for a collection-only shop. This tab used to require
           areas to exist at all; now that hours can bring a customer here on
@@ -188,12 +227,42 @@ export function VisitPanel({
           </View>
         </ShopCard>
       ) : null}
+        </View>
+      </View>
     </View>
   );
 }
 
+// A universal maps link rather than a platform one: `https://www.google.com/
+// maps/search/?api=1` is handed to the OS by openExternalUrl and opens in
+// whatever the device actually uses -- Google Maps on Android, Apple Maps or
+// Google on iOS, a browser tab on web. A `geo:` or `maps://` scheme would be
+// right on exactly one of those and a dead link on the others.
+//
+// The query is the composed collect line ("Jigjiga Yar, Hargeisa"), which is
+// how this region navigates -- see 20260808000000 on addressing by
+// neighbourhood and landmark. It is a search, not a pin, and that is honest:
+// the shop has no coordinates on file, so pretending to a precise location
+// would send somebody to the wrong side of a neighbourhood with total
+// confidence.
+export function mapsUrlFor(place: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
+}
+
 const styles = StyleSheet.create({
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
+  head: { gap: 10, marginBottom: 4 },
+  title: { fontSize: 21, lineHeight: 26, fontWeight: '800', letterSpacing: LETTER.displayLoud },
+  titleWide: { fontSize: 27, lineHeight: 32 },
+  // One column on a phone; the design's 1.15fr / 1fr on a laptop. The cards
+  // themselves are unchanged between the two -- only where they sit.
+  columns: { gap: SPACE.cardGap },
+  columnsWide: { flexDirection: 'row', alignItems: 'flex-start' },
+  column: { gap: SPACE.cardGap },
+  columnMain: { flex: 1.15 },
+  columnSide: { flex: 1 },
+  mapsButton: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11, alignSelf: 'flex-start', marginTop: 14 },
+  mapsText: { fontSize: 12.5, fontWeight: '800' },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },

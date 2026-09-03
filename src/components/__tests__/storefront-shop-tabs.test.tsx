@@ -2,7 +2,7 @@ import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
 import { ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
-import { VisitPanel } from '@/components/storefront/visit-panel';
+import { VisitPanel, mapsUrlFor } from '@/components/storefront/visit-panel';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
@@ -310,6 +310,27 @@ describe('the Visit panel', () => {
 
   it('offers no contact card to a shop with no number', () => {
     expect(has(renderVisit({ whatsappE164: null }), 'storefront-visit-contact')).toBe(false);
+  });
+
+  // The mockup draws a map here. A rendered map needs a tile provider and a
+  // key, and the shop has only a neighbourhood string on file -- so this hands
+  // the place to whatever maps app the device already has instead.
+  it('offers a way into Maps for the place it names', () => {
+    expect(has(renderVisit(), 'storefront-visit-directions')).toBe(true);
+  });
+
+  it('builds a universal maps link, not a platform-only scheme', () => {
+    const url = mapsUrlFor('Jigjiga Yar, Hargeisa');
+    expect(url).toContain('https://www.google.com/maps/search/');
+    expect(url).toContain(encodeURIComponent('Jigjiga Yar, Hargeisa'));
+  });
+
+  // A collection-only shop reaching this tab through its hours must not be
+  // told what delivery costs.
+  it('does not promise delivery in its heading when there is none', () => {
+    const text = textOf(renderVisit({ openingHours: HOURS }, []), 'storefront-visit-panel');
+    expect(text).toContain('when we are open');
+    expect(text).not.toContain('what it costs to come to you');
   });
 
   it('drops the delivery card entirely for a collection-only shop', () => {

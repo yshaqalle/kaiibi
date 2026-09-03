@@ -76,7 +76,7 @@ export function ShopChrome({
               wide={wide}
             />
           ) : (
-            <VisitPanel storefront={storefront} areas={areas} colors={colors} />
+            <VisitPanel storefront={storefront} areas={areas} colors={colors} wide={wide} />
           )}
           <ShopFooter storefront={storefront} colors={colors} />
         </ScrollView>
