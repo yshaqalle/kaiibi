@@ -51,6 +51,7 @@ const shop: PublicStorefront = {
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
+  openingHours: {},
   // No flyers: these fixtures predate them, and a shop with none must
   // render exactly as it did before they existed.
   flyers: [],

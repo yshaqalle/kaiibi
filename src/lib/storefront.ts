@@ -1,4 +1,5 @@
 import { publicImageUrl } from '@/lib/storage';
+import type { OpeningHours } from '@/lib/store-hours';
 import { DEFAULT_PALETTE, DEFAULT_THEME } from '@/lib/storefront-catalog';
 import { supabase } from '@/lib/supabase';
 import { whatsappLink } from '@/lib/whatsapp';
@@ -136,6 +137,16 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // as "do not move on your own" -- the same off-by-default rule the
     // column itself carries -- rather than as a thrown error.
     autoAdvance: Boolean(row.auto_advance),
+    // `?? {}` for the same reason autoAdvance takes Boolean(...) above: a
+    // client shipped ahead of its database calls a get_public_storefront with
+    // no `opening_hours` column at all (20261020000000), and `undefined` must
+    // arrive as the empty object a shop that never set hours already
+    // produces -- not as a third state every renderer would have to test for.
+    //
+    // Nothing is normalised or validated here. store-hours.ts owns that, and
+    // the values came from its own editor; a parse step in this file would be
+    // a second opinion on a shape that module already defines.
+    openingHours: (row.opening_hours as OpeningHours | null) ?? {},
   };
 }
 

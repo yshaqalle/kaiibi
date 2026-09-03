@@ -22,6 +22,7 @@ const shop: PublicStorefront = {
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
+  openingHours: {},
   flyers: [],
   autoAdvance: false,
 };

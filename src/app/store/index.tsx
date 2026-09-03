@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import Head from 'expo-router/head';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
@@ -11,7 +11,7 @@ import {
   DIRECTORY_GAP, ShopDirectoryCard, directoryColumnsForWidth,
 } from '@/components/storefront/shop-directory-card';
 import { paletteColors } from '@/lib/storefront-catalog';
-import { citiesOf, listPublicShops } from '@/lib/storefront-directory';
+import { citiesOf, listPublicShops, searchShops } from '@/lib/storefront-directory';
 import { padFinalRow } from '@/components/storefront/theme-shared';
 import type { PublicShopSummary } from '@/types/models';
 
@@ -24,6 +24,11 @@ import type { PublicShopSummary } from '@/types/models';
 // into somebody's shop. See ShopDirectoryCard on why eight shop palettes on
 // one page would be eight brands rather than a list.
 const colors = paletteColors('ink');
+
+// Below this a directory is READ, not searched -- the same argument
+// shouldOfferSearch (storefront-search.ts) makes about a short catalogue: a
+// control that filters three cards costs more attention than it saves.
+export const DIRECTORY_SEARCH_MINIMUM = 6;
 
 export default function StoreDirectoryScreen() {
   const router = useRouter();
@@ -39,6 +44,7 @@ export default function StoreDirectoryScreen() {
   // to narrow a list already on screen. `p_city` earns its place the day this
   // outgrows one page -- named here so the next person knows it is there.
   const [city, setCity] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const [state, setState] = useState<
     | { status: 'loading' }
     | { status: 'failed' }
@@ -74,7 +80,12 @@ export default function StoreDirectoryScreen() {
 
   const shops = state.status === 'ready' ? state.shops : [];
   const cities = citiesOf(shops);
-  const shown = city ? shops.filter((s) => s.city?.trim().toLowerCase() === city.toLowerCase()) : shops;
+  // Search runs ON TOP of the city filter, not instead of it -- the same rule
+  // the shop page's own search follows: a customer who has narrowed to Borama
+  // and then types expects to be searching WITHIN Borama. Both ways out stay
+  // visible, the chip row and the Clear button.
+  const inCity = city ? shops.filter((s) => s.city?.trim().toLowerCase() === city.toLowerCase()) : shops;
+  const shown = searchShops(inCity, query);
   // Same padding as the product grid, for the same reason: a short final row
   // must leave a gap rather than inflating its cells to fill the width. See
   // padFinalRow in theme-shared.tsx.
@@ -92,6 +103,40 @@ export default function StoreDirectoryScreen() {
           order on WhatsApp, and pay when you collect.
         </Text>
       </View>
+
+      {/* Offered only once there is enough of a directory to be worth
+          searching -- the rule shouldOfferSearch applies on the shop page. Two
+          shops are read, not searched. */}
+      {shops.length >= DIRECTORY_SEARCH_MINIMUM ? (
+        <View style={styles.searchRow}>
+          <TextInput
+            testID="storefront-directory-search"
+            accessibilityLabel={`Search ${shops.length} shops`}
+            placeholder={`Search ${shops.length} shops`}
+            placeholderTextColor={colors.muted}
+            value={query}
+            onChangeText={setQuery}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            style={[styles.search, { borderColor: colors.edge, color: colors.ink, backgroundColor: colors.ground }]}
+          />
+          {/* clearButtonMode is iOS-only, so this is what Android and web get,
+              and a filter with no visible way out is a dead end. */}
+          {query.length > 0 ? (
+            <Pressable
+              testID="storefront-directory-search-clear"
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              onPress={() => setQuery('')}
+              style={pressable([styles.searchClear, { backgroundColor: colors.ground, borderColor: colors.edge }])}
+            >
+              <Text style={[styles.searchClearText, { color: colors.ink }]}>Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Only once there is a choice to make -- one city is a filter to
           everything, which is the rule CategoryBand already applies. */}
@@ -137,6 +182,13 @@ export default function StoreDirectoryScreen() {
               body="Check your connection and try again."
               actionLabel="Try again"
               onAction={retry}
+            />
+          ) : query.trim() ? (
+            <Empty
+              title={`Nothing matches “${query.trim()}”.`}
+              body="Try a shorter word, or the name of a city."
+              actionLabel="Clear search"
+              onAction={() => setQuery('')}
             />
           ) : (
             // THERE IS DELIBERATELY NO "no shops in <city>" EMPTY STATE, and
@@ -263,6 +315,14 @@ const styles = StyleSheet.create({
   grid: { padding: SPACE.page, paddingBottom: 48, gap: DIRECTORY_GAP },
   row: { gap: DIRECTORY_GAP },
   cell: { flex: 1 },
+
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 14 },
+  search: {
+    flex: 1, borderWidth: 1, borderRadius: RADIUS.pill,
+    paddingHorizontal: 18, paddingVertical: 13, fontSize: TYPE.body + 1,
+  },
+  searchClear: { borderRadius: RADIUS.pill, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
+  searchClearText: { fontSize: 12.5, fontWeight: '800' },
 
   hero: { paddingTop: 34, paddingBottom: 22, maxWidth: 620 },
   eyebrow: {

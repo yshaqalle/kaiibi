@@ -203,6 +203,44 @@ describe('the directory screen', () => {
     expect(has(tree, 'storefront-directory-card-dir-alpha')).toBe(true);
   });
 
+  // Six is DIRECTORY_SEARCH_MINIMUM: below that a directory is read, not
+  // searched, and a control that filters three cards costs more than it saves.
+  it('offers no search box for a directory short enough to read', async () => {
+    mockList.mockResolvedValue([summary(), summary({ slug: 'b' })]);
+    const tree = await renderScreen();
+    expect(has(tree, 'storefront-directory-search')).toBe(false);
+  });
+
+  it('narrows to what was typed, without going back to the network', async () => {
+    mockList.mockResolvedValue([
+      summary({ slug: 'a', shopName: 'Alpha Hardware' }),
+      summary({ slug: 'b', shopName: 'Baraka Grocers' }),
+      summary({ slug: 'c' }), summary({ slug: 'd' }), summary({ slug: 'e' }), summary({ slug: 'f' }),
+    ]);
+    const tree = await renderScreen();
+    const field = tree.root.find((n) => n.props?.testID === 'storefront-directory-search');
+    act(() => { field.props.onChangeText('baraka'); });
+
+    expect(has(tree, 'storefront-directory-card-b')).toBe(true);
+    expect(has(tree, 'storefront-directory-card-a')).toBe(false);
+    expect(mockList).toHaveBeenCalledTimes(1);
+  });
+
+  // A search that found nothing is its own empty state, and never a dead end.
+  it('offers a way out of a search that matched nothing', async () => {
+    mockList.mockResolvedValue([
+      summary({ slug: 'a' }), summary({ slug: 'b' }), summary({ slug: 'c' }),
+      summary({ slug: 'd' }), summary({ slug: 'e' }), summary({ slug: 'f' }),
+    ]);
+    const tree = await renderScreen();
+    const field = tree.root.find((n) => n.props?.testID === 'storefront-directory-search');
+    act(() => { field.props.onChangeText('nothing matches this'); });
+
+    expect(textOf(tree, 'storefront-directory-empty')).toContain('Nothing matches');
+    press(tree, 'storefront-directory-empty-action');
+    expect(has(tree, 'storefront-directory-card-a')).toBe(true);
+  });
+
   it('says so plainly when no shop has opened yet', async () => {
     mockList.mockResolvedValue([]);
     const tree = await renderScreen();

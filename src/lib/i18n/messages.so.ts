@@ -34,6 +34,7 @@ export const so: Messages = {
   'nav.getStartedShort': 'Bilow',
   'nav.menu': 'Liiska',
   'nav.myShop': 'Dukaankayga',
+  'nav.shops': 'Dukaamada',
 
   // ── hero ──────────────────────────────────────────────────────────────────
   'hero.eyebrow': 'Loogu talagalay Geeska Afrika',

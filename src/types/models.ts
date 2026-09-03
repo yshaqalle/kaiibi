@@ -1325,6 +1325,16 @@ export type PublicStorefront = {
   // directly, so the [address, neighborhood, city] order and the drop-empties
   // rule stay in one place.
   collectNeighborhood: string | null;
+  // When the shop is open, read off the SAME primary location the collect_*
+  // pair above comes from -- so the page never prints one branch's street
+  // above another branch's opening times.
+  //
+  // Reuses store-hours.ts's own `OpeningHours` (already imported above for
+  // ShopLocation) rather than restating the shape: that module owns parsing,
+  // validation and formatting, and a second copy would be a second thing to
+  // keep in step. `{}` means never set, which every renderer must treat as
+  // "say nothing" rather than as "closed" -- see isConfigured.
+  openingHours: OpeningHours;
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a

@@ -1,4 +1,4 @@
-import { citiesOf, listPublicShops, shopBlurb } from '@/lib/storefront-directory';
+import { citiesOf, listPublicShops, searchShops, shopBlurb } from '@/lib/storefront-directory';
 import type { PublicShopSummary } from '@/types/models';
 
 // `mock`-prefixed because jest.mock's factory is hoisted above this line and
@@ -119,5 +119,38 @@ describe('what a card says under the name', () => {
   // The card drops the line rather than reserving space for it.
   it('says nothing at all when the shop has written neither', () => {
     expect(shopBlurb(summary({ headline: null, about: null }))).toBeNull();
+  });
+});
+
+// In memory, over one bounded read -- so it is instant and cannot fail.
+describe('searching the directory', () => {
+  const shops = [
+    summary({ slug: 'a', shopName: 'Alpha Hardware', city: 'Hargeisa', headline: 'Solar and tools.' }),
+    summary({ slug: 'b', shopName: 'Baraka Grocers', city: 'Borama', headline: 'Fresh in by six.' }),
+    summary({ slug: 'c', shopName: 'Xero Pharmacy', city: 'Hargeisa', headline: null, about: 'Prescriptions and baby care.' }),
+  ];
+
+  it('returns everything for an empty query rather than nothing', () => {
+    expect(searchShops(shops, '   ')).toHaveLength(3);
+  });
+
+  it('finds a shop by name, case-insensitively', () => {
+    expect(searchShops(shops, 'baraka').map((s) => s.slug)).toEqual(['b']);
+  });
+
+  it('finds a shop by city, because that is how people ask', () => {
+    expect(searchShops(shops, 'hargeisa').map((s) => s.slug)).toEqual(['a', 'c']);
+  });
+
+  // A customer types what they WANT as readily as who they want.
+  it('finds a shop by what it says it sells', () => {
+    expect(searchShops(shops, 'solar').map((s) => s.slug)).toEqual(['a']);
+    expect(searchShops(shops, 'prescriptions').map((s) => s.slug)).toEqual(['c']);
+  });
+
+  // Every word must match somewhere, so two half-remembered facts still land.
+  it('requires all words, so a city plus a trade narrows rather than widens', () => {
+    expect(searchShops(shops, 'borama grocers').map((s) => s.slug)).toEqual(['b']);
+    expect(searchShops(shops, 'borama pharmacy')).toEqual([]);
   });
 });

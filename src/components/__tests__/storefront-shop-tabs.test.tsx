@@ -15,7 +15,8 @@ function shop(overrides: Partial<PublicStorefront> = {}): PublicStorefront {
     shopName: 'Jiija Electronics', city: 'Hargeisa', slug: 'jiija', whatsappE164: '+252630000000',
     theme: 'market', palette: 'ink', headline: 'Everything that plugs in.', about: null,
     heroImageUrl: null, offersDelivery: false, collectAddress: null,
-    collectNeighborhood: 'Jigjiga Yar', paymentMode: 'on_collection', flyers: [], autoAdvance: false,
+    collectNeighborhood: 'Jigjiga Yar', paymentMode: 'on_collection', openingHours: {},
+    flyers: [], autoAdvance: false,
     ...overrides,
   };
 }
@@ -25,6 +26,18 @@ const AREAS: PublicDeliveryArea[] = [
   { name: 'Jigjiga Yar', feeCents: 0 },
   { name: 'Ahmed Dhagah', feeCents: 100 },
 ];
+
+// Wednesday carries a split shift, which is the case the column's list-per-day
+// shape exists for and the one a single open/close pair would lose.
+const HOURS = {
+  mon: [{ open: '08:00', close: '21:00' }],
+  tue: [],
+  wed: [{ open: '08:00', close: '11:30' }, { open: '14:00', close: '21:00' }],
+  thu: [{ open: '08:00', close: '21:00' }],
+  fri: [{ open: '08:00', close: '21:00' }],
+  sat: [{ open: '08:00', close: '21:00' }],
+  sun: [{ open: '08:00', close: '21:00' }],
+};
 
 const products: StorefrontProduct[] = [
   { id: '1', name: 'Solar lantern', description: null, category: 'Solar', priceCents: 1400, stock: 5, imageUrl: null },
@@ -46,6 +59,10 @@ function render(el: React.ReactElement) {
 function textOf(tree: ReturnType<typeof create>, testID: string): string {
   const node = tree.root.find((n) => n.props?.testID === testID);
   return [node, ...node.findAll(() => true)]
+    // Host elements only: findAll returns BOTH the composite Text and the host
+    // it renders to, and both carry the same `children`, so counting every
+    // instance repeats every string on the page.
+    .filter((n) => typeof n.type === 'string')
     .flatMap((n) => [n.props?.children].flat(Infinity))
     .filter((c): c is string => typeof c === 'string')
     .join(' ');
@@ -74,8 +91,27 @@ describe('which tabs a shop gets', () => {
   // Without areas the Visit tab's whole content is the Collecting card, which
   // is already on the Shop tab, and a tab that repeats the page you came from
   // is worse than no tab.
-  it('adds Visit only once there are priced areas the Shop tab cannot list', () => {
+  it('adds Visit for priced areas the Shop tab cannot list', () => {
     expect(availableTabs(shop(), AREAS)).toEqual(['shop', 'visit']);
+  });
+
+  // Hours are the other half: a collection-only shop has no areas at all, and
+  // "when are you open" is the question it most needs to answer.
+  it('adds Visit for opening hours even with no delivery at all', () => {
+    expect(availableTabs(shop({ openingHours: HOURS }), [])).toEqual(['shop', 'visit']);
+  });
+
+  // A shop that saved a week of closed days has STATED something, and stating
+  // it is an answer -- `isConfigured` is presence of the saved keys, not of an
+  // open range, and this pins that reading so a future change to store-hours.ts
+  // cannot quietly move the tab.
+  it('counts a week of explicitly closed days as hours the shop has set', () => {
+    const closed = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
+    expect(availableTabs(shop({ openingHours: closed }), [])).toEqual(['shop', 'visit']);
+  });
+
+  it('still shows no Visit tab for a shop that never opened the hours form', () => {
+    expect(availableTabs(shop({ openingHours: {} }), [])).toEqual(['shop']);
   });
 
   it('renders no rail for a single tab, so there is no control that never does anything', () => {
@@ -209,7 +245,7 @@ describe('the About panel', () => {
 // The tab exists because the Shop tab's "Delivery · From $1.00" cannot answer
 // "is MY area on the list, and what does it cost me".
 describe('the Visit panel', () => {
-  function renderVisit(overrides: Partial<PublicStorefront> = {}, areas = AREAS) {
+  function renderVisit(overrides: Partial<PublicStorefront> = {}, areas: PublicDeliveryArea[] = AREAS) {
     return render(
       <VisitPanel storefront={shop({ offersDelivery: true, ...overrides })} areas={areas} colors={colors} />,
     );
@@ -236,5 +272,53 @@ describe('the Visit panel', () => {
 
   it('offers no contact card to a shop with no number', () => {
     expect(has(renderVisit({ whatsappE164: null }), 'storefront-visit-contact')).toBe(false);
+  });
+
+  it('drops the delivery card entirely for a collection-only shop', () => {
+    expect(has(renderVisit({ openingHours: HOURS }, []), 'storefront-visit-areas')).toBe(false);
+  });
+});
+
+// The column has existed since 20260809000000 and nothing public ever read it.
+describe('opening hours', () => {
+  function renderHours(hours: object) {
+    return render(
+      <VisitPanel storefront={shop({ openingHours: hours })} areas={AREAS} colors={colors} />,
+    );
+  }
+
+  // An empty object means "never filled in". Seven "Closed" rows would invent a
+  // claim the shop never made -- the same rule StockCard follows when it
+  // refuses to say "all in stock today" about a shop with nothing listed.
+  it('says nothing at all when the shop has never set hours', () => {
+    expect(has(renderHours({}), 'storefront-visit-hours')).toBe(false);
+  });
+
+  it('prints every day of the week once the shop has', () => {
+    const tree = renderHours(HOURS);
+    for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      expect(has(tree, `storefront-visit-hours-${day}`)).toBe(true);
+    }
+  });
+
+  it('prints a split shift as both ranges, not just the first', () => {
+    expect(textOf(renderHours(HOURS), 'storefront-visit-hours-wed'))
+      .toContain('08:00 – 11:30, 14:00 – 21:00');
+  });
+
+  it('says Closed on a day with no ranges', () => {
+    expect(textOf(renderHours(HOURS), 'storefront-visit-hours-tue')).toContain('Closed');
+  });
+
+  // Colour is never the only signal -- the pill says which state it is in.
+  it('states open or closed in words, not only in colour', () => {
+    const text = textOf(renderHours(HOURS), 'storefront-visit-open-now');
+    expect(text === 'Open now' || text === 'Closed now').toBe(true);
+  });
+
+  it('marks the day the customer is actually standing in', () => {
+    const tree = renderHours(HOURS);
+    const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
+    expect(textOf(tree, `storefront-visit-hours-${today}`)).toContain('today');
   });
 });

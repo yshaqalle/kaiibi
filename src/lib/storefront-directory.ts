@@ -74,3 +74,29 @@ export function citiesOf(shops: PublicShopSummary[]): string[] {
 export function shopBlurb(shop: PublicShopSummary): string | null {
   return shop.headline?.trim() || shop.about?.trim() || null;
 }
+
+// SEARCH, and it runs in memory for the same reason the city chips do: the
+// whole directory is one bounded read, so filtering here is instant and cannot
+// fail. There is no p_query on the RPC and deliberately so -- a server-side
+// search over 100 rows would be a round trip and a spinner to do what a
+// `filter` does in a frame.
+//
+// Matches the shop's NAME, its CITY and its BLURB, because a customer types
+// what they want ("solar", "pharmacy") as readily as who they want. It does not
+// match product names: the directory read carries no products, and pretending
+// otherwise would silently return nothing for the most obvious query of all.
+// That is the honest limit of this control until there is a search RPC behind
+// it -- see the placeholder copy, which says "shops" and not "items".
+export function searchShops(shops: PublicShopSummary[], query: string): PublicShopSummary[] {
+  const wanted = query.trim().toLowerCase();
+  if (!wanted) return shops;
+  // Every whitespace-separated word must match somewhere, so "borama grocer"
+  // finds Baraka Grocers in Borama -- an AND across words rather than one
+  // substring, which would fail the moment somebody types two of the three
+  // things they know about a shop.
+  const words = wanted.split(/\s+/);
+  return shops.filter((shop) => {
+    const haystack = [shop.shopName, shop.city ?? '', shopBlurb(shop) ?? ''].join(' ').toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
+}

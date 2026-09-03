@@ -18,7 +18,8 @@ const shop: PublicStorefront = {
   shopName: 'Barwaaqo Grocers', city: 'Hargeisa', slug: 'barwaaqo-band', whatsappE164: '+252634456789',
   theme: 'market', palette: 'palm', headline: null, about: null, heroImageUrl: null,
   offersDelivery: true, collectAddress: null, collectNeighborhood: null,
-  paymentMode: 'on_collection', flyers: [], autoAdvance: false,
+  paymentMode: 'on_collection',
+  openingHours: {}, flyers: [], autoAdvance: false,
 };
 
 const products: StorefrontProduct[] = [

@@ -668,6 +668,11 @@ function StorefrontEditor() {
   // for every shop at signup -- so a preview without it would show the owner a
   // pick-up line noticeably barer than the one their customers get.
   const primaryNeighborhood = locations.find((location) => location.isPrimary)?.neighborhood ?? null;
+  // Off the SAME row again, for the same reason: the preview must show the
+  // hours of the branch whose street it is already printing. `?? {}` because a
+  // shop that has never opened Settings -> Locations has none, and the panel
+  // renders nothing rather than "closed all week".
+  const primaryHours = locations.find((location) => location.isPrimary)?.openingHours ?? {};
 
   // What get_public_storefront (20260930000100) would return for this shop,
   // reproduced client-side for the preview -- the same reason
@@ -727,6 +732,7 @@ function StorefrontEditor() {
     offersDelivery: working.offersDelivery,
     collectAddress: primaryAddress,
     collectNeighborhood: primaryNeighborhood,
+    openingHours: primaryHours,
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,

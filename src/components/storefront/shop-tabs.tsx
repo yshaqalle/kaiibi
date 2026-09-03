@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
+import { isConfigured } from '@/lib/store-hours';
 import { LETTER, RADIUS, SPACE, TYPE } from '@/components/storefront/scale';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront } from '@/types/models';
@@ -31,20 +32,38 @@ export const SHOP_TAB_LABELS: Record<ShopTabKey, string> = {
 //
 //   about -- only with an about paragraph. Without one the tab would be a
 //            headline the anchor card already prints, plus counts.
-//   visit -- only with priced delivery areas. Without them its entire content
-//            is the Collecting card, which is already on the Shop tab; a tab
-//            that repeats the page you came from is worse than no tab.
+//   visit -- with priced delivery areas OR opening hours. Either one says
+//            something the Shop tab cannot: the Collecting card reduces every
+//            area to the cheapest ("From $1.00"), which cannot answer "is MY
+//            area on the list", and it has never shown hours at all. With
+//            neither, the tab's whole content would be the Collecting card
+//            repeated, and a tab that repeats the page you came from is worse
+//            than no tab.
 //
 // A shop that has filled in neither gets `['shop']`, and ShopTabRail renders
 // nothing at all for a single tab -- so the page is exactly what shipped
 // before this existed, with no empty chrome to explain.
 export function availableTabs(
-  storefront: Pick<PublicStorefront, 'about'>,
+  storefront: Pick<PublicStorefront, 'about'> & Partial<Pick<PublicStorefront, 'openingHours'>>,
   areas: PublicDeliveryArea[],
 ): ShopTabKey[] {
   const tabs: ShopTabKey[] = ['shop'];
   if (storefront.about?.trim()) tabs.push('about');
-  if (areas.length > 0) tabs.push('visit');
+  // `isConfigured` is store-hours.ts's own test and means the shop has SAVED
+  // hours at all -- `{}` is untouched, anything else was written by the editor
+  // under Settings -> Locations. A week of explicitly empty days therefore
+  // counts, and should: that is a shop stating it is closed, which is an
+  // answer, and the panel prints it as seven honest "Closed" rows rather than
+  // inventing one. Reused rather than re-derived here so this page and the
+  // dashboard's own hours card cannot disagree about what "set" means.
+  // `?? {}` at the boundary, not because the type admits undefined but because
+  // reality does: getPublicStorefront maps a missing column to {} (a client
+  // updates over the air, migrations do not), and every other caller that
+  // builds a PublicStorefront by hand -- the editor's preview, a dozen test
+  // fixtures -- is one omission away from handing this a hole. isConfigured
+  // calls Object.keys, which throws on undefined, and a shop page that throws
+  // is worse than one with no Visit tab.
+  if (areas.length > 0 || isConfigured(storefront.openingHours ?? {})) tabs.push('visit');
   return tabs;
 }
 
