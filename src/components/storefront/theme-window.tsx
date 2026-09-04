@@ -6,6 +6,9 @@ import { CategoryBand } from '@/components/storefront/category-band';
 import { FlyerCarousel } from '@/components/storefront/flyer-carousel';
 import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
+import { ShopChrome } from '@/components/storefront/shop-chrome';
+import { useShopTab } from '@/components/storefront/shop-tabs';
+import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   NoSearchResults, SearchField, ShopHeader, filterByCategory, gridColumnsForWidth, isWideShop, padFinalRow,
@@ -19,7 +22,10 @@ import type { StorefrontProduct } from '@/types/models';
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
 // That is the test every theme in this set had to pass.
-export function ThemeWindow({ storefront, products, colors, areas = [], categories = [] }: ThemeProps) {
+export function ThemeWindow({ storefront, products, colors, areas = [], categories = [], tab, onSelectTab }: ThemeProps) {
+  // Controlled by the route when there is one, local otherwise -- see
+  // useShopTab. One line here instead of a useState in all three themes.
+  const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
   // See theme-market.tsx: two measurements off one width, separate thresholds.
@@ -125,7 +131,8 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
       ) : null}
       {shown.length > 0 ? (
-        <View style={styles.sectionHead}>
+        // See theme-market.tsx: ruled, now that there is a token that shows up.
+        <View style={[styles.sectionHead, { borderBottomColor: colors.hairline }]}>
           <Text style={[styles.sectionTitle, { color: colors.muted }]}>What&apos;s in today</Text>
           <Text style={[styles.sectionCount, { color: colors.muted }]}>
             {shown.length} {shown.length === 1 ? 'item' : 'items'}
@@ -138,6 +145,16 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   return (
     // Page tone, not card tone -- see theme-market.tsx.
     <View style={{ backgroundColor: colors.soft, flex: 1 }}>
+      <ShopChrome
+        storefront={storefront}
+        products={products}
+        categories={categories}
+        areas={areas}
+        colors={colors}
+        wide={wide}
+        tab={activeTab}
+        onSelectTab={selectTab}
+      >
       <FlatList
         testID="storefront-goods"
         // See padFinalRow: a short final row leaves a gap rather than
@@ -166,6 +183,8 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         // CheckoutBar floats over this content and reserves no space of
         // its own.
         contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
+        // See theme-market.tsx: closes the page, and scrolls with the goods.
+        ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
         renderItem={({ item }) => (
           <View style={styles.cell}>
             {item ? (
@@ -182,6 +201,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
           </View>
         )}
       />
+      </ShopChrome>
 
       <ProductSheet
         product={openProduct}
@@ -214,7 +234,7 @@ const styles = StyleSheet.create({
   scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
-    paddingTop: 26, paddingBottom: 4,
+    paddingTop: 26, paddingBottom: 10, marginBottom: 4, borderBottomWidth: 1,
   },
   sectionTitle: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   sectionCount: { fontSize: TYPE.metaSmall, fontWeight: '700' },

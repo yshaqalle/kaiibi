@@ -167,7 +167,36 @@ function SectionLinks() {
           )}
         </Pressable>
       ))}
+      <ShopsLink />
     </View>
+  );
+}
+
+// THE ONLY WAY INTO /store, and the reason it is not in SECTION_LINKS: every
+// other link in this nav scrolls to an anchor on the page you are already on.
+// This one leaves for a different route, so it cannot go through
+// `scrollToSection` -- which navigates to `/` and would take a visitor AWAY
+// from the directory rather than to it.
+//
+// Not a TabTrigger either: `store` sits at the app root, a sibling of the
+// (public) group (see src/app/_layout.tsx), so it is not one of this Tabs
+// group's own routes -- the same reason SignInButton pushes /login by hand.
+function ShopsLink({ full, onNavigate }: { full?: boolean; onNavigate?: () => void }) {
+  const router = useRouter();
+  const { t } = useLocale();
+  return (
+    <Pressable
+      onPress={() => {
+        onNavigate?.();
+        router.push('/store');
+      }}
+      accessibilityRole="link"
+      style={({ pressed }) => [full && styles.buttonFull, pressed && styles.pressed]}
+    >
+      {({ hovered }) => (
+        <Text style={[styles.linkText, hovered && styles.linkTextHovered]}>{t('nav.shops')}</Text>
+      )}
+    </Pressable>
   );
 }
 
@@ -189,6 +218,12 @@ function MobileMenu({ onNavigate }: { onNavigate: () => void }) {
           <Text style={styles.menuText}>{t(link.key)}</Text>
         </Pressable>
       ))}
+      {/* In the same list rather than beside Sign in: on a phone this menu IS
+          the nav, and a route that only appears on desktop is a route most of
+          this audience never sees. */}
+      <View style={styles.menuRow}>
+        <ShopsLink onNavigate={onNavigate} />
+      </View>
       <View style={styles.menuSignIn}>
         <SignInButton full />
       </View>

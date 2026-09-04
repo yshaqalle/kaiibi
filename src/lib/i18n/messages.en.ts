@@ -35,6 +35,7 @@ export const en = {
   'nav.getStartedShort': 'Get started',
   'nav.menu': 'Menu',
   'nav.myShop': 'My shop',
+  'nav.shops': 'Shops',
 
   // ── hero ──────────────────────────────────────────────────────────────────
   'hero.eyebrow': 'Built for the Horn of Africa',

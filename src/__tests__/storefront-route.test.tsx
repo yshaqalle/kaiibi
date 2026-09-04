@@ -14,7 +14,15 @@ jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 // that prefix to be closed over by a jest.mock() factory (see
 // storefront-order.ts's task-7 report for the same trap).
 let mockSlug = 'xamdi';
-jest.mock('expo-router', () => ({ useLocalSearchParams: jest.fn(() => ({ slug: mockSlug })) }));
+// `useRouter` as well as the params: the screen navigates when a tab is
+// pressed (/store/<slug>/about), so a mock with only the params leaves it
+// calling undefined during render.
+jest.mock('expo-router', () => ({
+  useLocalSearchParams: jest.fn(() => ({ slug: mockSlug })),
+  useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
+}));
+const mockReplace = jest.fn();
+
 jest.mock('@/lib/storefront', () => ({
   getPublicStorefront: jest.fn(),
   getPublicStorefrontProducts: jest.fn(),
@@ -36,7 +44,11 @@ import {
   getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontCategories, getPublicStorefrontProducts,
 } from '@/lib/storefront';
 import { placeOrder, placeOrderViaWhatsApp } from '@/lib/storefront-order';
-import StorefrontScreen from '@/app/store/[slug]';
+// The DEFAULT export -- the /store/<slug> route itself -- imported under its
+// own name. The module also exports a named `StorefrontScreen` (the shared
+// component both route files render), and importing the default under that
+// same identifier reads as the named one to anybody skimming.
+import StorefrontIndexRoute from '@/app/store/[slug]/index';
 
 function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
   if (node == null) return [];
@@ -79,7 +91,7 @@ async function render(): Promise<ReactTestRenderer> {
   await act(async () => {
     tree = create(
       <SafeAreaProvider initialMetrics={INITIAL_METRICS}>
-        <StorefrontScreen />
+        <StorefrontIndexRoute />
       </SafeAreaProvider>,
     );
   });
@@ -598,6 +610,13 @@ describe('storefront route', () => {
 // opened in an in-app browser, on a phone -- so it is worth pinning.
 describe('while the shop is still loading', () => {
   it('shows the page-shaped skeleton, never a bare spinner', async () => {
+    // A slug NO other test in this file has loaded. The screen caches a shop
+    // once it has read one (stale-while-revalidate, see the route), so a slug
+    // an earlier test already resolved would paint straight from that cache and
+    // never show a skeleton at all -- which is the intended behaviour and would
+    // make this test silently assert nothing.
+    mockSlug = 'never-loaded-shop';
+
     // A promise that never settles: the screen stays in `loading` for the
     // whole assertion rather than racing the resolve.
     (getPublicStorefront as jest.Mock).mockReturnValue(new Promise(() => {}));
@@ -608,7 +627,7 @@ describe('while the shop is still loading', () => {
     await act(async () => {
       tree = create(
       <SafeAreaProvider initialMetrics={INITIAL_METRICS}>
-        <StorefrontScreen />
+        <StorefrontIndexRoute />
       </SafeAreaProvider>,
     );
     });
@@ -626,7 +645,7 @@ describe('while the shop is still loading', () => {
     await act(async () => {
       tree = create(
       <SafeAreaProvider initialMetrics={INITIAL_METRICS}>
-        <StorefrontScreen />
+        <StorefrontIndexRoute />
       </SafeAreaProvider>,
     );
     });

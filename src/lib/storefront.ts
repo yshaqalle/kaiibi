@@ -1,10 +1,11 @@
 import { publicImageUrl } from '@/lib/storage';
+import type { OpeningHours } from '@/lib/store-hours';
 import { DEFAULT_PALETTE, DEFAULT_THEME } from '@/lib/storefront-catalog';
 import { supabase } from '@/lib/supabase';
 import { whatsappLink } from '@/lib/whatsapp';
 import type {
   PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontFlyerLinkKind,
-  StorefrontFlyerOffer, StorefrontProduct,
+  StorefrontFlyerOffer, StorefrontHighlight, StorefrontProduct,
 } from '@/types/models';
 
 // Reads the public page. Every one of these calls the RPCs in
@@ -136,6 +137,40 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // as "do not move on your own" -- the same off-by-default rule the
     // column itself carries -- rather than as a thrown error.
     autoAdvance: Boolean(row.auto_advance),
+    // `?? {}` for the same reason autoAdvance takes Boolean(...) above: a
+    // client shipped ahead of its database calls a get_public_storefront with
+    // no `opening_hours` column at all (20261020000000), and `undefined` must
+    // arrive as the empty object a shop that never set hours already
+    // produces -- not as a third state every renderer would have to test for.
+    //
+    // Nothing is normalised or validated here. store-hours.ts owns that, and
+    // the values came from its own editor; a parse step in this file would be
+    // a second opinion on a shape that module already defines.
+    openingHours: (row.opening_hours as OpeningHours | null) ?? {},
+    // `?? null` and Number(...) rather than a bare read: the column is a
+    // smallint, supabase-js hands it back as a number, and a client shipped
+    // ahead of its database sees no column at all -- which must arrive as the
+    // null a shop that never set a year already produces.
+    tradingSince: row.trading_since == null ? null : Number(row.trading_since),
+    // Same rule the flyers array follows: anything that is not an array reads
+    // as none at all, so a client ahead of its database renders the block
+    // absent rather than throwing on `.map`.
+    highlights: Array.isArray(row.highlights) ? (row.highlights as StorefrontHighlight[]) : [],
+    // Resolved to absolute URLs here. The filter below drops an entry that
+    // will not resolve -- which in practice is only a row whose `image_path`
+    // is empty or malformed, NOT one whose object has been deleted:
+    // uploadImage returns an absolute URL, the column stores it, and
+    // publicImageUrl passes absolute URLs straight through without asking
+    // storage anything. A row pointing at a deleted object still yields a
+    // perfectly well-formed URL. AboutPanel's `onError` is what catches that
+    // one, and it is the only thing that can.
+    contactPhone: (row.contact_phone as string | null) ?? null,
+    instagram: (row.instagram as string | null) ?? null,
+    images: Array.isArray(row.images)
+      ? (row.images as { id: string; image_path: string }[])
+          .map((image) => ({ id: image.id, url: publicImageUrl(image.image_path) }))
+          .filter((image) => image.url !== null)
+      : [],
   };
 }
 

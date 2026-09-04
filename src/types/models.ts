@@ -1325,6 +1325,35 @@ export type PublicStorefront = {
   // directly, so the [address, neighborhood, city] order and the drop-empties
   // rule stay in one place.
   collectNeighborhood: string | null;
+  // When the shop is open, read off the SAME primary location the collect_*
+  // pair above comes from -- so the page never prints one branch's street
+  // above another branch's opening times.
+  //
+  // Reuses store-hours.ts's own `OpeningHours` (already imported above for
+  // ShopLocation) rather than restating the shape: that module owns parsing,
+  // validation and formatting, and a second copy would be a second thing to
+  // keep in step. `{}` means never set, which every renderer must treat as
+  // "say nothing" rather than as "closed" -- see isConfigured.
+  openingHours: OpeningHours;
+  // The year the shop opened. A YEAR and not a date, because "Trading since
+  // 2014" is what a shop says out loud. Null is the common case and renders as
+  // nothing, never as a zero.
+  tradingSince: number | null;
+  // Up to three claims the shop writes about itself, in its own order.
+  // Required and never optional, coalesced to [] by the RPC for the same
+  // reason `flyers` is: a shop with none and a shop that has not been asked
+  // must read alike, so a renderer has one empty state rather than two.
+  highlights: StorefrontHighlight[];
+  // Photographs of the shop, in its own order. Already absolute URLs by the
+  // time they reach a renderer -- storefront.ts runs each path through
+  // publicImageUrl, the same way it does the hero and the flyers.
+  images: StorefrontImage[];
+  // The primary location's phone, from `shop_locations.contact_phone` -- the
+  // same row the address and hours come from. Every shop has one; none had ever
+  // been shown it to a customer.
+  contactPhone: string | null;
+  // Handle without the leading @. Null is the common case.
+  instagram: string | null;
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a
@@ -1365,7 +1394,55 @@ export type StorefrontProduct = {
 // function already returns them pre-sorted (order by a.sort_order, a.name)
 // and a checkout form has no use for an area's id, only its name (the value
 // place_storefront_order matches against) and its fee.
+// One "why shop here" card. Deliberately three fields and no icon: the design's
+// icons are decorative, and asking a shopkeeper to pick an emoji is a decision
+// with no right answer that blocks them writing the sentence that matters.
+export type StorefrontHighlight = {
+  id: string;
+  title: string;
+  body: string;
+};
+
+// One photograph. `url` is absolute and may be null when a stored path fails to
+// resolve -- the gallery drops that entry rather than rendering a broken image.
+export type StorefrontImage = {
+  id: string;
+  url: string | null;
+};
+
 export type PublicDeliveryArea = {
   name: string;
   feeCents: number;
+};
+
+// One row of the /store directory -- deliberately NOT a PublicStorefront.
+//
+// It is a strict subset, and the two things it omits are the point. There is no
+// `whatsappE164`: a list of every published shop's phone number is a spam list,
+// and the number is one page away for a customer who arrived at a shop on
+// purpose. There is no `theme` or `palette` either: the directory renders in
+// its OWN palette, not in each shop's, so a row of eight cards reads as one
+// page rather than as eight competing brands.
+//
+// `productCount` is what is listed AND in stock, so the number on a card is a
+// promise about what is actually behind it.
+export type PublicShopSummary = {
+  shopName: string;
+  slug: string;
+  city: string | null;
+  headline: string | null;
+  about: string | null;
+  heroImageUrl: string | null;
+  offersDelivery: boolean;
+  // Whether the shop is open is computed on the DEVICE from these, never on the
+  // server: the times are local wall-clock strings with no timezone, so only
+  // the reader's own clock can answer it. `{}` means never set, which renders
+  // as no badge at all rather than as "closed".
+  openingHours: OpeningHours;
+  // What the shop says it sells, from `shops.categories` -- the list the owner
+  // picked at signup. A shop can be in more than one, and is filtered by any
+  // of them; picking a primary here would hide a pharmacy-and-grocer from
+  // whichever chip the customer actually tapped.
+  categories: string[];
+  productCount: number;
 };

@@ -109,6 +109,19 @@ export function ContentDrawer({
   suffixSuggestions = [],
   onUploadHeroImage,
   focusRequest,
+  // Optional with inert defaults, the same posture `shopName` and
+  // `claimedSlug` already take: a caller that has not wired these yet renders
+  // the fields read-only rather than failing to compile.
+  tradingSince = '',
+  tradingSinceError = null,
+  onChangeTradingSince = () => {},
+  highlights = [],
+  onChangeHighlight = () => {},
+  instagram = '',
+  onChangeInstagram = () => {},
+  gallery = [],
+  onAddGalleryImage,
+  onRemoveGalleryImage,
 }: {
   value: ContentDrawerValue;
   onChange: (patch: Partial<ContentDrawerValue>) => void;
@@ -142,6 +155,31 @@ export function ContentDrawer({
   onUploadHeroImage?: (localUri: string) => Promise<string>;
   /** See `ContentDrawerFocusRequest`. Omitted by a caller with no blocker to jump to. */
   focusRequest?: ContentDrawerFocusRequest | null;
+  /**
+   * The year the shop opened, as typed. A STRING and not a number: a
+   * half-typed "20" is a legitimate intermediate state, and parsing on every
+   * keystroke would delete the second character as it was entered.
+   *
+   * This and the highlights below save LIVE, like the delivery areas and
+   * auto-advance -- publish_storefront copies a fixed list of keys out of
+   * `draft` and neither is on it, so staging them would silently never
+   * publish. The Caveats on both say so on screen.
+   */
+  tradingSince?: string;
+  tradingSinceError?: string | null;
+  onChangeTradingSince?: (text: string) => void;
+  highlights?: { title: string; body: string }[];
+  onChangeHighlight?: (index: number, patch: { title?: string; body?: string }) => void;
+  /**
+   * Photographs of the shop, already resolved to URLs. Live rows again, like
+   * the highlights -- and unlike the hero, which is a single staged field.
+   */
+  /** Instagram handle as typed. Normalised on save, not on keystroke. */
+  instagram?: string;
+  onChangeInstagram?: (text: string) => void;
+  gallery?: { id: string; url: string }[];
+  onAddGalleryImage?: (localUri: string) => Promise<void>;
+  onRemoveGalleryImage?: (id: string) => Promise<void>;
 }) {
   const [phoneDraft, setPhoneDraft] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -155,6 +193,8 @@ export function ContentDrawer({
   const [copyError, setCopyError] = useState<string | null>(null);
   const [heroUploading, setHeroUploading] = useState(false);
   const [heroError, setHeroError] = useState<string | null>(null);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
   const slugInputRef = useRef<TextInput>(null);
   const suffixInputRef = useRef<TextInput>(null);
   const phoneInputRef = useRef<TextInput>(null);
@@ -371,6 +411,40 @@ export function ContentDrawer({
     setPhoneError(null);
     setPhoneDraft('');
     onChange({ whatsappE164: e164 });
+  }
+
+  async function handleAddGallery() {
+    setGalleryError(null);
+    const result = await pickPhotoFromLibrary();
+    if (result.status === 'canceled') return;
+    if (result.status === 'failed') { setGalleryError(result.message); return; }
+    if (!onAddGalleryImage) {
+      setGalleryError('Photo upload is not available right now.');
+      return;
+    }
+    setGalleryBusy(true);
+    try {
+      await onAddGalleryImage(result.uri);
+    } catch {
+      setGalleryError('Could not upload that photo — try again.');
+    } finally {
+      setGalleryBusy(false);
+    }
+  }
+
+  async function handleRemoveGallery(id: string) {
+    if (!onRemoveGalleryImage) return;
+    setGalleryError(null);
+    setGalleryBusy(true);
+    try {
+      await onRemoveGalleryImage(id);
+    } catch {
+      // Named rather than silent: the object may already be gone from storage
+      // while the row remains, and "try again" is the correct next move.
+      setGalleryError('Could not remove that photo — try again.');
+    } finally {
+      setGalleryBusy(false);
+    }
   }
 
   async function handlePickHero() {
@@ -613,6 +687,93 @@ export function ContentDrawer({
         numberOfLines={3}
       />
 
+      <Text style={[styles.eyebrow, styles.spaced]}>Trading since</Text>
+      <Caveat tone="context">Saves straight to your live page, like your delivery areas — it isn&apos;t held until you publish.</Caveat>
+      <TextInput
+        testID="content-drawer-trading-since"
+        style={styles.textInput}
+        value={tradingSince}
+        onChangeText={onChangeTradingSince}
+        placeholder="2014"
+        keyboardType="number-pad"
+        maxLength={4}
+      />
+      {tradingSinceError ? <Caveat tone="wrong">{tradingSinceError}</Caveat> : null}
+
+      <Text style={[styles.eyebrow, styles.spaced]}>Why shop here</Text>
+      <Caveat tone="context">
+        Up to three things you want customers to know. Both lines are needed for a card to show — and these
+        save straight to your live page.
+      </Caveat>
+      {[0, 1, 2].map((index) => (
+        <View key={index} style={styles.highlightBlock}>
+          <TextInput
+            testID={`content-drawer-highlight-title-${index}`}
+            style={styles.textInput}
+            value={highlights[index]?.title ?? ''}
+            onChangeText={(text) => onChangeHighlight(index, { title: text })}
+            placeholder={HIGHLIGHT_PLACEHOLDERS[index].title}
+            maxLength={60}
+          />
+          <TextInput
+            testID={`content-drawer-highlight-body-${index}`}
+            style={[styles.textInput, styles.multiline, styles.highlightBody]}
+            value={highlights[index]?.body ?? ''}
+            onChangeText={(text) => onChangeHighlight(index, { body: text })}
+            placeholder={HIGHLIGHT_PLACEHOLDERS[index].body}
+            multiline
+            numberOfLines={2}
+            maxLength={240}
+          />
+        </View>
+      ))}
+
+      <Text style={[styles.eyebrow, styles.spaced]}>Instagram</Text>
+      <Caveat tone="context">
+        Shown on your Visit tab. Paste a link or type the handle — saves straight to your live page.
+      </Caveat>
+      <TextInput
+        testID="content-drawer-instagram"
+        style={styles.textInput}
+        value={instagram}
+        onChangeText={onChangeInstagram}
+        placeholder="@yourshop"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      <Text style={[styles.eyebrow, styles.spaced]}>Photos of the shop</Text>
+      <Caveat tone="context">
+        Up to six, shown on your About tab. These save straight to your live page.
+      </Caveat>
+      <View style={styles.galleryRow}>
+        {gallery.map((image) => (
+          <View key={image.id} style={styles.galleryItem}>
+            <Image source={{ uri: image.url }} style={styles.galleryThumb} />
+            <Pressable
+              testID={`content-drawer-gallery-remove-${image.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Remove this photo"
+              onPress={() => handleRemoveGallery(image.id)}
+              style={styles.galleryRemove}
+            >
+              <Text style={styles.galleryRemoveText}>✕</Text>
+            </Pressable>
+          </View>
+        ))}
+        {gallery.length < GALLERY_MAX ? (
+          <Pressable
+            testID="content-drawer-gallery-add"
+            onPress={handleAddGallery}
+            disabled={galleryBusy}
+            style={[styles.galleryAdd, galleryBusy && styles.heroButtonDisabled]}
+          >
+            <Text style={styles.galleryAddText}>{galleryBusy ? '…' : '+'}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {galleryError ? <Caveat tone="wrong">{galleryError}</Caveat> : null}
+
       <Text style={[styles.eyebrow, styles.spaced]}>Opening photo</Text>
       <Caveat tone="context">Only the Window layout shows this photo — a shop on Market won&apos;t display it here.</Caveat>
       <View style={styles.heroRow}>
@@ -667,7 +828,37 @@ export function ContentDrawer({
   );
 }
 
+// Placeholders that do real work: an empty field must read as "this is what a
+// good one looks like", not as a blank box. Three different shapes on purpose --
+// a promise, a standard, a service -- so a shop does not write the same
+// sentence three times.
+// Mirrors GALLERY_LIMIT in storefront-admin.ts. Not imported, because this
+// component takes no data layer -- the caller owns that, and a drawer that
+// reached into it would be harder to render in a test than it is worth.
+const GALLERY_MAX = 6;
+
+const HIGHLIGHT_PLACEHOLDERS = [
+  { title: 'We fix what we sell', body: 'Anything bought here that stops working inside a year, bring it back.' },
+  { title: 'Weighed in front of you', body: 'One scale, on the counter, facing the customer.' },
+  { title: 'Same-day delivery', body: 'Order before 16:00 and it reaches you the same evening.' },
+];
+
 const styles = StyleSheet.create({
+  galleryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  galleryItem: { position: 'relative' },
+  galleryThumb: { width: 78, height: 78, borderRadius: 12 },
+  galleryRemove: {
+    position: 'absolute', top: -6, right: -6, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center',
+  },
+  galleryRemoveText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
+  galleryAdd: {
+    width: 78, height: 78, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed',
+    borderColor: '#c9c9d2', alignItems: 'center', justifyContent: 'center',
+  },
+  galleryAddText: { fontSize: 22, color: '#5e5d65', fontWeight: '700' },
+  highlightBlock: { gap: 8, marginTop: 10 },
+  highlightBody: { minHeight: 60 },
   eyebrow: {
     fontSize: 10.5,
     fontWeight: '800',

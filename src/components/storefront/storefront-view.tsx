@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { ThemeWindow } from '@/components/storefront/theme-window';
@@ -29,11 +30,18 @@ export function StorefrontView({
   products,
   areas = [],
   categories = [],
+  tab,
+  onSelectTab,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
   areas?: PublicDeliveryArea[];
   categories?: StorefrontCategory[];
+  // Passed straight through to the theme. Optional here for the same reason it
+  // is optional there: the storefront EDITOR renders this component for its
+  // preview and has no router and no address to change -- see useShopTab.
+  tab?: ShopTabKey;
+  onSelectTab?: (tab: ShopTabKey) => void;
 }) {
   const hasTheme = Object.prototype.hasOwnProperty.call(RENDERERS, storefront.theme);
   const themeKey = (hasTheme ? storefront.theme : DEFAULT_THEME) as StorefrontTheme;
@@ -55,7 +63,15 @@ export function StorefrontView({
   // without also filling it would trade the collision for a white band.
   return (
     <View style={{ flex: 1, backgroundColor: colors.soft, paddingTop: insets.top, paddingBottom: insets.bottom }}>
-      <Renderer storefront={storefront} products={products} colors={colors} areas={areas} categories={categories} />
+      <Renderer
+        storefront={storefront}
+        products={products}
+        colors={colors}
+        areas={areas}
+        categories={categories}
+        tab={tab}
+        onSelectTab={onSelectTab}
+      />
     </View>
   );
 }

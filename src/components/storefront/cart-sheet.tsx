@@ -59,7 +59,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
           ) : (
             <>
               {cart.lines.map((line) => (
-                <View key={line.productId} style={[styles.line, { borderBottomColor: colors.soft }]}>
+                <View key={line.productId} style={[styles.line, { borderBottomColor: colors.hairline }]}>
                   <View style={styles.lineName}>
                     <Text style={[styles.name, { color: colors.ink }]} numberOfLines={2}>
                       {line.name}

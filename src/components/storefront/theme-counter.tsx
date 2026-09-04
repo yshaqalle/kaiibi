@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
+import { ShopChrome } from '@/components/storefront/shop-chrome';
+import { useShopTab } from '@/components/storefront/shop-tabs';
+import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
   NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, isWideShop, useCheckoutFlow,
@@ -37,7 +40,14 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
   return [...groups.entries()];
 }
 
-export function ThemeCounter({ storefront, products, colors, areas = [] }: ThemeProps) {
+// `categories` is destructured here even though Counter renders no category
+// band -- it groups its own price list by `products.category` instead, and has
+// no use for the shoppable-category list. The About tab counts them, so the
+// prop is passed through to ShopChrome rather than dropped on the floor.
+export function ThemeCounter({ storefront, products, colors, areas = [], categories = [], tab, onSelectTab }: ThemeProps) {
+  // Controlled by the route when there is one, local otherwise -- see
+  // useShopTab. One line here instead of a useState in all three themes.
+  const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
   const { width } = useWindowDimensions();
   const wide = isWideShop(width);
   // The cart is keyed by shop slug, not by theme (see theme-shared.tsx's
@@ -98,6 +108,16 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
     // Page tone, not card tone -- see theme-market.tsx. The price list itself
     // becomes a card floating on it below.
     <View style={{ backgroundColor: colors.soft, flex: 1 }}>
+      <ShopChrome
+        storefront={storefront}
+        products={products}
+        categories={categories}
+        areas={areas}
+        colors={colors}
+        wide={wide}
+        tab={activeTab}
+        onSelectTab={selectTab}
+      >
       {/* A plain View never scrolls on native, and Expo Router's web reset sets
           `body { overflow: hidden }` -- either way, a catalogue longer than one
           viewport is unreachable without an explicit scroll container. This is
@@ -111,6 +131,10 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
       ) : null}
 
       <ScrollView
+        // Named, because it is no longer the only ScrollView in this tree --
+        // the tab rail scrolls horizontally too, so `findByType(ScrollView)`
+        // is now ambiguous for anything wanting THIS one.
+        testID="storefront-counter-scroll"
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, itemCount > 0 && styles.scrollContentWithCheckoutBar]}
       >
@@ -139,7 +163,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
             <View key={category} style={styles.section}>
               <Text style={[styles.sectionHead, { color: colors.muted }]}>{category.toUpperCase()}</Text>
               {items.map((p) => (
-                <View key={p.id} style={[styles.row, { borderBottomColor: colors.soft }]}>
+                <View key={p.id} style={[styles.row, { borderBottomColor: colors.hairline }]}>
                   <View style={styles.rowName}>
                     <Text style={[styles.name, { color: colors.ink }]}>{p.name}</Text>
                     {/* Actions live inside this flex:1 column, not after
@@ -177,7 +201,9 @@ export function ThemeCounter({ storefront, products, colors, areas = [] }: Theme
             ))}
           </ShopCard>
         )}
+        <ShopFooter storefront={storefront} colors={colors} />
       </ScrollView>
+      </ShopChrome>
 
       <CartSheet
         visible={cartOpen}

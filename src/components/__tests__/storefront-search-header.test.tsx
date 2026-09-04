@@ -26,6 +26,9 @@ const shop: PublicStorefront = {
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
+  openingHours: {},
+  tradingSince: null, highlights: [], images: [],
+  contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
 };

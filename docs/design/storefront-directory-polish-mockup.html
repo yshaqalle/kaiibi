@@ -1,0 +1,1468 @@
+<meta charset="utf-8" />
+<title>Kaiibi — storefront polish + /store directory</title>
+
+<style>
+  /* ────────────────────────────────────────────────────────────────
+     DOC CHROME — the marketing palette, verbatim from
+     src/constants/marketing-theme.ts. This is the page you are reading,
+     not the design being proposed.
+     ──────────────────────────────────────────────────────────────── */
+  :root{
+    --pg:#ffffff; --pg2:#F9FAFB; --ink:#0B0B0D; --ink2:#374151; --mut:#6B7280;
+    --mut2:#9CA3AF; --ln:#E8E8EE; --sf:#ffffff; --g100:#F3F4F6;
+    --brand:#0F9D58; --brandSoft:#EAF7F0; --brandInk:#146C47;
+    --blue:#2F6BFF; --blueSoft:#EEF4FF; --amber:#F59E0B; --amberSoft:#FFFBEB;
+    --purple:#7C4DFF; --purpleSoft:#F5F0FF; --red:#D92D3F;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0c0c0f; --pg2:#121216; --ink:#f4f4f6; --ink2:#c9c9d2; --mut:#8d8d97;
+           --mut2:#6c6c76; --ln:#25252d; --sf:#16161b; --g100:#1c1c22;
+           --brandSoft:#12251c; --blueSoft:#141a2c; --amberSoft:#241f12; --purpleSoft:#1d1830; }
+  }
+  :root[data-theme="dark"]{ --pg:#0c0c0f; --pg2:#121216; --ink:#f4f4f6; --ink2:#c9c9d2; --mut:#8d8d97;
+           --mut2:#6c6c76; --ln:#25252d; --sf:#16161b; --g100:#1c1c22;
+           --brandSoft:#12251c; --blueSoft:#141a2c; --amberSoft:#241f12; --purpleSoft:#1d1830; }
+  :root[data-theme="light"]{ --pg:#ffffff; --pg2:#F9FAFB; --ink:#0B0B0D; --ink2:#374151; --mut:#6B7280;
+           --mut2:#9CA3AF; --ln:#E8E8EE; --sf:#ffffff; --g100:#F3F4F6;
+           --brandSoft:#EAF7F0; --blueSoft:#EEF4FF; --amberSoft:#FFFBEB; --purpleSoft:#F5F0FF; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1340px;margin:0 auto;padding:52px 22px 110px;}
+
+  .eyebrow{font-size:11.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin:0 0 12px;}
+  h1{font-size:clamp(30px,4.8vw,46px);line-height:1.06;letter-spacing:-.03em;margin:0 0 16px;font-weight:800;}
+  .lede{font-size:17.5px;line-height:1.62;color:var(--ink2);max-width:70ch;margin:0 0 22px;}
+  h2{font-size:24px;font-weight:800;letter-spacing:-.022em;margin:0 0 6px;}
+  h3{font-size:16px;font-weight:800;letter-spacing:-.012em;margin:26px 0 8px;}
+  .h2sub{font-size:14px;color:var(--mut);margin:0 0 20px;max-width:74ch;}
+  section{margin-top:64px;scroll-margin-top:20px;}
+  .note{font-size:14px;color:var(--ink2);max-width:74ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--g100);padding:1.5px 6px;border-radius:5px;}
+  .why{border-left:2px solid var(--ln);padding-left:16px;margin-top:16px;font-size:14px;color:var(--ink2);max-width:74ch;}
+  .why b{color:var(--ink);}
+  .tag{display:inline-block;background:var(--g100);color:var(--ink2);border-radius:999px;
+    padding:6px 14px;font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px;}
+
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 0;}
+  .toc a{border:1px solid var(--ln);border-radius:999px;padding:7px 15px;font-size:13px;
+    font-weight:700;color:var(--ink2);text-decoration:none;background:var(--sf);}
+  .toc a:hover{background:var(--pg2);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:26px 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14.5px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:10px;}
+  .hint{font-size:12px;color:var(--mut2);margin:8px 0 0;}
+
+  table.k{width:100%;border-collapse:collapse;margin-top:16px;font-size:13.5px;display:block;overflow-x:auto;}
+  table.k th{text-align:left;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 16px 10px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  table.k td{padding:12px 16px 12px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  table.k td:first-child{color:var(--ink);font-weight:650;}
+  .new{color:var(--brandInk);font-weight:800;} .have{color:var(--mut);}
+
+  /* ────────────────────────────────────────────────────────────────
+     DEVICE FRAME + THE SHOP PALETTE
+     `ink` palette from src/lib/storefront-catalog.ts, with `muted` and
+     `onDarkMuted` computed at MUTED_BLEND = 0.34 exactly as the code
+     derives them. Frames always render light: the storefront has no
+     dark mode and must not gain one here by accident.
+     ──────────────────────────────────────────────────────────────── */
+  .frame{
+    --g:#ffffff;   /* ground  — cards            */
+    --s:#f4f4f5;   /* soft    — the page, insets */
+    --i:#141418;   /* ink     — all type         */
+    --a:#141418;   /* accent  — buttons          */
+    --m:#646467;   /* muted   — derived          */
+    --dm:#afafb0;  /* onDarkMuted — derived      */
+    /* A SEVENTH DERIVED TOKEN — the hairline: ink blended 0.88 toward ground,
+       on exactly the pattern `mutedInk` and `onDarkMutedInk` already follow.
+       On the `ink` palette, ground #ffffff and soft #f4f4f5 sit 3% apart, and
+       that IS bento's separation — it works for a card, which is a big filled
+       shape read by its mass. It does not work for a text field, which is a
+       white bar on a near-white page with no edge, and it does not work for a
+       band boundary across 1,280px. See "Where a line is allowed" below. */
+    --hl:#e3e3e6;
+    --wa:#1f7a4d;  /* WhatsApp green, never themed */
+    --stockout:#7d5416;
+    background:var(--s);color:var(--i);border:1px solid var(--ln);border-radius:18px;
+    overflow:hidden;font-size:14px;line-height:1.5;
+  }
+  .frame.palm{ --g:#fbfcfa; --s:#eef4ef; --i:#12211a; --a:#1f6b45; --m:#616b66; --dm:#a3aca7; --hl:#dfe2df; }
+  .frame.w1280{width:1280px;} .frame.w390{width:390px;}
+
+  .disp{font-family:Georgia,"Times New Roman",serif;}
+  /* Longhand, not the `padding:0 28px` shorthand this started as. `.band` sets
+     `padding:44px 0` and is declared later at equal specificity, so the
+     shorthand was resetting the gutter to zero — which is why the search field
+     ran the full width of the frame with no edge on either side. */
+
+  /* ---- shop top nav ---- */
+  .snav{background:var(--g);display:flex;align-items:center;gap:18px;padding:12px 28px;
+    border-bottom:1px solid var(--hl);position:sticky;top:0;z-index:5;}
+  .w390 .snav{padding:10px 16px;gap:10px;}
+  .snav.flush{border-bottom:0;}
+  .tabrail{background:var(--g);padding:0 16px 12px;border-bottom:1px solid var(--hl);}
+  .snav .logo{width:36px;height:36px;border-radius:11px;background:var(--i);color:var(--g);
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex:none;}
+  .snav .who{min-width:0;flex:none;}
+  .snav .who b{display:block;font-size:15px;font-weight:800;letter-spacing:-.012em;line-height:1.2;}
+  .snav .who span{display:block;font-size:10.5px;font-weight:800;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--m);margin-top:2px;}
+  .snav .spacer{flex:1;}
+
+  /* ---- the tab rail: the one genuinely new control ---- */
+  .tabs{display:flex;gap:2px;background:var(--s);border-radius:999px;padding:3px;}
+  .tabs button{appearance:none;border:0;background:transparent;cursor:pointer;font:inherit;
+    font-size:13px;font-weight:800;color:var(--m);padding:8px 18px;border-radius:999px;
+    letter-spacing:-.01em;white-space:nowrap;transition:background .14s,color .14s;}
+  .tabs button:hover{color:var(--i);}
+  .tabs button[aria-selected="true"]{background:var(--g);color:var(--i);
+    box-shadow:0 1px 2px rgba(0,0,0,.07);}
+  .w390 .tabs{overflow-x:auto;border-radius:14px;}
+  .w390 .tabs button{padding:8px 14px;font-size:12.5px;}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:9px 17px;
+    font-size:12.5px;font-weight:800;border:0;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .pill.ink{background:var(--i);color:var(--g);}
+  .pill.quiet{background:var(--s);color:var(--i);}
+  .pill.wa{background:var(--wa);color:#fff;}
+  .pill.onDark{background:var(--g);color:var(--i);}
+  .pill.outline{background:transparent;color:var(--i);border:1px solid var(--s);}
+  .pill.big{padding:13px 24px;font-size:13.5px;}
+
+  /* ---- section rhythm, borrowed from the landing page ---- */
+  /* The page tone IS soft, so a band only changes anything when it goes white.
+     One alternation, and only on the band that carries no cards — a ground card
+     on a ground band is not a card. */
+  .band{padding:44px 0;} .band.tight{padding:30px 0;}
+  .band.soft{background:var(--s);} .band.white{background:var(--g);}
+  /* A HAIRLINE BETWEEN BANDS THAT SHARE A TONE, and never one between bands
+     that don't — a rule drawn where the background already changes is a second
+     separator doing the first one's job. The band padding is the space; the
+     rule is only what makes that space legible as a boundary rather than as a
+     gap somebody forgot to fill. Inset to the page gutter so it reads as a rule
+     under the content, not as the edge of a box. */
+  .band + .band{position:relative;}
+  .band + .band::before{content:"";position:absolute;top:0;left:28px;right:28px;
+    height:1px;background:var(--hl);}
+  .w390 .band + .band::before{left:16px;right:16px;}
+  .band.white + .band::before, .band + .band.white::before,
+  .band.soft + .band::before, .band + .band.soft::before{display:none;}
+  .w390 .band{padding:28px 0;}
+  /* THE GUTTER, and it has to be declared down here.
+     `.band` sets the shorthand `padding:44px 0` and `.band.tight` sets
+     `30px 0` — both reset padding-left to zero, and `.band.tight` is two
+     classes, so it ties `.frame .pad` on specificity and wins on order. That
+     tie is why the search field ran the full width of the frame with no edge on
+     either side: the gutter was being cancelled, not missing. Declared after
+     the bands, order settles it. */
+  .frame .pad{padding-left:28px;padding-right:28px;}
+  .frame.w390 .pad{padding-left:16px;padding-right:16px;}
+  .shead{max-width:640px;}
+  .shead.mid{margin:0 auto;text-align:center;}
+  .shead .tag{background:var(--s);color:var(--m);}
+  .frame .tag{display:inline-block;border-radius:999px;padding:6px 13px;font-size:10.5px;
+    font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin:0 0 13px;}
+  .shead h4{margin:0;font-size:30px;line-height:1.12;letter-spacing:-.028em;font-weight:800;}
+  .w390 .shead h4{font-size:23px;}
+  .shead p{margin:12px 0 0;font-size:15px;line-height:1.6;color:var(--m);}
+  .w390 .shead p{font-size:13.5px;}
+
+  /* ---- cards ---- */
+  .card{background:var(--g);border-radius:26px;padding:22px;}
+  .card.inset{background:var(--s);border-radius:18px;}
+  .cardlbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--m);}
+
+  /* ---- the anchor / hero ---- */
+  .anchor{position:relative;border-radius:26px;overflow:hidden;background:var(--i);color:var(--g);
+    padding:34px;min-height:260px;display:flex;flex-direction:column;justify-content:flex-end;}
+  .w390 .anchor{padding:22px;min-height:0;}
+  .anchor .photo{position:absolute;inset:0;
+    background:linear-gradient(135deg,#3b3f4a 0%,#20242c 45%,#4a3f33 100%);}
+  .anchor .scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);}
+  .anchor > *{position:relative;}
+  .anchor .eye{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--dm);}
+  .anchor h4{margin:12px 0 0;font-size:46px;line-height:1.02;letter-spacing:-.03em;font-weight:700;}
+  .w390 .anchor h4{font-size:30px;}
+  .anchor .place{margin:12px 0 0;font-size:10.5px;font-weight:800;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--dm);}
+  .anchor .head{margin:16px 0 0;font-size:17px;font-weight:700;letter-spacing:-.012em;max-width:46ch;}
+  .anchor .about{margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--dm);max-width:56ch;}
+  .anchor .foot{margin:22px 0 0;padding-top:18px;border-top:1px solid rgba(255,255,255,.14);
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .anchor .open{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--dm);}
+  .anchor .open i{width:7px;height:7px;border-radius:999px;background:#3ddc84;display:block;font-style:normal;}
+
+  .herorow{display:grid;grid-template-columns:1.55fr 1fr;gap:14px;align-items:stretch;}
+  .w390 .herorow{grid-template-columns:1fr;}
+  .sidestack{display:flex;flex-direction:column;gap:14px;}
+
+  /* ---- facts ---- */
+  .fact{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--hl);}
+  .fact:last-child{border-bottom:0;}
+  .fact .l{font-size:12.5px;font-weight:600;color:var(--m);}
+  .fact .v{font-size:12.5px;font-weight:800;text-align:right;}
+  .stat .n{font-size:36px;font-weight:800;letter-spacing:-.035em;margin-top:10px;
+    font-variant-numeric:tabular-nums;line-height:1;}
+  .stat .u{font-size:12.5px;color:var(--m);margin-top:4px;}
+  .dots{display:flex;flex-wrap:wrap;gap:5px;margin-top:16px;}
+  .dots i{width:9px;height:9px;border-radius:999px;background:var(--a);display:block;}
+  .dots i.out{background:transparent;border:1.5px solid var(--stockout);}
+
+  /* ---- category band + search ---- */
+  /* EVERY CONTROL CARRIES ITS OWN EDGE. A chip and a search field are things
+     you can act on, and an actionable thing whose boundary you cannot see is
+     not discoverable — the field in particular was a white bar bleeding into a
+     near-white page with no start and no end. */
+  .catrow{display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;}
+  .catrow span{border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:800;
+    background:var(--g);color:var(--m);white-space:nowrap;cursor:pointer;
+    border:1px solid var(--hl);}
+  .catrow span.on{background:var(--i);color:var(--g);border-color:var(--i);}
+  .searchbar{display:flex;gap:9px;align-items:center;}
+  .searchbar .fld{flex:1;background:var(--g);border:1px solid var(--hl);border-radius:14px;
+    padding:12px 16px;font-size:13.5px;color:var(--m);display:flex;align-items:center;gap:9px;}
+  /* The sort control sits on the page, not in a card, so `quiet` (a soft fill)
+     would be invisible on it. Same fill as the field beside it, same edge. */
+  .pill.field{background:var(--g);border:1px solid var(--hl);color:var(--i);}
+
+  /* ---- product grid ---- */
+  .grid{display:grid;gap:14px;}
+  .w1280 .grid{grid-template-columns:repeat(4,1fr);}
+  .w390 .grid{grid-template-columns:repeat(2,1fr);}
+  .tile{background:var(--g);border-radius:26px;padding:12px;display:flex;flex-direction:column;min-width:0;}
+  .tile .ph{aspect-ratio:1;border-radius:18px;background:var(--s);position:relative;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;font-size:40px;}
+  .tile .badge{position:absolute;top:9px;left:9px;background:var(--s);color:var(--stockout);
+    border-radius:999px;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;}
+  .tile .nm{font-size:13.5px;font-weight:700;margin:12px 4px 0;line-height:1.3;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tile .pr{font-size:23px;font-weight:800;letter-spacing:-.03em;margin:4px 4px 0;
+    font-variant-numeric:tabular-nums;line-height:1.1;}
+  .w390 .tile .pr{font-size:20px;}
+  .tile .acts{display:flex;gap:6px;margin:12px 4px 4px;}
+  .tile .acts button{flex:1;border:0;border-radius:9px;padding:7px 0;font:inherit;font-size:12px;
+    font-weight:800;cursor:pointer;background:var(--a);color:var(--g);}
+  .tile .acts button.ask{background:var(--wa);color:#fff;}
+
+  .secline{display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:14px;padding-bottom:11px;border-bottom:1px solid var(--hl);}
+  .secline b{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--m);}
+  .secline span{font-size:11px;font-weight:700;color:var(--m);}
+
+  /* ---- ABOUT tab ---- */
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .w390 .three{grid-template-columns:1fr;}
+  .icon{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;
+    justify-content:center;font-size:21px;margin-bottom:16px;}
+  .card h5{margin:0 0 7px;font-size:16.5px;font-weight:800;letter-spacing:-.018em;}
+  .card p{margin:0;font-size:13.5px;line-height:1.6;color:var(--m);}
+  .story{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:center;}
+  .w390 .story{grid-template-columns:1fr;gap:20px;}
+  .story p{font-size:15px;line-height:1.72;color:var(--m);margin:0 0 14px;}
+  .w390 .story p{font-size:13.5px;}
+  .story p.first{color:var(--i);font-size:16.5px;line-height:1.62;font-weight:600;}
+  .gal{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .gal div{aspect-ratio:1;border-radius:20px;
+    background:linear-gradient(145deg,var(--s) 0%,rgba(0,0,0,.09) 100%);
+    display:flex;align-items:center;justify-content:center;font-size:40px;}
+  .gal div:first-child{grid-column:span 2;aspect-ratio:16/9;}
+  .strip{display:flex;gap:0;background:var(--g);border-radius:26px;overflow:hidden;}
+  .w390 .strip{flex-wrap:wrap;}
+  .strip div{flex:1;padding:22px;border-right:1px solid var(--hl);min-width:120px;}
+  .strip div:last-child{border-right:0;}
+  .strip .n{font-size:30px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;line-height:1;}
+  .strip .u{font-size:11.5px;color:var(--m);margin-top:6px;}
+
+  /* ---- accordion, the landing FAQ pattern ---- */
+  .acc{max-width:760px;margin:0 auto;}
+  .acc .q{background:var(--g);border-radius:16px;margin-bottom:10px;overflow:hidden;}
+  .acc .q > div{display:flex;justify-content:space-between;align-items:center;gap:16px;
+    padding:18px 22px;cursor:pointer;font-size:15px;font-weight:700;}
+  .acc .q .plus{font-size:19px;color:var(--m);transition:transform .15s;}
+  .acc .q.open .plus{transform:rotate(45deg);}
+  .acc .q .a{padding:0 22px 20px;font-size:13.5px;line-height:1.65;color:var(--m);display:none;}
+  .acc .q.open .a{display:block;}
+
+  /* ---- VISIT tab ---- */
+  .visit{display:grid;grid-template-columns:1.15fr 1fr;gap:14px;align-items:start;}
+  .w390 .visit{grid-template-columns:1fr;}
+  .map{aspect-ratio:16/10;border-radius:20px;background:
+    repeating-linear-gradient(0deg,rgba(0,0,0,.045) 0 1px,transparent 1px 42px),
+    repeating-linear-gradient(90deg,rgba(0,0,0,.045) 0 1px,transparent 1px 42px),
+    var(--s);
+    position:relative;display:flex;align-items:center;justify-content:center;}
+  .map .pin{width:20px;height:20px;border-radius:999px;background:var(--a);
+    box-shadow:0 0 0 7px rgba(0,0,0,.08);}
+  .hrs{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--hl);font-size:13px;}
+  .hrs:last-child{border-bottom:0;}
+  .hrs .d{font-weight:700;} .hrs .t{color:var(--m);font-variant-numeric:tabular-nums;}
+  .hrs.today{background:var(--s);margin:0 -12px;padding:9px 12px;border-radius:10px;border-bottom:0;}
+  .hrs.today .t{color:var(--i);font-weight:800;}
+  .hrs.shut .t{color:var(--m);opacity:.7;}
+  .area{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--hl);}
+  .area:last-child{border-bottom:0;}
+  .area b{font-size:13.5px;font-weight:700;} .area span{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .area span.free{color:var(--wa);}
+  .contact{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--hl);}
+  .contact:last-child{border-bottom:0;}
+  .contact .ic{width:38px;height:38px;border-radius:12px;background:var(--s);
+    display:flex;align-items:center;justify-content:center;font-size:17px;flex:none;}
+  .contact b{display:block;font-size:13.5px;font-weight:700;}
+  .contact span{display:block;font-size:11.5px;color:var(--m);}
+
+  /* ---- shop footer ---- */
+  .sfoot{background:var(--i);color:var(--g);padding:38px 28px 26px;}
+  .w390 .sfoot{padding:28px 16px 22px;}
+  .sfoot .top{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;
+    padding-bottom:22px;border-bottom:1px solid rgba(255,255,255,.14);}
+  .sfoot h5{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;}
+  .sfoot .sub{font-size:12.5px;color:var(--dm);margin-top:6px;}
+  .sfoot .bot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding-top:18px;font-size:11.5px;color:var(--dm);}
+  .sfoot .bot b{color:var(--g);font-weight:800;}
+
+  /* ---- checkout bar ---- */
+  .cbar{margin:14px;border-radius:999px;background:var(--a);color:var(--g);
+    padding:15px;text-align:center;font-size:14px;font-weight:800;}
+
+  /* ────────────────────────────────────────────────────────────────
+     /store DIRECTORY
+     ──────────────────────────────────────────────────────────────── */
+  .dnav{background:var(--g);display:flex;align-items:center;gap:22px;padding:14px 28px;border-bottom:1px solid var(--hl);}
+  .w390 .dnav{padding:12px 16px;gap:12px;}
+  .dnav .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:-.02em;}
+  .dnav .brand i{width:34px;height:34px;border-radius:11px;background:var(--i);color:var(--g);
+    display:flex;align-items:center;justify-content:center;font-style:normal;font-size:15px;}
+  .dnav a{font-size:13.5px;font-weight:700;color:var(--m);text-decoration:none;}
+
+  .dhero{padding:52px 28px 34px;text-align:center;border-bottom:1px solid var(--hl);}
+  .w390 .dhero{padding:32px 16px 22px;}
+  .dhero h4{margin:0;font-size:44px;line-height:1.05;letter-spacing:-.032em;font-weight:800;}
+  .w390 .dhero h4{font-size:28px;}
+  .dhero p{margin:14px auto 0;max-width:52ch;font-size:16px;line-height:1.6;color:var(--m);}
+  .w390 .dhero p{font-size:14px;}
+  .dsearch{max-width:560px;margin:26px auto 0;background:var(--g);border-radius:999px;
+    border:1px solid var(--hl);padding:7px 7px 7px 22px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 2px 20px rgba(0,0,0,.05);}
+  .dsearch .t{flex:1;text-align:left;font-size:14.5px;color:var(--m);}
+
+  .dshop{background:var(--g);border-radius:26px;padding:12px;display:flex;flex-direction:column;min-width:0;
+    cursor:pointer;transition:transform .16s ease, box-shadow .16s ease;}
+  .dshop:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.09);}
+  .dshop .ph{aspect-ratio:16/10;border-radius:18px;position:relative;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;font-size:38px;background:var(--s);}
+  /* Overlaps the photo by half, but lives in the BODY: the photo clips to its own
+     radius, so a chip parented to it is cut in half rather than raised. */
+  .dshop .mark{width:46px;height:46px;border-radius:15px;margin:-38px 0 11px;
+    background:var(--g);display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:16px;box-shadow:0 3px 12px rgba(0,0,0,.15);}
+  .dshop .state{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.94);color:#0b7a44;
+    border-radius:999px;padding:5px 11px;font-size:10px;font-weight:800;letter-spacing:.05em;
+    text-transform:uppercase;display:flex;align-items:center;gap:5px;}
+  .dshop .state i{width:6px;height:6px;border-radius:999px;background:#0b7a44;font-style:normal;}
+  .dshop .state.shut{color:var(--m);} .dshop .state.shut i{background:var(--m);}
+  .dshop .body{padding:14px 8px 6px;display:flex;flex-direction:column;flex:1;min-width:0;}
+  .dshop b{font-size:15.5px;font-weight:800;letter-spacing:-.015em;line-height:1.25;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dshop .city{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--m);margin-top:5px;}
+  .dshop .line{font-size:13px;color:var(--m);margin-top:9px;line-height:1.5;flex:1;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .dshop .foot{display:flex;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap;}
+  .chip{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    padding:5px 10px;border-radius:999px;background:var(--s);color:var(--m);white-space:nowrap;}
+  .chip.del{background:rgba(31,122,77,.11);color:#146c47;}
+
+  .dgrid{display:grid;gap:14px;}
+  .w1280 .dgrid{grid-template-columns:repeat(4,1fr);}
+  .w390 .dgrid{grid-template-columns:1fr;}
+
+  .feat{grid-column:span 2;background:var(--i);color:var(--g);border-radius:26px;padding:0;
+    display:grid;grid-template-columns:1fr 1fr;overflow:hidden;}
+  .w390 .feat{grid-column:span 1;grid-template-columns:1fr;}
+  .feat .art{background:linear-gradient(135deg,#3a4a44 0%,#1c2622 55%,#4a3d2c 100%);min-height:200px;
+    display:flex;align-items:center;justify-content:center;font-size:46px;}
+  .feat .txt{padding:26px;display:flex;flex-direction:column;justify-content:center;}
+  .feat .tag{background:rgba(255,255,255,.14);color:var(--g);}
+  .feat h5{margin:0;font-size:24px;font-weight:700;letter-spacing:-.024em;line-height:1.15;}
+  .feat p{margin:10px 0 0;font-size:13.5px;line-height:1.55;color:var(--dm);}
+  .feat .foot{margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;}
+
+  .rowhead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;
+    margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--hl);}
+  .rowhead .l h5{margin:0;font-size:21px;font-weight:800;letter-spacing:-.022em;}
+  .rowhead .l p{margin:4px 0 0;font-size:13px;color:var(--m);}
+  .rowhead .r{font-size:12.5px;font-weight:800;color:var(--m);}
+
+  .empty{background:var(--g);border-radius:26px;padding:52px 24px;text-align:center;}
+  .empty b{display:block;font-size:17px;font-weight:800;margin-bottom:7px;}
+  .empty span{font-size:13.5px;color:var(--m);}
+  .skel{background:var(--g);border-radius:26px;padding:12px;}
+  .skel .ph{aspect-ratio:16/10;border-radius:18px;background:var(--s);}
+  .skel .l1,.skel .l2{height:11px;border-radius:6px;background:var(--s);margin:14px 8px 0;}
+  .skel .l2{width:52%;height:9px;margin-top:9px;}
+
+  @media (max-width:760px){ .story,.visit,.three,.dgrid{grid-template-columns:1fr;} }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Ka Iibi · Design</p>
+  <h1>A shop page worth forwarding, and a directory worth browsing</h1>
+  <p class="lede">The storefront answers <i>what is in today</i> and nothing else. Everything a customer
+  asks before they trust a stranger's link — who runs this, where is it, when is it open, do you
+  deliver to me — is either crammed into one 40-word <code>about</code> line or missing outright.
+  This puts the landing page's own section language on the shop page, splits the page into three
+  tabs so depth costs no scroll, and gives <code>/store</code> the same vocabulary so the two read as
+  one product.</p>
+
+  <div class="toc">
+    <a href="#lang">The shared language</a>
+    <a href="#shop">Storefront · Shop</a>
+    <a href="#about">Storefront · About</a>
+    <a href="#visit">Storefront · Visit</a>
+    <a href="#phone">Phone</a>
+    <a href="#dir">/store directory</a>
+    <a href="#cost">What it costs</a>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="lang">
+    <span class="tag">01 · Direction</span>
+    <h2>One language, two palettes</h2>
+    <p class="h2sub">The landing page and the storefront are built from different systems and always
+    will be — <code>marketing-theme.ts</code> sells, <code>storefront-catalog.ts</code> operates, and
+    the storefront renders in one of six palettes for a stranger with no account. What travels
+    between them is not colour. It is <b>rhythm</b>.</p>
+
+    <table class="k">
+      <tr><th>Borrowed from the landing page</th><th>What it becomes on a shop page</th><th>Why it survives the palette swap</th></tr>
+      <tr><td>Tag pill + heading + lede (<code>SectionHead</code>)</td>
+          <td>Every band on the shop page opens the same way — <span class="have">ABOUT</span> / “Ten years on the same corner”</td>
+          <td>It is a type ramp, not a colour. <code>gray100/gray700</code> becomes <code>soft/muted</code>.</td></tr>
+      <tr><td>Generous vertical bands, alternating tone</td>
+          <td>Product grid on <code>soft</code>, About on <code>ground</code>, FAQ back on <code>soft</code></td>
+          <td>The storefront already owns both tones. Today it just never alternates them.</td></tr>
+      <tr><td>Feature card — tinted icon tile, title, body (<code>LandingFeatures</code>)</td>
+          <td>“Why shop here” — three claims the shop writes itself</td>
+          <td>The icon tint is the only colour, and it derives from the palette's accent.</td></tr>
+      <tr><td>Accordion (<code>LandingFaq</code>)</td>
+          <td>Shop FAQ, mostly generated from settings the shop has already filled in</td>
+          <td>Pure structure. No brand colour anywhere in it.</td></tr>
+      <tr><td>Ink footer band (<code>LandingFooter</code>)</td>
+          <td>Shop footer — name, contact, “Powered by Kaiibi”</td>
+          <td>The storefront already has exactly one ink surface. This is its second, and it closes the page.</td></tr>
+    </table>
+
+    <div class="why"><b>What is NOT borrowed:</b> the landing page's bordered, shadowed white cards.
+    The storefront is bento — borderless 26px cards floating on a page tone — and that is the app's
+    system, shared with Dashboard and Accounting. Putting a 1px <code>#E8E8EE</code> border on a
+    Palm-palette card would import a marketing token into a page that renders six ways. The cards
+    stay bento; only the rhythm around them changes.</div>
+
+    <h3>Where a line is allowed</h3>
+    <p class="note">Bento's rule is that separation is the page tone, and cards therefore carry no
+    border. That rule is right about <b>cards</b> and wrong about everything else. On the
+    <code>ink</code> palette <code>ground</code> is <code>#ffffff</code> and <code>soft</code> is
+    <code>#f4f4f5</code> — 3% apart. A card is a large filled shape and reads at 3%. A search field
+    is a white bar on a near-white page, and at 3% it has no edge at all: it does not look like
+    something you can type in, it looks like a gap. Across 1,280px, band boundaries have the same
+    problem.</p>
+
+    <p class="note">So this adds a seventh derived token — <code>hairline</code>, ink blended 0.88
+    toward ground, on exactly the pattern <code>mutedInk</code> and <code>onDarkMutedInk</code>
+    already follow in <code>storefront-catalog.ts</code>. It is computed per palette, so it is never
+    a hex literal at a call site and never a marketing token on a public page.</p>
+
+    <table class="k">
+      <tr><th>Gets a line</th><th>Why</th></tr>
+      <tr><td>Search field, category chips, the sort control</td>
+          <td>A thing you can act on must show where it begins and ends. This is the defect in the
+          screenshot, and it is a usability bug rather than a style preference.</td></tr>
+      <tr><td>Between two bands that share a tone</td>
+          <td>Padding alone reads as a gap. A rule makes the same gap read as a boundary.</td></tr>
+      <tr><td>Under a section head — “What's in today”, “8 shops in Hargeisa”</td>
+          <td>It is the only thing standing between a filter bar and eight identical rectangles.</td></tr>
+      <tr><td>Inside a card, between rows of facts / hours / areas</td>
+          <td>These were already ruled — in <code>soft</code>, which on a <code>ground</code> card is
+          the same invisible 3%. Same line, now visible.</td></tr>
+    </table>
+
+    <table class="k">
+      <tr><th>Gets no line, deliberately</th><th>Why</th></tr>
+      <tr><td>Any card — product tile, shop card, fact card, directory card</td>
+          <td>Bento's actual rule, and the cards are large enough for the tone to carry it. Bordering
+          them is what makes a bento page read as boxes ruled onto a background.</td></tr>
+      <tr><td>Between bands where the tone already changes</td>
+          <td>A rule drawn where the background already changed is a second separator doing the
+          first one's job.</td></tr>
+      <tr><td>The anchor card and the footer</td>
+          <td>They are <code>ink</code>. Nothing needs help telling them from the page.</td></tr>
+    </table>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="shop">
+    <span class="tag">02 · Storefront</span>
+    <h2>The Shop tab</h2>
+    <p class="h2sub">What ships today, kept — the anchor card, the three facts, the grid — but the hero
+    now spans the page properly, the tab rail sits in the nav, and the goods get a real section head
+    instead of a lone uppercase word. <b>The tabs below are live: click them.</b></p>
+
+    <div class="frameHead"><b>Desktop</b><i>/store/jiija · 1280 · palette: ink</i></div>
+    <div class="scroller">
+      <div class="frame w1280" data-shop>
+
+        <div class="snav">
+          <div class="logo">J</div>
+          <div class="who"><b>Jiija Electronics</b><span>Hargeisa</span></div>
+          <div class="spacer"></div>
+          <div class="tabs" role="tablist">
+            <button role="tab" aria-selected="true" data-tab="shop">Shop</button>
+            <button role="tab" aria-selected="false" data-tab="about">About</button>
+            <button role="tab" aria-selected="false" data-tab="visit">Visit &amp; deliver</button>
+          </div>
+          <div class="spacer"></div>
+          <button class="pill wa">Message on WhatsApp</button>
+          <button class="pill ink">Cart · 2</button>
+        </div>
+
+        <!-- ─── SHOP ─── -->
+        <div data-panel="shop">
+          <div class="band tight pad">
+            <div class="herorow">
+              <div class="anchor">
+                <div class="photo"></div><div class="scrim"></div>
+                <p class="eye">The shop</p>
+                <h4 class="disp">Jiija Electronics</h4>
+                <p class="place">Jigjiga Yar · Hargeisa</p>
+                <p class="head">Solar, phones and everything that plugs in.</p>
+                <p class="about">On the corner opposite the main market since 2014. If we do not have it
+                on the shelf we will tell you who does.</p>
+                <div class="foot">
+                  <span class="open"><i></i> Open now · closes 21:00</span>
+                  <span style="flex:1"></span>
+                  <button class="pill onDark">Directions</button>
+                  <button class="pill wa">Message on WhatsApp</button>
+                </div>
+              </div>
+
+              <div class="sidestack">
+                <div class="card" style="flex:1">
+                  <p class="cardlbl">Collecting</p>
+                  <div style="margin-top:12px">
+                    <div class="fact"><span class="l">Collect from</span><span class="v">Jigjiga Yar, Hargeisa</span></div>
+                    <div class="fact"><span class="l">Delivery</span><span class="v">From $1.00</span></div>
+                    <div class="fact"><span class="l">Pay</span><span class="v">On collection</span></div>
+                  </div>
+                  <button class="pill ink" style="width:100%;justify-content:center;margin-top:16px">Cart · 2</button>
+                </div>
+                <div class="card stat">
+                  <p class="cardlbl">In the shop</p>
+                  <div class="n">48</div>
+                  <div class="u">items listed</div>
+                  <div class="dots">
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i class="out"></i><i></i><i></i><i class="out"></i><i></i><i></i>
+                  </div>
+                  <div class="u" style="margin-top:10px">44 of 48 in stock</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="band tight pad">
+            <div class="catrow">
+              <span class="on">Everything</span><span>Solar</span><span>Phones</span><span>Cables</span>
+              <span>Lighting</span><span>Batteries</span><span>Kitchen</span><span>Tools</span>
+            </div>
+            <div class="searchbar" style="margin-top:12px">
+              <div class="fld">🔍 Search 48 items</div>
+              <button class="pill field">Sort · Price</button>
+            </div>
+          </div>
+
+          <div class="band tight pad">
+            <div class="secline"><b>What's in today</b><span>48 items</span></div>
+            <div class="grid">
+              <div class="tile"><div class="ph">🔦</div><div class="nm">Solar lantern, 6W</div><div class="pr">$14.00</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+              <div class="tile"><div class="ph">🔌</div><div class="nm">Extension lead, 4-way</div><div class="pr">$6.50</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+              <div class="tile"><div class="ph">🔋</div><div class="nm">Power bank 10,000mAh</div><div class="pr">$19.00</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+              <div class="tile"><div class="ph">💡<div class="badge">Sold out</div></div><div class="nm">LED bulb, 9W</div><div class="pr">$2.00</div>
+                <div class="acts"><button class="ask" style="flex:1">Ask</button></div></div>
+              <div class="tile"><div class="ph">📻</div><div class="nm">Solar radio</div><div class="pr">$11.00</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+              <div class="tile"><div class="ph">🔗</div><div class="nm">USB-C cable, 2m</div><div class="pr">$3.00</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+              <div class="tile"><div class="ph">🪫</div><div class="nm">AA batteries, pack of 4</div><div class="pr">$1.50</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+              <div class="tile"><div class="ph">☀️</div><div class="nm">Solar panel, 30W</div><div class="pr">$42.00</div>
+                <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+            </div>
+          </div>
+
+          <div class="cbar">Checkout · $33.00</div>
+        </div>
+
+        <!-- ─── ABOUT ─── -->
+        <div data-panel="about" hidden>
+          <div class="band white pad">
+            <div class="story">
+              <div>
+                <span class="tag" style="background:var(--s);color:var(--m)">About the shop</span>
+                <h4 class="disp" style="margin:0;font-size:36px;line-height:1.1;letter-spacing:-.03em;font-weight:700">
+                  Ten years on the same corner</h4>
+                <p class="first" style="margin-top:18px">We opened in 2014 with one shelf of torches and a
+                car battery. Today we are the shop people in Jigjiga Yar come to when the power goes.</p>
+                <p>Everything we sell we use ourselves first. The solar panels on our own roof are the
+                same ones on the shelf, and they have been up four years.</p>
+                <p>Ask for Cabdi or Hodan. If we do not have what you need on the shelf, we will tell you
+                honestly and point you to who does — that is why people come back.</p>
+                <div style="display:flex;gap:8px;margin-top:22px;flex-wrap:wrap">
+                  <button class="pill ink big">Browse the shop</button>
+                  <button class="pill wa big">Message on WhatsApp</button>
+                </div>
+              </div>
+              <div class="gal">
+                <div>🏪</div><div>☀️</div><div>👋</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="band soft pad">
+            <div class="shead mid">
+              <span class="tag" style="background:var(--g);color:var(--m)">Why shop here</span>
+              <h4>Three things we will not compromise on</h4>
+              <p>Written by the shop, three claims maximum. Empty ones simply do not render.</p>
+            </div>
+            <div class="three" style="margin-top:34px">
+              <div class="card">
+                <div class="icon" style="background:rgba(20,20,24,.06)">🛠️</div>
+                <h5>We fix what we sell</h5>
+                <p>Anything bought here that stops working inside a year, bring it back. We repair it or
+                replace it, no receipt needed — we remember.</p>
+              </div>
+              <div class="card">
+                <div class="icon" style="background:rgba(31,122,77,.11)">☀️</div>
+                <h5>Real solar, tested</h5>
+                <p>Every panel is run for a full day on our own roof before it goes on the shelf. The
+                cheap ones that failed are not stocked any more.</p>
+              </div>
+              <div class="card">
+                <div class="icon" style="background:rgba(245,158,11,.13)">🏍️</div>
+                <h5>Same-day delivery</h5>
+                <p>Order before 16:00 and it reaches anywhere in Hargeisa the same evening. Outside the
+                city, the next morning.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="band pad">
+            <div class="strip">
+              <div><div class="n">2014</div><div class="u">Trading since</div></div>
+              <div><div class="n">48</div><div class="u">Items listed</div></div>
+              <div><div class="n">7</div><div class="u">Categories</div></div>
+              <div><div class="n">6</div><div class="u">Delivery areas</div></div>
+            </div>
+          </div>
+
+          <div class="band soft pad">
+            <div class="shead mid">
+              <span class="tag" style="background:var(--g);color:var(--m)">Questions</span>
+              <h4>Before you order</h4>
+              <p>Four of these five are generated from settings the shop already filled in. Only the last
+              one is free text.</p>
+            </div>
+            <div class="acc" style="margin-top:30px">
+              <div class="q open"><div>How do I pay? <span class="plus">+</span></div>
+                <div class="a">On collection, or on delivery when the rider hands it over. Cash or Zaad.
+                Nothing is charged when you place the order — the shop confirms first.</div></div>
+              <div class="q"><div>Do you deliver to me? <span class="plus">+</span></div>
+                <div class="a">Six areas across Hargeisa, from $1.00. The full list with fees is on the
+                Visit &amp; deliver tab.</div></div>
+              <div class="q"><div>What if something is out of stock? <span class="plus">+</span></div>
+                <div class="a">Sold-out items keep an Ask button rather than disappearing. Message us and
+                we will tell you when it is back — usually within the week.</div></div>
+              <div class="q"><div>Can I collect instead? <span class="plus">+</span></div>
+                <div class="a">Yes. Choose collection at checkout and pick up from Jigjiga Yar, Hargeisa,
+                any day we are open.</div></div>
+              <div class="q"><div>Do you install solar? <span class="plus">+</span></div>
+                <div class="a">We do, for panels bought here. Message us with your roof and we will quote
+                before we come.</div></div>
+            </div>
+          </div>
+
+          <div class="sfoot">
+            <div class="top">
+              <div>
+                <h5 class="disp">Jiija Electronics</h5>
+                <p class="sub">Jigjiga Yar, Hargeisa · Open until 21:00</p>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <button class="pill onDark">Directions</button>
+                <button class="pill wa">Message on WhatsApp</button>
+              </div>
+            </div>
+            <div class="bot">
+              <span>Prices in USD · Pay on collection</span>
+              <span>Powered by <b>Kaiibi</b> · <b>Open your own shop</b></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─── VISIT ─── -->
+        <div data-panel="visit" hidden>
+          <div class="band pad">
+            <div class="shead">
+              <span class="tag" style="background:var(--s);color:var(--m)">Visit &amp; deliver</span>
+              <h4>Where to find us, and what it costs to come to you</h4>
+              <p>Everything on this tab exists in the database today except opening hours, which are
+              stored per location and simply never exposed publicly.</p>
+            </div>
+
+            <div class="visit" style="margin-top:30px">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="card">
+                  <p class="cardlbl">Find us</p>
+                  <div class="map" style="margin-top:14px"><div class="pin"></div></div>
+                  <div style="margin-top:16px;display:flex;justify-content:space-between;gap:16px;align-items:flex-end;flex-wrap:wrap">
+                    <div>
+                      <b style="font-size:15px;display:block">Jigjiga Yar, Hargeisa</b>
+                      <span style="font-size:12.5px;color:var(--m)">Opposite the main market, next to the blue mosque</span>
+                    </div>
+                    <button class="pill quiet">Open in Maps</button>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <p class="cardlbl">Reach us</p>
+                  <div style="margin-top:10px">
+                    <div class="contact"><div class="ic">💬</div><div><b>+252 63 000 0000</b><span>WhatsApp · usually replies within the hour</span></div></div>
+                    <div class="contact"><div class="ic">📞</div><div><b>+252 63 000 0000</b><span>Call the shop</span></div></div>
+                    <div class="contact"><div class="ic">📷</div><div><b>@jiija.electronics</b><span>Instagram</span></div></div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="card">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                    <p class="cardlbl" style="margin:0">Opening hours</p>
+                    <span class="chip del">Open now</span>
+                  </div>
+                  <div style="margin-top:14px">
+                    <div class="hrs today"><span class="d">Wednesday · today</span><span class="t">08:00 – 21:00</span></div>
+                    <div class="hrs"><span class="d">Thursday</span><span class="t">08:00 – 21:00</span></div>
+                    <div class="hrs"><span class="d">Friday</span><span class="t">08:00 – 11:30 · 14:00 – 21:00</span></div>
+                    <div class="hrs"><span class="d">Saturday</span><span class="t">08:00 – 21:00</span></div>
+                    <div class="hrs"><span class="d">Sunday</span><span class="t">08:00 – 21:00</span></div>
+                    <div class="hrs"><span class="d">Monday</span><span class="t">08:00 – 21:00</span></div>
+                    <div class="hrs shut"><span class="d">Tuesday</span><span class="t">Closed</span></div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <p class="cardlbl">Delivery areas</p>
+                  <div style="margin-top:12px">
+                    <div class="area"><b>Jigjiga Yar</b><span class="free">Free</span></div>
+                    <div class="area"><b>Ahmed Dhagah</b><span>$1.00</span></div>
+                    <div class="area"><b>Koodbuur</b><span>$1.50</span></div>
+                    <div class="area"><b>26 June</b><span>$1.50</span></div>
+                    <div class="area"><b>Ibrahim Koodbuur</b><span>$2.00</span></div>
+                    <div class="area"><b>Sha'ab</b><span>$2.50</span></div>
+                  </div>
+                  <p style="font-size:12px;color:var(--m);margin:14px 0 0">
+                    Order before 16:00 for same-day delivery. Pay the rider on the doorstep.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sfoot">
+            <div class="top">
+              <div><h5 class="disp">Jiija Electronics</h5><p class="sub">Jigjiga Yar, Hargeisa · Open until 21:00</p></div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <button class="pill onDark">Directions</button>
+                <button class="pill wa">Message on WhatsApp</button>
+              </div>
+            </div>
+            <div class="bot">
+              <span>Prices in USD · Pay on collection</span>
+              <span>Powered by <b>Kaiibi</b> · <b>Open your own shop</b></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <p class="hint">Tabs are real. The panels below are the same markup, called out one at a time.</p>
+
+    <div class="why"><b>Why tabs rather than one long page.</b> The shop page's job on arrival is
+    unchanged — whose shop, what is in it, what does it cost — and a customer who came from a forwarded
+    WhatsApp link must not have to scroll past a founder's story to reach a price. Tabs put About and
+    Visit one tap away and <b>zero scroll</b> away from the goods. They also mean the About tab can be
+    genuinely generous, because nothing on it is in anyone's way.
+    <br><br>
+    A shop that has filled in nothing extra renders <b>two</b> tabs, not three, and a shop with neither
+    renders none — the rail disappears and the page is exactly what ships today.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="about">
+    <span class="tag">03 · Storefront</span>
+    <h2>The About tab, in a second palette</h2>
+    <p class="h2sub">Same markup, <code>palm</code> instead of <code>ink</code> — the test every
+    storefront component has to pass. Nothing here is a hex literal; the icon tints are the accent at
+    low alpha and the WhatsApp green stays fixed.</p>
+
+    <div class="frameHead"><b>Desktop</b><i>/store/baraka · 1280 · palette: palm</i></div>
+    <div class="scroller">
+      <div class="frame w1280 palm">
+        <div class="snav">
+          <div class="logo">B</div>
+          <div class="who"><b>Baraka Grocers</b><span>Borama</span></div>
+          <div class="spacer"></div>
+          <div class="tabs">
+            <button>Shop</button><button aria-selected="true">About</button><button>Visit &amp; deliver</button>
+          </div>
+          <div class="spacer"></div>
+          <button class="pill wa">Message on WhatsApp</button>
+          <button class="pill ink">Cart</button>
+        </div>
+
+        <div class="band white pad">
+          <div class="story">
+            <div>
+              <span class="tag" style="background:var(--s);color:var(--m)">About the shop</span>
+              <h4 class="disp" style="margin:0;font-size:36px;line-height:1.1;letter-spacing:-.03em;font-weight:700">
+                Fresh in by six, sold by two</h4>
+              <p class="first" style="margin-top:18px">A family grocer on the Borama road. What we sell
+              was picked yesterday and driven in this morning.</p>
+              <p>We buy from eleven farms around Borama, all of them people we know by name. Nothing sits
+              in a cold store for a week pretending to be fresh.</p>
+              <p>Come early for the tomatoes. They go first, every single day, and we have stopped
+              apologising for it.</p>
+              <div style="display:flex;gap:8px;margin-top:22px;flex-wrap:wrap">
+                <button class="pill ink big">Browse the shop</button>
+                <button class="pill wa big">Message on WhatsApp</button>
+              </div>
+            </div>
+            <div class="gal"><div>🥬</div><div>🍅</div><div>🧺</div></div>
+          </div>
+        </div>
+
+        <div class="band soft pad">
+          <div class="shead mid">
+            <span class="tag" style="background:var(--g);color:var(--m)">Why shop here</span>
+            <h4>Three things we will not compromise on</h4>
+          </div>
+          <div class="three" style="margin-top:34px">
+            <div class="card">
+              <div class="icon" style="background:rgba(31,107,69,.11)">🌅</div>
+              <h5>In by six every morning</h5>
+              <p>Picked yesterday, on our shelf before you are awake. If it did not come in today it is
+              not on the shelf.</p>
+            </div>
+            <div class="card">
+              <div class="icon" style="background:rgba(245,158,11,.13)">⚖️</div>
+              <h5>Weighed in front of you</h5>
+              <p>One scale, on the counter, facing the customer. The price on the shelf is the price you
+              pay.</p>
+            </div>
+            <div class="card">
+              <div class="icon" style="background:rgba(47,107,255,.10)">🤝</div>
+              <h5>Eleven farms we know</h5>
+              <p>Every farm we buy from is a family we can name. Ask where anything came from and you
+              will get a real answer.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="band pad">
+          <div class="strip">
+            <div><div class="n">2009</div><div class="u">Trading since</div></div>
+            <div><div class="n">96</div><div class="u">Items listed</div></div>
+            <div><div class="n">11</div><div class="u">Farms we buy from</div></div>
+            <div><div class="n">4</div><div class="u">Delivery areas</div></div>
+          </div>
+        </div>
+
+        <div class="sfoot">
+          <div class="top">
+            <div><h5 class="disp">Baraka Grocers</h5><p class="sub">Borama road · Open until 18:00</p></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="pill onDark">Directions</button>
+            <button class="pill wa">Message on WhatsApp</button></div>
+          </div>
+          <div class="bot"><span>Prices in USD · Pay on collection</span>
+          <span>Powered by <b>Kaiibi</b> · <b>Open your own shop</b></span></div>
+        </div>
+      </div>
+    </div>
+
+    <h3>What the About tab is made of</h3>
+    <table class="k">
+      <tr><th>Block</th><th>Data</th><th>Status</th><th>Empty behaviour</th></tr>
+      <tr><td>Story — heading + up to 3 paragraphs</td><td><code>storefronts.about</code> (today: one short line)</td>
+          <td class="new">Widen the field</td><td>Falls back to the single line the anchor card already shows.</td></tr>
+      <tr><td>Gallery — 1 wide + 2 square</td><td>New <code>storefront_images</code></td>
+          <td class="new">New table</td><td>Story goes full width. No placeholder squares, ever.</td></tr>
+      <tr><td>“Why shop here” — 3 cards</td><td>New <code>storefront_highlights</code> (icon, title, body)</td>
+          <td class="new">New table</td><td>Whole band does not render. One or two cards render at that count.</td></tr>
+      <tr><td>Stat strip</td><td>Derived — item count, category count, area count</td>
+          <td class="have">Have it</td><td>“Trading since” is the only new field; the strip drops that cell without it.</td></tr>
+      <tr><td>FAQ accordion</td><td>Generated from <code>payment_mode</code>, <code>offers_delivery</code>, areas, stock policy</td>
+          <td class="have">Have it</td><td>Four answers always available. Free-text extras are new and optional.</td></tr>
+      <tr><td>Footer band</td><td>Name, place, hours, WhatsApp</td>
+          <td class="have">Have it</td><td>Renders on every tab regardless.</td></tr>
+    </table>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="visit">
+    <span class="tag">04 · Storefront</span>
+    <h2>Visit &amp; deliver, and the one thing it needs</h2>
+    <p class="h2sub">Shown in the live frame above — switch to the third tab. It is the tab with the
+    least new design and the most new value: <b>opening hours already exist</b> in
+    <code>20260805000000_store_opening_hours.sql</code>, per location, split shifts and all. Nothing
+    reads them publicly.</p>
+
+    <div class="why"><b>“Open now” is the highest-value string on this whole page.</b> It is the first
+    thing a customer checks before walking anywhere, and today the answer is nowhere on the storefront,
+    the directory, or the forwarded link. The data is sitting in the database. The work is a column on
+    the public RPC and a “is it open” helper — <code>src/lib/scheduling.ts</code> already models split
+    shifts, so the hard part is done.</div>
+
+    <h3>Delivery areas deserve better than “From $1.00”</h3>
+    <p class="note">The <code>CollectingCard</code> reduces every priced area to the cheapest one,
+    because on a phone card there is room for one line. On its own tab the full list fits, sorted by
+    fee, and a customer can see whether their own neighbourhood is on it — which is the actual question.
+    The cheapest-area line stays on the Shop tab; it is a summary now rather than the whole truth.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="phone">
+    <span class="tag">05 · Storefront</span>
+    <h2>Phone, where nearly all the traffic is</h2>
+    <p class="h2sub">The tab rail moves below the nav and scrolls horizontally. Everything else stacks
+    on the rules already in <code>theme-shared.tsx</code> — the anchor card full width, the two small
+    cards side by side, the grid at two columns.</p>
+
+    <div class="scroller">
+      <div style="display:flex;gap:20px;align-items:flex-start;">
+
+        <div>
+          <div class="frameHead"><b>Shop</b><i>390</i></div>
+          <div class="frame w390">
+            <div class="snav flush">
+              <div class="logo">J</div>
+              <div class="who"><b>Jiija Electronics</b><span>Hargeisa</span></div>
+              <div class="spacer"></div>
+              <button class="pill ink" style="padding:8px 14px">Cart · 2</button>
+            </div>
+            <div class="tabrail">
+              <div class="tabs"><button aria-selected="true">Shop</button><button>About</button><button>Visit</button></div>
+            </div>
+            <div class="band tight pad">
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+                <button class="pill wa" style="padding:8px 14px">Message on WhatsApp</button>
+              </div>
+              <div class="anchor">
+                <div class="photo"></div><div class="scrim"></div>
+                <p class="eye">The shop</p>
+                <h4 class="disp">Jiija Electronics</h4>
+                <p class="place">Jigjiga Yar · Hargeisa</p>
+                <p class="head">Solar, phones and everything that plugs in.</p>
+                <div class="foot"><span class="open"><i></i> Open · closes 21:00</span></div>
+              </div>
+              <div style="display:flex;gap:14px;margin-top:14px">
+                <div class="card" style="flex:1;padding:18px">
+                  <p class="cardlbl">Collecting</p>
+                  <div style="margin-top:10px">
+                    <div class="fact" style="flex-direction:column;gap:1px;align-items:flex-start">
+                      <span class="l">Collect from</span><span class="v" style="text-align:left">Jigjiga Yar</span></div>
+                    <div class="fact" style="flex-direction:column;gap:1px;align-items:flex-start">
+                      <span class="l">Delivery</span><span class="v" style="text-align:left">From $1.00</span></div>
+                    <div class="fact" style="flex-direction:column;gap:1px;align-items:flex-start">
+                      <span class="l">Pay</span><span class="v" style="text-align:left">On collection</span></div>
+                  </div>
+                </div>
+                <div class="card stat" style="flex:1;padding:18px">
+                  <p class="cardlbl">In the shop</p>
+                  <div class="n" style="font-size:30px">48</div>
+                  <div class="u">items listed</div>
+                  <div class="dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="out"></i><i></i><i></i><i></i><i></i></div>
+                </div>
+              </div>
+            </div>
+            <div class="band tight pad">
+              <div class="catrow"><span class="on">Everything</span><span>Solar</span><span>Phones</span><span>Cables</span></div>
+              <div class="searchbar" style="margin-top:10px"><div class="fld">🔍 Search 48 items</div></div>
+            </div>
+            <div class="band tight pad">
+              <div class="secline"><b>What's in today</b><span>48 items</span></div>
+              <div class="grid">
+                <div class="tile"><div class="ph">🔦</div><div class="nm">Solar lantern</div><div class="pr">$14.00</div>
+                  <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+                <div class="tile"><div class="ph">🔌</div><div class="nm">Extension lead</div><div class="pr">$6.50</div>
+                  <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+                <div class="tile"><div class="ph">🔋</div><div class="nm">Power bank</div><div class="pr">$19.00</div>
+                  <div class="acts"><button>Add</button><button class="ask">Ask</button></div></div>
+                <div class="tile"><div class="ph">💡<div class="badge">Sold out</div></div><div class="nm">LED bulb</div><div class="pr">$2.00</div>
+                  <div class="acts"><button class="ask" style="flex:1">Ask</button></div></div>
+              </div>
+            </div>
+            <div class="cbar">Checkout · $33.00</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead"><b>About</b><i>390</i></div>
+          <div class="frame w390">
+            <div class="snav flush">
+              <div class="logo">J</div>
+              <div class="who"><b>Jiija Electronics</b><span>Hargeisa</span></div>
+              <div class="spacer"></div>
+              <button class="pill ink" style="padding:8px 14px">Cart · 2</button>
+            </div>
+            <div class="tabrail">
+              <div class="tabs"><button>Shop</button><button aria-selected="true">About</button><button>Visit</button></div>
+            </div>
+            <div class="band white pad">
+              <span class="tag" style="background:var(--s);color:var(--m)">About the shop</span>
+              <h4 class="disp" style="margin:0;font-size:26px;line-height:1.14;letter-spacing:-.028em;font-weight:700">
+                Ten years on the same corner</h4>
+              <p style="font-size:14.5px;line-height:1.6;margin:14px 0 0;font-weight:600">We opened in 2014
+              with one shelf of torches and a car battery.</p>
+              <p style="font-size:13.5px;line-height:1.65;color:var(--m);margin:12px 0 0">Today we are the
+              shop people in Jigjiga Yar come to when the power goes. Everything we sell we use
+              ourselves first.</p>
+              <div class="gal" style="margin-top:20px"><div>🏪</div><div>☀️</div><div>👋</div></div>
+            </div>
+            <div class="band soft pad">
+              <div class="shead">
+                <span class="tag" style="background:var(--g);color:var(--m)">Why shop here</span>
+                <h4>Three things we will not compromise on</h4>
+              </div>
+              <div class="three" style="margin-top:20px">
+                <div class="card"><div class="icon" style="background:rgba(20,20,24,.06)">🛠️</div>
+                  <h5>We fix what we sell</h5><p>Bring it back inside a year. No receipt needed.</p></div>
+                <div class="card"><div class="icon" style="background:rgba(31,122,77,.11)">☀️</div>
+                  <h5>Real solar, tested</h5><p>Run for a full day on our own roof before it is stocked.</p></div>
+                <div class="card"><div class="icon" style="background:rgba(245,158,11,.13)">🏍️</div>
+                  <h5>Same-day delivery</h5><p>Order before 16:00, arrives the same evening.</p></div>
+              </div>
+            </div>
+            <div class="band pad">
+              <div class="strip" style="flex-wrap:wrap">
+                <div style="min-width:50%"><div class="n" style="font-size:26px">2014</div><div class="u">Trading since</div></div>
+                <div style="min-width:50%;border-right:0"><div class="n" style="font-size:26px">48</div><div class="u">Items listed</div></div>
+              </div>
+            </div>
+            <div class="sfoot">
+              <div class="top"><div><h5 class="disp" style="font-size:19px">Jiija Electronics</h5>
+                <p class="sub">Jigjiga Yar, Hargeisa</p></div></div>
+              <div class="bot"><span>Powered by <b>Kaiibi</b></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead"><b>Visit</b><i>390</i></div>
+          <div class="frame w390">
+            <div class="snav flush">
+              <div class="logo">J</div>
+              <div class="who"><b>Jiija Electronics</b><span>Hargeisa</span></div>
+              <div class="spacer"></div>
+              <button class="pill ink" style="padding:8px 14px">Cart · 2</button>
+            </div>
+            <div class="tabrail">
+              <div class="tabs"><button>Shop</button><button>About</button><button aria-selected="true">Visit</button></div>
+            </div>
+            <div class="band tight pad">
+              <div class="card">
+                <p class="cardlbl">Find us</p>
+                <div class="map" style="margin-top:12px"><div class="pin"></div></div>
+                <b style="font-size:14.5px;display:block;margin-top:14px">Jigjiga Yar, Hargeisa</b>
+                <span style="font-size:12.5px;color:var(--m)">Opposite the main market</span>
+                <button class="pill quiet" style="width:100%;justify-content:center;margin-top:14px">Open in Maps</button>
+              </div>
+              <div class="card" style="margin-top:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <p class="cardlbl" style="margin:0">Opening hours</p><span class="chip del">Open now</span>
+                </div>
+                <div style="margin-top:12px">
+                  <div class="hrs today"><span class="d">Wed · today</span><span class="t">08:00 – 21:00</span></div>
+                  <div class="hrs"><span class="d">Thursday</span><span class="t">08:00 – 21:00</span></div>
+                  <div class="hrs"><span class="d">Friday</span><span class="t">08:00 – 11:30 · 14:00 – 21:00</span></div>
+                  <div class="hrs"><span class="d">Saturday</span><span class="t">08:00 – 21:00</span></div>
+                  <div class="hrs shut"><span class="d">Tuesday</span><span class="t">Closed</span></div>
+                </div>
+              </div>
+              <div class="card" style="margin-top:14px">
+                <p class="cardlbl">Delivery areas</p>
+                <div style="margin-top:10px">
+                  <div class="area"><b>Jigjiga Yar</b><span class="free">Free</span></div>
+                  <div class="area"><b>Ahmed Dhagah</b><span>$1.00</span></div>
+                  <div class="area"><b>Koodbuur</b><span>$1.50</span></div>
+                  <div class="area"><b>26 June</b><span>$1.50</span></div>
+                </div>
+              </div>
+              <div class="card" style="margin-top:14px">
+                <p class="cardlbl">Reach us</p>
+                <div style="margin-top:8px">
+                  <div class="contact"><div class="ic">💬</div><div><b>+252 63 000 0000</b><span>WhatsApp</span></div></div>
+                  <div class="contact"><div class="ic">📞</div><div><b>+252 63 000 0000</b><span>Call the shop</span></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="sfoot">
+              <div class="top"><div><h5 class="disp" style="font-size:19px">Jiija Electronics</h5>
+                <p class="sub">Open until 21:00</p></div></div>
+              <div class="bot"><span>Powered by <b>Kaiibi</b></span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="dir">
+    <span class="tag">06 · Directory</span>
+    <h2>/store — every shop, in the same language</h2>
+    <p class="h2sub">The directory is the storefront's front door, so it opens the way a shop page's
+    band opens: tag pill, one big line, a lede, and then cards. Same 26px bento cards, same pill
+    buttons, same uppercase place-line under the name. A customer moving from the directory into a
+    shop should not feel a seam.</p>
+
+    <div class="frameHead"><b>Desktop</b><i>/store · 1280</i></div>
+    <div class="scroller">
+      <div class="frame w1280">
+
+        <div class="dnav">
+          <div class="brand"><i>K</i> Kaiibi</div>
+          <div class="spacer" style="flex:1"></div>
+          <a href="#dir">Shops</a><a href="#dir">Cities</a><a href="#dir">How it works</a>
+          <button class="pill ink">Open your own shop</button>
+        </div>
+
+        <div class="dhero">
+          <span class="tag" style="background:var(--g);color:var(--m)">Shops on Kaiibi</span>
+          <h4>Buy from a real shop down the road</h4>
+          <p>Every shop here is a business someone runs in person. Browse what they have in today,
+          order on WhatsApp, pay when you collect.</p>
+          <div class="dsearch">
+            <span style="font-size:16px">🔍</span>
+            <div class="t">Search shops, or what you need — “solar”, “tomatoes”, “phone case”</div>
+            <button class="pill ink big">Search</button>
+          </div>
+        </div>
+
+        <div class="pad" style="padding-bottom:20px">
+          <div class="catrow">
+            <span class="on">All cities</span><span>Hargeisa</span><span>Borama</span><span>Burco</span>
+            <span>Berbera</span><span>Gabiley</span><span>Boorama</span>
+          </div>
+          <div class="catrow" style="margin-top:8px">
+            <span class="on">Everything</span><span>Grocery</span><span>Pharmacy</span><span>Electronics</span>
+            <span>Clothing</span><span>Hardware</span><span>Cosmetics</span><span>Food</span>
+          </div>
+        </div>
+
+        <div class="band tight pad" style="padding-top:8px">
+          <div class="rowhead">
+            <div class="l"><h5>8 shops in Hargeisa and nearby</h5><p>Open shops first, then the rest.</p></div>
+            <div class="r">Sorted by · Open now</div>
+          </div>
+
+          <div class="dgrid">
+            <div class="feat">
+              <div class="art">☀️</div>
+              <div class="txt">
+                <span class="tag">Shop of the week</span>
+                <h5 class="disp">Jiija Electronics</h5>
+                <p>Ten years on the same corner in Jigjiga Yar. Solar, phones and everything that plugs
+                in — tested on their own roof before it hits the shelf.</p>
+                <div class="foot">
+                  <button class="pill onDark">Browse 48 items</button>
+                  <button class="pill wa">Message</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="dshop">
+              <div class="ph">💊<div class="state"><i></i>Open</div></div>
+              <div class="body"><div class="mark">X</div>
+                <b>Xero Pharmacy</b>
+                <div class="city">Hargeisa</div>
+                <div class="line">Prescriptions, baby care and everything behind the counter. Pharmacist in from 08:00.</div>
+                <div class="foot"><span class="chip">Pharmacy</span><span class="chip del">Delivers</span><span class="chip">62 items</span></div>
+              </div>
+            </div>
+
+            <div class="dshop">
+              <div class="ph">🥬<div class="state"><i></i>Open</div></div>
+              <div class="body"><div class="mark">B</div>
+                <b>Baraka Grocers</b>
+                <div class="city">Borama</div>
+                <div class="line">Fresh in by six, sold by two. Eleven farms around Borama, all people we know by name.</div>
+                <div class="foot"><span class="chip">Grocery</span><span class="chip del">Delivers</span><span class="chip">96 items</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dgrid" style="margin-top:14px">
+            <div class="dshop">
+              <div class="ph">🧵<div class="state shut"><i></i>Closed</div></div>
+              <div class="body"><div class="mark">N</div>
+                <b>Nasiib Tailoring</b>
+                <div class="city">Burco</div>
+                <div class="line">Made to measure in three days. Dirac, shirts, school uniforms.</div>
+                <div class="foot"><span class="chip">Clothing</span><span class="chip">Opens 08:00</span><span class="chip">31 items</span></div>
+              </div>
+            </div>
+            <div class="dshop">
+              <div class="ph">💄<div class="state"><i></i>Open</div></div>
+              <div class="body"><div class="mark">D</div>
+                <b>Deeq Cosmetics</b>
+                <div class="city">Hargeisa</div>
+                <div class="line">Skincare, fragrance and hair. Everything sealed, everything dated.</div>
+                <div class="foot"><span class="chip">Cosmetics</span><span class="chip del">Delivers</span><span class="chip">140 items</span></div>
+              </div>
+            </div>
+            <div class="dshop">
+              <div class="ph">🔩<div class="state"><i></i>Open</div></div>
+              <div class="body"><div class="mark">H</div>
+                <b>Hodan Hardware</b>
+                <div class="city">Berbera</div>
+                <div class="line">Cement, pipe, paint and tools. If we do not stock it we will order it in.</div>
+                <div class="foot"><span class="chip">Hardware</span><span class="chip">87 items</span></div>
+              </div>
+            </div>
+            <div class="dshop">
+              <div class="ph">📱<div class="state"><i></i>Open</div></div>
+              <div class="body"><div class="mark">S</div>
+                <b>Sahal Phones</b>
+                <div class="city">Hargeisa</div>
+                <div class="line">New and second-hand handsets, screens repaired while you wait.</div>
+                <div class="foot"><span class="chip">Electronics</span><span class="chip del">Delivers</span><span class="chip">54 items</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="band soft pad">
+          <div class="shead mid">
+            <span class="tag" style="background:var(--g);color:var(--m)">How it works</span>
+            <h4>Three steps, no account</h4>
+            <p>The directory carries no basket of its own. You buy from one shop at a time, exactly as
+            you do on a forwarded link today.</p>
+          </div>
+          <div class="three" style="margin-top:34px">
+            <div class="card"><div class="icon" style="background:rgba(20,20,24,.06)">🏪</div>
+              <h5>Find a shop near you</h5><p>Filter by city and by what they sell. Open shops come first.</p></div>
+            <div class="card"><div class="icon" style="background:rgba(31,122,77,.11)">🛒</div>
+              <h5>Order what is in today</h5><p>Stock is what the shop actually has on the shelf, not a catalogue.</p></div>
+            <div class="card"><div class="icon" style="background:rgba(245,158,11,.13)">💵</div>
+              <h5>Pay on collection</h5><p>Nothing is charged online. You pay the shop when you take it.</p></div>
+          </div>
+        </div>
+
+        <div class="sfoot">
+          <div class="top">
+            <div><h5 class="disp">Kaiibi</h5><p class="sub">Shops in Hargeisa, Borama, Burco, Berbera and Gabiley</p></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="pill onDark">Open your own shop</button></div>
+          </div>
+          <div class="bot"><span>Prices in USD · Pay on collection</span><span>© Kaiibi</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frameHead" style="margin-top:34px"><b>Phone, plus the two states that matter</b><i>390</i></div>
+    <div class="scroller">
+      <div style="display:flex;gap:20px;align-items:flex-start">
+
+        <div class="frame w390">
+          <div class="dnav">
+            <div class="brand"><i>K</i> Kaiibi</div><div style="flex:1"></div>
+            <button class="pill ink" style="padding:8px 14px">Open a shop</button>
+          </div>
+          <div class="dhero">
+            <span class="tag" style="background:var(--g);color:var(--m)">Shops on Kaiibi</span>
+            <h4>Buy from a real shop down the road</h4>
+            <p>Browse what they have in today, order on WhatsApp, pay when you collect.</p>
+            <div class="dsearch" style="padding:6px 6px 6px 16px">
+              <span>🔍</span><div class="t" style="font-size:13px">Search shops or items</div>
+            </div>
+          </div>
+          <div class="pad" style="padding-bottom:14px">
+            <div class="catrow"><span class="on">All cities</span><span>Hargeisa</span><span>Borama</span><span>Burco</span></div>
+            <div class="catrow" style="margin-top:8px"><span class="on">Everything</span><span>Grocery</span><span>Pharmacy</span><span>Electronics</span></div>
+          </div>
+          <div class="band tight pad" style="padding-top:0">
+            <div class="rowhead"><div class="l"><h5>8 shops</h5><p>Open shops first.</p></div></div>
+            <div class="dgrid">
+              <div class="dshop">
+                <div class="ph">☀️<div class="state"><i></i>Open</div></div>
+                <div class="body"><div class="mark">J</div><b>Jiija Electronics</b><div class="city">Hargeisa</div>
+                  <div class="line">Solar, phones and everything that plugs in.</div>
+                  <div class="foot"><span class="chip">Electronics</span><span class="chip del">Delivers</span><span class="chip">48 items</span></div></div>
+              </div>
+              <div class="dshop">
+                <div class="ph">💊<div class="state"><i></i>Open</div></div>
+                <div class="body"><div class="mark">X</div><b>Xero Pharmacy</b><div class="city">Hargeisa</div>
+                  <div class="line">Prescriptions, baby care and everything behind the counter.</div>
+                  <div class="foot"><span class="chip">Pharmacy</span><span class="chip del">Delivers</span><span class="chip">62 items</span></div></div>
+              </div>
+              <div class="dshop">
+                <div class="ph">🧵<div class="state shut"><i></i>Closed</div></div>
+                <div class="body"><div class="mark">N</div><b>Nasiib Tailoring</b><div class="city">Burco</div>
+                  <div class="line">Made to measure in three days.</div>
+                  <div class="foot"><span class="chip">Clothing</span><span class="chip">Opens 08:00</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="frameHead"><b>Loading</b><i>skeleton, not a spinner</i></div>
+          <div class="frame w390">
+            <div class="pad" style="padding-top:20px;padding-bottom:20px">
+              <div class="dgrid">
+                <div class="skel"><div class="ph"></div><div class="l1"></div><div class="l2"></div></div>
+                <div class="skel"><div class="ph"></div><div class="l1"></div><div class="l2"></div></div>
+                <div class="skel"><div class="ph"></div><div class="l1"></div><div class="l2"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="frameHead" style="margin-top:20px"><b>No shops in this city</b><i>never a dead end</i></div>
+          <div class="frame w390">
+            <div class="pad" style="padding-top:20px;padding-bottom:20px">
+              <div class="catrow"><span>All cities</span><span class="on">Berbera</span><span>Burco</span></div>
+              <div class="empty" style="margin-top:14px">
+                <b>No shops in Berbera yet.</b>
+                <span>Five shops are trading in Hargeisa, an hour up the road.</span>
+                <div style="margin-top:18px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                  <button class="pill ink">Show all cities</button>
+                  <button class="pill quiet">Open a shop here</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="why"><b>Two decisions worth arguing about.</b><br><br>
+    <b>1 — Open/closed on the card.</b> It is the single most useful thing a directory card can carry
+    and it needs the same hours work the Visit tab needs. Without hours the card falls back to the
+    item count alone, which is what the earlier directory mockup shows. With them, the sort order
+    becomes meaningful: open shops first.<br><br>
+    <b>2 — The featured card.</b> A double-width ink card breaks a flat grid of eight identical
+    rectangles and gives the page a centre of gravity, exactly as the anchor card does on a shop page.
+    But somebody has to choose the shop, and “shop of the week” is an editorial job nobody owns yet. If
+    that is unpalatable, it can be picked deterministically — most recently published, or most items
+    listed — and the label changes to match.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="cost">
+    <span class="tag">07</span>
+    <h2>What this costs</h2>
+
+    <h3>Ships with no new data at all</h3>
+    <p class="note">The tab rail, the band rhythm, the section heads, the ink footer, the generated
+    FAQ, the stat strip minus “trading since”, the directory hero and its filters, the featured card
+    picked deterministically, the skeleton and the empty state. This is a <code>theme-shared.tsx</code>
+    and <code>storefront-view.tsx</code> change plus one new route — and it is most of what makes the
+    page look considered.</p>
+
+    <h3>Needs the public RPC widened</h3>
+    <table class="k">
+      <tr><th>Thing</th><th>Where it already lives</th><th>Work</th></tr>
+      <tr><td>Opening hours + “open now”</td><td><code>store_opening_hours</code>, modelled in <code>scheduling.ts</code></td>
+          <td>Add to <code>get_public_storefront</code> and the directory listing. Highest value on the list.</td></tr>
+      <tr><td>Full delivery-area list with fees</td><td>Already fetched by the route</td><td>Render it; no query change.</td></tr>
+      <tr><td>Category + item counts on a directory card</td><td>Derivable</td><td>Count in the listing RPC.</td></tr>
+    </table>
+
+    <h3>Needs new columns or tables</h3>
+    <table class="k">
+      <tr><th>Thing</th><th>Shape</th><th>Can the page live without it?</th></tr>
+      <tr><td>Long about</td><td>Widen <code>storefronts.about</code>, or a second <code>story</code> column</td>
+          <td>Yes — falls back to the line the anchor card already shows.</td></tr>
+      <tr><td>Gallery images</td><td><code>storefront_images(storefront_id, url, sort)</code></td>
+          <td>Yes — story goes full width.</td></tr>
+      <tr><td>“Why shop here” highlights</td><td><code>storefront_highlights(icon, title, body, sort)</code>, max 3</td>
+          <td>Yes — the band does not render.</td></tr>
+      <tr><td>Trading since</td><td>One <code>smallint</code> on <code>storefronts</code></td>
+          <td>Yes — the stat strip drops that cell.</td></tr>
+      <tr><td>Extra contacts (call, Instagram)</td><td>Two nullable columns</td>
+          <td>Yes — WhatsApp alone is what ships today.</td></tr>
+    </table>
+
+    <div class="why"><b>Every new field is optional and every block degrades to nothing.</b> That is
+    the rule the storefront already follows — <code>headline</code>, <code>about</code>,
+    <code>heroImageUrl</code> and the whole flyer band are all nullable and all render nothing rather
+    than a placeholder. A shop that has filled in none of this gets today's page with better spacing
+    and a footer. A shop that has filled it all in gets something worth forwarding.</div>
+
+    <h3>Open questions</h3>
+    <table class="k">
+      <tr><th>Question</th><th>My answer, if you want one</th></tr>
+      <tr><td>Do the tabs change the URL?</td>
+          <td>Yes — <code>/store/&lt;slug&gt;/about</code>. A shop should be able to send someone
+          straight to its story, and a tab with no address cannot be forwarded.</td></tr>
+      <tr><td>Do all three themes get tabs, including Counter?</td>
+          <td>Yes. Tabs are chrome, not layout — Counter keeps its price list on the Shop tab and gains
+          the same About and Visit.</td></tr>
+      <tr><td>Who writes the About copy?</td>
+          <td>The shop, in the storefront editor, with the placeholder text doing real work: an empty
+          field must read as “this is what a good one looks like”, not as a blank box.</td></tr>
+      <tr><td>Does the directory need search on day one?</td>
+          <td>No. City + category filters cover eight shops. Search earns its place at fifty.</td></tr>
+      <tr><td>What happens to <code>marketplace-coming-soon.tsx</code>?</td>
+          <td>It is what <code>/store</code> replaces.</td></tr>
+    </table>
+  </section>
+
+</div>
+
+<script>
+  // Tabs, so the shop frame can actually be clicked through.
+  document.querySelectorAll('[data-shop]').forEach(function (frame) {
+    frame.querySelectorAll('[data-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var name = btn.getAttribute('data-tab');
+        frame.querySelectorAll('[data-tab]').forEach(function (b) {
+          b.setAttribute('aria-selected', String(b === btn));
+        });
+        frame.querySelectorAll('[data-panel]').forEach(function (p) {
+          p.hidden = p.getAttribute('data-panel') !== name;
+        });
+      });
+    });
+  });
+
+  // Accordion, matching the landing page's one-open-at-a-time behaviour.
+  document.querySelectorAll('.acc').forEach(function (acc) {
+    acc.querySelectorAll('.q').forEach(function (q) {
+      q.querySelector('div').addEventListener('click', function () {
+        var wasOpen = q.classList.contains('open');
+        acc.querySelectorAll('.q').forEach(function (o) { o.classList.remove('open'); });
+        if (!wasOpen) q.classList.add('open');
+      });
+    });
+  });
+</script>

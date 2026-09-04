@@ -2,8 +2,11 @@ import { findShortfalls, type OrderShortfall } from '@/lib/order-fulfilment';
 import { ORDERS_NEEDING_ACTION } from '@/lib/order-status';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import type { StorefrontCategory, StorefrontFlyerLinkKind, StorefrontProduct } from '@/types/models';
+import type {
+  StorefrontCategory, StorefrontFlyerLinkKind, StorefrontHighlight, StorefrontProduct,
+} from '@/types/models';
 
 // The shop-side counterpart to storefront.ts's public reads: everything a
 // shop does to its OWN page -- the editor screen holds layout and state, this
@@ -68,6 +71,15 @@ export type ShopStorefront = {
   // and the editor already tells the shop those save straight to the live
   // page.
   autoAdvance: boolean;
+  // The year the shop opened. Like autoAdvance and the delivery areas, and
+  // UNLIKE everything in EditableFields, this saves LIVE rather than through
+  // `draft`: publish_storefront copies a fixed list of keys and this is not
+  // one of them, so a value staged there would never reach the live column.
+  tradingSince: number | null;
+  // Instagram handle, without the leading @. Saves live, like the year and the
+  // highlights, and for the same reason: publish_storefront copies a fixed key
+  // list out of `draft` and this is not on it.
+  instagram: string | null;
   // Unpublished edits, staged server-side (20260925000200_storefront_draft.sql)
   // so a shop that writes its page and taps Back loses nothing. Null means
   // "nothing staged" -- every field the shop has touched but not published is
@@ -125,6 +137,8 @@ function mapStorefrontRow(
     lapse_unpublished_at?: string | null;
     lapse_unpublished_reason?: string | null;
     auto_advance?: boolean | null;
+    trading_since?: number | null;
+    instagram?: string | null;
     draft?: Record<string, unknown> | null;
   }
 ): ShopStorefront {
@@ -150,6 +164,8 @@ function mapStorefrontRow(
         ? sf.lapse_unpublished_reason
         : null,
     autoAdvance: Boolean(sf.auto_advance),
+    tradingSince: sf.trading_since ?? null,
+    instagram: sf.instagram ?? null,
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
 }
@@ -161,7 +177,7 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   const { data, error } = await supabase
     .from('shops')
     .select(
-      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, draft)'
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, trading_since, instagram, draft)'
     )
     .eq('id', shopId)
     .maybeSingle();
@@ -1381,4 +1397,177 @@ export async function checkOrdersFulfilment(
 export async function checkOrderFulfilment(shopId: string, orderId: string): Promise<OrderShortfall[]> {
   const byOrder = await checkOrdersFulfilment(shopId, [orderId]);
   return byOrder[orderId] ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIGHLIGHTS, and the year the shop opened.
+//
+// Both save LIVE, the same posture the delivery areas and auto_advance already
+// take, and for the same structural reason: publish_storefront copies a FIXED
+// list of keys out of `storefronts.draft` (20260925000200), so anything staged
+// there that is not on that list never reaches a live column. The editor says
+// so on screen rather than leaving a shop to discover it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const HIGHLIGHT_LIMIT = 3;
+
+export async function listHighlights(shopId: string): Promise<StorefrontHighlight[]> {
+  const { data, error } = await supabase
+    .from('storefront_highlights')
+    .select('id, title, body')
+    .eq('shop_id', shopId)
+    .order('sort_order')
+    .order('created_at');
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, title: row.title, body: row.body }));
+}
+
+// Replace-all rather than a diff. There are at most three of them, they are
+// edited as a set (the design is a row of three, not a list you append to), and
+// a diff would have to reconcile reorders, edits and deletes to save at most
+// three rows -- more moving parts than the thing it manages. The delete and the
+// insert are two statements and NOT a transaction, which is the honest cost:
+// a failure between them leaves the shop with none rather than with the old
+// set. Acceptable here because the blast radius is three sentences the shop
+// still has on screen and can save again, and because the alternative is an RPC
+// for a feature that does not need one.
+export async function replaceHighlights(
+  shopId: string,
+  items: { title: string; body: string }[],
+): Promise<void> {
+  const clean = items
+    .map((item) => ({ title: item.title.trim(), body: item.body.trim() }))
+    // A half-filled card is not a card. Both halves or neither -- the database
+    // says the same thing with its length checks, and this keeps a shop from
+    // meeting that as an error message.
+    .filter((item) => item.title.length > 0 && item.body.length > 0)
+    .slice(0, HIGHLIGHT_LIMIT);
+
+  const { error: delError } = await supabase
+    .from('storefront_highlights')
+    .delete()
+    .eq('shop_id', shopId);
+  if (delError) throw delError;
+
+  if (clean.length === 0) return;
+
+  const { error } = await supabase.from('storefront_highlights').insert(
+    clean.map((item, index) => ({
+      shop_id: shopId,
+      title: item.title,
+      body: item.body,
+      sort_order: index,
+    })),
+  );
+  if (error) throw error;
+}
+
+// Null clears it. Anything outside the database's own 1900..2200 sanity range
+// is rejected here too rather than sent -- the shop gets a message from the
+// editor, not a Postgres constraint name.
+export function isValidTradingSince(year: number | null): boolean {
+  return year === null || (Number.isInteger(year) && year >= 1900 && year <= 2200);
+}
+
+export async function setTradingSince(shopId: string, year: number | null): Promise<void> {
+  if (!isValidTradingSince(year)) throw new Error('invalid_trading_since');
+  const { error } = await supabase
+    .from('storefronts')
+    .update({ trading_since: year })
+    .eq('shop_id', shopId);
+  if (error) throw error;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE GALLERY, and the orphan problem it brings with it.
+//
+// Every other image on this page is a single slot: the hero and a flyer each
+// hold one path, and replacing one overwrites the field. A gallery is a LIST,
+// which means a shop can add six photographs and remove three, and the three
+// objects those rows pointed at stay in the bucket forever unless something
+// deletes them.
+//
+// The bucket is not reachable from SQL, so `on delete cascade` cannot help: a
+// deleted row takes no object with it. That makes cleanup the client's job, and
+// the ORDER is the whole of the care required -- see removeGalleryImage.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const GALLERY_LIMIT = 6;
+
+export type ShopImage = { id: string; imagePath: string; sortOrder: number };
+
+export async function listGalleryImages(shopId: string): Promise<ShopImage[]> {
+  const { data, error } = await supabase
+    .from('storefront_images')
+    .select('id, image_path, sort_order')
+    .eq('shop_id', shopId)
+    .order('sort_order')
+    .order('created_at');
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id, imagePath: row.image_path, sortOrder: row.sort_order,
+  }));
+}
+
+// Appended at the end. `sort_order` is the count rather than max+1 because the
+// two agree for a list only this function appends to, and a shop that has
+// removed one has already had its remaining rows left where they were -- the
+// order a customer sees is the order they were added, minus what went.
+export async function addGalleryImage(shopId: string, imagePath: string): Promise<void> {
+  const existing = await listGalleryImages(shopId);
+  if (existing.length >= GALLERY_LIMIT) throw new Error('gallery_limit');
+  const { error } = await supabase.from('storefront_images').insert({
+    shop_id: shopId,
+    image_path: imagePath,
+    sort_order: existing.length,
+  });
+  if (error) throw error;
+}
+
+// THE OBJECT GOES FIRST, THEN THE ROW, and that order is the decision.
+//
+// Deleting the row first and the object second looks equivalent and is not: if
+// the second step fails, row-first leaves an object nobody can reach and nobody
+// can name -- a permanent orphan, because the only pointer to it has been
+// destroyed. Object-first leaves a ROW pointing at a missing object, which is
+// visible, diagnosable, and removable by pressing the same button again.
+//
+// Visible via AboutPanel's `onError`, and NOT -- as this comment used to
+// claim -- via storefront.ts's url filter. That filter cannot see this case:
+// `image_path` holds an ABSOLUTE url (uploadImage returns one), and
+// publicImageUrl passes absolute urls through without asking storage whether
+// the object is still there. A row pointing at a deleted object still produces
+// a perfectly well-formed url.
+//
+// So the failure mode of this order is a photo that stays on the page one
+// moment longer than the shop wanted. The failure mode of the other is storage
+// billed forever for something nobody can find.
+export async function removeGalleryImage(shopId: string, image: ShopImage): Promise<void> {
+  await deleteImageByPublicUrl(image.imagePath);
+  const { error } = await supabase
+    .from('storefront_images')
+    .delete()
+    .eq('id', image.id)
+    .eq('shop_id', shopId);
+  if (error) throw error;
+}
+
+// The handle, without the @ a shop will inevitably type. Stored bare so the
+// page renders one consistently rather than printing whatever punctuation
+// arrived -- and a url pasted in whole is reduced to its last path segment,
+// because "instagram.com/jiija" is what a shop copies when asked for a handle.
+export function normalizeInstagram(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withoutUrl = trimmed.replace(/^https?:\/\//i, '').replace(/^(www\.)?instagram\.com\//i, '');
+  const handle = withoutUrl.replace(/^@+/, '').replace(/\/+$/, '').split(/[/?#]/)[0];
+  return handle.slice(0, 30) || null;
+}
+
+export async function setInstagram(shopId: string, handle: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('storefronts')
+    .update({ instagram: handle })
+    .eq('shop_id', shopId);
+  if (error) throw error;
 }

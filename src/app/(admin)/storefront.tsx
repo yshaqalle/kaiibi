@@ -31,6 +31,16 @@ import {
   discardDraft,
   ensureStorefront,
   getMyStorefront,
+  isValidTradingSince,
+  addGalleryImage,
+  listGalleryImages,
+  normalizeInstagram,
+  setInstagram,
+  listHighlights,
+  removeGalleryImage,
+  replaceHighlights,
+  type ShopImage,
+  setTradingSince,
   getStorefrontPreviewCategories,
   getStorefrontPreviewProducts,
   listAddressSuffixSuggestions,
@@ -51,7 +61,8 @@ import {
   type ShopStorefront,
 } from '@/lib/storefront-admin';
 import type {
-  Promotion, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontProduct,
+  Promotion, PublicStorefront, StorefrontCategory, StorefrontFlyer, StorefrontHighlight,
+  StorefrontProduct,
 } from '@/types/models';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
@@ -124,6 +135,26 @@ function StorefrontEditor() {
   // refetch the row afterward rather than guessing at the server's new
   // shape client-side.
   const [working, setWorking] = useState<ShopStorefront | null>(null);
+  // Live-saving children, like the delivery areas: held here so the preview
+  // renders exactly what the published page will.
+  const [highlights, setHighlights] = useState<StorefrontHighlight[]>([]);
+  // What is IN the three boxes, which is not the same as what is saved: a
+  // half-typed card is a legitimate state and must not be written or dropped.
+  const [draftHighlights, setDraftHighlights] = useState<{ title: string; body: string }[]>([]);
+  const [gallery, setGallery] = useState<ShopImage[]>([]);
+  // A string, not a number -- "20" on the way to "2014" must survive being
+  // typed. Parsed on save, never on keystroke.
+  const [tradingSinceText, setTradingSinceText] = useState('');
+  const [instagramText, setInstagramText] = useState('');
+  const pendingHandleRef = useRef<string | null | undefined>(undefined);
+  const handleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tradingSinceError, setTradingSinceError] = useState<string | null>(null);
+  const [highlightsError, setHighlightsError] = useState<string | null>(null);
+  const pendingHighlightsRef = useRef<{ title: string; body: string }[] | null>(null);
+  const highlightsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightsInFlightRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingYearRef = useRef<number | null | undefined>(undefined);
+  const yearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [livePublished, setLivePublished] = useState<EditableFields | null>(null);
 
   // Patches not yet sent to saveDraft, and the timer that will flush them.
@@ -190,6 +221,40 @@ function StorefrontEditor() {
     setLoadError(null);
     try {
       const existing = await getMyStorefront(shopId);
+      if (existing?.tradingSince) setTradingSinceText(String(existing.tradingSince));
+      if (existing?.instagram) setInstagramText(existing.instagram);
+      // `.catch(() => [])` for the same reason the public route does it on
+      // areas and categories: highlights are an optional block, and a blip on
+      // this read must cost the block, not the whole editor.
+      // Wrapped rather than chained off the call. `.then()` on the RESULT
+      // assumes the call returned a promise, and the whole editor goes down
+      // with a TypeError if it ever does not -- which is exactly what a
+      // partial module mock does, and what a client running ahead of a
+      // deployed lib would do too. Highlights are an optional block; a blip
+      // here must cost the block, never the page.
+      void (async () => {
+        try {
+          const images = await listGalleryImages(shopId);
+          // Shape-checked, not just try/caught. `await undefined` resolves
+          // rather than throwing, so a call that returns nothing -- a partial
+          // module mock, a client ahead of its lib -- would sail past the catch
+          // and store `undefined`, and the crash would land at render, far from
+          // the cause. This is the same defect the highlights load had.
+          setGallery(Array.isArray(images) ? images : []);
+        } catch {
+          setGallery([]);
+        }
+      })();
+      void (async () => {
+        try {
+          const rows = await listHighlights(shopId);
+          const safe = Array.isArray(rows) ? rows : [];
+          setHighlights(safe);
+          setDraftHighlights(safe.map((row) => ({ title: row.title, body: row.body })));
+        } catch {
+          setHighlights([]);
+        }
+      })();
       const row = existing ?? (await ensureStorefront(shopId));
       setLivePublished(editableFieldsOf(row));
       // Overlay: the live row, with any leftover draft from a previous,
@@ -361,6 +426,23 @@ function StorefrontEditor() {
     flushAutosave();
   }, [flushAutosave]);
 
+  // The two live-saving fields flush on unmount too, and for the identical
+  // reason: cancelling instead would silently drop up to AUTOSAVE_DEBOUNCE_MS
+  // of typing every time a shopkeeper closes the drawer mid-pause.
+  //
+  // Through a ref rather than a dependency array, and rather than a disable
+  // comment: the flushers close over fresh state every render, so listing them
+  // as deps would tear down and re-create the unmount effect on every
+  // keystroke, and suppressing the warning would just hide that. The ref is
+  // reassigned each render and read once, at unmount, when it holds the latest.
+  const flushLiveFieldsRef = useRef<() => void>(() => {});
+  flushLiveFieldsRef.current = () => {
+    void flushHighlights();
+    void flushYear();
+    void flushHandle();
+  };
+  useEffect(() => () => flushLiveFieldsRef.current(), []);
+
   // Every edit does two things: shows immediately in `working` (and so in
   // the preview), and queues an autosave into the server-side draft. Never a
   // write to a live column -- see saveDraft's own comment for why a
@@ -390,6 +472,23 @@ function StorefrontEditor() {
   // helper uploadShopLogo uses -- so there remains exactly one upload path
   // in the app. ContentDrawer stays free of every data-layer import; this is
   // the only place that knows the path a hero photo lands at.
+  // Uploaded to the same bucket and the same per-shop prefix as the hero and
+  // the flyers, timestamped because uploadImage passes `upsert: false`.
+  async function handleAddGalleryImage(localUri: string): Promise<void> {
+    if (!shopId) throw new Error('No shop to upload for.');
+    const path = await uploadImage(`${shopId}/storefront-gallery-${Date.now()}`, localUri);
+    await addGalleryImage(shopId, path);
+    setGallery(await listGalleryImages(shopId));
+  }
+
+  async function handleRemoveGalleryImage(id: string) {
+    if (!shopId) return;
+    const image = gallery.find((item) => item.id === id);
+    if (!image) return;
+    await removeGalleryImage(shopId, image);
+    setGallery(await listGalleryImages(shopId));
+  }
+
   async function handleUploadHeroImage(localUri: string): Promise<string> {
     if (!shopId) throw new Error('No shop to upload for.');
     return uploadImage(`${shopId}/storefront-hero-${Date.now()}`, localUri);
@@ -668,6 +767,11 @@ function StorefrontEditor() {
   // for every shop at signup -- so a preview without it would show the owner a
   // pick-up line noticeably barer than the one their customers get.
   const primaryNeighborhood = locations.find((location) => location.isPrimary)?.neighborhood ?? null;
+  // Off the SAME row again, for the same reason: the preview must show the
+  // hours of the branch whose street it is already printing. `?? {}` because a
+  // shop that has never opened Settings -> Locations has none, and the panel
+  // renders nothing rather than "closed all week".
+  const primaryHours = locations.find((location) => location.isPrimary)?.openingHours ?? {};
 
   // What get_public_storefront (20260930000100) would return for this shop,
   // reproduced client-side for the preview -- the same reason
@@ -714,6 +818,126 @@ function StorefrontEditor() {
       } : null,
     }));
 
+  // WRITTEN THROUGH on change, because this drawer has no Save button -- every
+  // other field in it stages into `draft` and is published later, and these two
+  // cannot (see storefront-admin.ts). The alternative is a shop typing three
+  // cards, closing the drawer, and losing them.
+  // SERIALISED, because replaceHighlights deletes every row and re-inserts:
+  // two of those overlapping is a delete landing between another call's delete
+  // and insert, which is how a shop ends up with rows it did not ask for or
+  // none at all. The ref holds the in-flight promise and each call waits for
+  // it, so the writes queue rather than race.
+  async function flushHighlights() {
+    if (!shopId) return;
+    const next = pendingHighlightsRef.current;
+    if (!next) return;
+    pendingHighlightsRef.current = null;
+    const run = async () => {
+      try {
+        await replaceHighlights(shopId, next);
+        const rows = await listHighlights(shopId);
+        setHighlights(Array.isArray(rows) ? rows : []);
+        setHighlightsError(null);
+      } catch {
+        // NAMED, not swallowed. The old empty catch meant a shop could type
+        // three cards, see them in the preview, and have none of it on the live
+        // page with nothing on screen saying so.
+        setHighlightsError('Could not save that — check your connection and try again.');
+      }
+    };
+    highlightsInFlightRef.current = highlightsInFlightRef.current.then(run, run);
+    await highlightsInFlightRef.current;
+  }
+
+  // DEBOUNCED, and the write is OUT of the setState updater.
+  //
+  // This used to call commitHighlights from inside the updater, on every
+  // keystroke. Three things were wrong with that and they compound: an updater
+  // must be pure (StrictMode double-invokes it, so every keystroke fired the
+  // write twice), replaceHighlights is a non-atomic DELETE-all + INSERT, and
+  // nothing serialised the calls -- so overlapping requests raced, some hit the
+  // `enforce_highlight_limit` trigger against rows another call had not yet
+  // deleted, and the error went into an empty catch while the live page kept
+  // older text.
+  //
+  // Now it queues the same way every other field in this editor does, on the
+  // same 800ms pause, and commitHighlights itself serialises.
+  function handleChangeHighlight(index: number, patch: { title?: string; body?: string }) {
+    const next = [0, 1, 2].map((i) => draftHighlights[i] ?? { title: '', body: '' });
+    next[index] = { ...next[index], ...patch };
+    setDraftHighlights(next);
+    queueHighlights(next);
+  }
+
+  function queueHighlights(next: { title: string; body: string }[]) {
+    pendingHighlightsRef.current = next;
+    if (highlightsTimerRef.current) clearTimeout(highlightsTimerRef.current);
+    highlightsTimerRef.current = setTimeout(() => { void flushHighlights(); }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  function handleChangeTradingSince(text: string) {
+    // Digits only, so a stray letter never reaches the parse below.
+    const digits = text.replace(/[^0-9]/g, '').slice(0, 4);
+    setTradingSinceText(digits);
+    if (digits.length === 0) {
+      setTradingSinceError(null);
+      queueYear(null);
+      return;
+    }
+    // Only a complete four-digit year is worth validating: "20" is on its way
+    // to "2014", and complaining about it mid-word is the editor arguing with
+    // somebody who is still typing.
+    if (digits.length < 4) { setTradingSinceError(null); return; }
+    const year = Number(digits);
+    if (!isValidTradingSince(year)) {
+      setTradingSinceError('That year looks wrong — check it and try again.');
+      return;
+    }
+    setTradingSinceError(null);
+    queueYear(year);
+  }
+
+  // Normalised on SAVE, not on keystroke: stripping the @ as somebody types it
+  // deletes the character under their cursor.
+  function handleChangeInstagram(text: string) {
+    setInstagramText(text);
+    pendingHandleRef.current = normalizeInstagram(text);
+    if (handleTimerRef.current) clearTimeout(handleTimerRef.current);
+    handleTimerRef.current = setTimeout(() => { void flushHandle(); }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  async function flushHandle() {
+    const handle = pendingHandleRef.current;
+    if (!shopId || handle === undefined) return;
+    pendingHandleRef.current = undefined;
+    try {
+      await setInstagram(shopId, handle);
+      setWorking((w) => (w ? { ...w, instagram: handle } : w));
+    } catch {
+      setTradingSinceError('Could not save that — check your connection and try again.');
+    }
+  }
+
+  // Same debounce as the highlights and the draft: a four-digit year typed one
+  // digit at a time is one save, not four.
+  function queueYear(year: number | null) {
+    pendingYearRef.current = year;
+    if (yearTimerRef.current) clearTimeout(yearTimerRef.current);
+    yearTimerRef.current = setTimeout(() => { void flushYear(); }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  async function flushYear() {
+    const year = pendingYearRef.current;
+    if (!shopId || year === undefined) return;
+    pendingYearRef.current = undefined;
+    try {
+      await setTradingSince(shopId, year);
+      setWorking((w) => (w ? { ...w, tradingSince: year } : w));
+    } catch {
+      setTradingSinceError('Could not save that — check your connection and try again.');
+    }
+  }
+
   const previewStorefront: PublicStorefront = {
     shopName: shop?.name ?? '',
     city: primaryCity,
@@ -727,6 +951,19 @@ function StorefrontEditor() {
     offersDelivery: working.offersDelivery,
     collectAddress: primaryAddress,
     collectNeighborhood: primaryNeighborhood,
+    openingHours: primaryHours,
+    // Both save LIVE rather than through `draft` (see the migration on why),
+    // so the preview reads the same rows the published page will.
+    // Off the same primary location the preview already reads its address and
+    // hours from, so the preview and the published page name one branch.
+    contactPhone: locations.find((location) => location.isPrimary)?.contactPhone ?? null,
+    instagram: working?.instagram ?? null,
+    tradingSince: working?.tradingSince ?? null,
+    highlights,
+    // Resolved for the preview the same way the public reader resolves them,
+    // so the editor shows what a customer will see rather than a bucket path.
+    images: gallery.map((image) => ({ id: image.id, url: publicImageUrl(image.imagePath) }))
+      .filter((image) => image.url !== null),
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,
@@ -743,6 +980,16 @@ function StorefrontEditor() {
       suffixSuggestions={addressSuffixes}
       onUploadHeroImage={handleUploadHeroImage}
       focusRequest={focusRequest}
+        tradingSince={tradingSinceText}
+        tradingSinceError={tradingSinceError ?? highlightsError}
+        onChangeTradingSince={handleChangeTradingSince}
+        highlights={draftHighlights}
+        onChangeHighlight={handleChangeHighlight}
+        instagram={instagramText}
+        onChangeInstagram={handleChangeInstagram}
+        gallery={gallery.map((image) => ({ id: image.id, url: publicImageUrl(image.imagePath) ?? '' }))}
+        onAddGalleryImage={handleAddGalleryImage}
+        onRemoveGalleryImage={handleRemoveGalleryImage}
     />
   );
 

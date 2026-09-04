@@ -53,6 +53,12 @@ export function LandingFooter() {
             {PRODUCT_LINKS.map((link) => (
               <FooterLink key={link.id} label={t(link.key)} onPress={() => scrollToSection(link.id)} />
             ))}
+            {/* A ROUTE, not a section -- so `router.push`, never
+                `scrollToSection`, which navigates to `/` and would take a
+                reader away from the directory rather than to it. Unlike the two
+                links this footer's header comment says are deliberately absent,
+                this one has a real page behind it. */}
+            <FooterLink label={t('nav.shops')} onPress={() => router.push('/store')} />
             <FooterLink label={t('footer.getStarted')} onPress={() => router.push('/signup')} />
           </View>
 

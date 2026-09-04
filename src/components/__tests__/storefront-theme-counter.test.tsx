@@ -1,4 +1,3 @@
-import { ScrollView } from 'react-native';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ThemeCounter } from '@/components/storefront/theme-counter';
@@ -52,6 +51,9 @@ const shop: PublicStorefront = {
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
+  openingHours: {},
+  tradingSince: null, highlights: [], images: [],
+  contactPhone: null, instagram: null,
   // No flyers: these fixtures predate them, and a shop with none must
   // render exactly as it did before they existed.
   flyers: [],
@@ -118,12 +120,13 @@ describe('ThemeCounter', () => {
     const flatStyle = (style: unknown) =>
       [style].flat(Infinity).reduce((acc, s) => ({ ...(acc as object), ...(s as object) }), {}) as { paddingBottom: number };
 
-    const before = flatStyle(tree.root.findByType(ScrollView).props.contentContainerStyle);
+    const scroller = () => tree.root.find((n) => n.props?.testID === 'storefront-counter-scroll');
+    const before = flatStyle(scroller().props.contentContainerStyle);
 
     const addButtons = findByTestId(tree, 'product-tile-add');
     act(() => addButtons[0].props.onPress());
 
-    const after = flatStyle(tree.root.findByType(ScrollView).props.contentContainerStyle);
+    const after = flatStyle(scroller().props.contentContainerStyle);
     expect(after.paddingBottom).toBeGreaterThan(before.paddingBottom);
   });
 

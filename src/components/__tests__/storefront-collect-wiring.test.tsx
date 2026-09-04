@@ -111,6 +111,9 @@ const baseShop: Omit<PublicStorefront, 'slug' | 'theme'> = {
   collectAddress: 'Shop 12',
   collectNeighborhood: 'Jigjiga Yar',
   paymentMode: 'on_collection',
+  openingHours: {},
+  tradingSince: null, highlights: [], images: [],
+  contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
 };
