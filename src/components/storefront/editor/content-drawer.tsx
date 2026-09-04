@@ -99,6 +99,20 @@ const RENAME_KEPT_ADDRESS_COPY =
   'Your web address has not changed with your shop’s name — every link you have already shared or printed still works. ' +
   'You can change it below, but the old one stops working straight away.';
 
+// Said BEFORE the press rather than discovered after it. `no_whatsapp` is a
+// publish blocker (publishBlockers, storefront-admin.ts), so clearing the
+// number puts a shop into a state where its NEXT publish is refused -- the
+// live page stays up until then, and the publish bar says so with a "Fix this"
+// that lands back on this very field.
+//
+// 'context', not 'wrong': while the number is still there nothing is broken
+// and there is nothing to fix. This states a consequence a shop is about to
+// choose, which is what that tone is for. The mild overlap with the publish
+// bar's own blocker copy is the point -- one is a warning, the other is a
+// report, and only the warning arrives in time to change the decision.
+const PHONE_REMOVE_COPY =
+  'Removing it takes the WhatsApp button off your page, and you’ll need a number again before you can publish.';
+
 export function ContentDrawer({
   value,
   onChange,
@@ -119,6 +133,10 @@ export function ContentDrawer({
   onChangeHighlight = () => {},
   instagram = '',
   onChangeInstagram = () => {},
+  highlightsError = null,
+  onRetryHighlights,
+  instagramError = null,
+  onRetryInstagram,
   gallery = [],
   onAddGalleryImage,
   onRemoveGalleryImage,
@@ -166,10 +184,27 @@ export function ContentDrawer({
    * publish. The Caveats on both say so on screen.
    */
   tradingSince?: string;
+  /**
+   * ONE FIELD'S ERROR, and only that field's.
+   *
+   * This prop used to be handed `tradingSinceError ?? highlightsError` while
+   * the Instagram save's own catch wrote to it too -- so three unrelated
+   * failures all surfaced as one caveat under Trading since. A shop whose
+   * handle failed to save was told "could not save that" beside a year it had
+   * never touched, while the Instagram box sat there looking healthy.
+   *
+   * Each save now reports under the field that owns it. That is also what lets
+   * the two below carry an action: a shared caveat could not offer a retry
+   * because it did not know which of three writes had failed.
+   */
   tradingSinceError?: string | null;
   onChangeTradingSince?: (text: string) => void;
   highlights?: { title: string; body: string }[];
   onChangeHighlight?: (index: number, patch: { title?: string; body?: string }) => void;
+  /** A failed highlights write, shown under the three cards. */
+  highlightsError?: string | null;
+  /** Re-runs that write. Required for the caveat's `wrong` tone to be honest. */
+  onRetryHighlights?: () => void;
   /**
    * Photographs of the shop, already resolved to URLs. Live rows again, like
    * the highlights -- and unlike the hero, which is a single staged field.
@@ -177,6 +212,9 @@ export function ContentDrawer({
   /** Instagram handle as typed. Normalised on save, not on keystroke. */
   instagram?: string;
   onChangeInstagram?: (text: string) => void;
+  /** A failed handle write, shown under the handle. */
+  instagramError?: string | null;
+  onRetryInstagram?: () => void;
   gallery?: { id: string; url: string }[];
   onAddGalleryImage?: (localUri: string) => Promise<void>;
   onRemoveGalleryImage?: (id: string) => Promise<void>;
@@ -411,6 +449,24 @@ export function ContentDrawer({
     setPhoneError(null);
     setPhoneDraft('');
     onChange({ whatsappE164: e164 });
+  }
+
+  // THE WAY BACK OUT, and until now there wasn't one.
+  //
+  // `commitPhone` deliberately ignores an empty field on blur -- an accidental
+  // blur must not wipe a number a shop has printed on a card -- which is right,
+  // and which left clearing a saved number impossible by any route. This is
+  // that route: pressed on purpose, which is the same standard "Change
+  // address…" holds the slug to.
+  //
+  // The draft and the error go with it. Pressing Remove while a half-typed
+  // replacement sits in the box would otherwise leave that draft on screen, and
+  // the field's own onBlur -- which fires on the way to this button -- would
+  // commit the very number the shop just asked to be rid of.
+  function removePhone() {
+    setPhoneDraft('');
+    setPhoneError(null);
+    onChange({ whatsappE164: null });
   }
 
   async function handleAddGallery() {
@@ -727,6 +783,14 @@ export function ContentDrawer({
           />
         </View>
       ))}
+      {highlightsError ? (
+        <Caveat
+          tone="wrong"
+          action={onRetryHighlights ? { label: 'Try again', onPress: onRetryHighlights } : undefined}
+        >
+          {highlightsError}
+        </Caveat>
+      ) : null}
 
       <Text style={[styles.eyebrow, styles.spaced]}>Instagram</Text>
       <Caveat tone="context">
@@ -741,6 +805,14 @@ export function ContentDrawer({
         autoCapitalize="none"
         autoCorrect={false}
       />
+      {instagramError ? (
+        <Caveat
+          tone="wrong"
+          action={onRetryInstagram ? { label: 'Try again', onPress: onRetryInstagram } : undefined}
+        >
+          {instagramError}
+        </Caveat>
+      ) : null}
 
       <Text style={[styles.eyebrow, styles.spaced]}>Photos of the shop</Text>
       <Caveat tone="context">
@@ -766,7 +838,7 @@ export function ContentDrawer({
             testID="content-drawer-gallery-add"
             onPress={handleAddGallery}
             disabled={galleryBusy}
-            style={[styles.galleryAdd, galleryBusy && styles.heroButtonDisabled]}
+            style={[styles.galleryAdd, galleryBusy && styles.ghostButtonDisabled]}
           >
             <Text style={styles.galleryAddText}>{galleryBusy ? '…' : '+'}</Text>
           </Pressable>
@@ -782,12 +854,35 @@ export function ContentDrawer({
           testID="content-drawer-hero-pick"
           onPress={handlePickHero}
           disabled={heroUploading}
-          style={[styles.heroButton, heroUploading && styles.heroButtonDisabled]}
+          style={[styles.ghostButton, heroUploading && styles.ghostButtonDisabled]}
         >
-          <Text style={styles.heroButtonText}>
+          <Text style={styles.ghostButtonText}>
             {heroUploading ? 'Uploading…' : value.heroImageUrl ? 'Replace photo' : 'Add photo'}
           </Text>
         </Pressable>
+        {/* Replace was the only exit this field had, so a shop that changed
+            its mind about having an opening photo at all had to upload a
+            different one instead. Every COLLECTION in this drawer already
+            removes -- each gallery thumbnail, and the flyers and delivery
+            areas in their own cards -- and the two singletons, this and the
+            number below, were the two that did not.
+
+            No confirm, matching those. The Window layout simply falls back to
+            no photo, which is the state every shop that never added one is
+            already in. The uploaded object stays in the bucket, which is what
+            replacing a photo does today too. */}
+        {value.heroImageUrl ? (
+          <Pressable
+            testID="content-drawer-hero-remove"
+            accessibilityRole="button"
+            accessibilityLabel="Remove the opening photo"
+            onPress={() => onChange({ heroImageUrl: null })}
+            disabled={heroUploading}
+            style={[styles.ghostButton, heroUploading && styles.ghostButtonDisabled]}
+          >
+            <Text style={styles.ghostButtonText}>Remove</Text>
+          </Pressable>
+        ) : null}
       </View>
       {heroError ? (
         <Caveat tone="wrong" action={{ label: 'Try again', onPress: handlePickHero }}>
@@ -796,7 +891,23 @@ export function ContentDrawer({
       ) : null}
 
       <Text style={[styles.eyebrow, styles.spaced]}>WhatsApp number</Text>
-      {value.whatsappE164 ? <Text style={styles.currentPhone}>{formatE164ForDisplay(value.whatsappE164)}</Text> : null}
+      {value.whatsappE164 ? (
+        <>
+          <View style={styles.currentPhoneRow}>
+            <Text style={styles.currentPhone}>{formatE164ForDisplay(value.whatsappE164)}</Text>
+            <Pressable
+              testID="content-drawer-phone-remove"
+              accessibilityRole="button"
+              accessibilityLabel="Remove your WhatsApp number"
+              onPress={removePhone}
+              style={styles.ghostButton}
+            >
+              <Text style={styles.ghostButtonText}>Remove</Text>
+            </Pressable>
+          </View>
+          <Caveat tone="context">{PHONE_REMOVE_COPY}</Caveat>
+        </>
+      ) : null}
       <TextInput
         ref={phoneInputRef}
         testID="content-drawer-phone-input"
@@ -948,15 +1059,21 @@ const styles = StyleSheet.create({
 
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   heroPreview: { width: 48, height: 48, borderRadius: 10, backgroundColor: theme.bentoSoft },
-  heroButton: {
+  ghostButton: {
     borderWidth: 1,
     borderColor: theme.bentoLine,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  heroButtonDisabled: { opacity: 0.5 },
-  heroButtonText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
+  ghostButtonDisabled: { opacity: 0.5 },
+  ghostButtonText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
 
-  currentPhone: { fontSize: 13.5, fontWeight: '700', color: theme.bentoInk, marginBottom: 8 },
+  // Wraps, because a long number and the button do not always fit a narrow
+  // phone side by side -- and a Remove pushed off the edge is the same missing
+  // exit this change exists to close.
+  currentPhoneRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  // No marginBottom of its own any more: the Caveat that now always follows it
+  // brings its own marginTop, and two would double the gap.
+  currentPhone: { fontSize: 13.5, fontWeight: '700', color: theme.bentoInk },
 });

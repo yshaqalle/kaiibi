@@ -1,0 +1,316 @@
+<meta charset="utf-8" />
+<title>Storefront editor — taking things back out, and errors that point at their own field</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+
+  /* The shipped bento tokens, verbatim from src/constants/theme.ts, plus the
+     two Caveat tone triplets from src/components/ui/caveat.tsx. The device
+     frames below always render light — bento has no dark mode yet. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+        --warnRule:#D27631; --warnBg:#FFFBEB; --warnInk:#8A5A05;
+        --ctxRule:#2a78d6; --ctxBg:#EEF4FF; --ctxInk:#1E4BCC; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,38px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 10px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  section{margin-top:56px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .why{border-left:2px solid var(--ln);padding-left:14px;margin-top:16px;font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .why b{color:var(--ink);}
+  .decide{border-left:3px solid var(--blue);background:var(--pg2);padding:14px 16px;border-radius:0 10px 10px 0;
+    margin-top:18px;font-size:14px;color:var(--ink2);max-width:74ch;}
+  .decide b{color:var(--ink);}
+
+  .pair{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;margin-top:18px;}
+  .col{flex:1 1 330px;min-width:0;}
+  .frameHead{display:flex;align-items:baseline;gap:10px;margin:0 0 9px;flex-wrap:wrap;}
+  .frameHead b{font-size:13.5px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);}
+  .tag{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    padding:2px 7px;border-radius:999px;}
+  .tag.now{background:#f3e3e3;color:#8d2b34;}
+  .tag.new{background:#dff0e5;color:#0a6b39;}
+  .tag.opt{background:#e6edff;color:#1b47b8;}
+
+  /* ---- the editor card, bento ---- */
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;color:var(--d-ink);}
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .cardTitle{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:0 0 14px;}
+  .lbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);margin:0 0 8px;}
+  .lbl.sp{margin-top:20px;}
+  .input{background:var(--d-soft);border-radius:12px;padding:11px 12px;font-size:13.5px;color:var(--d-ink);}
+  .input.ph{color:var(--d-mut2);}
+  .input.tall{min-height:56px;}
+
+  .caveat{display:flex;gap:11px;border-left-width:3px;border-left-style:solid;
+    border-radius:0 10px 10px 0;padding:11px 14px;margin-top:11px;font-size:12.5px;line-height:1.6;}
+  .caveat .g{font-weight:800;font-size:13px;}
+  .caveat.ctx{border-left-color:var(--ctxRule);background:var(--ctxBg);color:var(--ctxInk);}
+  .caveat.wrong{border-left-color:var(--warnRule);background:var(--warnBg);color:var(--warnInk);}
+  .caveat u{display:inline-block;margin-top:5px;font-weight:700;}
+
+  .valRow{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .val{font-size:13.5px;font-weight:700;color:var(--d-ink);}
+  .ghost{border:1px solid var(--d-ln);border-radius:999px;padding:7px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink);background:var(--d-sf);white-space:nowrap;}
+  .heroRow{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;}
+  .thumb{width:48px;height:48px;border-radius:10px;background:var(--d-soft);flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:17px;color:#b9b9c4;}
+
+  .cursor{position:relative;}
+  .cursor::after{content:"";position:absolute;right:-13px;bottom:-11px;width:17px;height:17px;
+    border-radius:50%;background:rgba(47,107,255,.22);border:1.5px solid var(--blue);}
+
+  .strike{text-decoration:line-through;opacity:.5;}
+  .arrow{font-size:20px;color:var(--mut);align-self:center;padding:0 2px;}
+
+  ul.pts{margin:14px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  ul.pts li{margin-bottom:7px;} ul.pts b{color:var(--ink);}
+  .foot{margin-top:64px;padding-top:18px;border-top:1px solid var(--ln);font-size:12.5px;color:var(--mut);}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Storefront editor · Content card</p>
+  <h1>Taking things back out, and errors that point at their own field</h1>
+  <p class="lede">
+    Three small corrections to the editor a shopkeeper already uses. Nothing here adds a
+    feature — each one closes a door the editor left one-way.
+  </p>
+  <p class="note">
+    Everything below is the <b>Content</b> card in <code>src/app/(admin)/storefront.tsx</code>,
+    at phone width. Only the affected fields are drawn; the address, headline, about and
+    highlights sit above and are unchanged.
+  </p>
+
+  <!-- ================= 1. HERO ================= -->
+  <section>
+    <h2>1 · The opening photo can be added and replaced, never removed</h2>
+    <p class="h2sub">
+      Every <em>collection</em> in this editor got a Remove — delivery areas, flyers, and each
+      gallery thumbnail. Both <em>singletons</em> — the opening photo and the WhatsApp number —
+      did not. This is the uncontroversial half.
+    </p>
+
+    <div class="pair">
+      <div class="col">
+        <div class="frameHead"><b>Today</b><span class="tag now">one-way</span><i>content-drawer.tsx:788</i></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">Opening photo</p>
+          <div class="caveat ctx"><span class="g">ⓘ</span><span>Only the Window layout shows this photo — a shop on Market won’t display it here.</span></div>
+          <div class="heroRow">
+            <div class="thumb">▩</div>
+            <div class="ghost">Replace photo</div>
+          </div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          A shop that changed its mind about having a photo at all has no move. The only exit
+          is uploading a different one.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="frameHead"><b>Proposed</b><span class="tag new">adds Remove</span></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">Opening photo</p>
+          <div class="caveat ctx"><span class="g">ⓘ</span><span>Only the Window layout shows this photo — a shop on Market won’t display it here.</span></div>
+          <div class="heroRow">
+            <div class="thumb">▩</div>
+            <div class="ghost">Replace photo</div>
+            <div class="ghost cursor">Remove</div>
+          </div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          No warning and no confirm, matching how the gallery, flyers and delivery areas
+          already remove. The Window layout falls back to no photo — exactly the state a shop
+          that never added one is already in.
+        </p>
+      </div>
+    </div>
+
+    <div class="why">
+      <b>Nothing else has to change.</b> The screen already passes a null straight through —
+      <code>heroImageUrl !== undefined &amp;&amp; { heroImageUrl }</code> at storefront.tsx:748 — so the
+      button is the whole fix. The uploaded file stays in storage, which is what replacing a
+      photo already does today.
+    </div>
+  </section>
+
+  <!-- ================= 2. WHATSAPP ================= -->
+  <section>
+    <h2>2 · The WhatsApp number — the same gap, but it blocks publishing</h2>
+    <p class="h2sub">
+      Same one-way door, different consequence. <code>no_whatsapp</code> is a publish blocker
+      (storefront-admin.ts:121), so removing the number puts the shop into a state where the
+      <em>next</em> publish is refused. The live page stays up until then. This is the part I
+      need you to pick.
+    </p>
+
+    <div class="pair">
+      <div class="col">
+        <div class="frameHead"><b>Today</b><span class="tag now">one-way</span></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">WhatsApp number</p>
+          <div class="valRow"><span class="val">+252 63 4456789</span></div>
+          <div class="input ph">e.g. 0634 456 789</div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          Typing nothing and blurring is ignored on purpose — an accidental blur must not wipe
+          a saved number. Which leaves no way to clear it at all.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="frameHead"><b>Option A</b><span class="tag opt">recommended</span><i>Remove + a note</i></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">WhatsApp number</p>
+          <div class="valRow">
+            <span class="val">+252 63 4456789</span>
+            <span class="ghost cursor">Remove</span>
+          </div>
+          <div class="caveat ctx"><span class="g">ⓘ</span><span>Removing it takes the WhatsApp button off your page, and you’ll need a number again before you can publish.</span></div>
+          <div class="input ph">e.g. 0634 456 789</div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          The consequence is stated <em>before</em> the press, not discovered after it.
+          <code>context</code> tone, correctly: nothing is wrong yet and nothing needs fixing.
+        </p>
+      </div>
+    </div>
+
+    <div class="pair">
+      <div class="col">
+        <div class="frameHead"><b>Option B</b><i>Remove, bare</i></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">WhatsApp number</p>
+          <div class="valRow">
+            <span class="val">+252 63 4456789</span>
+            <span class="ghost">Remove</span>
+          </div>
+          <div class="input ph">e.g. 0634 456 789</div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          Consistent with every other Remove in the editor. The shop finds out at the publish
+          bar instead — which does say it clearly, and jumps them back to this field.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="frameHead"><b>What B looks like next</b><i>publish bar, after removing</i></div>
+        <div class="frame">
+          <div class="card">
+            <p class="cardTitle">Publish</p>
+            <div class="caveat wrong"><span class="g">⚠</span><span>Add a WhatsApp number so customers can reach you from the page.<br><u>Fix this</u></span></div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:11px">
+          This already exists and already works — it is the state a shop that has never added a
+          number sees. A removal simply returns them to it.
+        </p>
+      </div>
+    </div>
+
+    <div class="decide">
+      <b>What I need from you.</b> <b>A</b> warns first and accepts one line of redundancy with
+      the publish bar. <b>B</b> is consistent with the editor’s other removes and lets the
+      publish bar be the single source of truth. <b>C</b> is to ship the photo Remove only and
+      leave the number replace-only, on the grounds that a storefront with no contact button
+      isn’t a state worth supporting. I recommend <b>A</b>: it is the only one where a shop
+      chooses the consequence rather than meets it.
+    </div>
+  </section>
+
+  <!-- ================= 3. ERRORS ================= -->
+  <section>
+    <h2>3 · Three different save failures all report under “Trading since”</h2>
+    <p class="h2sub">
+      Not a design question — a wiring bug, drawn here because the fix is visible.
+      <code>tradingSinceError={tradingSinceError ?? highlightsError}</code> (storefront.tsx:984)
+      funnels two errors into one caveat, and <code>flushHandle</code>’s catch calls
+      <code>setTradingSinceError</code> for a failed <em>Instagram</em> save, making three.
+    </p>
+
+    <div class="pair">
+      <div class="col">
+        <div class="frameHead"><b>Today</b><span class="tag now">Instagram failed to save</span></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">Trading since</p>
+          <div class="caveat ctx"><span class="g">ⓘ</span><span>Saves straight to your live page, like your delivery areas — it isn’t held until you publish.</span></div>
+          <div class="input">2014</div>
+          <div class="caveat wrong"><span class="g">⚠</span><span>Could not save that — check your connection and try again.</span></div>
+
+          <p class="lbl sp">Why shop here</p>
+          <div class="input ph">Fair prices, every day</div>
+
+          <p class="lbl sp">Instagram</p>
+          <div class="input">@xamdi<span style="float:right;color:var(--d-mut2)">saved ✓</span></div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          The year is fine and was never touched. The handle silently didn’t save, and the
+          field it belongs to looks healthy. A shopkeeper retypes the year.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="frameHead"><b>Proposed</b><span class="tag new">one error per field</span></div>
+        <div class="frame"><div class="card">
+          <p class="lbl">Trading since</p>
+          <div class="caveat ctx"><span class="g">ⓘ</span><span>Saves straight to your live page, like your delivery areas — it isn’t held until you publish.</span></div>
+          <div class="input">2014</div>
+
+          <p class="lbl sp">Why shop here</p>
+          <div class="input ph">Fair prices, every day</div>
+
+          <p class="lbl sp">Instagram</p>
+          <div class="caveat ctx"><span class="g">ⓘ</span><span>Shown on your Visit tab. Paste a link or type the handle — saves straight to your live page.</span></div>
+          <div class="input">@xamdi</div>
+          <div class="caveat wrong cursor"><span class="g">⚠</span><span>Could not save your Instagram handle — check your connection and try again.<br><u>Try again</u></span></div>
+        </div></div>
+        <p class="note" style="margin-top:11px">
+          Three separate props — <code>tradingSinceError</code>, <code>highlightsError</code>,
+          <code>instagramError</code> — each rendered under the field that owns it.
+        </p>
+      </div>
+    </div>
+
+    <div class="why">
+      <b>The <code>wrong</code> tone gains its action.</b> Caveat’s own rule is that
+      <code>wrong</code> always ships something that removes it. The shared caveat couldn’t
+      offer one, because it didn’t know which of three saves had failed. Split apart, each can:
+      <em>Try again</em> re-runs that field’s own flush.
+    </div>
+  </section>
+
+  <!-- ================= SCOPE ================= -->
+  <section>
+    <h2>What this does not touch</h2>
+    <ul class="pts">
+      <li><b>The walkthrough.</b> The editor still has no guided path, and opening hours and the
+        shop’s phone number are still edited on a different screen entirely (Settings → Locations)
+        with nothing here saying so. Its own spec.</li>
+      <li><b>Currency.</b> Prices stay hardcoded to <code>$</code>. Its own spec.</li>
+      <li><b>The Visit tab’s name.</b> One word, still yours to pick.</li>
+      <li><b>The save model.</b> Four separate caveats still explain that some fields save live
+        and others wait for publish. Real, and not a Remove button’s job to fix.</li>
+    </ul>
+  </section>
+
+  <p class="foot">
+    Tokens taken verbatim from <code>src/constants/theme.ts</code> and the tone triplets in
+    <code>src/components/ui/caveat.tsx</code>. No code written yet — this is the approval step.
+  </p>
+</div>
