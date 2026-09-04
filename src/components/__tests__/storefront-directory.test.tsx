@@ -1,7 +1,9 @@
 import { act, create } from 'react-test-renderer';
 
 import StoreDirectoryScreen from '@/app/store/index';
-import { ShopDirectoryCard, directoryColumnsForWidth } from '@/components/storefront/shop-directory-card';
+import {
+  DIRECTORY_MAX_WIDTH, ShopDirectoryCard, directoryColumnsForWidth,
+} from '@/components/storefront/shop-directory-card';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicShopSummary } from '@/types/models';
 
@@ -110,11 +112,21 @@ describe('the directory card', () => {
 });
 
 describe('how many columns the directory takes', () => {
-  // One fewer than the product grid at every step -- a directory card is wider.
-  it('goes one, two, three as the window grows', () => {
+  it('climbs to four as the window grows', () => {
     expect(directoryColumnsForWidth(390)).toBe(1);
     expect(directoryColumnsForWidth(800)).toBe(2);
-    expect(directoryColumnsForWidth(1280)).toBe(3);
+    expect(directoryColumnsForWidth(1100)).toBe(3);
+    expect(directoryColumnsForWidth(1280)).toBe(4);
+  });
+
+  // THE PAIR THAT HAS TO STAY IN STEP. The directory is bounded wider than a
+  // shop page because it is a grid, not a reading column -- and a wider bound
+  // with no extra column just makes three cards fatter, which is the same
+  // defect (a third of a laptop screen doing nothing) wearing different
+  // clothes. Pinned together so neither can move alone.
+  it('gains its fourth column at a width the page is actually allowed to reach', () => {
+    expect(DIRECTORY_MAX_WIDTH).toBeGreaterThanOrEqual(1240);
+    expect(directoryColumnsForWidth(DIRECTORY_MAX_WIDTH)).toBe(4);
   });
 });
 

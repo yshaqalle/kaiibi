@@ -159,13 +159,40 @@ const styles = StyleSheet.create({
 
 export const DIRECTORY_GAP = SPACE.cardGap;
 
+// THE DIRECTORY GETS ITS OWN MEASURE, WIDER THAN A SHOP'S.
+//
+// This page was bounded by SHOP_MAX_WIDTH (1080), borrowed from the shop page,
+// and on a 1,500px laptop that left a third of the screen empty on either side
+// of the grid. The borrow was wrong, and the reason 1080 exists on a shop page
+// is the reason it does not belong here: that number is a READING COLUMN --
+// prose, a headline, a price list, all things a measure that grows with the
+// window stops serving (scale.ts says so at length, and PR #124 exists because
+// the shop page had no measure at all).
+//
+// A directory is not read down a column. It is a GRID of cards scanned across,
+// and a grid has no measure to lose -- it gains a column. 1280 is the design's
+// own frame width, at which it draws four.
+//
+// The HERO keeps its own narrow bound (640) inside this, because that half of
+// the page IS prose. Wide grid, narrow sentence -- which is what the mockup
+// does and what this was failing to do.
+export const DIRECTORY_MAX_WIDTH = 1280;
+
 // Same reasoning as gridColumnsForWidth in theme-shared.tsx, different numbers:
 // a directory card is wider than a product tile (16:10 photo plus two lines of
-// copy), so it wants one fewer column at every step.
+// copy), so it climbs later at every step.
+//
+// The fourth column is what DIRECTORY_MAX_WIDTH above is FOR. Stopping at three
+// while allowing 1280 of width would just make three cards fatter, which is the
+// same defect as the empty margins wearing different clothes -- a 400px-wide
+// card with a 16:10 photo is a poster, not a directory entry.
 export function directoryColumnsForWidth(width: number): number {
   if (width < 620) return 1;
   if (width < 960) return 2;
-  return 3;
+  // Below this a fourth column puts the cards under ~290px, where a shop name
+  // and a two-line blurb start wrapping badly.
+  if (width < 1240) return 3;
+  return 4;
 }
 
 

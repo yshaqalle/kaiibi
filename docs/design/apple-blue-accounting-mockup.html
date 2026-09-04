@@ -314,7 +314,127 @@ twenty-three reports are actually missing</b>.</p>
 
 <!-- ============================================================ -->
 <section>
-  <h2>3 · The card</h2>
+  <h2>3 · Where the blue lands</h2>
+  <p class="h2sub">The plan is app-wide, not Accounting-only — it says "restyling primary actions app-wide" and
+  its mockup applies blue "throughout Dashboard/POS/Inventory/Accounting". So the collision has to be read per
+  surface, and Reports turns out to be the mildest of them while Dashboard is the worst.</p>
+
+  <h3 class="sub">On the Reports screens themselves, the collision is thin</h3>
+  <p class="note">Six of the seven built reports are tables. Only <b>Sales by Category</b> draws in a series hue —
+  a share bar in <code>bentoSeries1</code>. If the Reports <i>screens</i> were the whole question, the blue would
+  mostly land safely.</p>
+  <table class="dtbl">
+    <tr><th>Report screen</th><th>What it draws</th><th>Carries a blue the CTA would collide with</th></tr>
+    <tr><td>Sales Reports</td><td><code>DataTable</code> + <code>StatTile</code></td><td>Sparkline endpoint dot — <code>chartAccent</code></td></tr>
+    <tr><td>Item Performance</td><td><code>DataTable</code> + <code>StatTile</code></td><td>Sparkline endpoint dot</td></tr>
+    <tr><td>Inventory Balance</td><td><code>DataTable</code> + <code>StatTile</code></td><td>Sparkline endpoint dot</td></tr>
+    <tr><td>Stock Movement</td><td><code>DataTable</code> + <code>StatTile</code></td><td>Sparkline endpoint dot</td></tr>
+    <tr><td>Sales by Category</td><td><code>DataTable</code> + share bar</td><td><code>bentoSeries1</code> fill</td></tr>
+    <tr><td>Sales by Employee</td><td><code>DataTable</code></td><td>Nothing</td></tr>
+    <tr><td>Low Stock &amp; Reorder</td><td><code>DataTable</code></td><td>Nothing</td></tr>
+    <tr><td><b>The hub in front of them</b></td><td>Eleven cards</td><td>Eleven action pills, every one blue</td></tr>
+    <tr><td><b>P&amp;L, tax and labour</b> <i>(the legacy screen the hub still links to)</i></td><td>Donut, category-over-time, ranking chart</td><td>All three</td></tr>
+  </table>
+
+  <h3 class="sub">The problem is not the charts. It is that blue already means four things</h3>
+  <p class="note">Every one of these is a live, shipped meaning, and none of them is "press this". The plan adds a
+  fifth to the pile — and its tint is measurably the same wash as two of them.</p>
+  <table class="dtbl">
+    <tr><th>Blue already means</th><th>Where</th><th>Token</th><th>Distance from the proposed blue</th></tr>
+    <tr><td>This is data</td><td>Every chart, sparkline, gauge and share bar</td><td><code>chartAccent</code> #2a78d6</td><td class="num">ΔE00 <span class="fail">2.7</span> · deutan 3.1</td></tr>
+    <tr><td>This is a note, not a task</td><td><code>Caveat tone="context"</code> — the ⓘ panel</td><td>ink #1E4BCC on #EEF4FF</td><td class="num">wash <span class="fail">ΔE00 1.7</span> from the plan's tint</td></tr>
+    <tr><td>Informational, lowest severity</td><td><code>attention-list</code> — the <i>info</i> pill</td><td>#1E4BCC on #E7EEFB</td><td class="num">wash <span class="fail">ΔE00 1.7</span> from the plan's tint</td></tr>
+    <tr><td>The shop is on trial</td><td><code>subscription-status</code></td><td><code>bentoSeries1</code> #2f6bff</td><td class="num">ΔE00 <span class="fail">6.0</span> · deutan 3.5</td></tr>
+    <tr><td>A figure carried beside a status one</td><td>Delta badges</td><td><code>bentoAccentWash</code> #e6edff</td><td class="num">wash <span class="fail">ΔE00 3.5</span></td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">The tint is the sharp end. <code>#e8f2fe</code> is <b>ΔE00 1.7</b> from
+  the caveat's informational background and <b>1.7</b> from the attention list's info pill — under deutan, 1.0 and
+  0.6. Those are not near-misses; at that distance they are the same colour. A <i>Record payment</i> button and an
+  "ⓘ this number is right, here is why it looks odd" panel would be painted identically, and one of them must not
+  be pressed.</p>
+
+  <h3 class="sub">The same Reports screen, both ways</h3>
+  <p class="note">Four blues on one screen, meaning four different things. On the left, weight and shape carry the
+  difference; on the right, they are one hue.</p>
+  <div class="pair two">
+    <div>
+      <div class="frameHead"><b>As built</b> <i>blue means data, and only data</i></div>
+      <div class="frame">
+        <div class="head" style="margin-bottom:10px">
+          <div><p class="ey">Reports</p><h3 style="font-size:20px">Sales Reports</h3></div>
+          <div class="ctrl"><span class="btn">Export CSV</span></div>
+        </div>
+        <div style="background:#fff;border-radius:26px;padding:18px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+            <div style="background:#f6f6f7;border-radius:16px;padding:13px">
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#5e5d65">Revenue</div>
+              <div style="font-size:19px;font-weight:800;margin-top:4px" class="num">$247.85</div>
+              <svg viewBox="0 0 90 20" style="width:100%;height:20px;margin-top:6px"><polyline points="0,16 18,14 36,15 54,11 72,3 90,7" fill="none" stroke="#2a78d6" stroke-width="1.6"/><circle cx="90" cy="7" r="2.4" fill="#2a78d6"/></svg>
+            </div>
+            <div style="background:#f6f6f7;border-radius:16px;padding:13px">
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#5e5d65">Orders</div>
+              <div style="font-size:19px;font-weight:800;margin-top:4px" class="num">6</div>
+              <svg viewBox="0 0 90 20" style="width:100%;height:20px;margin-top:6px"><polyline points="0,15 18,12 36,14 54,9 72,6 90,8" fill="none" stroke="#2a78d6" stroke-width="1.6"/><circle cx="90" cy="8" r="2.4" fill="#2a78d6"/></svg>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #dcdce4;padding-top:12px">
+            <span style="font-size:12px;color:#5e5d65">Cash · 58%</span>
+            <span class="b1" style="background:#f6f6f7;color:#1a1a1e">Run report</span>
+          </div>
+        </div>
+        <div class="caveat" style="margin-top:12px;background:#EEF4FF;color:#1E4BCC">
+          <span style="font-weight:800">ⓘ</span>
+          <span style="color:#1E4BCC">Revenue is net of sales tax and refunds, so it will not match the takings on the till.</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="frameHead"><b>As proposed</b> <i>the button, the data and the note are one colour</i></div>
+      <div class="frame">
+        <div class="head" style="margin-bottom:10px">
+          <div><p class="ey">Reports</p><h3 style="font-size:20px">Sales Reports</h3></div>
+          <div class="ctrl"><span class="btn" style="background:#0071e3;color:#fff;border-color:#0071e3">Export CSV</span></div>
+        </div>
+        <div style="background:#fff;border-radius:26px;padding:18px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+            <div style="background:#f6f6f7;border-radius:16px;padding:13px">
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#5e5d65">Revenue</div>
+              <div style="font-size:19px;font-weight:800;margin-top:4px" class="num">$247.85</div>
+              <svg viewBox="0 0 90 20" style="width:100%;height:20px;margin-top:6px"><polyline points="0,16 18,14 36,15 54,11 72,3 90,7" fill="none" stroke="#2a78d6" stroke-width="1.6"/><circle cx="90" cy="7" r="2.4" fill="#2a78d6"/></svg>
+            </div>
+            <div style="background:#f6f6f7;border-radius:16px;padding:13px">
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#5e5d65">Orders</div>
+              <div style="font-size:19px;font-weight:800;margin-top:4px" class="num">6</div>
+              <svg viewBox="0 0 90 20" style="width:100%;height:20px;margin-top:6px"><polyline points="0,15 18,12 36,14 54,9 72,6 90,8" fill="none" stroke="#2a78d6" stroke-width="1.6"/><circle cx="90" cy="8" r="2.4" fill="#2a78d6"/></svg>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #dcdce4;padding-top:12px">
+            <span style="font-size:12px;color:#5e5d65">Cash · 58%</span>
+            <span class="b1" style="background:#e8f2fe;color:#0071e3">Run report</span>
+          </div>
+        </div>
+        <div class="caveat" style="margin-top:12px;background:#EEF4FF;color:#1E4BCC">
+          <span style="font-weight:800">ⓘ</span>
+          <span style="color:#1E4BCC">Revenue is net of sales tax and refunds, so it will not match the takings on the till.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">On the right, the <i>Run report</i> pill and the ⓘ panel below it are
+  the same wash to within ΔE00 1.7. The sparkline endpoint and the <i>Export CSV</i> fill are the same hue to
+  within 2.7. Nothing on that screen distinguishes a thing you press from a thing you read.</p>
+
+  <h3 class="sub">Dashboard is where it actually breaks</h3>
+  <p class="note">Reports is mostly tables. Dashboard is almost entirely charts — and the plan explicitly restyles
+  its <i>Money in</i> / <i>Money out</i> buttons. <code>bentoSeries1</code> or <code>chartAccent</code> is read by
+  the revenue legend, the cash legend, the sales-pace gauge, the top-mover sparkline, the open-hours area, the
+  leaderboard avatars, the goal meter, the budget bar and the waterfall. If the blue ships, that screen has a
+  button the same colour as nine of its own marks.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>4 · The card</h2>
   <p class="h2sub">The proposal's <code>.report-card</code> and kaiibi's shipped hub card are the same idea drawn
   in two systems. Side by side, at the width they are actually read at.</p>
 
@@ -371,7 +491,7 @@ twenty-three reports are actually missing</b>.</p>
 
 <!-- ============================================================ -->
 <section>
-  <h2>4 · The Accounting tab, as it stands</h2>
+  <h2>5 · The Accounting tab, as it stands</h2>
   <p class="h2sub">Nine items were asked for. Eleven shipped — the two extra are the ones a set of books needs and
   a card grid does not suggest: replaying past trading into the ledger, and locking a month so its numbers stop
   moving. The fill toggle at the top applies to these frames too.</p>
@@ -429,7 +549,7 @@ twenty-three reports are actually missing</b>.</p>
 
 <!-- ============================================================ -->
 <section>
-  <h2>5 · The twenty-three reports</h2>
+  <h2>6 · The twenty-three reports</h2>
   <p class="h2sub">Seven are built here, three are doors into the ledger's statements, one is a deliberate
   signpost, and one card holds the tab this hub replaced. That leaves the genuine gaps — and they are fewer,
   and different, than twenty-three minus eleven suggests.</p>
@@ -508,7 +628,7 @@ twenty-three reports are actually missing</b>.</p>
 
 <!-- ============================================================ -->
 <section>
-  <h2>6 · What I would do</h2>
+  <h2>7 · What I would do</h2>
   <ul class="reco">
     <li><b>Drop the blue.</b> Not because black is better in the abstract — because this specific blue is
     <code>chartAccent</code> at ΔE00 2.7, and the app draws charts and buttons on the same screen. If a hue for

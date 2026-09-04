@@ -6,9 +6,10 @@ import {
 } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TYPE } from '@/components/storefront/scale';
 import {
-  DIRECTORY_GAP, FeaturedShopCard, ShopDirectoryCard, directoryColumnsForWidth, featuredShop,
+  DIRECTORY_GAP, DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard,
+  directoryColumnsForWidth, featuredShop,
 } from '@/components/storefront/shop-directory-card';
 import { paletteColors } from '@/lib/storefront-catalog';
 import {
@@ -470,7 +471,9 @@ function DirectoryHead() {
 const styles = StyleSheet.create({
   // The reading column, centred, with the page tone running edge to edge behind
   // it -- the same split every theme's scroller makes.
-  scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
+  // DIRECTORY_MAX_WIDTH, not SHOP_MAX_WIDTH: see that constant on why a grid of
+  // cards is not a reading column and should not borrow one's bound.
+  scroller: { flex: 1, width: '100%', maxWidth: DIRECTORY_MAX_WIDTH, alignSelf: 'center' },
   grid: { padding: SPACE.page, paddingBottom: 48, gap: DIRECTORY_GAP },
   row: { gap: DIRECTORY_GAP },
   cell: { flex: 1 },
