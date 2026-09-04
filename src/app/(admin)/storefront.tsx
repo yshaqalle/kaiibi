@@ -150,6 +150,11 @@ function StorefrontEditor() {
   const handleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tradingSinceError, setTradingSinceError] = useState<string | null>(null);
   const [highlightsError, setHighlightsError] = useState<string | null>(null);
+  // Its OWN state, and the reason this exists is that it did not have one:
+  // flushHandle's catch called setTradingSinceError, so a failed handle write
+  // reported itself under the year field. See the drawer's tradingSinceError
+  // doc comment for the whole of what that looked like on screen.
+  const [instagramError, setInstagramError] = useState<string | null>(null);
   const pendingHighlightsRef = useRef<{ title: string; body: string }[] | null>(null);
   const highlightsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightsInFlightRef = useRef<Promise<void>>(Promise.resolve());
@@ -849,6 +854,14 @@ function StorefrontEditor() {
     await highlightsInFlightRef.current;
   }
 
+  // Same shape as handleRetryInstagram and for the same reason: flushHighlights
+  // returns early on a null pending ref, so the retry re-arms it from what is
+  // actually in the three boxes.
+  function handleRetryHighlights() {
+    pendingHighlightsRef.current = draftHighlights;
+    void flushHighlights();
+  }
+
   // DEBOUNCED, and the write is OUT of the setState updater.
   //
   // This used to call commitHighlights from inside the updater, on every
@@ -913,9 +926,26 @@ function StorefrontEditor() {
     try {
       await setInstagram(shopId, handle);
       setWorking((w) => (w ? { ...w, instagram: handle } : w));
+      // Cleared on success rather than on keystroke, the same way the
+      // highlights write clears its own: a failure that vanishes the moment
+      // somebody touches the box would hide an unsaved handle behind the act
+      // of correcting it.
+      setInstagramError(null);
     } catch {
-      setTradingSinceError('Could not save that — check your connection and try again.');
+      // Names the field, because the caveat this reaches now sits under that
+      // field and a bare "could not save that" beside it would be answering a
+      // question nobody asked.
+      setInstagramError('Could not save your Instagram handle — check your connection and try again.');
     }
+  }
+
+  // What the caveat's "Try again" runs. flushHandle clears the pending ref on
+  // entry, so a retry has to put the handle back before flushing -- otherwise
+  // it would return immediately having written nothing and cleared nothing,
+  // which reads on screen as a button that does not work.
+  function handleRetryInstagram() {
+    pendingHandleRef.current = normalizeInstagram(instagramText);
+    void flushHandle();
   }
 
   // Same debounce as the highlights and the draft: a four-digit year typed one
@@ -981,12 +1011,16 @@ function StorefrontEditor() {
       onUploadHeroImage={handleUploadHeroImage}
       focusRequest={focusRequest}
         tradingSince={tradingSinceText}
-        tradingSinceError={tradingSinceError ?? highlightsError}
+        tradingSinceError={tradingSinceError}
         onChangeTradingSince={handleChangeTradingSince}
         highlights={draftHighlights}
         onChangeHighlight={handleChangeHighlight}
+        highlightsError={highlightsError}
+        onRetryHighlights={handleRetryHighlights}
         instagram={instagramText}
         onChangeInstagram={handleChangeInstagram}
+        instagramError={instagramError}
+        onRetryInstagram={handleRetryInstagram}
         gallery={gallery.map((image) => ({ id: image.id, url: publicImageUrl(image.imagePath) ?? '' }))}
         onAddGalleryImage={handleAddGalleryImage}
         onRemoveGalleryImage={handleRemoveGalleryImage}
