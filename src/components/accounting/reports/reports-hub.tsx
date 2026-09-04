@@ -473,9 +473,9 @@ export function ReportsHub({
               // property access and narrowing would be lost inside the arrow.
               const door = view.door;
               const card = (
-                <Card variant="bento" fill style={!view.available && styles.cardDimmed}>
+                <Card variant="bento" fill style={[styles.card, !view.available && styles.cardDimmed]}>
                   <View style={styles.iconTile}>
-                    <Ionicons name={view.icon} size={15} color={theme.bentoInk2} />
+                    <Ionicons name={view.icon} size={17} color={theme.bentoInk2} />
                   </View>
                   <Text style={styles.title}>{view.label}</Text>
                   <Text style={styles.blurb}>{view.blurb}</Text>
@@ -533,23 +533,40 @@ const styles = StyleSheet.create({
   group: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, marginBottom: 10 },
   groupNote: { fontSize: 11.5, fontWeight: '500', color: theme.bentoMuted },
   cell: { width: '100%' },
+  // Everything from `card` down is a deliberate DUPLICATE of ledger-hub's
+  // sheet, and the two must be changed together -- hub-card-proportions.test.tsx
+  // asserts against both renders for exactly that reason. See that file's
+  // header comment for why the numbers are what they are.
+  card: { padding: 20 },
   // The design's `.hubcard.soon { opacity:.5 }`. Half-strength rather than a
   // different fill, so it reads as "not yet" rather than as a fifth card style.
   cardDimmed: { opacity: 0.5 },
   iconTile: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: theme.bentoSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  title: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk },
-  blurb: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 4, lineHeight: 16 },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 14 },
-  scope: { fontSize: 11, color: theme.bentoMuted2, flexShrink: 1 },
-  action: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.bentoSoft },
-  actionText: { fontSize: 11.5, fontWeight: '800', color: theme.bentoInk2 },
-  waitingOn: { fontSize: 11.5, fontWeight: '800', color: theme.bentoMuted2, flexShrink: 1 },
+  title: { fontSize: 15, fontWeight: '800', color: theme.bentoInk },
+  blurb: { fontSize: 12.5, color: theme.bentoMuted, marginTop: 6, lineHeight: 19 },
+  // See ledger-hub's note: the roomier pill and scope no longer both fit on a
+  // quarter-width card, so the pill wraps rather than the scope truncating.
+  // "Open in Accounting" makes this hub the worse of the two for it.
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  scope: { fontSize: 11.5, color: theme.bentoMuted2, flexShrink: 0 },
+  action: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: theme.bentoSoft },
+  actionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk2 },
+  // Same reason as `scope`: "See Inventory Balance" is a signpost, and a
+  // signpost that reads "See Inventory Bala…" points nowhere.
+  waitingOn: { fontSize: 12.5, fontWeight: '800', color: theme.bentoMuted2, flexShrink: 0 },
 });

@@ -360,9 +360,9 @@ export function LedgerHub({
               return (
               <BentoCell key={view.key} span={3}>
               <Pressable style={styles.cell} onPress={() => onOpen(view.key)} role="button">
-                <Card variant="bento" fill>
+                <Card variant="bento" fill style={styles.card}>
                   <View style={styles.iconTile}>
-                    <Ionicons name={view.icon} size={15} color={theme.bentoInk2} />
+                    <Ionicons name={view.icon} size={17} color={theme.bentoInk2} />
                   </View>
                   <Text style={styles.title}>{view.label}</Text>
                   <Text style={styles.blurb}>{view.blurb}</Text>
@@ -396,29 +396,61 @@ const styles = StyleSheet.create({
   // to a third, a half and then the full row as the screen narrows, which is
   // BentoCell's own rule. The Pressable just fills whatever it is given.
   cell: { width: '100%' },
+  // `Card variant="bento"` carries no padding of its own -- every other caller
+  // in the app passes one, and these two hubs were the only ones that did not,
+  // so the icon tile sat flush into a 26px corner. 20 rather than the 18 the
+  // rest of the app uses: this card is a stack of four things where a
+  // BentoCard is usually a heading over a body, and the extra two points is
+  // what stops the pill crowding the corner radius.
+  card: { padding: 20 },
   // Cards in a row line up when one blurb wraps to three lines and another
   // takes two -- via `rowAlign="stretch"` on the grid and `fill` on the Card,
   // which is the opt-in BentoGrid documents. NOT `height: '100%'`: see the
   // note at the grid.
+  //
+  // The proportions below are the Apple-blue proposal's, which drew a roomier
+  // card than the one that shipped (docs/design/apple-blue-accounting-mockup.html,
+  // section 4). Its geometry and type scale carry no colour, so they transfer
+  // whole; its GREY RAMP does not come with them. That proposal's footer meta
+  // is #9a9a9e, which is 2.80:1 on white and fails AA outright, and its blurb
+  // grey is a step lighter than `bentoMuted` for no gain. Both keep the bento
+  // steps, which are already solved. Title weight likewise stays 800 rather
+  // than the proposal's 600: 800 is the voice every other card title and group
+  // heading in the app uses, and a 600 here would be the only one.
   iconTile: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: theme.bentoSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  title: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk },
-  blurb: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 4, lineHeight: 16 },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 14 },
-  scope: { fontSize: 11, color: theme.bentoMuted2, flexShrink: 1 },
+  title: { fontSize: 15, fontWeight: '800', color: theme.bentoInk },
+  blurb: { fontSize: 12.5, color: theme.bentoMuted, marginTop: 6, lineHeight: 19 },
+  // `flexWrap` + a scope that does NOT shrink, because the roomier proportions
+  // above cost this row about 30px: a 12.5px pill with 14 of horizontal padding
+  // beside an 11.5px scope no longer both fit on a quarter-width card. With the
+  // old `flexShrink: 1` the scope silently lost the argument -- "As at the range
+  // end" rendered "As at the ra…", which is the one string on the card that
+  // cannot be allowed to truncate, since a card promising a window the screen
+  // does not honour is a card that gets believed. Now the pill drops to a second
+  // line instead and both stay whole.
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  scope: { fontSize: 11.5, color: theme.bentoMuted2, flexShrink: 0 },
   // Only while something is actually waiting, and only on Post History. A shop
   // that has never backfilled is in a normal state rather than an alarming one,
   // so this is emphasis on a fact, not a warning.
   scopeWaiting: { color: theme.warning, fontWeight: '800' },
-  action: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.bentoSoft },
+  action: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: theme.bentoSoft },
   actionSolid: { backgroundColor: theme.bentoInk },
-  actionText: { fontSize: 11.5, fontWeight: '800', color: theme.bentoInk2 },
+  actionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk2 },
   actionTextSolid: { color: theme.bentoSurface },
 });
