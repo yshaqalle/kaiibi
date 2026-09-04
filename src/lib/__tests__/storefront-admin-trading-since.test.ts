@@ -1,4 +1,4 @@
-import { getMyStorefront, isValidTradingSince } from '@/lib/storefront-admin';
+import { getMyStorefront, isValidTradingSince, normalizeInstagram } from '@/lib/storefront-admin';
 
 // `mock`-prefixed: jest.mock's factory is hoisted above this line.
 const mockSelect = jest.fn();
@@ -40,7 +40,7 @@ describe('the editor reads back what it writes', () => {
     const columns = mockSelect.mock.calls[0][0] as string;
     for (const column of [
       'theme', 'palette', 'headline', 'about', 'hero_image_url', 'offers_delivery',
-      'published_at', 'first_published_at', 'auto_advance', 'trading_since', 'draft',
+      'published_at', 'first_published_at', 'auto_advance', 'trading_since', 'instagram', 'draft',
     ]) {
       expect(columns).toContain(column);
     }
@@ -58,5 +58,32 @@ describe('the year a shop opened', () => {
     expect(isValidTradingSince(1899)).toBe(false);
     expect(isValidTradingSince(2201)).toBe(false);
     expect(isValidTradingSince(20.5)).toBe(false);
+  });
+});
+
+// A shop asked for a "handle" will paste a url, type an @, or both. All three
+// have to land on the same bare handle, because the page prints the @ itself.
+describe('the Instagram handle', () => {
+  it('strips a leading @', () => {
+    expect(normalizeInstagram('@jiija')).toBe('jiija');
+    expect(normalizeInstagram('@@jiija')).toBe('jiija');
+  });
+
+  it('reduces a pasted url to the handle', () => {
+    expect(normalizeInstagram('https://instagram.com/jiija')).toBe('jiija');
+    expect(normalizeInstagram('https://www.instagram.com/jiija/')).toBe('jiija');
+    expect(normalizeInstagram('instagram.com/jiija?hl=en')).toBe('jiija');
+  });
+
+  it('reads an empty or blank field as cleared, not as an empty handle', () => {
+    expect(normalizeInstagram('')).toBeNull();
+    expect(normalizeInstagram('   ')).toBeNull();
+    expect(normalizeInstagram('@')).toBeNull();
+  });
+
+  // The column's own check is 30 characters; truncating here means a shop meets
+  // the limit as a shortened handle rather than as a Postgres constraint name.
+  it('truncates to the length the column accepts', () => {
+    expect(normalizeInstagram('a'.repeat(45))).toHaveLength(30);
   });
 });

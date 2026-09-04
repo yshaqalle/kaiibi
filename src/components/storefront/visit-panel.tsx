@@ -113,6 +113,38 @@ function HoursCard({ storefront, colors }: { storefront: PublicStorefront; color
   );
 }
 
+// One way to reach the shop. Pressable in full rather than the value alone: a
+// 44px row is a target somebody can hit on a phone, where a phone number set at
+// body size is not.
+function ContactRow({
+  colors, glyph, value, label, onPress, testID,
+}: {
+  colors: PaletteColors;
+  glyph: string;
+  value: string;
+  label: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="link"
+      accessibilityLabel={`${label}: ${value}`}
+      onPress={onPress}
+      style={pressable([styles.contact, { borderBottomColor: colors.hairline }])}
+    >
+      <View style={[styles.contactGlyph, { backgroundColor: colors.soft }]}>
+        <Text style={styles.contactGlyphText}>{glyph}</Text>
+      </View>
+      <View style={styles.contactText}>
+        <Text style={[styles.contactValue, { color: colors.ink }]} numberOfLines={1}>{value}</Text>
+        <Text style={[styles.contactLabel, { color: colors.muted }]}>{label}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 export function VisitPanel({
   storefront, areas, colors, wide,
 }: {
@@ -216,15 +248,50 @@ export function VisitPanel({
       </ShopCard>
       ) : null}
 
-      {storefront.whatsappE164 ? (
+      {/* THE THREE WAYS IN, and the card is gone entirely when there are none.
+          WhatsApp was the only one this page had ever offered; the phone has
+          been on every shop since 20260808000000 and the handle is new. */}
+      {storefront.whatsappE164 || storefront.contactPhone || storefront.instagram ? (
         <ShopCard colors={colors} testID="storefront-visit-contact">
           <Text style={[styles.eyebrow, { color: colors.muted }]}>Reach the shop</Text>
-          <Text style={[styles.note, { color: colors.muted }]}>
-            Not sure your area is covered? Ask before you order.
-          </Text>
-          <View style={styles.action}>
-            <WhatsAppButton storefront={storefront} />
-          </View>
+
+          {storefront.contactPhone ? (
+            <ContactRow
+              testID="storefront-visit-call"
+              colors={colors}
+              glyph="📞"
+              value={storefront.contactPhone}
+              label="Call the shop"
+              // `tel:` is the one scheme every platform agrees on, and the OS
+              // decides what to do with it -- dialler on a phone, a prompt on a
+              // laptop. Stripped of spaces because a number typed for humans
+              // ("+252 63 000 0000") is not a valid tel: target.
+              onPress={() => openExternalUrl(`tel:${storefront.contactPhone!.replace(/[^\d+]/g, '')}`)}
+            />
+          ) : null}
+
+          {storefront.instagram ? (
+            <ContactRow
+              testID="storefront-visit-instagram"
+              colors={colors}
+              glyph="📷"
+              // The @ is printed, never stored -- see normalizeInstagram.
+              value={`@${storefront.instagram}`}
+              label="Instagram"
+              onPress={() => openExternalUrl(`https://instagram.com/${storefront.instagram}`)}
+            />
+          ) : null}
+
+          {storefront.whatsappE164 ? (
+            <>
+              <Text style={[styles.note, { color: colors.muted }]}>
+                Not sure your area is covered? Ask before you order.
+              </Text>
+              <View style={styles.action}>
+                <WhatsAppButton storefront={storefront} />
+              </View>
+            </>
+          ) : null}
         </ShopCard>
       ) : null}
         </View>
@@ -276,6 +343,15 @@ const styles = StyleSheet.create({
   areaName: { fontSize: TYPE.body, fontWeight: '700', flexShrink: 1 },
   fee: { fontSize: TYPE.body, fontWeight: '800', ...TABULAR },
   action: { flexDirection: 'row', marginTop: 14 },
+  contact: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, borderBottomWidth: 1,
+  },
+  contactGlyph: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  contactGlyphText: { fontSize: 17 },
+  contactText: { flexShrink: 1 },
+  contactValue: { fontSize: TYPE.body, fontWeight: '700' },
+  contactLabel: { fontSize: TYPE.metaSmall + 1, marginTop: 2 },
 
   hoursHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   statePill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5 },

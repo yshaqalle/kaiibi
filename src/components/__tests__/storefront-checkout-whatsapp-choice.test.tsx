@@ -93,6 +93,7 @@ const storefront: PublicStorefront = {
   paymentMode: 'on_collection',
   openingHours: {},
   tradingSince: null, highlights: [], images: [],
+  contactPhone: null, instagram: null,
   // No flyers: these fixtures predate them, and a shop with none must
   // render exactly as it did before they existed.
   flyers: [],

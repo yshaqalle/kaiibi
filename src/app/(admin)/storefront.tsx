@@ -34,6 +34,8 @@ import {
   isValidTradingSince,
   addGalleryImage,
   listGalleryImages,
+  normalizeInstagram,
+  setInstagram,
   listHighlights,
   removeGalleryImage,
   replaceHighlights,
@@ -143,6 +145,9 @@ function StorefrontEditor() {
   // A string, not a number -- "20" on the way to "2014" must survive being
   // typed. Parsed on save, never on keystroke.
   const [tradingSinceText, setTradingSinceText] = useState('');
+  const [instagramText, setInstagramText] = useState('');
+  const pendingHandleRef = useRef<string | null | undefined>(undefined);
+  const handleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tradingSinceError, setTradingSinceError] = useState<string | null>(null);
   const [highlightsError, setHighlightsError] = useState<string | null>(null);
   const pendingHighlightsRef = useRef<{ title: string; body: string }[] | null>(null);
@@ -217,6 +222,7 @@ function StorefrontEditor() {
     try {
       const existing = await getMyStorefront(shopId);
       if (existing?.tradingSince) setTradingSinceText(String(existing.tradingSince));
+      if (existing?.instagram) setInstagramText(existing.instagram);
       // `.catch(() => [])` for the same reason the public route does it on
       // areas and categories: highlights are an optional block, and a blip on
       // this read must cost the block, not the whole editor.
@@ -433,6 +439,7 @@ function StorefrontEditor() {
   flushLiveFieldsRef.current = () => {
     void flushHighlights();
     void flushYear();
+    void flushHandle();
   };
   useEffect(() => () => flushLiveFieldsRef.current(), []);
 
@@ -890,6 +897,27 @@ function StorefrontEditor() {
     queueYear(year);
   }
 
+  // Normalised on SAVE, not on keystroke: stripping the @ as somebody types it
+  // deletes the character under their cursor.
+  function handleChangeInstagram(text: string) {
+    setInstagramText(text);
+    pendingHandleRef.current = normalizeInstagram(text);
+    if (handleTimerRef.current) clearTimeout(handleTimerRef.current);
+    handleTimerRef.current = setTimeout(() => { void flushHandle(); }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  async function flushHandle() {
+    const handle = pendingHandleRef.current;
+    if (!shopId || handle === undefined) return;
+    pendingHandleRef.current = undefined;
+    try {
+      await setInstagram(shopId, handle);
+      setWorking((w) => (w ? { ...w, instagram: handle } : w));
+    } catch {
+      setTradingSinceError('Could not save that — check your connection and try again.');
+    }
+  }
+
   // Same debounce as the highlights and the draft: a four-digit year typed one
   // digit at a time is one save, not four.
   function queueYear(year: number | null) {
@@ -926,6 +954,10 @@ function StorefrontEditor() {
     openingHours: primaryHours,
     // Both save LIVE rather than through `draft` (see the migration on why),
     // so the preview reads the same rows the published page will.
+    // Off the same primary location the preview already reads its address and
+    // hours from, so the preview and the published page name one branch.
+    contactPhone: locations.find((location) => location.isPrimary)?.contactPhone ?? null,
+    instagram: working?.instagram ?? null,
     tradingSince: working?.tradingSince ?? null,
     highlights,
     // Resolved for the preview the same way the public reader resolves them,
@@ -953,6 +985,8 @@ function StorefrontEditor() {
         onChangeTradingSince={handleChangeTradingSince}
         highlights={draftHighlights}
         onChangeHighlight={handleChangeHighlight}
+        instagram={instagramText}
+        onChangeInstagram={handleChangeInstagram}
         gallery={gallery.map((image) => ({ id: image.id, url: publicImageUrl(image.imagePath) ?? '' }))}
         onAddGalleryImage={handleAddGalleryImage}
         onRemoveGalleryImage={handleRemoveGalleryImage}

@@ -16,7 +16,7 @@ function shop(overrides: Partial<PublicStorefront> = {}): PublicStorefront {
     theme: 'market', palette: 'ink', headline: 'Everything that plugs in.', about: null,
     heroImageUrl: null, offersDelivery: false, collectAddress: null,
     collectNeighborhood: 'Jigjiga Yar', paymentMode: 'on_collection', openingHours: {},
-    tradingSince: null, highlights: [], images: [],
+    tradingSince: null, highlights: [], images: [], contactPhone: null, instagram: null,
     flyers: [], autoAdvance: false,
     ...overrides,
   };
@@ -334,8 +334,27 @@ describe('the Visit panel', () => {
     expect(textOf(renderVisit(), 'storefront-visit-collect')).toContain('Jigjiga Yar, Hargeisa');
   });
 
-  it('offers no contact card to a shop with no number', () => {
-    expect(has(renderVisit({ whatsappE164: null }), 'storefront-visit-contact')).toBe(false);
+  it('offers no contact card to a shop with no way to be reached at all', () => {
+    const tree = renderVisit({ whatsappE164: null, contactPhone: null, instagram: null });
+    expect(has(tree, 'storefront-visit-contact')).toBe(false);
+  });
+
+  // The phone has been on every shop since 20260808000000 and was never shown.
+  it('offers a call row when the shop has a phone, even with no WhatsApp', () => {
+    const tree = renderVisit({ whatsappE164: null, contactPhone: '+252 63 000 0000' });
+    expect(has(tree, 'storefront-visit-contact')).toBe(true);
+    expect(textOf(tree, 'storefront-visit-call')).toContain('+252 63 000 0000');
+  });
+
+  it('offers an Instagram row, printing the @ it does not store', () => {
+    const tree = renderVisit({ instagram: 'jiija.electronics' });
+    expect(textOf(tree, 'storefront-visit-instagram')).toContain('@jiija.electronics');
+  });
+
+  it('shows neither row for a shop that has neither', () => {
+    const tree = renderVisit({ contactPhone: null, instagram: null });
+    expect(has(tree, 'storefront-visit-call')).toBe(false);
+    expect(has(tree, 'storefront-visit-instagram')).toBe(false);
   });
 
   // The mockup draws a map here. A rendered map needs a tile provider and a

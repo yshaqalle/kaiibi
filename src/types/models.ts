@@ -1348,6 +1348,12 @@ export type PublicStorefront = {
   // time they reach a renderer -- storefront.ts runs each path through
   // publicImageUrl, the same way it does the hero and the flyers.
   images: StorefrontImage[];
+  // The primary location's phone, from `shop_locations.contact_phone` -- the
+  // same row the address and hours come from. Every shop has one; none had ever
+  // been shown it to a customer.
+  contactPhone: string | null;
+  // Handle without the leading @. Null is the common case.
+  instagram: string | null;
   paymentMode: 'on_collection';
   // Required, never optional: the RPC coalesces to '[]' and never returns
   // null, so a shop with no flyers, a shop whose flyers are all drafts and a

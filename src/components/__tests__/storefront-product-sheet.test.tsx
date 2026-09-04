@@ -29,6 +29,7 @@ const shop: PublicStorefront = {
   paymentMode: 'on_collection',
   openingHours: {},
   tradingSince: null, highlights: [], images: [],
+  contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
 };

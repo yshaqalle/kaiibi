@@ -22,6 +22,7 @@ declare
   v_name    text;
   v_free_id uuid;
   v_result  text;
+  v_cats    text[];
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     values (v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -72,6 +73,21 @@ begin
     from public.list_public_storefronts() where slug = 'dir-alpha';
   if v_count <> 2 then
     raise exception 'FAIL: dir-alpha counted % items, expected 2 (unlisted or sold-out leaked)', v_count;
+  end if;
+
+  -- ------------------------------------------------ 3b. categories come from PRODUCTS
+  -- The chips used to read `shops.categories`, which nothing in the app writes,
+  -- so they were correct and permanently empty. They now derive from what is
+  -- actually on the shelf, over the same filter the count above uses: 'Tools'
+  -- is in (Hammer, Nails), 'Bulk' is not (unlisted), and a sold-out saw does
+  -- not put its category on the card either.
+  select categories into v_cats
+    from public.list_public_storefronts() where slug = 'dir-alpha';
+  if not (v_cats @> array['Tools'] and array_length(v_cats, 1) = 1) then
+    raise exception 'FAIL: expected only {Tools} from listed in-stock products, got %', v_cats;
+  end if;
+  if v_cats @> array['Bulk'] then
+    raise exception 'FAIL: an unlisted product put its category on the directory card';
   end if;
 
   -- ------------------------------------------------ 4. shops with stock come first

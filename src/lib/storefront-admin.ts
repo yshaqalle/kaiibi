@@ -76,6 +76,10 @@ export type ShopStorefront = {
   // `draft`: publish_storefront copies a fixed list of keys and this is not
   // one of them, so a value staged there would never reach the live column.
   tradingSince: number | null;
+  // Instagram handle, without the leading @. Saves live, like the year and the
+  // highlights, and for the same reason: publish_storefront copies a fixed key
+  // list out of `draft` and this is not on it.
+  instagram: string | null;
   // Unpublished edits, staged server-side (20260925000200_storefront_draft.sql)
   // so a shop that writes its page and taps Back loses nothing. Null means
   // "nothing staged" -- every field the shop has touched but not published is
@@ -134,6 +138,7 @@ function mapStorefrontRow(
     lapse_unpublished_reason?: string | null;
     auto_advance?: boolean | null;
     trading_since?: number | null;
+    instagram?: string | null;
     draft?: Record<string, unknown> | null;
   }
 ): ShopStorefront {
@@ -160,6 +165,7 @@ function mapStorefrontRow(
         : null,
     autoAdvance: Boolean(sf.auto_advance),
     tradingSince: sf.trading_since ?? null,
+    instagram: sf.instagram ?? null,
     draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
 }
@@ -171,7 +177,7 @@ export async function getMyStorefront(shopId: string): Promise<ShopStorefront | 
   const { data, error } = await supabase
     .from('shops')
     .select(
-      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, trading_since, draft)'
+      'id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, first_published_at, lapse_unpublished_at, lapse_unpublished_reason, auto_advance, trading_since, instagram, draft)'
     )
     .eq('id', shopId)
     .maybeSingle();
@@ -1542,6 +1548,26 @@ export async function removeGalleryImage(shopId: string, image: ShopImage): Prom
     .from('storefront_images')
     .delete()
     .eq('id', image.id)
+    .eq('shop_id', shopId);
+  if (error) throw error;
+}
+
+// The handle, without the @ a shop will inevitably type. Stored bare so the
+// page renders one consistently rather than printing whatever punctuation
+// arrived -- and a url pasted in whole is reduced to its last path segment,
+// because "instagram.com/jiija" is what a shop copies when asked for a handle.
+export function normalizeInstagram(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withoutUrl = trimmed.replace(/^https?:\/\//i, '').replace(/^(www\.)?instagram\.com\//i, '');
+  const handle = withoutUrl.replace(/^@+/, '').replace(/\/+$/, '').split(/[/?#]/)[0];
+  return handle.slice(0, 30) || null;
+}
+
+export async function setInstagram(shopId: string, handle: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('storefronts')
+    .update({ instagram: handle })
     .eq('shop_id', shopId);
   if (error) throw error;
 }

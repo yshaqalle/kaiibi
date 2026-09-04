@@ -164,6 +164,8 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // storage anything. A row pointing at a deleted object still yields a
     // perfectly well-formed URL. AboutPanel's `onError` is what catches that
     // one, and it is the only thing that can.
+    contactPhone: (row.contact_phone as string | null) ?? null,
+    instagram: (row.instagram as string | null) ?? null,
     images: Array.isArray(row.images)
       ? (row.images as { id: string; image_path: string }[])
           .map((image) => ({ id: image.id, url: publicImageUrl(image.image_path) }))

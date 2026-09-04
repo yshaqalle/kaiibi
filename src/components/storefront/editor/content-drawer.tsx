@@ -117,6 +117,8 @@ export function ContentDrawer({
   onChangeTradingSince = () => {},
   highlights = [],
   onChangeHighlight = () => {},
+  instagram = '',
+  onChangeInstagram = () => {},
   gallery = [],
   onAddGalleryImage,
   onRemoveGalleryImage,
@@ -172,6 +174,9 @@ export function ContentDrawer({
    * Photographs of the shop, already resolved to URLs. Live rows again, like
    * the highlights -- and unlike the hero, which is a single staged field.
    */
+  /** Instagram handle as typed. Normalised on save, not on keystroke. */
+  instagram?: string;
+  onChangeInstagram?: (text: string) => void;
   gallery?: { id: string; url: string }[];
   onAddGalleryImage?: (localUri: string) => Promise<void>;
   onRemoveGalleryImage?: (id: string) => Promise<void>;
@@ -722,6 +727,20 @@ export function ContentDrawer({
           />
         </View>
       ))}
+
+      <Text style={[styles.eyebrow, styles.spaced]}>Instagram</Text>
+      <Caveat tone="context">
+        Shown on your Visit tab. Paste a link or type the handle — saves straight to your live page.
+      </Caveat>
+      <TextInput
+        testID="content-drawer-instagram"
+        style={styles.textInput}
+        value={instagram}
+        onChangeText={onChangeInstagram}
+        placeholder="@yourshop"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
 
       <Text style={[styles.eyebrow, styles.spaced]}>Photos of the shop</Text>
       <Caveat tone="context">

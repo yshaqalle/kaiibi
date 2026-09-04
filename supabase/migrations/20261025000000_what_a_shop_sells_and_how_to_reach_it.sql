@@ -1,79 +1,43 @@
--- Photographs of the shop.
+-- What a shop sells, and the two ways to reach it that were never published.
 --
--- The last block of the approved About design, and the one held back until now
--- because it needs more than a column: an upload flow, and a storage lifecycle
--- that does not leave orphans in the bucket every time a shop changes its mind.
+-- THE CHIPS WERE READING A COLUMN NOTHING WRITES. `shops.categories` is a
+-- text[] that createShop accepts and defaults to '{}', and NOTHING in the app
+-- has ever set it -- not signup, not Settings (its "Brands and categories"
+-- panel edits PRODUCT categories, a different thing entirely). So the
+-- directory's category chips shipped correct and permanently empty: right
+-- plumbing, no water.
 --
--- SIX, capped by trigger for the same reason the highlights are capped at
--- three: the rule is about the SET, which a row-level check cannot see. Six is
--- the design's one-wide-plus-two grid twice over -- enough for a shop to show
--- its front, its counter and its shelves, and few enough that a customer on a
--- phone connection is not made to download a portfolio before they can see a
--- price.
+-- They now derive from `products.category`, which every shop fills in as a
+-- matter of course because it is what groups their own catalogue. It is also
+-- the truer answer: what a shop actually has on the shelf today, not what
+-- somebody ticked once at signup. Same three conditions as
+-- get_public_storefront_categories -- listed online, in stock, shop published
+-- -- so a chip can never offer a shop whose own category band would not show
+-- that category.
 --
--- WHATEVER uploadImage RETURNS, matching storefront_flyers.image_path exactly:
--- the column stores it and publicImageUrl on the client makes an address of it,
--- so nothing downstream needs to know which bucket a photograph lives in.
+-- `shops.categories` is left alone. It is not this migration's business
+-- whether the admin side keeps using it.
 --
--- Today that value is an ABSOLUTE URL, not a bucket path -- this header said
--- "paths, not urls" and was wrong. It matters beyond pedantry: publicImageUrl
--- passes an absolute url straight back without asking storage anything, so a
--- row whose object has been deleted still yields a well-formed url and no
--- client-side null check can detect it. That is why removeGalleryImage's
--- ordering is defended by AboutPanel's `onError` and not by a url filter.
+-- AND THE PHONE WAS ALREADY THERE. `shop_locations.contact_phone` has existed
+-- since 20260808000000 and is backfilled for every shop -- it is on receipts,
+-- it is in Settings -- and no customer has ever been shown it. WhatsApp was
+-- the only way to reach a shop from its own page. Exposing it costs a column
+-- on a function that already reads that row.
 --
--- ORPHANS ARE THE CLIENT'S JOB and are handled in storefront-admin.ts, because
--- the bucket is not reachable from SQL: deleting a row here cannot delete the
--- object it points at, so removeGalleryImage deletes the object FIRST and the
--- row second. A failed object delete leaves the photo on the page, which is
--- recoverable; the other order leaves a row pointing at nothing, which is a
--- broken image on a customer's screen.
+-- Instagram is the only genuinely new field here, and the only contact on the
+-- design's Visit tab that had nowhere to read from.
 --
--- COPIED FORWARD IN FULL from 20261021000000, per the convention.
+-- Two functions, no new ones: the anon surface stays at eight.
 
-create table public.storefront_images (
-  id uuid primary key default gen_random_uuid(),
-  shop_id uuid not null references public.shops(id) on delete cascade,
-  image_path text not null check (length(btrim(image_path)) > 0),
-  sort_order integer not null default 0,
-  created_at timestamptz not null default now()
-);
+alter table public.storefronts
+  add column instagram text
+    -- A HANDLE, not a url, and 30 is Instagram's own limit. Stored without the
+    -- leading @ (the client strips it) so the page can render one consistently
+    -- rather than printing whatever punctuation a shop happened to type.
+    check (instagram is null or (length(btrim(instagram)) between 1 and 30));
 
-create index storefront_images_shop_idx
-  on public.storefront_images (shop_id, sort_order);
-
-alter table public.storefront_images enable row level security;
-
--- Members manage their own page; the anonymous read goes through
--- get_public_storefront below and is deliberately not a policy here -- the
--- split 20260924000000 makes for every other storefront table.
-create policy storefront_images_member_all on public.storefront_images
-  for all to authenticated
-  using (public.is_shop_member(shop_id))
-  with check (public.is_shop_member(shop_id));
-
-create trigger storefront_images_module_gate
-  before insert or update on public.storefront_images
-  for each row execute function public.enforce_shop_module('storefront');
-
-create or replace function public.enforce_gallery_limit()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $fn$
-begin
-  if (select count(*) from public.storefront_images where shop_id = new.shop_id) >= 6 then
-    raise exception 'gallery_limit'
-      using hint = 'A storefront shows at most six photographs.';
-  end if;
-  return new;
-end;
-$fn$;
-
-create trigger storefront_images_limit
-  before insert on public.storefront_images
-  for each row execute function public.enforce_gallery_limit();
+comment on column public.storefronts.instagram is
+  'Instagram handle without the leading @, shown on the storefront Visit tab. Null means never set, which renders as nothing.';
 
 drop function if exists public.get_public_storefront(text);
 
@@ -130,6 +94,17 @@ returns table (
   -- as nothing rather than as "closed" -- see src/lib/store-hours.ts's
   -- isConfigured, which is the client-side guard this ships behind.
   opening_hours   jsonb,
+  -- The primary location's phone, which has existed since 20260808000000 and
+  -- is backfilled for every shop -- and has never been shown to a customer.
+  -- WhatsApp was the only way to reach a shop from its own page; this is the
+  -- one for somebody who would rather call, which in this market is most
+  -- people over a certain age.
+  --
+  -- Off `pick`, the same single row the address and the hours come from, so
+  -- the page cannot print one branch's street above another branch's number.
+  contact_phone   text,
+  -- NEW column (below). The one contact a shop had no way to publish.
+  instagram       text,
   -- Up to three claims the shop writes about itself, ordered. Aggregated here
   -- rather than fetched separately for the reason `flyers` is: one round trip
   -- for one page, and a shop with none coalesces to '[]' so a renderer has one
@@ -181,6 +156,8 @@ as $$
     -- is what stops the page printing one branch's street above another
     -- branch's opening times.
     coalesce(pick.opening_hours, '{}'::jsonb),
+    pick.contact_phone,
+    f.instagram,
     -- Ordered by sort_order then created_at then id: `sort_order` has no
     -- unique constraint (a reorder would fight one halfway through, the same
     -- reason 20260930000000 gives for flyers), and without a total order the
@@ -296,7 +273,7 @@ as $$
   -- entirely. `on true` because the correlation is already in the subquery's
   -- own where clause.
   left join lateral (
-    select l.address, l.neighborhood, l.opening_hours
+    select l.address, l.neighborhood, l.opening_hours, l.contact_phone
     from public.shop_locations l
     where l.shop_id = s.id
     order by l.is_primary desc, l.created_at asc
@@ -321,3 +298,118 @@ $$;
 -- list, and not a policy, is the boundary.
 revoke execute on function public.get_public_storefront(text) from public;
 grant execute on function public.get_public_storefront(text) to anon, authenticated;
+
+
+drop function if exists public.list_public_storefronts(text, integer);
+
+create function public.list_public_storefronts(
+  p_city  text default null,
+  p_limit integer default 60
+)
+returns table (
+  shop_name       text,
+  slug            text,
+  city            text,
+  headline        text,
+  about           text,
+  hero_image_url  text,
+  offers_delivery boolean,
+  -- NEW in this migration, and the only change to this function. The same
+  -- column 20261020000000 put on get_public_storefront, for the same reason and
+  -- one step earlier: "are they open" is what a customer checks BEFORE opening
+  -- a shop page, so a directory that cannot answer it sends people to find out
+  -- one tap at a time.
+  --
+  -- Off the same lateral the shop page reads it from, not off the `sl` join, so
+  -- a card and the page it opens can never disagree about whose hours they are.
+  opening_hours   jsonb,
+  -- What the shop actually SELLS, derived from its listed, in-stock products.
+  -- See the header on why this is not `shops.categories` any more.
+  --
+  -- The whole set, not a primary: a shop that stocks both medicine and food is
+  -- genuinely both, and picking one for it here would hide it from the chip a
+  -- customer actually tapped. Filtering is the client's job for the same reason
+  -- the city filter is: one bounded read, filtered in a frame, no round trip
+  -- behind a chip.
+  categories      text[],
+  product_count   integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    s.name, s.slug, sl.city, f.headline, f.about, f.hero_image_url,
+    f.offers_delivery, coalesce(pick.opening_hours, '{}'::jsonb),
+    -- The SAME three conditions get_public_storefront_categories uses --
+    -- listed online, in stock, published shop -- so a chip can never offer a
+    -- shop whose own category band would not show that category either.
+    -- `distinct` because a shop with forty products has a handful of trades.
+    coalesce((
+      select array_agg(distinct btrim(p2.category) order by btrim(p2.category))
+      from public.products p2
+      where p2.shop_id = s.id
+        and p2.is_listed_online
+        and p2.stock > 0
+        and p2.category is not null
+        and btrim(p2.category) <> ''
+    ), '{}'::text[]),
+    c.n
+  from public.shops s
+  join public.storefronts f on f.shop_id = s.id
+  left join public.shop_locations sl on sl.shop_id = s.id and sl.is_primary
+  -- The same lateral get_public_storefront uses, and for the same reason: the
+  -- `sl` join is `and sl.is_primary` with no fallback, so a shop whose rows
+  -- carry no primary would get null hours from it while its own page, which
+  -- orders by is_primary then created_at, showed a real branch's.
+  left join lateral (
+    select l.opening_hours
+    from public.shop_locations l
+    where l.shop_id = s.id
+    order by l.is_primary desc, l.created_at asc
+    limit 1
+  ) pick on true
+  -- LATERAL rather than a correlated subquery in the select list, because the
+  -- count is needed twice -- once as a column and once to order by -- and a
+  -- SQL function cannot safely ORDER BY an output column alias: RETURNS TABLE
+  -- names are OUT parameters and would be ambiguous against it.
+  cross join lateral (
+    select count(*)::int as n
+    from public.products p
+    where p.shop_id = s.id
+      and p.is_listed_online
+      and p.stock > 0
+  ) c
+  where f.published_at is not null
+    and public.shop_has_module(s.id, 'storefront')
+    -- Case- and whitespace-insensitive for the same reason filterByCategory is
+    -- (theme-shared.tsx): the two sides have different authors months apart --
+    -- the shop typed its city at signup, the customer tapped a chip built from
+    -- somebody else's -- and "hargeisa" not matching "Hargeisa" would be a dead
+    -- end with no visible cause.
+    and (p_city is null or lower(sl.city) = lower(btrim(p_city)))
+  -- SHOPS WITH SOMETHING TO SELL FIRST. A directory whose first row is an empty
+  -- shop teaches a customer that the directory is not worth scrolling. Ties
+  -- break by name so the order is stable between calls rather than depending on
+  -- what the planner happened to return -- a list that reshuffles on every
+  -- refresh is one a customer cannot navigate back into.
+  order by c.n desc, s.name
+  -- Bounded, and clamped rather than trusted: `p_limit` arrives from an
+  -- anonymous HTTP caller, and `limit null` is "no limit at all".
+  limit least(greatest(coalesce(p_limit, 60), 1), 100);
+$$;
+
+-- The EXPLICIT anon grant, not the PUBLIC default -- the distinction
+-- 20261009000100 exists to enforce. It is the EIGHTH function on that
+-- surface, added by 20261019000000; this migration adds no function and no
+-- grant, and the count is unchanged.
+-- AND THE REVOKE IS LOAD-BEARING HERE, not ceremony. Dropping the function
+-- above threw away its grants; creating it again hands EXECUTE straight back to
+-- PUBLIC, which includes anon. Without this line the grant below would be a
+-- no-op that reads like a decision, and the function would be anon-callable
+-- through the default nobody chose -- the exact shape of the leak
+-- 20261009000100 exists to have closed. Same pattern get_public_storefront
+-- follows every time it is recreated.
+revoke execute on function public.list_public_storefronts(text, integer) from public;
+grant execute on function public.list_public_storefronts(text, integer) to anon, authenticated;
