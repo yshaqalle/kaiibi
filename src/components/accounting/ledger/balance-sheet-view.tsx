@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { StatementExport } from '@/components/accounting/ledger/statement-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -38,6 +39,16 @@ const theme = Colors.light;
 // The two halves of the sheet, and the order the sections read in down each.
 const ASSET_SECTIONS = ['current_assets', 'fixed_assets', 'total_assets'];
 const CLAIM_SECTIONS = ['liabilities', 'equity', 'total_liabilities_equity'];
+
+// How the exporter reads a line. Beside SECTION_HEADINGS because the two are
+// one description of this statement's shape, and splitting them is how a new
+// section gets a heading and no amount.
+const STATEMENT_READ = {
+  section: (row: { section: string }) => row.section,
+  label: (row: { label: string }) => row.label,
+  amount: (row: { amountCents: number }) => formatAccountingCents(row.amountCents),
+  isTotal: (row: { isTotal: boolean }) => row.isTotal,
+};
 
 const SECTION_HEADINGS: Record<string, string> = {
   current_assets: 'Current assets',
@@ -85,7 +96,7 @@ function Side({ title, scope, rows }: { title: string; scope: string; rows: Stat
   );
 }
 
-export function BalanceSheetView({ dateRange, setRefresh }: { dateRange: DateRange; setRefresh: RefreshSetter }) {
+export function BalanceSheetView({ dateRange, setRefresh, setHeaderActions }: { dateRange: DateRange; setRefresh: RefreshSetter; setHeaderActions: HeaderActionsSetter }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<StatementLine[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -165,6 +176,17 @@ export function BalanceSheetView({ dateRange, setRefresh }: { dateRange: DateRan
 
   return (
     <View style={styles.wrap}>
+      <StatementExport
+        setHeaderActions={setHeaderActions}
+        rows={rows}
+        title="Balance Sheet"
+        // A POSITION as at the range end, not a period -- the hub card says
+        // so too, so the file is stamped with the instant it was read.
+        rangeLabel={null}
+        headings={SECTION_HEADINGS}
+        read={STATEMENT_READ}
+        filenamePrefix="balance-sheet"
+      />
       {/* Side by side is the whole point: the two halves are one figure read
           twice, and stacking them puts a scroll between the pair. */}
       <BentoGrid>

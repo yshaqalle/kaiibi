@@ -176,9 +176,9 @@ async function render(element: React.ReactElement): Promise<ReactTestRenderer> {
   return tree!;
 }
 
-const renderIncome = () => render(<IncomeStatementView dateRange={RANGE} setRefresh={() => {}} />);
-const renderBalance = () => render(<BalanceSheetView dateRange={RANGE} setRefresh={() => {}} />);
-const renderCash = () => render(<CashFlowView dateRange={RANGE} setRefresh={() => {}} />);
+const renderIncome = () => render(<IncomeStatementView dateRange={RANGE} setRefresh={() => {}} setHeaderActions={() => {}} />);
+const renderBalance = () => render(<BalanceSheetView dateRange={RANGE} setRefresh={() => {}} setHeaderActions={() => {}} />);
+const renderCash = () => render(<CashFlowView dateRange={RANGE} setRefresh={() => {}} setHeaderActions={() => {}} />);
 
 /** Every money line the screen drew, in the order it drew them. */
 function moneyRows(tree: ReactTestRenderer): ReactTestInstance[] {
@@ -232,11 +232,11 @@ describe('a statement whose RPC refuses', () => {
   const cases: [string, (setRefresh: RefreshSetter) => React.ReactElement, jest.Mock][] = [
     [
       'the income statement',
-      (setRefresh) => <IncomeStatementView dateRange={RANGE} setRefresh={setRefresh} />,
+      (setRefresh) => <IncomeStatementView dateRange={RANGE} setRefresh={setRefresh} setHeaderActions={() => {}} />,
       mockListStatementLines,
     ],
-    ['the balance sheet', (setRefresh) => <BalanceSheetView dateRange={RANGE} setRefresh={setRefresh} />, mockGetBalanceSheet],
-    ['the cash flow', (setRefresh) => <CashFlowView dateRange={RANGE} setRefresh={setRefresh} />, mockGetCashFlow],
+    ['the balance sheet', (setRefresh) => <BalanceSheetView dateRange={RANGE} setRefresh={setRefresh} setHeaderActions={() => {}} />, mockGetBalanceSheet],
+    ['the cash flow', (setRefresh) => <CashFlowView dateRange={RANGE} setRefresh={setRefresh} setHeaderActions={() => {}} />, mockGetCashFlow],
   ];
 
   for (const [name, element, rpc] of cases) {

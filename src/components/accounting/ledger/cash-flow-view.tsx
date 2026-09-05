@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { formatCents } from '@/lib/currency';
+import { StatementExport } from '@/components/accounting/ledger/statement-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -41,6 +43,16 @@ const theme = Colors.light;
 
 const STATEMENT_SECTIONS = ['operating', 'investing', 'financing', 'net_change'];
 
+// How the exporter reads a line. Beside SECTION_HEADINGS because the two are
+// one description of this statement's shape, and splitting them is how a new
+// section gets a heading and no amount.
+const STATEMENT_READ = {
+  section: (row: { section: string }) => row.section,
+  label: (row: { label: string }) => row.label,
+  amount: (row: { amountCents: number }) => formatCents(row.amountCents),
+  isTotal: (row: { isTotal: boolean }) => row.isTotal,
+};
+
 const SECTION_HEADINGS: Record<string, string> = {
   operating: 'Operating',
   investing: 'Investing',
@@ -54,7 +66,7 @@ function variantFor(row: CashFlowLine): StatementVariant {
   return 'item';
 }
 
-export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; setRefresh: RefreshSetter }) {
+export function CashFlowView({ dateRange, setRefresh, setHeaderActions }: { dateRange: DateRange; setRefresh: RefreshSetter; setHeaderActions: HeaderActionsSetter }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<CashFlowLine[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -150,6 +162,15 @@ export function CashFlowView({ dateRange, setRefresh }: { dateRange: DateRange; 
 
   return (
     <View style={styles.wrap}>
+      <StatementExport
+        setHeaderActions={setHeaderActions}
+        rows={rows}
+        title="Cash Flow"
+        rangeLabel={rangeLabel}
+        headings={SECTION_HEADINGS}
+        read={STATEMENT_READ}
+        filenamePrefix="cash-flow"
+      />
       <BentoGrid>
         <BentoCell span={7}>
           <BentoCard title="Cash flow — indirect method" scope={rangeLabel}>
