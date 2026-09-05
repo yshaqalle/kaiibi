@@ -308,12 +308,12 @@ function AccountingScreen() {
             {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} />}
             {tab === 'accounting' && view === 'entry' && <JournalEntryView onPosted={() => setView('journals')} setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'backfill' && <BackfillView setRefresh={setTabRefresh} onOpenView={setView} />}
-            {tab === 'accounting' && view === 'income' && <IncomeStatementView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'income' && <IncomeStatementView dateRange={dateRange} setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} />}
             {/* The balance sheet takes the range's END and ignores its start:
                 it is a position read at an instant, not a window. Its hub card
                 says "As of today" for that reason. */}
-            {tab === 'accounting' && view === 'balance' && <BalanceSheetView dateRange={dateRange} setRefresh={setTabRefresh} />}
-            {tab === 'accounting' && view === 'cashflow' && <CashFlowView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'balance' && <BalanceSheetView dateRange={dateRange} setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} />}
+            {tab === 'accounting' && view === 'cashflow' && <CashFlowView dateRange={dateRange} setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} />}
             {/* No `dateRange`: the register is a position read at an instant --
                 a book value for the last seven days is not a thing -- so this
                 screen ignores the shell's window, and its hub card says "As of

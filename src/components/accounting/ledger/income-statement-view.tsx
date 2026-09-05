@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { formatCents } from '@/lib/currency';
+import { StatementExport } from '@/components/accounting/ledger/statement-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -42,6 +44,16 @@ const DETAIL_OPTIONS: { key: 'summary' | 'detail'; label: string }[] = [
 // The heading above a block of per-account rows. Only three sections ever carry
 // them — the other two (`gross_profit`, `net_profit`) are single subtotal lines
 // with no accounts beneath them.
+// How the exporter reads a line. Beside SECTION_HEADINGS because the two are
+// one description of this statement's shape, and splitting them is how a new
+// section gets a heading and no amount.
+const STATEMENT_READ = {
+  section: (row: { section: string }) => row.section,
+  label: (row: { label: string }) => row.label,
+  amount: (row: { amountCents: number }) => formatCents(row.amountCents),
+  isTotal: (row: { isTotal: boolean }) => row.isTotal,
+};
+
 const SECTION_HEADINGS: Record<string, string> = {
   revenue: 'Revenue',
   cost_of_sales: 'Cost of sales',
@@ -64,7 +76,7 @@ function variantFor(row: StatementLine): StatementVariant {
   return 'sub';
 }
 
-export function IncomeStatementView({ dateRange, setRefresh }: { dateRange: DateRange; setRefresh: RefreshSetter }) {
+export function IncomeStatementView({ dateRange, setRefresh, setHeaderActions }: { dateRange: DateRange; setRefresh: RefreshSetter; setHeaderActions: HeaderActionsSetter }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<StatementLine[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -135,6 +147,15 @@ export function IncomeStatementView({ dateRange, setRefresh }: { dateRange: Date
 
   return (
     <View style={styles.wrap}>
+      <StatementExport
+        setHeaderActions={setHeaderActions}
+        rows={rows}
+        title="Income Statement"
+        rangeLabel={rangeLabel}
+        headings={SECTION_HEADINGS}
+        read={STATEMENT_READ}
+        filenamePrefix="income-statement"
+      />
       {/* The two grains of one report. Not two hub cards: built as two reports
           they would eventually disagree, and nobody would know which was
           right. */}
