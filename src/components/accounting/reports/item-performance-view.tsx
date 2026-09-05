@@ -2,7 +2,8 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -26,9 +27,18 @@ const COLUMNS: Column<RollUpRow>[] = [
     key: 'product',
     header: 'Product',
     render: (row) => <NameCell title={row.label} meta={`${row.lines} ${row.lines === 1 ? 'line' : 'lines'}`} />,
+    // Just the product. The line count is a reading aid on screen and would be
+    // noise glued onto every name in a spreadsheet.
+    text: (row) => row.label,
   },
-  { key: 'units', header: 'Units', numeric: true, render: (row) => <ValueCell value={String(row.units)} /> },
-  { key: 'revenue', header: 'Revenue', numeric: true, render: (row) => <ValueCell value={formatCents(row.revenueCents)} strong /> },
+  { key: 'units', header: 'Units', numeric: true, render: (row) => <ValueCell value={String(row.units)} />, text: (row) => String(row.units) },
+  {
+    key: 'revenue',
+    header: 'Revenue',
+    numeric: true,
+    render: (row) => <ValueCell value={formatCents(row.revenueCents)} strong />,
+    text: (row) => formatCents(row.revenueCents),
+  },
   {
     key: 'cost',
     header: 'Cost',
@@ -41,6 +51,9 @@ const COLUMNS: Column<RollUpRow>[] = [
       ) : (
         <ValueCell value={formatCents(row.costCents)} />
       ),
+    // The same em dash the cell shows. An uncosted product exported as 0.00
+    // would read as "free" and quietly overstate every margin computed from it.
+    text: (row) => (row.uncostedLines === row.lines ? '—' : formatCents(row.costCents)),
   },
   {
     key: 'margin',
@@ -60,6 +73,11 @@ const COLUMNS: Column<RollUpRow>[] = [
         />
       );
     },
+    // Carries the asterisk too: it is what marks a margin as overstated by
+    // uncosted lines, and a file that drops it loses the warning the screen
+    // gives.
+    text: (row) =>
+      row.marginPercent === null ? '—' : `${row.marginPercent.toFixed(1)}%${row.uncostedLines > 0 ? '*' : ''}`,
   },
 ];
 
@@ -67,10 +85,15 @@ export function ItemPerformanceView({
   dateRange,
   locationFilter,
   setRefresh,
+  setHeaderActions,
+  rangeLabel,
 }: {
   dateRange: DateRange;
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
+  /** The shell's range, for the export subtitle. */
+  rangeLabel: string | null;
 }) {
   const { shop } = useAuth();
   const router = useRouter();
@@ -107,6 +130,15 @@ export function ItemPerformanceView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows ?? []}
+        columns={COLUMNS}
+        title="Item Performance"
+        rangeLabel={rangeLabel}
+        locationFilter={locationFilter}
+        filenamePrefix="item-performance"
+      />
       <BentoCard title="The period" scope="The chosen range">
         <View style={styles.tiles}>
           <StatTile value={String(totals.products)} label="Products sold" variant="bento" />

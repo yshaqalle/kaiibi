@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import type { CsvColumn } from '@/lib/csv';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -36,7 +37,40 @@ export type Column<T> = {
    */
   sortable?: boolean;
   render: (row: T) => ReactNode;
+  /**
+   * The same cell as plain text, for an export. Optional, and its absence is
+   * meaningful: a column with no `text` is not written to the file.
+   *
+   * It exists because `render` cannot be reused for this. It returns a
+   * `<ValueCell>` element, and there is no honest way to get "$904.00" back out
+   * of a React element -- so the string has to be declared. The choice was
+   * between declaring it HERE, beside the cell it mirrors, or in a second
+   * `EXPORT_COLUMNS` list per screen, which is what Inventory, People and
+   * Expenses do.
+   *
+   * Here, because a second list is a second thing to remember: rename a header
+   * in one and the file keeps the old one, silently, with the suite green.
+   * On one list a rename moves both. The cost is that the six screens on the
+   * older pattern now differ from these -- worth a follow-up, and not a
+   * behaviour change when it happens.
+   *
+   * Omit it for anything that is not data: a chevron, a share bar, a row of
+   * buttons. An empty column in a spreadsheet is worse than a missing one.
+   */
+  text?: (row: T) => string;
 };
+
+/**
+ * The exportable columns of a table, in the order they are shown.
+ *
+ * Lives here rather than in `lib/csv.ts` because it has to know `Column<T>`,
+ * and a lib reaching up into components is the wrong direction.
+ */
+export function csvColumnsOf<T>(columns: Column<T>[]): CsvColumn<T>[] {
+  return columns
+    .filter((column): column is Column<T> & { text: (row: T) => string } => typeof column.text === 'function')
+    .map((column) => ({ header: column.header, value: column.text }));
+}
 
 export function DataTable<T>({
   columns,

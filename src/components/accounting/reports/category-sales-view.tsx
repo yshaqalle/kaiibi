@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -43,10 +44,15 @@ export function CategorySalesView({
   dateRange,
   locationFilter,
   setRefresh,
+  setHeaderActions,
+  rangeLabel,
 }: {
   dateRange: DateRange;
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
+  /** The shell's range, for the export subtitle. */
+  rangeLabel: string | null;
 }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<RollUpRow[] | null>(null);
@@ -80,8 +86,15 @@ export function CategorySalesView({
             meta={row.key === UNCATEGORISED ? 'products with no category set' : `${row.units} units`}
           />
         ),
+        text: (row) => row.label,
       },
-      { key: 'revenue', header: 'Revenue', numeric: true, render: (row) => <ValueCell value={formatCents(row.revenueCents)} strong /> },
+      {
+        key: 'revenue',
+        header: 'Revenue',
+        numeric: true,
+        render: (row) => <ValueCell value={formatCents(row.revenueCents)} strong />,
+        text: (row) => formatCents(row.revenueCents),
+      },
       {
         key: 'margin',
         header: 'Margin',
@@ -96,12 +109,21 @@ export function CategorySalesView({
             />
           );
         },
+        text: (row) =>
+          row.marginPercent === null ? '—' : `${row.marginPercent.toFixed(1)}%${row.uncostedLines > 0 ? '*' : ''}`,
       },
       {
         key: 'share',
         header: 'Share of revenue',
         width: 190,
         render: (row) => <ShareBar percent={shareOfTotal(row.revenueCents, totalCents)} />,
+        // A bar is a picture of a number, so the file gets the number. Null
+        // where there is no total to take a share of -- an em dash, never 0%,
+        // which would read as "sold nothing" rather than "nothing to compare".
+        text: (row) => {
+          const share = shareOfTotal(row.revenueCents, totalCents);
+          return share === null ? '—' : `${share.toFixed(1)}%`;
+        },
       },
     ],
     [totalCents]
@@ -111,6 +133,15 @@ export function CategorySalesView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows ?? []}
+        columns={columns}
+        title="Sales by Category"
+        rangeLabel={rangeLabel}
+        locationFilter={locationFilter}
+        filenamePrefix="sales-by-category"
+      />
       <BentoCard title="By category" scope="The chosen range" bodyStyle={styles.tableBody}>
         <DataTable
           columns={columns}

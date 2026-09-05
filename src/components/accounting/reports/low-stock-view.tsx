@@ -2,7 +2,8 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
@@ -37,14 +38,20 @@ const COLUMNS: Column<Row>[] = [
     key: 'product',
     header: 'Product',
     render: (row) => <NameCell title={row.productName} meta={row.locationName} />,
+    // Title and meta joined, because the file has one column where the cell
+    // has two lines -- and which shelf is empty is the point of this report.
+    text: (row) => (row.locationName ? `${row.productName} · ${row.locationName}` : row.productName),
   },
   {
     key: 'urgency',
     header: 'State',
     width: 110,
     render: (row) => <ValueCell value={URGENCY[row.urgency].label} tone={URGENCY[row.urgency].tone} />,
+    // The word, not the tone: colour does not survive a CSV, and the label is
+    // what carried the meaning on screen anyway.
+    text: (row) => URGENCY[row.urgency].label,
   },
-  { key: 'stock', header: 'On hand', numeric: true, render: (row) => <ValueCell value={String(row.stock)} /> },
+  { key: 'stock', header: 'On hand', numeric: true, render: (row) => <ValueCell value={String(row.stock)} />, text: (row) => String(row.stock) },
   {
     key: 'level',
     header: 'Reorder at',
@@ -52,21 +59,25 @@ const COLUMNS: Column<Row>[] = [
     // Non-null on every row here: a row with no level set has a null shortfall
     // and never reaches this table.
     render: (row) => <ValueCell value={String(row.reorderLevel)} tone="muted" />,
+    text: (row) => String(row.reorderLevel),
   },
   {
     key: 'shortfall',
     header: 'Order at least',
     numeric: true,
     render: (row) => <ValueCell value={String(row.shortfall)} strong />,
+    text: (row) => String(row.shortfall),
   },
 ];
 
 export function LowStockView({
   locationFilter,
   setRefresh,
+  setHeaderActions,
 }: {
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop } = useAuth();
   const router = useRouter();
@@ -100,6 +111,18 @@ export function LowStockView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={reading.rows}
+        columns={COLUMNS}
+        title="Low Stock & Reorder"
+        // Null on purpose: this screen reports a POSITION and ignores the
+        // shell's range, so the file is stamped with the instant it was read
+        // rather than a window it never honoured.
+        rangeLabel={null}
+        locationFilter={locationFilter}
+        filenamePrefix="low-stock"
+      />
       <BentoCard
         title="To reorder"
         scope="As of today"

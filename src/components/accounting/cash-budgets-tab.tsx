@@ -254,11 +254,24 @@ export function CashBudgetsTab({
       : null;
   const detailRow = openSession ?? focusedRow;
 
+  // Stable identities, and they have to be. These two are the DEPENDENCIES of
+  // the effect that publishes this tab's buttons into shell state, and that is
+  // a closed circuit: publishing re-renders the shell, which re-renders this
+  // tab. Passing the arrows inline made them new on every render, so the effect
+  // fired on every render and drove the circuit until React gave up with
+  // "Maximum update depth exceeded" on the Cash & Budgets tab.
+  //
+  // Both setters are `useState` dispatches, so there is genuinely nothing to
+  // depend on. See header-actions-loop.test.tsx, which fails if this comes
+  // undone.
+  const openNewBill = useCallback(() => setEditingBill('new'), []);
+  const openMoveMoney = useCallback(() => setMoving(true), []);
+
   return (
     <View>
       <CashBudgetsHeaderActions
-        onNewBill={() => setEditingBill('new')}
-        onMoveMoney={() => setMoving(true)}
+        onNewBill={openNewBill}
+        onMoveMoney={openMoveMoney}
         setHeaderActions={setHeaderActions}
       />
 
