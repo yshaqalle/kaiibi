@@ -6,7 +6,7 @@ import {
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -825,14 +825,16 @@ export function CheckoutBar({
 }: { colors: PaletteColors; itemCount: number; subtotalCents: number; onPress: () => void }) {
   if (itemCount === 0) return null;
   return (
-    <Pressable
-      testID="storefront-checkout-bar"
-      accessibilityRole="button"
-      onPress={onPress}
-      style={pressable([styles.checkoutBar, { backgroundColor: colors.accent }])}
-    >
-      <Text style={[styles.checkoutBarText, { color: colors.ground }]}>Checkout · {formatCents(subtotalCents)}</Text>
-    </Pressable>
+    <View pointerEvents="box-none" style={styles.checkoutBarSlot}>
+      <Pressable
+        testID="storefront-checkout-bar"
+        accessibilityRole="button"
+        onPress={onPress}
+        style={pressable([styles.checkoutBar, { backgroundColor: colors.accent }])}
+      >
+        <Text style={[styles.checkoutBarText, { color: colors.ground }]}>Checkout · {formatCents(subtotalCents)}</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1204,12 +1206,13 @@ const styles = StyleSheet.create({
   // The longhand is identical on both.
   buttonCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
   buttonTextCompact: { fontSize: 10.5 },
-  // Floats over the browsing view's own content -- the parent View every
-  // theme renders is flex:1 with no explicit `position`, which React Native
-  // defaults to 'relative', so this anchors to that box rather than the
-  // whole window.
+  // The slot is what floats; the bar inside it is what the reading column
+  // bounds. Absolute left/right anchor to the theme root, which is the full
+  // window -- the maxWidth is what stops a 2000px screen getting a 1972px
+  // button while the goods sit in 1080px.
+  checkoutBarSlot: { position: 'absolute', left: 14, right: 14, bottom: 14, alignItems: 'center' },
   checkoutBar: {
-    position: 'absolute', left: 14, right: 14, bottom: 14,
+    width: '100%', maxWidth: SHOP_MAX_WIDTH - 28,
     borderRadius: 999, paddingVertical: 14, alignItems: 'center',
   },
   checkoutBarText: { fontSize: 14, fontWeight: '800' },
