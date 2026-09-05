@@ -471,9 +471,9 @@ export function EmptyState({
             testID="storefront-empty-clear-category"
             accessibilityRole="button"
             onPress={onClearCategory}
-            style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+            style={pressable([styles.emptyAction, { backgroundColor: colors.accentWash }])}
           >
-            <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+            <Text style={[styles.emptyActionText, { color: colors.accentInk }]}>Show everything</Text>
           </Pressable>
         ) : null}
       </View>
@@ -640,9 +640,9 @@ export function SearchField({
           accessibilityRole="button"
           accessibilityLabel="Clear search"
           onPress={() => onChange('')}
-          style={pressable([styles.searchClear, { backgroundColor: colors.soft }])}
+          style={pressable([styles.searchClear, { backgroundColor: colors.accentWash }])}
         >
-          <Text style={[styles.searchClearText, { color: colors.ink }]}>Clear</Text>
+          <Text style={[styles.searchClearText, { color: colors.accentInk }]}>Clear</Text>
         </Pressable>
       ) : null}
     </View>
@@ -666,9 +666,9 @@ export function NoSearchResults({
         testID="storefront-search-empty-clear"
         accessibilityRole="button"
         onPress={onClear}
-        style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+        style={pressable([styles.emptyAction, { backgroundColor: colors.accentWash }])}
       >
-        <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+        <Text style={[styles.emptyActionText, { color: colors.accentInk }]}>Show everything</Text>
       </Pressable>
     </View>
   );
@@ -703,9 +703,9 @@ export function CategoryFilterBar({
       accessibilityRole="button"
       accessibilityLabel={`Showing ${category} only. Show everything`}
       onPress={onClear}
-      style={pressable([styles.filterChip, { backgroundColor: colors.soft }])}
+      style={pressable([styles.filterChip, { backgroundColor: colors.accentWash }])}
     >
-      <Text style={[styles.filterChipText, { color: colors.ink }]}>{category} · Show everything ✕</Text>
+      <Text style={[styles.filterChipText, { color: colors.accentInk }]}>{category} · Show everything ✕</Text>
     </Pressable>
   );
 }
@@ -1030,9 +1030,9 @@ export function CheckoutScreen({
             testID="storefront-checkout-edit-cart"
             accessibilityRole="button"
             onPress={onEditCart}
-            style={pressable([styles.editCart, { borderColor: colors.danger }])}
+            style={pressable([styles.editCart, { backgroundColor: colors.accentWash }])}
           >
-            <Text style={[styles.editCartText, { color: colors.danger }]}>Edit cart</Text>
+            <Text style={[styles.editCartText, { color: colors.accentInk }]}>Edit cart</Text>
           </Pressable>
         ) : null}
         <CheckoutForm
@@ -1219,7 +1219,7 @@ const styles = StyleSheet.create({
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  editCart: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  editCart: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
   editCartText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
   continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
