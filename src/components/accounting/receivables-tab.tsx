@@ -21,7 +21,6 @@ import {
   agingDaysFor,
   daysPastDue,
   dueStatus,
-  DUE_STATUS_LABELS,
   groupByCustomer,
   pastDueLabel,
   remindedLabel,
@@ -98,9 +97,12 @@ const TABLE_MIN_WIDTH_WIDE = 560;
  * is the rule the old badge already followed.
  */
 function DueCell({ dueOn, today }: { dueOn: string | null; today: Date }) {
+  // ONE source for whether this is late. An earlier version asked twice --
+  // `dueStatus(...)` for the wording and `daysPastDue(...) > 0` for the colour
+  // -- which is two implementations of the same question sitting four lines
+  // apart, and the kind of pair that eventually disagrees on a boundary.
   const status = dueStatus(dueOn, today);
-  const days = daysPastDue(dueOn, today);
-  const late = days > 0;
+  const late = status === 'late';
   return (
     <View style={styles.dueCell}>
       <Text style={[styles.dueDate, late && styles.dueDateLate]} numberOfLines={1}>
@@ -108,11 +110,9 @@ function DueCell({ dueOn, today }: { dueOn: string | null; today: Date }) {
       </Text>
       {dueOn ? (
         <Text style={[styles.dueMeta, late && styles.dueMetaLate]} numberOfLines={1}>
-          {late
-            ? `${pastDueLabel(dueOn, today)} late`
-            : status === 'soon'
-              ? DUE_STATUS_LABELS.soon
-              : 'not yet due'}
+          {/* All three readings together, because they are one sentence in
+              three moods and reading them apart is how they drift. */}
+          {late ? `${pastDueLabel(dueOn, today)} late` : status === 'soon' ? 'Due soon' : 'not yet due'}
         </Text>
       ) : null}
     </View>

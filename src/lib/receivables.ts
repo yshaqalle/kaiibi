@@ -136,11 +136,6 @@ export function dueStatus(dueOn: string | null, today: Date = new Date()): DueSt
   return days >= -SOON_DAYS ? 'soon' : null;
 }
 
-export const DUE_STATUS_LABELS: Record<DueStatus, string> = {
-  late: 'Late',
-  soon: 'Due soon',
-};
-
 /**
  * The "Past due" column. Not yet due says so in words rather than printing a
  * negative number, which reads as a mistake.
