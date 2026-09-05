@@ -14,8 +14,9 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
 import { agingTotals, daysSince, inBucket, type AgingBucket } from '@/lib/aging';
+import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
 import { scopeToLocation } from '@/lib/location-reporting';
-import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
+import { formatAccountingCents, formatCents, formatCompactCents } from '@/lib/currency';
 import { getPayableState, type PayableState } from '@/lib/ledger';
 import {
   balanceCents,
@@ -23,7 +24,9 @@ import {
   INVOICE_STATUS_TONES,
   invoiceStatus,
   invoiceTotals,
+  rollUpByVendor,
   sortInvoicesForDisplay,
+  type VendorBalance,
 } from '@/lib/invoice-reporting';
 import {
   createInvoice,
@@ -44,6 +47,57 @@ function extractErrorMessage(err: unknown): string {
   }
   return 'Something went wrong.';
 }
+
+// One list for the table and the file, per the rule in data-table.tsx: `text`
+// mirrors the cell so a renamed header cannot reach the CSV as the old one.
+const VENDOR_COLUMNS: Column<VendorBalance>[] = [
+  {
+    key: 'vendor',
+    header: 'Supplier',
+    render: (row) => (
+      <NameCell title={row.vendor} meta={row.openCount === 1 ? '1 open bill' : `${row.openCount} open bills`} />
+    ),
+    text: (row) => row.vendor,
+  },
+  {
+    key: 'open',
+    header: 'Open bills',
+    numeric: true,
+    render: (row) => <ValueCell value={String(row.openCount)} tone="muted" />,
+    text: (row) => String(row.openCount),
+  },
+  {
+    key: 'notdue',
+    header: 'Not yet due',
+    numeric: true,
+    // An em dash where there is none, so the suppliers who ARE owed something
+    // in future are the ones the eye stops on.
+    render: (row) =>
+      row.notYetDueCents === 0 ? <ValueCell value="—" tone="muted" /> : <ValueCell value={formatCents(row.notYetDueCents)} />,
+    text: (row) => (row.notYetDueCents === 0 ? '—' : formatCents(row.notYetDueCents)),
+  },
+  {
+    key: 'overdue',
+    header: 'Overdue',
+    numeric: true,
+    // The only coloured column, and it carries the word "Overdue" in its header
+    // rather than relying on the red -- colour alone is never the signal.
+    render: (row) =>
+      row.overdueCents === 0 ? (
+        <ValueCell value="—" tone="muted" />
+      ) : (
+        <ValueCell value={formatCents(row.overdueCents)} tone="danger" strong />
+      ),
+    text: (row) => (row.overdueCents === 0 ? '—' : formatCents(row.overdueCents)),
+  },
+  {
+    key: 'owed',
+    header: 'Total owed',
+    numeric: true,
+    render: (row) => <ValueCell value={formatCents(row.owedCents)} strong />,
+    text: (row) => formatCents(row.owedCents),
+  },
+];
 
 export function InvoicesTab({
   dateRange,
@@ -169,6 +223,11 @@ export function InvoicesTab({
     () => agingTotals(openInScope, { days: ageOf, cents: (invoice) => balanceCents(invoice) }),
     [openInScope, ageOf]
   );
+
+  // The same money the tiles above total, asked about a COUNTERPARTY instead of
+  // a date. The Bills list answers "which bills"; nothing answered "how exposed
+  // are we to this supplier", however well that list was sorted.
+  const vendors = useMemo(() => rollUpByVendor(openInScope), [openInScope]);
 
   // Unpaid bills always show, even when issued outside the window -- the list
   // would otherwise disagree with the totals right above it. Merged by id so a
@@ -321,6 +380,18 @@ export function InvoicesTab({
         <AgingStrip totals={buckets} selected={bucket} onSelect={setBucket} />
       </BentoCard>
 
+      {/* Out of any grid: a ledger is read down a column, so it takes the full
+          width and manages its own gutters. */}
+      <BentoCard title="What you owe, by supplier" scope="every unpaid bill" bodyStyle={styles.tableBody}>
+        <DataTable
+          columns={VENDOR_COLUMNS}
+          rows={vendors}
+          keyExtractor={(row) => row.vendor}
+          emptyLabel="No unpaid bills."
+          minWidth={520}
+        />
+      </BentoCard>
+
       <BentoCard
         title={bucket ? `Bills · ${buckets.find((b) => b.key === bucket)?.label}` : 'Bills'}
         scope={bucket ? 'unpaid, any date' : 'Selected range'}
@@ -448,6 +519,9 @@ export function InvoicesTab({
 }
 
 const styles = StyleSheet.create({
+  // 10, not the card's usual 18: DataTable brings its own gutters, so the card
+  // gives it back the difference rather than double-padding the rows.
+  tableBody: { paddingHorizontal: 10 },
   metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   subtitle: { fontSize: 11.5, color: '#999999', flexShrink: 1, lineHeight: 16, marginTop: 12 },
   newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },

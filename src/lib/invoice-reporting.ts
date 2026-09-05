@@ -75,3 +75,55 @@ export function sortInvoicesForDisplay(invoices: Invoice[], today: Date = new Da
     return a.dueOn.localeCompare(b.dueOn);
   });
 }
+
+export type VendorBalance = {
+  /** The frozen name on the bill, or a stand-in when it carries none. */
+  vendor: string;
+  openCount: number;
+  notYetDueCents: number;
+  overdueCents: number;
+  owedCents: number;
+};
+
+/**
+ * What is still owed, one row per supplier.
+ *
+ * The Bills tab is a list of DOCUMENTS, and this is the same money asked about
+ * a COUNTERPARTY -- "how exposed are we to this supplier" is not a question a
+ * list of individual bills answers, however well sorted. It was the only one of
+ * the four balance/aging reports in the original plan that showed something no
+ * screen showed: Customer Balance Summary was dropped because the Owed to you
+ * tab already IS one, row per customer.
+ *
+ * Grouped on `vendorName` rather than `vendorId`, because the name is what the
+ * bill freezes and what the reader recognises -- and a bill can carry a name
+ * with no vendor record behind it at all. Bills with neither are pooled under
+ * one heading rather than dropped: money owed to nobody-in-particular is still
+ * money owed, and hiding it would stop this reconciling with the tab's own
+ * outstanding total.
+ *
+ * Settled bills are skipped entirely, so `openCount` is bills that still owe
+ * something, not bills that exist.
+ */
+export function rollUpByVendor(invoices: Invoice[], today: Date = new Date()): VendorBalance[] {
+  const UNNAMED = 'No supplier named';
+  const by = new Map<string, VendorBalance>();
+
+  for (const invoice of invoices) {
+    const balance = balanceCents(invoice);
+    if (balance <= 0) continue;
+    const vendor = invoice.vendorName?.trim() || UNNAMED;
+    const row = by.get(vendor) ?? { vendor, openCount: 0, notYetDueCents: 0, overdueCents: 0, owedCents: 0 };
+    row.openCount += 1;
+    row.owedCents += balance;
+    if (invoiceStatus(invoice, today) === 'overdue') row.overdueCents += balance;
+    else row.notYetDueCents += balance;
+    by.set(vendor, row);
+  }
+
+  // Most owed first, which is the order a shopkeeper acts in. Ties break on
+  // name so the list is stable between renders rather than reshuffling.
+  return Array.from(by.values()).sort((a, b) =>
+    b.owedCents !== a.owedCents ? b.owedCents - a.owedCents : a.vendor.localeCompare(b.vendor)
+  );
+}
