@@ -121,7 +121,7 @@ export const SHOP_MAX_WIDTH = 1080;
 
 // Bento's radii. `card` is BENTO_RADIUS (theme.ts) by value and by intent --
 // not imported, because that constant lives beside `Colors.light` and this
-// page renders in one of six palettes for a stranger with no account. Copying
+// page renders in one of seven palettes for a stranger with no account. Copying
 // the number keeps the two surfaces looking alike without dragging the app's
 // palette onto the public page.
 export const RADIUS = {

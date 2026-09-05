@@ -6,8 +6,8 @@
 // the default on read, and a stored row can outlive a catalogue change.
 //
 // A THEME is a layout. A PALETTE is four values. Themes render through the
-// palette, so three themes and six palettes is nine things to build and verify,
-// not eighteen.
+// palette, so three themes and seven palettes is ten things to build and
+// verify, not twenty-one.
 //
 // Every palette is contrast-checked in storefront-catalog.test.ts against the
 // WCAG maths in contrast.ts -- the same discipline theme.ts applies to every app
@@ -17,7 +17,7 @@
 import { parseHex, stepUntilContrast } from '@/lib/contrast';
 
 export type StorefrontTheme = 'market' | 'counter' | 'window';
-export type StorefrontPalette = 'ink' | 'palm' | 'clay' | 'sea' | 'saffron' | 'plum';
+export type StorefrontPalette = 'ink' | 'palm' | 'clay' | 'sea' | 'saffron' | 'plum' | 'azure';
 
 export type PaletteColors = {
   ground: string; // the page
@@ -68,6 +68,14 @@ export const PALETTES: { key: StorefrontPalette; label: string; suits: string }[
   { key: 'sea', label: 'Sea', suits: 'electronics, phones, tools' },
   { key: 'saffron', label: 'Saffron', suits: 'food, spice, tailoring' },
   { key: 'plum', label: 'Plum', suits: 'cosmetics, clothing, salon' },
+  // THE SECOND BLUE, and deliberately not a replacement for Sea.
+  //
+  // Sea is a deep desaturated teal-navy that reads as utility -- the tone of a
+  // tool shop. This one is bright and fully saturated and reads as software.
+  // Both are blue and neither substitutes for the other, so the `suits` line is
+  // doing more work here than on any other row: it is the only thing telling a
+  // shopkeeper which of the two they want.
+  { key: 'azure', label: 'Azure', suits: 'pharmacy, clinic, services' },
 ];
 
 // Market and Ink: the pair that looks deliberate for a shop that has uploaded
@@ -91,6 +99,14 @@ const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   sea:     { ground: '#fafcfd', soft: '#eaf1f5', ink: '#101f28', accent: '#155b78' },
   saffron: { ground: '#fdfbf6', soft: '#f6efe0', ink: '#241d10', accent: '#8a5a05' },
   plum:    { ground: '#fdfafc', soft: '#f5ecf2', ink: '#221420', accent: '#8a2c62' },
+  // `#0071e3` is apple.com's own button blue, and it is chosen over the more
+  // familiar iOS `systemBlue` #007AFF for one measurable reason: white on
+  // #007AFF is 4.02:1, which fails the accent gate below. iOS gets away with it
+  // because systemBlue is a TINT on a light ground there; `accent` here is a
+  // FILL carrying white label text -- a checkout bar, an Add button -- and that
+  // inversion is what the ratio catches. #0071e3 clears it at 4.70:1, because
+  // Apple picked it for the same job: a filled button with white type on it.
+  azure:   { ground: '#fbfcfe', soft: '#eef2fa', ink: '#101623', accent: '#0071e3' },
 };
 
 // Secondary type -- a city subtitle, an about paragraph -- needs to read as
@@ -215,7 +231,7 @@ export function dangerInk(palette: StorefrontPalette): string {
 
 // The out-of-stock amber, on the same pattern as dangerInk above and for the
 // same reason: it was a literal ('#8a5a05', typed into product-tile.tsx and
-// theme-counter.tsx) reused identically on six palettes, and on SAFFRON that
+// theme-counter.tsx) reused identically on every palette, and on SAFFRON that
 // literal is the palette's own accent byte for byte -- so a sold-out notice
 // rendered in the colour of the Add button and the section rule. The comment
 // on DANGER_BASE above already names this amber as the thing an error must not

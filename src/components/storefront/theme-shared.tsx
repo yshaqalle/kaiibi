@@ -84,7 +84,7 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
 //
 // What is NOT taken: BentoGrid, BentoCard, StatTile, Badge. Every one of them
 // pins `Colors.light` (the skill says so in as many words), and this page
-// renders in one of six palettes for a stranger with no account. The system
+// renders in one of seven palettes for a stranger with no account. The system
 // comes across; the app's tokens do not.
 // ─────────────────────────────────────────────────────────────────────────────
 

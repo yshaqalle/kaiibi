@@ -6,9 +6,9 @@ import {
 } from '@/lib/storefront-catalog';
 
 describe('catalogue shape', () => {
-  it('ships three themes and six palettes', () => {
+  it('ships three themes and seven palettes', () => {
     expect(THEMES.map((t) => t.key)).toEqual(['market', 'counter', 'window']);
-    expect(PALETTES.map((p) => p.key)).toEqual(['ink', 'palm', 'clay', 'sea', 'saffron', 'plum']);
+    expect(PALETTES.map((p) => p.key)).toEqual(['ink', 'palm', 'clay', 'sea', 'saffron', 'plum', 'azure']);
   });
 
   it('defaults to the most forgiving combination', () => {
