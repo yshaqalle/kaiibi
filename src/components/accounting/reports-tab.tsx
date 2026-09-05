@@ -536,7 +536,7 @@ function ReportsHeaderActions({
   useHeaderActions(
     setHeaderActions,
     <Pressable onPress={onExport} disabled={exporting} style={styles.exportButton}>
-      {exporting ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
+      {exporting ? <ActivityIndicator size="small" color={theme.bentoInk2} /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
     </Pressable>,
     [onExport, exporting]
   );
@@ -544,8 +544,27 @@ function ReportsHeaderActions({
 }
 
 const styles = StyleSheet.create({
-  exportButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, minWidth: 96, alignItems: 'center' },
-  exportButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
+  // The control-bar chip, matching the seven report screens and the range and
+  // store pills it sits beside. This screen kept the cream block after
+  // Accounting was converted, which made it the one export button in the module
+  // shaped differently from every other.
+  //
+  // Its CSV is still missing -- it is the only screen with a PDF and no CSV --
+  // because its PDF is assembled inside the press handler from stats, three
+  // sections and a caveat line, and hoisting all of that to render scope to
+  // feed the shared ExportMenu is a refactor of this file rather than a change
+  // to it. Worth doing when the ledger's statements take this screen over.
+  exportButton: {
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    borderRadius: 999,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    minWidth: 96,
+    alignItems: 'center',
+  },
+  exportButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 10, marginBottom: 12 },
   card: { padding: 16, marginBottom: 8 },
   chartCard: { padding: 16, marginBottom: 8 },

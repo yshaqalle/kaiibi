@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -22,10 +23,15 @@ export function EmployeeSalesView({
   dateRange,
   locationFilter,
   setRefresh,
+  setHeaderActions,
+  rangeLabel,
 }: {
   dateRange: DateRange;
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
+  /** The shell's range, for the export subtitle. */
+  rangeLabel: string | null;
 }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<SaleGroupRow[] | null>(null);
@@ -72,16 +78,24 @@ export function EmployeeSalesView({
             meta={row.key === UNATTRIBUTED ? 'no cashier on the sale' : undefined}
           />
         ),
+        text: (row) => row.label,
       },
-      { key: 'sales', header: 'Baskets', numeric: true, render: (row) => <ValueCell value={String(row.sales)} /> },
-      { key: 'units', header: 'Units', numeric: true, render: (row) => <ValueCell value={String(row.units)} /> },
+      { key: 'sales', header: 'Baskets', numeric: true, render: (row) => <ValueCell value={String(row.sales)} />, text: (row) => String(row.sales) },
+      { key: 'units', header: 'Units', numeric: true, render: (row) => <ValueCell value={String(row.units)} />, text: (row) => String(row.units) },
       {
         key: 'average',
         header: 'Average basket',
         numeric: true,
         render: (row) => <ValueCell value={formatCents(row.averageSaleCents)} tone="muted" />,
+        text: (row) => formatCents(row.averageSaleCents),
       },
-      { key: 'revenue', header: 'Revenue', numeric: true, render: (row) => <ValueCell value={formatCents(row.revenueCents)} strong /> },
+      {
+        key: 'revenue',
+        header: 'Revenue',
+        numeric: true,
+        render: (row) => <ValueCell value={formatCents(row.revenueCents)} strong />,
+        text: (row) => formatCents(row.revenueCents),
+      },
       {
         key: 'share',
         header: 'Share',
@@ -90,6 +104,10 @@ export function EmployeeSalesView({
           const share = shares.get(row.key) ?? null;
           return <ValueCell value={share === null ? '—' : `${share.toFixed(1)}%`} tone="muted" />;
         },
+        text: (row) => {
+          const share = shares.get(row.key) ?? null;
+          return share === null ? '—' : `${share.toFixed(1)}%`;
+        },
       },
     ],
     [shares]
@@ -97,6 +115,15 @@ export function EmployeeSalesView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows ?? []}
+        columns={columns}
+        title="Sales by Employee"
+        rangeLabel={rangeLabel}
+        locationFilter={locationFilter}
+        filenamePrefix="sales-by-employee"
+      />
       <BentoCard title="Per cashier" scope="The chosen range" bodyStyle={styles.tableBody}>
         <DataTable
           columns={columns}

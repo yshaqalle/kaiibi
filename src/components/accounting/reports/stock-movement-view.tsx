@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -34,6 +35,7 @@ const COLUMNS: Column<MovementRow>[] = [
     // project shipped once applies to date-only strings, which none of these
     // three tables uses. See the note on MovementRow.
     render: (row) => <ValueCell value={new Date(row.at).toLocaleDateString()} tone="muted" />,
+    text: (row) => new Date(row.at).toLocaleDateString(),
   },
   {
     key: 'what',
@@ -42,14 +44,16 @@ const COLUMNS: Column<MovementRow>[] = [
     // already names the type, so repeating it here would fill the widest
     // column on the table with nothing.
     render: (row) => <NameCell title={row.what || '—'} meta={row.detail ?? undefined} />,
+    text: (row) => (row.detail ? `${row.what || '—'} · ${row.detail}` : row.what || '—'),
   },
   {
     key: 'kind',
     header: 'Kind',
     width: 104,
     render: (row) => <ValueCell value={KIND_LABEL[row.kind]} tone="muted" />,
+    text: (row) => KIND_LABEL[row.kind],
   },
-  { key: 'where', header: 'Where', render: (row) => <NameCell title={row.where} /> },
+  { key: 'where', header: 'Where', render: (row) => <NameCell title={row.where} />, text: (row) => row.where },
   {
     key: 'units',
     header: 'Units',
@@ -63,6 +67,12 @@ const COLUMNS: Column<MovementRow>[] = [
       if (row.units < 0) return <ValueCell value={String(row.units)} tone="danger" strong />;
       return <ValueCell value={`+${row.units}`} tone={row.units === 0 ? 'muted' : 'success'} strong />;
     },
+    // The ONE place `text` deliberately differs from the cell. On screen a gain
+    // wears a leading "+" so it reads as a direction; in a file that "+" makes
+    // the value text rather than a number, and a column of receipts you cannot
+    // sum is a column that wasted the export. The minus survives, because that
+    // is part of the number.
+    text: (row) => String(row.units),
   },
 ];
 
@@ -70,10 +80,15 @@ export function StockMovementView({
   dateRange,
   locationFilter,
   setRefresh,
+  setHeaderActions,
+  rangeLabel,
 }: {
   dateRange: DateRange;
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
+  /** The shell's range, for the export subtitle. */
+  rangeLabel: string | null;
 }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<MovementRow[] | null>(null);
@@ -94,6 +109,15 @@ export function StockMovementView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows ?? []}
+        columns={COLUMNS}
+        title="Stock Movement"
+        rangeLabel={rangeLabel}
+        locationFilter={locationFilter}
+        filenamePrefix="stock-movement"
+      />
       <BentoCard title="What moved" scope="The chosen range">
         <View style={styles.tiles}>
           <StatTile
