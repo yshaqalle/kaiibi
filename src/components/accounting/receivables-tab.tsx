@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { AgingStrip } from '@/components/accounting/aging-strip';
 import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
@@ -8,6 +8,7 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
 import { WhatsAppButton } from '@/components/whatsapp-button';
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -24,7 +25,6 @@ import {
   groupByCustomer,
   pastDueLabel,
   remindedLabel,
-  type DueStatus,
   type Receivable,
 } from '@/lib/receivables';
 import { formatCents, formatCompactCents } from '@/lib/currency';
@@ -40,10 +40,10 @@ const theme = Colors.light;
 //
 // "Current" is the one worth reading carefully. It is NOT "not yet due": the
 // buckets put everything under thirty days in it, so a debt a fortnight late
-// sits here too. That row still carries a Late badge and a "14 days" past-due
-// figure in the table below, so nothing is hidden -- it is simply not bucketed
-// on its own. The hint says exactly that rather than the friendlier and untrue
-// "not yet due".
+// sits here too. That row still says "14 days late" under its due date in the
+// table below, so nothing is hidden -- it is simply not bucketed on its own.
+// The hint says exactly that rather than the friendlier and untrue "not yet
+// due".
 const PAST_DUE_HINTS: Record<AgingBucket, string> = {
   current: 'under 30 days past due',
   d30: 'a month past due',
@@ -51,13 +51,70 @@ const PAST_DUE_HINTS: Record<AgingBucket, string> = {
   d90: 'three months or more',
 };
 
-/** The badge beside a due date. Words carry it; the colour only reinforces. */
-function DueBadge({ status }: { status: DueStatus }) {
+/**
+ * Narrow enough that the whole row fits a phone, so the reminder button is
+ * never off-screen.
+ *
+ * DataTable defaults to 560 and scrolls sideways below it rather than crushing
+ * its columns -- a good default for a wide ledger, and the reason this table
+ * has always overflowed a phone. That was tolerable while the rightmost column
+ * was another figure. It stopped being tolerable when the rightmost column
+ * became the button that sends the reminder: an ACTION hidden behind a sideways
+ * swipe, with nothing on screen suggesting the swipe exists, is an action most
+ * people will never find.
+ *
+ * 70 + 84 + 42 of fixed columns leaves the customer name 100px here, and the
+ * name is the right thing to squeeze: it truncates gracefully and it is the one
+ * column that grows again on a wider screen, where `flex: 1` hands it every
+ * spare pixel.
+ *
+ * The number was measured, not guessed, and measured TWICE -- 340 still clipped
+ * the button on an iPhone 16 Pro, because the card is narrower on the device
+ * than the browser at the same nominal width. This leaves real headroom rather
+ * than shaving it fine.
+ *
+ * ONLY on a phone, though. DataTable's inner view sizes to its content, so a
+ * 296px minimum on a 1300px card leaves the table hugging the left with a
+ * thousand pixels of dead space beside it -- which is what happened when this
+ * was one flat number. Above the tablet breakpoint the old 560 is kept: there
+ * is width to spare there, nothing is at risk of being clipped, and the table
+ * fills the card as it always has.
+ */
+const TABLE_MIN_WIDTH_PHONE = 296;
+const TABLE_MIN_WIDTH_WIDE = 560;
+
+/**
+ * The due date and how late it is, as ONE cell.
+ *
+ * It was two columns plus a badge, and on a device that did not fit: with five
+ * columns the REMIND button sat off the right edge of an iPhone AND an 11-inch
+ * iPad -- reachable only by discovering that the table scrolls sideways, which
+ * is not a thing to ask of the one control that makes the feature worth having.
+ *
+ * Collapsing them is not just a width fix. "Due Sep 5", a "Late" badge and a
+ * "34 days" column are three encodings of one fact; the second line below says
+ * the same thing in fewer places and reads as a sentence -- "Sep 5 / 34 days
+ * late". The number carries the signal and the colour only reinforces it, which
+ * is the rule the old badge already followed.
+ */
+function DueCell({ dueOn, today }: { dueOn: string | null; today: Date }) {
+  const status = dueStatus(dueOn, today);
+  const days = daysPastDue(dueOn, today);
+  const late = days > 0;
   return (
-    <View style={styles.badge}>
-      <Text style={[styles.badgeText, status === 'late' && styles.badgeTextLate]}>
-        {DUE_STATUS_LABELS[status]}
+    <View style={styles.dueCell}>
+      <Text style={[styles.dueDate, late && styles.dueDateLate]} numberOfLines={1}>
+        {dueOn ? fromDateColumn(dueOn).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—'}
       </Text>
+      {dueOn ? (
+        <Text style={[styles.dueMeta, late && styles.dueMetaLate]} numberOfLines={1}>
+          {late
+            ? `${pastDueLabel(dueOn, today)} late`
+            : status === 'soon'
+              ? DUE_STATUS_LABELS.soon
+              : 'not yet due'}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -92,46 +149,24 @@ function buildColumns(
       key: 'owed',
       header: 'Owed',
       numeric: true,
+      // Fixed rather than flexed, along with the two columns after it. Only the
+      // customer name benefits from spare width; money, a date and a 34px
+      // button do not, and leaving all four to `flex: 1` is what pushed the
+      // button off the edge (see TABLE_MIN_WIDTH_PHONE).
+      width: 70,
       render: (row) => <ValueCell value={formatCents(row.owedCents)} strong />,
     },
     {
       key: 'due',
       header: 'Due',
       numeric: true,
-      render: (row) => {
-        const status = dueStatus(row.dueOn, today);
-        return (
-          <View style={styles.dueCell}>
-            <ValueCell
-              value={
-                row.dueOn
-                  ? fromDateColumn(row.dueOn).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-                  : '—'
-              }
-              tone={status === 'late' ? 'warning' : 'muted'}
-            />
-            {status ? <DueBadge status={status} /> : null}
-          </View>
-        );
-      },
-    },
-    {
-      key: 'pastDue',
-      header: 'Past due',
-      numeric: true,
-      render: (row) => (
-        // The number carries the signal and the colour reinforces it, never the
-        // other way round -- "not yet" and "34 days" read differently in mono.
-        <ValueCell
-          value={pastDueLabel(row.dueOn, today)}
-          tone={daysPastDue(row.dueOn, today) > 0 ? 'warning' : 'muted'}
-        />
-      ),
+      width: 84,
+      render: (row) => <DueCell dueOn={row.dueOn} today={today} />,
     },
     {
       key: 'remind',
       header: 'Remind',
-      width: 60,
+      width: 42,
       // Renders nothing for a customer with no dialable number, which is
       // WhatsAppButton's own rule: offering to message somebody and then
       // opening an empty chat is worse than not offering.
@@ -152,6 +187,8 @@ export function ReceivablesTab({
   initialBucket?: AgingBucket | null;
 }) {
   const { shop } = useAuth();
+  const { width } = useWindowDimensions();
+  const tableMinWidth = width >= TABLET_BREAKPOINT ? TABLE_MIN_WIDTH_WIDE : TABLE_MIN_WIDTH_PHONE;
   const [rows, setRows] = useState<CustomerBalance[]>([]);
   // The clock these ages are measured against, stamped when the rows arrived.
   // Zero until then, which reads as "today" -- and there are no rows to age yet.
@@ -331,6 +368,7 @@ export function ReceivablesTab({
           <DataTable
             columns={columns}
             rows={shown}
+            minWidth={tableMinWidth}
             keyExtractor={(row) => row.customerId}
             emptyLabel={bucket ? 'Nothing in this bucket.' : 'Nobody owes the shop anything.'}
           />
@@ -345,20 +383,14 @@ const styles = StyleSheet.create({
   metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   // 10, not the card's usual 18: the table brings its own gutters.
   tableBody: { paddingHorizontal: 10 },
-  dueCell: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6 },
-  // 999 is the house pill radius (tab-pills, delta-badge, the card scope pill).
-  badge: {
-    backgroundColor: theme.bentoSoft,
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  // Both badges sit on the same soft surface and differ in ink, because there
-  // is no warn WASH token -- only bentoWarn itself. Inventing one would mean
-  // guessing a contrast ratio for a pair that every other wash in theme.ts
-  // documents precisely, for a 10px pill that already carries its meaning in
-  // the word inside it. Amber rather than red for the same reason the 90+ tile
-  // is amber: money owed late is a task, not a loss.
-  badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3, color: theme.bentoMuted },
-  badgeTextLate: { color: theme.bentoWarn },
+  // Right-aligned to sit with the numeric columns beside it, and stacked so the
+  // date and its lateness read as one answer rather than two cells.
+  dueCell: { alignItems: 'flex-end' },
+  dueDate: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
+  // Amber rather than red, for the same reason the 90+ tile is amber: money
+  // owed late is a task, not a loss. The words beneath say "late" either way,
+  // so the colour is never the only signal.
+  dueDateLate: { color: theme.bentoWarn },
+  dueMeta: { fontSize: 10.5, fontWeight: '600', color: theme.bentoMuted2, marginTop: 1 },
+  dueMetaLate: { color: theme.bentoWarn },
 });

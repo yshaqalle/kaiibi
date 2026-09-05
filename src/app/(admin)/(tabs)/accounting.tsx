@@ -57,7 +57,9 @@ const TAB_OPTIONS: { key: AccountingTab; label: string; blurb: string }[] = [
   { key: 'transactions', label: 'Transactions', blurb: 'Every sale and refund, line by line.' },
   // Beside Bills on purpose: one is what the shop owes, the other what it is
   // owed, and they are the same question asked in two directions.
-  { key: 'receivables', label: 'Owed to you', blurb: 'Which customers owe the shop, and since when.' },
+  // "and by when", not "and since when": the list stopped answering how OLD a
+  // debt is and started answering how LATE it is (20261026000000).
+  { key: 'receivables', label: 'Owed to you', blurb: 'Which customers owe the shop, and by when.' },
   { key: 'invoices', label: 'Bills', blurb: 'What you owe suppliers, and when it is due.' },
   { key: 'expenses', label: 'Expenses', blurb: 'What the shop spent, by category.' },
   { key: 'payroll', label: 'Payroll', blurb: 'Pay runs and what each one cost.' },
