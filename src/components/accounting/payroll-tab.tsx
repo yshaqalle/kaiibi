@@ -135,6 +135,42 @@ export function PayrollTab({
   // Published to the shell, which owns the scroller the pull happens on.
   useTabRefresh(setRefresh, reload);
 
+  // ABOVE the `if (!allowed)` return below, and memoised, and both of those are
+  // load-bearing.
+  //
+  // This is handed to PayrollHeaderActions as `onNew`, which puts it in
+  // useHeaderActions' dependency array -- and that hook publishes into SHELL
+  // state. That is a closed circuit: shell state changes, the shell re-renders,
+  // this tab re-renders, and if `onNew` is a new function each time the effect
+  // fires again and sets shell state again. React gives up with "Maximum update
+  // depth exceeded". It is the same runaway Cash & Budgets hit, and
+  // __tests__/header-actions-loop.test.tsx exists to pin exactly this.
+  //
+  // It sat below the early return as a bare `const openCreate = async () => …`,
+  // where useCallback is illegal because hooks cannot follow a conditional
+  // return -- which is precisely how it came to be unmemoised. Hoisting it here
+  // is what makes the memo possible; the two changes only work together.
+  //
+  // `shop` is the only real dependency: the setters and the ref are stable.
+  const openCreate = useCallback(async () => {
+    setCreating(true);
+    setActiveStaff(null);
+    const requestId = ++createRequestRef.current;
+    if (!shop) return;
+    try {
+      const members = await listStaff(shop.id);
+      // Discard a superseded response: Cancel stays clickable while this is
+      // in flight, so a quick cancel-and-reopen can leave two calls racing.
+      if (createRequestRef.current !== requestId) return;
+      setActiveStaff(members.filter((member) => member.active));
+    } catch {
+      // A failed load leaves the count hidden rather than blocking the card --
+      // startRun re-fetches and will surface a real error there.
+      if (createRequestRef.current !== requestId) return;
+      setActiveStaff(null);
+    }
+  }, [shop]);
+
   // Pay data is RLS-protected, so a role without both permissions can't read
   // any of this. Say so rather than rendering an empty screen that looks broken.
   if (!allowed) {
@@ -152,28 +188,6 @@ export function PayrollTab({
   const refreshOpen = async (runId: string) => {
     setOpen(await getPayrollRun(runId));
     await reload();
-  };
-
-  // Deliberately not a useEffect keyed on `creating`: this file already carries
-  // a react-hooks/set-state-in-effect finding, and adding another effect that
-  // sets state would add a second.
-  const openCreate = async () => {
-    setCreating(true);
-    setActiveStaff(null);
-    const requestId = ++createRequestRef.current;
-    if (!shop) return;
-    try {
-      const members = await listStaff(shop.id);
-      // Discard a superseded response: Cancel stays clickable while this is
-      // in flight, so a quick cancel-and-reopen can leave two calls racing.
-      if (createRequestRef.current !== requestId) return;
-      setActiveStaff(members.filter((member) => member.active));
-    } catch {
-      // A failed load leaves the count hidden rather than blocking the card --
-      // startRun re-fetches and will surface a real error there.
-      if (createRequestRef.current !== requestId) return;
-      setActiveStaff(null);
-    }
   };
 
   const startRun = async () => {
