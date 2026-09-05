@@ -165,7 +165,12 @@ function buildColumns(
     },
     {
       key: 'remind',
-      header: 'Remind',
+      // Blank, like every other action column here (close-period-view,
+      // fixed-assets-view). "Remind" does not fit 42px and rendered as "RE…",
+      // which labels nothing and reads as a bug. The button carries its own
+      // description for screen readers -- "Remind Amina about $7.69 on
+      // WhatsApp" -- so the heading was never what made it findable.
+      header: '',
       width: 42,
       // Renders nothing for a customer with no dialable number, which is
       // WhatsAppButton's own rule: offering to message somebody and then
