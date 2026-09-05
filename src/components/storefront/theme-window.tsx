@@ -181,8 +181,9 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         style={styles.scroller}
         // B6: see theme-market.tsx's identical comment -- the sticky
         // CheckoutBar floats over this content and reserves no space of
-        // its own.
-        contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
+        // its own. Unconditional for the same reason: the first Add must
+        // not reflow the page under the customer's finger.
+        contentContainerStyle={[styles.grid, styles.gridWithCheckoutBar]}
         // See theme-market.tsx: closes the page, and scrolls with the goods.
         ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
         renderItem={({ item }) => (

@@ -125,7 +125,8 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           most likely to overflow. */}
       {/* B6: the sticky CheckoutBar below floats over this scroll view and
           reserves no space of its own -- see theme-market.tsx's identical
-          comment. */}
+          comment. Unconditional for the same reason: the first Add must
+          not reflow the page under the customer's finger. */}
       {shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
       ) : null}
@@ -136,7 +137,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         // is now ambiguous for anything wanting THIS one.
         testID="storefront-counter-scroll"
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, itemCount > 0 && styles.scrollContentWithCheckoutBar]}
+        contentContainerStyle={[styles.scrollContent, styles.scrollContentWithCheckoutBar]}
       >
         <ShopHeader
           storefront={storefront}

@@ -3,6 +3,7 @@ import { act, create } from 'react-test-renderer';
 
 import { ThemeWindow } from '@/components/storefront/theme-window';
 import { SPACE } from '@/components/storefront/scale';
+import { CHECKOUT_BAR_CLEARANCE } from '@/components/storefront/theme-shared';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
@@ -85,31 +86,25 @@ async function renderWindow(slug: string) {
 
 describe('ThemeWindow', () => {
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
-  // space of its own -- without this, its last-row content sits underneath
-  // it the moment the cart goes from empty to non-empty.
-  it('reserves extra bottom space for the sticky checkout bar once the cart is non-empty', async () => {
-    const tree = await renderWindow('xamdi-window-b6-nonempty');
+  // space of its own. Task 5 made this unconditional -- the first Add must
+  // not reflow the page under the customer's finger, so the grid carries
+  // the clearance from the very first render, empty cart or not, and
+  // adding to the cart changes nothing about it.
+  it('reserves the checkout bar clearance from the first render, unchanged by adding to the cart', async () => {
+    const tree = await renderWindow('xamdi-window-b6-clearance');
     const before = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
+    expect(before).toBe(SPACE.page + CHECKOUT_BAR_CLEARANCE);
 
     const addButtons = findByTestId(tree, 'product-tile-add');
     await act(async () => addButtons[0].props.onPress());
 
     const after = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
-    expect(after).toBeGreaterThan(before);
+    expect(after).toBe(before);
 
     // Drains VirtualizedList's own post-update cell-measurement timer before
     // this test ends, so it fires here (inside act) rather than after,
     // logged against whatever test is running by then.
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  });
-
-  it('reserves no extra space while the cart is empty', async () => {
-    const tree = await renderWindow('xamdi-window-b6-empty');
-    const bottom = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
-    // The page gutter, not a number of its own -- both themes take it
-    // from the shared scale now, so this asserts "no clearance added"
-    // rather than pinning a padding that is free to be retuned.
-    expect(bottom).toBe(SPACE.page);
   });
 });
 

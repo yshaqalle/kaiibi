@@ -192,8 +192,12 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         style={styles.scroller}
         // B6: the sticky CheckoutBar below is `position: absolute` and so
         // reserves no space of its own -- without this, its last row sits
-        // underneath the bar the moment the cart is non-empty.
-        contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
+        // underneath the bar.
+        // Unconditional: the first Add must not reflow the page under the
+        // customer's finger. The cost is the clearance's worth of quiet
+        // space at the bottom of an empty-cart scroll, which nothing sits
+        // under.
+        contentContainerStyle={[styles.grid, styles.gridWithCheckoutBar]}
         // Closes the page. Inside the list rather than below it so it scrolls
         // with the goods -- a footer pinned under a 200-product grid would be
         // chrome permanently occupying the bottom of every browsing screen.
