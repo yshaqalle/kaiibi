@@ -319,3 +319,12 @@ export const WHATSAPP_BUTTON_GREEN = '#1f7a4d';
 // same reason the green does, so it's catalogued rather than a stray literal
 // on the button label.
 export const WHATSAPP_INK = '#ffffff';
+
+// The CHECKOUT affordance, fixed on every palette (decision 2026-09-05):
+// committing an order goes through kaiibi's machinery whichever shop you are
+// in, and one recognisable colour for that moment is worth more than palette
+// purity -- the same trade WHATSAPP_BUTTON_GREEN already makes. Byte-identical
+// to the azure palette's accent on purpose (pinned by test): on an Azure shop
+// the page and the affordance agree seamlessly. Carries white at 4.70:1.
+export const CHECKOUT_BLUE = '#0071e3';
+export const CHECKOUT_INK = '#ffffff';

@@ -16,7 +16,7 @@ import {
 import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import { collectLocation } from '@/lib/storefront-collect';
 import { placeOrder, placeOrderViaWhatsApp, type PlacedOrder } from '@/lib/storefront-order';
-import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
+import { CHECKOUT_BLUE, CHECKOUT_INK, WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 // The parts every theme needs. Kept out of any one theme so that Market is a
@@ -813,26 +813,69 @@ export function useStorefrontCart(slug: string) {
 // this much bottom padding of its own, but ONLY while `itemCount > 0` (the
 // same condition CheckoutBar below uses to render at all): an empty cart
 // must not carry dead space at the bottom of a page with no bar to clear.
-// Sized to the bar's own layout -- paddingVertical 14 top and bottom plus a
-// ~17px line of 14px/800-weight text is ~45px, plus the 14px gap the bar
-// itself sits above the screen edge -- rounded up with headroom rather than
-// tuned to the pixel, so a future tweak to the bar's own padding does not
-// also require re-measuring this constant.
+// The slip is 46px tall (8 padding + 30 thumb + 8) sitting 14px off the
+// bottom; 76 clears it with shadow headroom. Re-measure if the slip's
+// vertical paddings or thumb size change.
 export const CHECKOUT_BAR_CLEARANCE = 76;
 
+// Up to three thumbnails, in cart order. A product with no photo degrades to
+// a soft plate -- the same no-photo fallback the tiles use.
+export function cartThumbnails(cart: StorefrontCart, products: StorefrontProduct[]): (string | null)[] {
+  const byId = new Map(products.map((p) => [p.id, p.imageUrl]));
+  return cart.lines.slice(0, 3).map((line) => byId.get(line.productId) ?? null);
+}
+
+// The SLIP. The old bar was the accent as a full-width field with four words
+// on it -- the customer committed on trust, and on desktop the field ran the
+// window rather than the column. Now the container is ground (a surface), the
+// evidence sits on it (thumbnails, total, count, fulfilment), and the accent
+// is a button-sized button again.
 export function CheckoutBar({
-  colors, itemCount, subtotalCents, onPress,
-}: { colors: PaletteColors; itemCount: number; subtotalCents: number; onPress: () => void }) {
+  colors, itemCount, subtotalCents, thumbnails, fulfilment, onPress,
+}: {
+  colors: PaletteColors;
+  itemCount: number;
+  subtotalCents: number;
+  thumbnails: (string | null)[];
+  fulfilment: string | null;
+  onPress: () => void;
+}) {
   if (itemCount === 0) return null;
+  const line = `${itemCount} ${itemCount === 1 ? 'item' : 'items'}${fulfilment ? ` · ${fulfilment}` : ''}`;
   return (
     <View pointerEvents="box-none" style={styles.checkoutBarSlot}>
       <Pressable
         testID="storefront-checkout-bar"
         accessibilityRole="button"
         onPress={onPress}
-        style={pressable([styles.checkoutBar, { backgroundColor: colors.accent }])}
+        style={pressable([styles.slip, { backgroundColor: colors.ground, shadowColor: '#000' }])}
       >
-        <Text style={[styles.checkoutBarText, { color: colors.ground }]}>Checkout · {formatCents(subtotalCents)}</Text>
+        <View style={styles.slipEvidence}>
+          <View style={styles.slipThumbs}>
+            {thumbnails.map((uri, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.slipThumb,
+                  i === 0 && styles.slipThumbFirst,
+                  { backgroundColor: colors.soft, borderColor: colors.ground },
+                ]}
+              >
+                {uri ? <Image source={{ uri }} style={styles.slipThumbImage} /> : null}
+              </View>
+            ))}
+          </View>
+          <View>
+            <Text style={[styles.slipTotal, { color: colors.ink }]}>{formatCents(subtotalCents)}</Text>
+            <Text style={[styles.slipLine, { color: colors.muted }]}>{line}</Text>
+          </View>
+        </View>
+        {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on
+            every palette (Step 0). White type, the pair the constant is
+            contrast-tested for; colors.ground would drift per palette. */}
+        <View style={[styles.slipGo, { backgroundColor: CHECKOUT_BLUE }]}>
+          <Text style={[styles.slipGoText, { color: CHECKOUT_INK }]}>Checkout</Text>
+        </View>
       </Pressable>
     </View>
   );
@@ -1211,11 +1254,23 @@ const styles = StyleSheet.create({
   // window -- the maxWidth is what stops a 2000px screen getting a 1972px
   // button while the goods sit in 1080px.
   checkoutBarSlot: { position: 'absolute', left: 14, right: 14, bottom: 14, alignItems: 'center' },
-  checkoutBar: {
+  slip: {
     width: '100%', maxWidth: SHOP_MAX_WIDTH - 28,
-    borderRadius: 999, paddingVertical: 14, alignItems: 'center',
+    borderRadius: 999, paddingVertical: 8, paddingLeft: 16, paddingRight: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14,
+    shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
   },
-  checkoutBarText: { fontSize: 14, fontWeight: '800' },
+  slipEvidence: { flexDirection: 'row', alignItems: 'center', gap: 11, flexShrink: 1 },
+  slipThumbs: { flexDirection: 'row' },
+  slipThumb: {
+    width: 30, height: 30, borderRadius: 9, borderWidth: 2, marginLeft: -9, overflow: 'hidden',
+  },
+  slipThumbFirst: { marginLeft: 0 },
+  slipThumbImage: { width: '100%', height: '100%' },
+  slipTotal: { fontSize: 14, fontWeight: '800' },
+  slipLine: { fontSize: 11.5, fontWeight: '600', marginTop: 1 },
+  slipGo: { borderRadius: 999, paddingHorizontal: 20, paddingVertical: 11 },
+  slipGoText: { fontSize: 13.5, fontWeight: '800' },
   screen: { flex: 1 },
   screenNav: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   screenBack: { fontSize: 14, fontWeight: '700' },

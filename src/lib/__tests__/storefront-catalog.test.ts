@@ -1,7 +1,7 @@
 import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
-  paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN,
+  paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN, CHECKOUT_BLUE, CHECKOUT_INK,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -312,4 +312,16 @@ describe('no accent impersonates the WhatsApp button', () => {
       expect(deltaE(paletteColors(key).accent, WHATSAPP_BUTTON_GREEN)).toBeGreaterThanOrEqual(15);
     },
   );
+});
+
+describe('checkout blue', () => {
+  it('carries white text, which is its whole job', () => {
+    expect(contrastRatio(CHECKOUT_INK, CHECKOUT_BLUE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('is byte-identical to the azure accent, deliberately', () => {
+    // If either value moves without the other, an Azure shop's page and its
+    // checkout affordance drift apart -- pin the relationship.
+    expect(paletteColors('azure').accent).toBe(CHECKOUT_BLUE);
+  });
 });

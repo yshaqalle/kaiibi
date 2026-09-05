@@ -7,8 +7,8 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, isWideShop, useCheckoutFlow,
-  useStorefrontCart, type ThemeProps,
+  NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, cartThumbnails, isWideShop,
+  useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
 import { LETTER, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
@@ -218,7 +218,14 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         }}
       />
 
-      <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
+      <CheckoutBar
+        colors={colors}
+        itemCount={itemCount}
+        subtotalCents={subtotalCents}
+        thumbnails={cartThumbnails(cart, products)}
+        fulfilment={storefront.offersDelivery ? null : 'collection'}
+        onPress={checkout.openCheckout}
+      />
     </View>
   );
 }
