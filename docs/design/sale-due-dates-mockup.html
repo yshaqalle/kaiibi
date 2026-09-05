@@ -463,17 +463,23 @@
     </div>
 
     <div class="open">
-      <h4>One thing the brief and the code disagree about</h4>
+      <h4>Settled: Current means “under 30 days past due”</h4>
       <p class="note">
-        The intent was recorded as: <i>"Current" stops meaning "under 30 days old" and starts
+        The intent was first recorded as: <i>"Current" stops meaning "under 30 days old" and starts
         meaning "not yet due"</i>. With the bucketing left alone that is not quite what happens.
         <code>bucketForDays</code> puts everything under 30 into <code>current</code>, and
         <code>daysSince</code> clamps negatives to zero — so a sale not yet due and a sale
         <i>twenty days late</i> both land in Current.
       </p>
+      <p class="note">
+        Raised, and <b>decided in favour of leaving the bucketing alone</b>. The tile hint says
+        "under 30 days past due" and the card is titled "How late the money is". The second option
+        below is recorded because the reasoning still matters if the buckets are ever revisited —
+        it is not outstanding work.
+      </p>
       <div class="ba">
         <div>
-          <div class="k">Leave the bucketing alone</div>
+          <div class="k" style="color:#0b7a44;">Chosen · leave the bucketing alone</div>
           Current means <b>under 30 days past due</b>. The hint under the tile has to say that,
           not "not yet due". A shop chasing a two-week-late debt won't find it in a bucket, but
           it is on the list with a <span class="badge late">Late</span> badge and a Past due
@@ -487,10 +493,11 @@
         </div>
       </div>
       <p class="note" style="margin-top:12px;">
-        <b>Drawn as the first.</b> The strip above says <i>under 30 days past due</i> and the tab
-        is titled <i>How late the money is</i>. It respects the "don't touch the bucketing"
-        constraint, and the honest hint costs nothing. Worth a look before I build it, since the
-        wording in the brief implies the second.
+        <b>Built as the first, and confirmed.</b> It respects the "don't touch the bucketing"
+        constraint, and the honest hint costs nothing. The trade accepted knowingly: a debt a
+        fortnight late is not bucketed on its own — it still carries a
+        <span class="badge late">Late</span> badge and a past-due figure in the table below, so it
+        is visible on the list, just not in the strip.
       </p>
     </div>
   </section>
