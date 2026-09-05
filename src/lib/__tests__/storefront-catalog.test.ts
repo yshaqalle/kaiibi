@@ -282,3 +282,34 @@ describe('the tinted action tier', () => {
     expect(contrastRatio(c.accentWash, c.ground)).toBeLessThan(1.6);
   });
 });
+
+describe('no accent impersonates the WhatsApp button', () => {
+  const lab = (hex: string): [number, number, number] => {
+    const n = parseInt(hex.slice(1), 16);
+    const lin = (v: number) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(lin);
+    let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+    const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    [x, y, z] = [f(x), f(y), f(z)];
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+  };
+  const deltaE = (a: string, b: string) => {
+    const [l1, a1, b1] = lab(a);
+    const [l2, a2, b2] = lab(b);
+    return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+  };
+
+  it.each(PALETTES.map((p) => p.key) as StorefrontPalette[])(
+    '%s keeps its accent at least deltaE 15 from the WhatsApp green',
+    (key) => {
+      // 15 is the floor theme.ts already applies between two chart marks; two
+      // BUTTONS with different meanings deserve at least what two bars get.
+      expect(deltaE(paletteColors(key).accent, WHATSAPP_BUTTON_GREEN)).toBeGreaterThanOrEqual(15);
+    },
+  );
+});

@@ -101,7 +101,14 @@ type BasePaletteColors = Omit<
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   ink:     { ground: '#ffffff', soft: '#f4f4f5', ink: '#141418', accent: '#141418' },
-  palm:    { ground: '#fbfcfa', soft: '#eef4ef', ink: '#12211a', accent: '#1f6b45' },
+  // Two one-value moves (2026-09-05). The accent deepened from #1f6b45, which
+  // sat deltaE 7.5 from the fixed WhatsApp button green -- "Buy" and "Message
+  // us" in one colour; #14543a is deltaE 19 away and carries white harder
+  // (8.9:1 vs 6.5:1). The ink neutralised from #12211a, a GREEN black that
+  // made every ink-filled surface a green card under a green button; charcoal
+  // with a whisper of green keeps Palm's identity, and the green itself now
+  // lives only in the accent.
+  palm:    { ground: '#fbfcfa', soft: '#eef4ef', ink: '#15191b', accent: '#14543a' },
   clay:    { ground: '#fdfaf7', soft: '#f5ede6', ink: '#241a14', accent: '#98452a' },
   sea:     { ground: '#fafcfd', soft: '#eaf1f5', ink: '#101f28', accent: '#155b78' },
   saffron: { ground: '#fdfbf6', soft: '#f6efe0', ink: '#241d10', accent: '#8a5a05' },
