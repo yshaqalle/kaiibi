@@ -1,5 +1,7 @@
 # Storefront Apple-Blue Design, Checkout Redesign & Kaiibi Branding — Implementation Plan
 
+> **Entry point moved:** start from `2026-09-05-storefront-master-plan.md` in this directory — it carries the decision ledger and Phases 2–4. This document remains the authoritative, fully-specified TDD source for **Phase 1** (its Tasks 1–12) and is executed as written.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Apply the apple.com-blue design language (solid accent primaries, tinted secondaries) to the public storefront, redesign the checkout bar as an evidence-carrying slip, and add removable-on-Pro kaiibi branding — touching nothing in the admin app.
