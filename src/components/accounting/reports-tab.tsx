@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
@@ -533,12 +533,39 @@ function ReportsHeaderActions({
   exporting: boolean;
   setHeaderActions: HeaderActionsSetter;
 }) {
+  // `onExport` is REBUILT ON EVERY RENDER of ReportsTab, and it cannot easily
+  // be otherwise: exportPdf closes over a dozen figures (revenue, gross profit,
+  // the category totals, the range label) that are only computed past the
+  // `if (loading || !performance)` early return, and hooks cannot follow a
+  // conditional return -- so useCallback is illegal where it is written.
+  //
+  // Putting it straight into useHeaderActions' dependencies is therefore the
+  // Cash & Budgets runaway again: publish into shell state, shell re-renders,
+  // this tab re-renders, `onExport` is new, publish again, "Maximum update
+  // depth exceeded". Payroll hit exactly that (see
+  // __tests__/payroll-header-actions-loop.test.tsx); this one was latent only
+  // because the loop has to nest ~50 deep before React complains.
+  //
+  // So the identity is made stable HERE instead of at the call site, which
+  // needs no refactor of the export itself. The ref always holds the newest
+  // closure, and `runExport` -- the thing the dependency array actually sees --
+  // never changes. Written in an effect rather than during render: a ref
+  // mutated while rendering is its own violation, and this file is already
+  // linted for it.
+  const latestExport = useRef(onExport);
+  useEffect(() => {
+    latestExport.current = onExport;
+  });
+  const runExport = useCallback(() => latestExport.current(), []);
+
   useHeaderActions(
     setHeaderActions,
-    <Pressable onPress={onExport} disabled={exporting} style={styles.exportButton}>
+    <Pressable onPress={runExport} disabled={exporting} style={styles.exportButton}>
       {exporting ? <ActivityIndicator size="small" color={theme.bentoInk2} /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
     </Pressable>,
-    [onExport, exporting]
+    // Both stable: `runExport` by construction, `exporting` a boolean that only
+    // changes when an export actually starts or finishes.
+    [runExport, exporting]
   );
   return null;
 }
