@@ -14,7 +14,7 @@ import { ClosePeriodView } from '@/components/accounting/ledger/close-period-vie
 import { IncomeStatementView } from '@/components/accounting/ledger/income-statement-view';
 import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-view';
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
-import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
+import { AccountingCrumb, type CrumbStep } from '@/components/accounting/accounting-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
 import { REPORT_SCREENS, hasReportScreen } from '@/components/accounting/reports/report-screens';
 import { ReportsHub, isReportView, reportViewMeta, type ReportView } from '@/components/accounting/reports/reports-hub';
@@ -64,7 +64,7 @@ const TAB_OPTIONS: { key: AccountingTab; label: string; blurb: string }[] = [
   { key: 'cash', label: 'Cash & Budgets', blurb: 'Cash on hand, recurring bills and category limits.' },
   // Between the day-to-day tabs and Reports on purpose: the books are what the
   // tabs above feed and what the reports below read.
-  { key: 'accounting', label: 'Accounting', blurb: 'The books themselves — accounts, entries and the trail behind them.' },
+  { key: 'accounting', label: 'The books', blurb: 'The books themselves — accounts, entries and the trail behind them.' },
   { key: 'reports', label: 'Reports', blurb: 'Profit and loss, tax, labour and category breakdowns.' },
 ];
 
@@ -234,6 +234,18 @@ function AccountingScreen() {
   const tabOption = TAB_OPTIONS.find((t) => t.key === tab);
   const title = inLedger ? ledgerViewMeta?.label : inReport ? reportViewMeta(reportView).label : tabOption?.label;
   const blurb = inLedger ? ledgerViewMeta?.blurb : inReport ? reportViewMeta(reportView).blurb : tabOption?.blurb;
+
+  // The path, built from the two pieces of state the shell already holds, so
+  // there is no third place that can disagree about where the reader is.
+  //
+  // Two steps on a tab, three inside a hub's screen. The module step goes to
+  // Overview rather than "up" -- Accounting IS the module, so the only sensible
+  // destination is the tab you land on when you tap it in the nav.
+  const crumb: CrumbStep[] = [
+    { label: 'Accounting', onPress: () => setTab('overview') },
+    ...(tabOption ? [{ label: tabOption.label, onPress: inLedger || inReport ? () => setView('hub') : undefined }] : []),
+    ...(inLedger || inReport ? [{ label: title ?? '' }] : []),
+  ];
   // What the picker is actually set to, for the hub cards that follow it. A
   // card promising "7 days" to a reader who has chosen 30 gets believed.
   const rangeLabel = dateRange ? formatRangeLabel(dateRange) : null;
@@ -243,8 +255,7 @@ function AccountingScreen() {
       <ScrollView contentContainerStyle={styles.content} refreshControl={pullToRefresh}>
         <View style={styles.headerRow}>
           <View style={styles.headerTitles}>
-            <Text style={styles.eyebrow}>ACCOUNTING</Text>
-            {(inLedger || inReport) && <LedgerCrumb label={inReport ? 'Reports' : 'Accounting'} onBack={() => setView('hub')} />}
+            <AccountingCrumb trail={crumb} />
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.blurb}>{blurb}</Text>
           </View>
@@ -327,7 +338,7 @@ function AccountingScreen() {
                 the shell's range and store filter, so a reader who picked 30
                 days and one branch on the hub keeps both on arrival. */}
             {tab === 'reports' && hasReportScreen(reportView)
-              ? REPORT_SCREENS[reportView]({ dateRange, locationFilter, setRefresh: setTabRefresh })
+              ? REPORT_SCREENS[reportView]({ dateRange, locationFilter, setRefresh: setTabRefresh, setHeaderActions, rangeLabel })
               : null}
             {/* The Reports tab as it was, kept on a route of its own rather
                 than deleted: it holds a working profit and loss, a sales-tax
@@ -348,7 +359,6 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
   headerTitles: { flexShrink: 1 },
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
-  eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: theme.bentoMuted, marginBottom: 3 },
   title: { color: theme.bentoInk, fontSize: 26, fontWeight: '800', letterSpacing: -1 },
   blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3 },
   tabBar: { marginBottom: 16 },

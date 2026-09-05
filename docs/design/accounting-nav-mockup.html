@@ -1,0 +1,280 @@
+<meta charset="utf-8" />
+<title>Knowing where you are in Accounting</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7; --sep:#a9a8b2; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 12px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:76ch;}
+  h3.sub{font-size:14px;font-weight:800;margin:28px 0 8px;letter-spacing:-.01em;}
+  section{margin-top:56px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:76ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .bad{color:#b52233;font-weight:750;} .good{color:#0b7a44;font-weight:750;}
+  @media (prefers-color-scheme: dark){ .bad{color:#ff8a93;} .good{color:#5fd39a;} }
+  :root[data-theme="dark"] .bad{color:#ff8a93;} :root[data-theme="dark"] .good{color:#5fd39a;}
+  :root[data-theme="light"] .bad{color:#b52233;} :root[data-theme="light"] .good{color:#0b7a44;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);}
+  .scroller{overflow-x:auto;padding-bottom:8px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;}
+  .stack{display:grid;gap:26px;}
+
+  /* ---- the screen furniture, matching what ships ---- */
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+  .ey{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);margin:0 0 2px;}
+  .back{font-size:12.5px;font-weight:700;color:var(--d-mut);margin:0 0 6px;}
+  .ttl{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .blurb{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .ctrl{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 14px;font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .body{background:var(--d-sf);border-radius:26px;padding:20px;margin-top:14px;color:var(--d-mut);font-size:12.5px;}
+
+  /* ---- the crumb ---- */
+  .crumb{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 6px;font-size:12.5px;}
+  .crumb a{color:var(--d-mut);font-weight:700;text-decoration:none;}
+  .crumb a:hover{color:var(--d-ink2);text-decoration:underline;}
+  .crumb .sep{color:var(--sep);font-weight:400;}
+  .crumb .here{color:var(--d-ink2);font-weight:800;}
+  .crumb .back{margin:0;color:var(--d-mut);font-weight:700;}
+
+  .callout{border-left:3px solid var(--sep);padding:2px 0 2px 14px;margin:14px 0;font-size:13.5px;color:var(--ink2);max-width:76ch;}
+  .count{display:inline-block;background:rgba(215,43,62,.13);color:#b52233;font-weight:800;border-radius:999px;padding:1px 8px;font-size:11.5px;}
+  @media (prefers-color-scheme: dark){ .count{color:#ff8a93;} }
+
+  ul.reco{max-width:76ch;padding-left:20px;} ul.reco li{margin-bottom:11px;font-size:14px;color:var(--ink2);}
+  ul.reco li b{color:var(--ink);}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Design · Accounting</p>
+<h1>Knowing where you are in Accounting</h1>
+<p class="lede">Nine tabs, two of which open hubs, and those hubs open eighteen more screens. The header that is
+supposed to place you in that tree currently spends three of its four lines saying nothing useful — and puts the
+one line that does say something <em>below</em> the title it qualifies.</p>
+
+<!-- ============================================================ -->
+<section>
+  <h2>1 · What the screen says today</h2>
+  <p class="h2sub">Traced from the running app at <code>?tab=accounting&amp;view=entry</code>. Read it top to
+  bottom and count how many times you are told the word "Accounting".</p>
+
+  <div class="scroller">
+    <div class="frame w1180">
+      <div class="head">
+        <div>
+          <p class="ey">ACCOUNTING</p>
+          <p class="back">← Accounting</p>
+          <h3 class="ttl">General Journal Entry</h3>
+          <p class="blurb">Post a manual debit/credit entry to the ledger.</p>
+        </div>
+        <div class="ctrl"><span class="chip">7 days ⌄</span><span class="chip">All stores ⌄</span></div>
+      </div>
+      <div style="margin-top:14px"><div class="tabrow">
+        <span>Overview</span><span>Transactions</span><span>Owed to you</span><span>Bills</span>
+        <span>Expenses</span><span>Payroll</span><span>Cash &amp; Budgets</span>
+        <span class="on">Accounting</span><span>Reports</span>
+      </div></div>
+      <div class="body">The entry · description, lines, difference…</div>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:16px">Four times, in four different meanings — <span class="count">×4</span></p>
+  <table class="dtbl">
+    <tr><th>Where</th><th>Says</th><th>Means</th><th>Tells you</th></tr>
+    <tr><td>Sidebar, highlighted</td><td>Accounting</td><td>the module</td><td>Which of five areas of the app</td></tr>
+    <tr><td>Eyebrow</td><td>ACCOUNTING</td><td>the module, again</td><td><span class="bad">Nothing.</span> It is a hardcoded string — the same nine characters on all nine tabs and all eighteen views</td></tr>
+    <tr><td>Back link</td><td>← Accounting</td><td>the <i>ledger hub</i></td><td>Where ← goes. A different Accounting from the two above it</td></tr>
+    <tr><td>Tab pill, filled</td><td>Accounting</td><td>the tab</td><td>The one genuinely useful signal — and it is <span class="bad">below the title</span></td></tr>
+  </table>
+
+  <div class="callout">The ordering is the real defect. You read the leaf — <b>General Journal Entry</b> — before
+  you are shown the branch it hangs off, because the tab row renders under the title block. Every other
+  hierarchy in the app, and every breadcrumb anywhere, goes the other way: where you are, then what it is.</div>
+
+  <p class="note">The second failure is that the eyebrow is a constant. <code>&lt;Text style={styles.eyebrow}&gt;ACCOUNTING&lt;/Text&gt;</code>
+  is literal in the shell, so the line that occupies the most prominent "where am I" slot is the one line
+  guaranteed never to answer it. On the Bills tab it says ACCOUNTING. On Payroll it says ACCOUNTING. Inside a
+  stock report three levels down, it still says ACCOUNTING.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>2 · Three ways to fix it</h2>
+  <p class="h2sub">In increasing order of how much they move. All three kill the constant eyebrow, because nothing
+  defends it.</p>
+
+  <div class="stack">
+    <div>
+      <div class="frameHead"><b>Option A</b> <i>— the eyebrow earns its place. One line changed, no layout moves.</i></div>
+      <div class="scroller"><div class="frame w1180">
+        <div class="head">
+          <div>
+            <p class="ey">ACCOUNTING · THE BOOKS</p>
+            <p class="back">← Accounting</p>
+            <h3 class="ttl">General Journal Entry</h3>
+            <p class="blurb">Post a manual debit/credit entry to the ledger.</p>
+          </div>
+          <div class="ctrl"><span class="chip">7 days ⌄</span><span class="chip">All stores ⌄</span></div>
+        </div>
+        <div style="margin-top:14px"><div class="tabrow">
+          <span>Overview</span><span>Transactions</span><span>Owed to you</span><span>Bills</span>
+          <span>Expenses</span><span>Payroll</span><span>Cash &amp; Budgets</span><span class="on">Accounting</span><span>Reports</span>
+        </div></div>
+        <div class="body">The entry · description, lines, difference…</div>
+      </div></div>
+      <p class="note" style="margin-top:10px">Cheapest possible change: the eyebrow reads the active tab instead of
+      a literal. But it still leaves two rows above the title saying near-identical things, and the tab row is
+      still below the title. <span class="bad">Treats the symptom.</span></p>
+    </div>
+
+    <div>
+      <div class="frameHead"><b>Option B — recommended</b> <i>— one crumb replaces both the eyebrow and the back link.</i></div>
+      <div class="scroller"><div class="frame w1180">
+        <div class="head">
+          <div>
+            <p class="crumb"><a href="#">Accounting</a><span class="sep">›</span><a href="#">The books</a><span class="sep">›</span><span class="here">General Journal Entry</span></p>
+            <h3 class="ttl">General Journal Entry</h3>
+            <p class="blurb">Post a manual debit/credit entry to the ledger.</p>
+          </div>
+          <div class="ctrl"><span class="chip">7 days ⌄</span><span class="chip">All stores ⌄</span></div>
+        </div>
+        <div style="margin-top:14px"><div class="tabrow">
+          <span>Overview</span><span>Transactions</span><span>Owed to you</span><span>Bills</span>
+          <span>Expenses</span><span>Payroll</span><span>Cash &amp; Budgets</span><span class="on">The books</span><span>Reports</span>
+        </div></div>
+        <div class="body">The entry · description, lines, difference…</div>
+      </div></div>
+      <p class="note" style="margin-top:10px">Two header rows collapse into one, and that one row states the whole
+      path. Every ancestor is a link, so the crumb <i>is</i> the back affordance — <code>LedgerCrumb</code> stops
+      being a separate component. Four lines of header become three.</p>
+    </div>
+
+    <div>
+      <div class="frameHead"><b>Option C</b> <i>— B, plus the tab row moves above the title.</i></div>
+      <div class="scroller"><div class="frame w1180">
+        <div class="tabrow" style="margin-bottom:16px">
+          <span>Overview</span><span>Transactions</span><span>Owed to you</span><span>Bills</span>
+          <span>Expenses</span><span>Payroll</span><span>Cash &amp; Budgets</span><span class="on">The books</span><span>Reports</span>
+        </div>
+        <div class="head">
+          <div>
+            <p class="crumb"><a href="#">The books</a><span class="sep">›</span><span class="here">General Journal Entry</span></p>
+            <h3 class="ttl">General Journal Entry</h3>
+            <p class="blurb">Post a manual debit/credit entry to the ledger.</p>
+          </div>
+          <div class="ctrl"><span class="chip">7 days ⌄</span><span class="chip">All stores ⌄</span></div>
+        </div>
+        <div class="body">The entry · description, lines, difference…</div>
+      </div></div>
+      <p class="note" style="margin-top:10px">Strictly the most correct hierarchy — nav, then place, then thing —
+      and the crumb gets shorter because the tab row above it already carries the first level. The cost is real
+      though: the tab row is nine pills that scroll horizontally on a phone, so putting it first means the first
+      thing on every Accounting screen is a scrollbar rather than a heading. <span class="bad">I would not ship
+      this on mobile.</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>3 · The naming problem underneath</h2>
+  <p class="h2sub">No breadcrumb design fixes a crumb that reads <code>Accounting › Accounting › Trial Balance</code>.
+  The tab named "Accounting" inside the module named "Accounting" has to be renamed, or option B produces this:</p>
+
+  <div class="scroller"><div class="frame w1180" style="padding:22px 18px">
+    <p class="crumb" style="margin:0 0 12px"><a href="#">Accounting</a><span class="sep">›</span><a href="#">Accounting</a><span class="sep">›</span><span class="here">Trial Balance</span> &nbsp;<span class="bad" style="font-size:12px">← what the crumb says if nothing is renamed</span></p>
+    <p class="crumb" style="margin:0"><a href="#">Accounting</a><span class="sep">›</span><a href="#">The books</a><span class="sep">›</span><span class="here">Trial Balance</span> &nbsp;<span class="good" style="font-size:12px">← with the tab renamed</span></p>
+  </div></div>
+
+  <p class="note" style="margin-top:16px">The tab's own blurb already calls it <i>"The books themselves — accounts,
+  entries and the trail behind them."</i> So <b>The books</b> is not a new coinage, it is the words the tab
+  already uses about itself, and it distinguishes the ledger from the module in one syllable more than "Ledger"
+  does while staying in the plain-speech register the rest of the app uses (<i>Owed to you</i>, not
+  <i>Receivables</i>).</p>
+
+  <table class="dtbl">
+    <tr><th>Candidate</th><th>Crumb reads</th><th></th></tr>
+    <tr><td><b>The books</b></td><td><code>Accounting › The books › Trial Balance</code></td><td><span class="good">Recommended</span> — the tab's own blurb, and matches "Owed to you" in register</td></tr>
+    <tr><td>Ledger</td><td><code>Accounting › Ledger › Trial Balance</code></td><td>Precise, and the term the code uses throughout (<code>LEDGER_VIEWS</code>, <code>ledger.view</code>). Bookkeeper's word, not a shopkeeper's</td></tr>
+    <tr><td>Journals</td><td><code>Accounting › Journals › Trial Balance</code></td><td><span class="bad">No</span> — Journals is already one of the screens inside it</td></tr>
+    <tr><td><i>leave as Accounting</i></td><td><code>Accounting › Accounting › Trial Balance</code></td><td><span class="bad">No</span> — this is the bug, written down</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">Renaming the tab label does <b>not</b> touch the route, the
+  <code>?tab=accounting</code> parameter, the <code>AccountingTab</code> type or any permission — it is the
+  <code>label</code> field on one entry in <code>TAB_OPTIONS</code>. Deep links people have already shared keep
+  working.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>4 · The crumb on a phone</h2>
+  <p class="h2sub">Three levels will not fit on 380px. It truncates from the left, which is the end that matters
+  least — you know you are in Accounting because you tapped Accounting.</p>
+  <div class="stack" style="grid-template-columns:1fr 1fr;display:grid;gap:20px;max-width:820px">
+    <div>
+      <div class="frameHead"><b>Two levels — fits</b></div>
+      <div class="frame w380" style="width:100%">
+        <p class="crumb" style="margin-bottom:4px"><a href="#">Accounting</a><span class="sep">›</span><span class="here">The books</span></p>
+        <h3 class="ttl" style="font-size:22px">The books</h3>
+      </div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Three levels — collapses</b></div>
+      <div class="frame w380" style="width:100%">
+        <p class="crumb" style="margin-bottom:4px"><span class="back">←</span><a href="#">The books</a><span class="sep">›</span><span class="here">Journal Entry</span></p>
+        <h3 class="ttl" style="font-size:22px">General Journal Entry</h3>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">The module level becomes a bare <b>←</b> rather than being dropped, so
+  the tap target survives even when the word does not. This is the same rule the hub cards now follow after the
+  export work: <b>shrink the chrome, never the label that carries meaning.</b></p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>5 · What I would build</h2>
+  <ul class="reco">
+    <li><b>Option B.</b> One <code>&lt;Breadcrumb&gt;</code> row replacing the constant eyebrow and
+    <code>LedgerCrumb</code>. Ancestors are links, the leaf is plain, and the trail is derived from
+    <code>tab</code> + <code>view</code> — the two pieces of state the shell already holds, so there is no new
+    source of truth to keep in sync.</li>
+    <li><b>Rename the tab label to "The books".</b> A one-field change with no route or permission impact, and
+    without it the crumb repeats itself. This is the part worth agreeing before I start.</li>
+    <li><b>Leave the tab row where it is.</b> Option C is the better hierarchy on a desktop and the worse one on a
+    phone, and this app is read on phones.</li>
+    <li><b>Not in this pass:</b> the same constant-eyebrow pattern is on Inventory, People and POS. Worth a sweep
+    once the component exists, but it is only load-bearing here, because Accounting is the only module that goes
+    three levels deep.</li>
+  </ul>
+</section>
+
+</div>

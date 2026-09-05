@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
-import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
+import { csvColumnsOf, DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { formatCents, formatCompactCents } from '@/lib/currency';
@@ -43,13 +44,15 @@ const DAY_COLUMNS: Column<DailyBucket>[] = [
     // date-only string round-tripped through UTC renders as the day before
     // west of Greenwich, which is a bug this project has already shipped once.
     render: (row) => <NameCell title={row.day} />,
+    text: (row) => row.day,
   },
-  { key: 'orders', header: 'Orders', numeric: true, render: (row) => <ValueCell value={String(row.orderCount)} /> },
+  { key: 'orders', header: 'Orders', numeric: true, render: (row) => <ValueCell value={String(row.orderCount)} />, text: (row) => String(row.orderCount) },
   {
     key: 'gross',
     header: 'Takings',
     numeric: true,
     render: (row) => <ValueCell value={formatCents(row.grossCents)} tone={row.grossCents === 0 ? 'muted' : 'default'} />,
+    text: (row) => formatCents(row.grossCents),
   },
   {
     key: 'refunds',
@@ -63,29 +66,36 @@ const DAY_COLUMNS: Column<DailyBucket>[] = [
       ) : (
         <ValueCell value={`−${formatCents(row.refundCents)}`} tone="danger" />
       ),
+    // A real minus-hyphen, not the U+2212 the cell draws: the typographic one
+    // is not a sign to any spreadsheet, so an exported refund would come back
+    // as text or as a positive.
+    text: (row) => (row.refundCents === 0 ? '—' : `-${formatCents(row.refundCents)}`),
   },
   {
     key: 'tax',
     header: 'Sales tax',
     numeric: true,
     render: (row) => <ValueCell value={row.taxCents === 0 ? '—' : formatCents(row.taxCents)} tone={row.taxCents === 0 ? 'muted' : 'default'} />,
+    text: (row) => (row.taxCents === 0 ? '—' : formatCents(row.taxCents)),
   },
   {
     key: 'net',
     header: 'Revenue',
     numeric: true,
     render: (row) => <ValueCell value={formatCents(row.netRevenueCents)} strong />,
+    text: (row) => formatCents(row.netRevenueCents),
   },
 ];
 
 const PAYMENT_COLUMNS: Column<PaymentMixEntry>[] = [
-  { key: 'method', header: 'Method', render: (row) => <NameCell title={methodLabel(row.method)} /> },
-  { key: 'amount', header: 'Taken', numeric: true, render: (row) => <ValueCell value={formatCents(row.amountCents)} /> },
+  { key: 'method', header: 'Method', render: (row) => <NameCell title={methodLabel(row.method)} />, text: (row) => methodLabel(row.method) },
+  { key: 'amount', header: 'Taken', numeric: true, render: (row) => <ValueCell value={formatCents(row.amountCents)} />, text: (row) => formatCents(row.amountCents) },
   {
     key: 'share',
     header: 'Share',
     numeric: true,
     render: (row) => <ValueCell value={`${row.pct.toFixed(1)}%`} tone="muted" />,
+    text: (row) => `${row.pct.toFixed(1)}%`,
   },
 ];
 
@@ -93,10 +103,15 @@ export function SalesReportView({
   dateRange,
   locationFilter,
   setRefresh,
+  setHeaderActions,
+  rangeLabel,
 }: {
   dateRange: DateRange;
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
+  /** The shell's range, for the export subtitle. */
+  rangeLabel: string | null;
 }) {
   const { shop } = useAuth();
   const [data, setData] = useState<{ days: DailyBucket[]; payments: PaymentMixEntry[]; stores: SaleGroupRow[]; grossCents: number; netCents: number; taxCents: number; orders: number } | null>(
@@ -148,8 +163,14 @@ export function SalesReportView({
 
   const storeColumns = useMemo<Column<SaleGroupRow>[]>(
     () => [
-      { key: 'store', header: 'Store', render: (row) => <NameCell title={row.label} meta={`${row.sales} sales`} /> },
-      { key: 'revenue', header: 'Revenue', numeric: true, render: (row) => <ValueCell value={formatCents(row.revenueCents)} /> },
+      { key: 'store', header: 'Store', render: (row) => <NameCell title={row.label} meta={`${row.sales} sales`} />, text: (row) => row.label },
+      {
+        key: 'revenue',
+        header: 'Revenue',
+        numeric: true,
+        render: (row) => <ValueCell value={formatCents(row.revenueCents)} />,
+        text: (row) => formatCents(row.revenueCents),
+      },
       {
         key: 'share',
         header: 'Share',
@@ -160,13 +181,40 @@ export function SalesReportView({
           const share = storeShares.get(row.key) ?? null;
           return <ValueCell value={share === null ? '—' : `${share.toFixed(1)}%`} tone="muted" />;
         },
+        text: (row) => {
+          const share = storeShares.get(row.key) ?? null;
+          return share === null ? '—' : `${share.toFixed(1)}%`;
+        },
       },
     ],
     [storeShares]
   );
 
+  // This report shows three tables, and a CSV file is one grid -- so the file
+  // takes the DAILY one, which is the grid people put in a spreadsheet, and the
+  // PDF carries all three as sections. The filename says which, rather than the
+  // screen growing a picker for the one report that needs it.
+  const pdfSections = useMemo(
+    () => [
+      { title: 'By day', columns: csvColumnsOf(DAY_COLUMNS), rows: data?.days ?? [] },
+      { title: 'By payment method', columns: csvColumnsOf(PAYMENT_COLUMNS), rows: data?.payments ?? [] },
+      { title: 'By store', columns: csvColumnsOf(storeColumns), rows: data?.stores ?? [] },
+    ],
+    [data, storeColumns]
+  );
+
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={data?.days ?? []}
+        columns={DAY_COLUMNS}
+        title="Sales Report"
+        rangeLabel={rangeLabel}
+        locationFilter={locationFilter}
+        filenamePrefix="sales-by-day"
+        pdfSections={pdfSections}
+      />
       <BentoCard title="The period" scope="The chosen range">
         <View style={styles.tiles}>
           <StatTile

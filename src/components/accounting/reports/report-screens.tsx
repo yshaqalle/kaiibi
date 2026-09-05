@@ -8,7 +8,7 @@ import { LowStockView } from '@/components/accounting/reports/low-stock-view';
 import type { ReportView } from '@/components/accounting/reports/reports-hub';
 import { SalesReportView } from '@/components/accounting/reports/sales-report-view';
 import { StockMovementView } from '@/components/accounting/reports/stock-movement-view';
-import type { RefreshSetter } from '@/components/accounting/use-header-actions';
+import type { HeaderActionsSetter, RefreshSetter } from '@/components/accounting/use-header-actions';
 import type { DateRange } from '@/components/range-selector';
 
 // Which screen each catalogued report opens.
@@ -35,6 +35,18 @@ export type ReportScreenProps = {
   dateRange: DateRange;
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  /**
+   * Where each report puts its Export buttons. It travels down because the
+   * title row belongs to the shell and the rows belong to the screen -- the
+   * same reason `setRefresh` does.
+   */
+  setHeaderActions: HeaderActionsSetter;
+  /**
+   * What the range picker is set to, for the export subtitle. The screens that
+   * IGNORE the range do not take it: an export headed with a window the report
+   * does not honour is the defect this whole prop exists to avoid.
+   */
+  rangeLabel: string | null;
 };
 
 /** Every report this hub routes to. Exhaustive, and checked by tsc. */
@@ -42,17 +54,17 @@ export const REPORT_SCREENS: Record<
   Exclude<ReportView, 'hub' | 'statements'>,
   (props: ReportScreenProps) => ReactElement
 > = {
-  sales: (p) => <SalesReportView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
-  item: (p) => <ItemPerformanceView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
-  employee: (p) => <EmployeeSalesView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
-  category: (p) => <CategorySalesView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
+  sales: (p) => <SalesReportView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} rangeLabel={p.rangeLabel} />,
+  item: (p) => <ItemPerformanceView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} rangeLabel={p.rangeLabel} />,
+  employee: (p) => <EmployeeSalesView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} rangeLabel={p.rangeLabel} />,
+  category: (p) => <CategorySalesView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} rangeLabel={p.rangeLabel} />,
   // These two take no range on purpose: stock on hand and a shortfall are
   // positions read at an instant, not windows, and their hub cards say "As of
   // today" rather than promising a window the screen does not keep. They still
   // take the store filter -- which shelf is empty is a real question.
-  inventory: (p) => <InventoryBalanceView locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
-  lowstock: (p) => <LowStockView locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
-  movement: (p) => <StockMovementView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} />,
+  inventory: (p) => <InventoryBalanceView locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} />,
+  lowstock: (p) => <LowStockView locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} />,
+  movement: (p) => <StockMovementView dateRange={p.dateRange} locationFilter={p.locationFilter} setRefresh={p.setRefresh} setHeaderActions={p.setHeaderActions} rangeLabel={p.rangeLabel} />,
 };
 
 /** True for a report view this map can render -- so not the hub, not the legacy tab. */

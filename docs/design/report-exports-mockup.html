@@ -1,0 +1,361 @@
+<meta charset="utf-8" />
+<title>Exporting a report — CSV and PDF</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+
+  /* Shipped bento tokens, from src/constants/theme.ts. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7; --warn:#b07206; --loss:#d72b3e; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 12px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:76ch;}
+  h3.sub{font-size:14px;font-weight:800;margin:28px 0 8px;letter-spacing:-.01em;}
+  section{margin-top:56px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:76ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap;}
+  .tag.yes{background:rgba(0,131,64,.13);color:#0b7a44;}
+  .tag.no{background:rgba(215,43,62,.13);color:#b52233;}
+  .tag.pick{background:rgba(47,107,255,.14);color:#2350c8;}
+  @media (prefers-color-scheme: dark){ .tag.yes{color:#5fd39a;} .tag.no{color:#ff8a93;} .tag.pick{color:#8fb4ff;} }
+  :root[data-theme="dark"] .tag.yes{color:#5fd39a;} :root[data-theme="dark"] .tag.no{color:#ff8a93;}
+  :root[data-theme="dark"] .tag.pick{color:#8fb4ff;}
+  :root[data-theme="light"] .tag.yes{color:#0b7a44;} :root[data-theme="light"] .tag.no{color:#b52233;}
+  :root[data-theme="light"] .tag.pick{color:#2350c8;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:26px;grid-template-columns:1fr;} .pair > div{min-width:0;}
+  @media (min-width:1100px){ .pair.two{grid-template-columns:1fr 1fr;} }
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap;}
+  .head .ey{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);margin:0 0 2px;}
+  .head h3{margin:0;font-size:24px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .ctrl{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .chip{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .chip.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  /* The cream button ExportMenu actually renders today. */
+  .creambtn{background:#111111;color:#fff;border-radius:10px;padding:9px 12px;font-size:11px;font-weight:800;white-space:nowrap;}
+  .crumb{font-size:12px;color:var(--d-mut);margin:0 0 10px;font-weight:600;}
+
+  .cardx{background:var(--d-sf);border-radius:26px;padding:20px;margin-bottom:12px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;}
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tbl th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);font-weight:800;padding:0 8px 8px 0;border-bottom:1px solid var(--d-rule);}
+  .tbl td{padding:9px 8px 9px 0;border-bottom:1px solid var(--d-ln);color:var(--d-ink2);}
+  .tbl td.r, .tbl th.r{text-align:right;}
+  .tbl tr:last-child td{border-bottom:none;}
+
+  pre.code{background:var(--pg2);border-radius:12px;padding:14px 16px;overflow-x:auto;font-size:12.5px;line-height:1.55;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink2);margin:12px 0 0;}
+  pre.code b{color:var(--ink);font-weight:700;}
+  .opt{border:1px solid var(--ln);border-radius:14px;padding:18px;background:var(--sf);}
+  .opt h4{margin:0 0 4px;font-size:14px;font-weight:800;}
+  .opt .verdict{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;}
+  .opt.win .verdict{color:#0b7a44;} .opt.lose .verdict{color:var(--mut);}
+  @media (prefers-color-scheme: dark){ .opt.win .verdict{color:#5fd39a;} }
+
+  /* A miniature of the generated PDF. */
+  .pdf{background:#fff;color:#111;border-radius:6px;padding:20px 18px;font-size:11px;line-height:1.5;
+    box-shadow:0 1px 8px rgba(0,0,0,.13);border:1px solid #e4e4ea;}
+  .pdf h5{font-size:15px;font-weight:800;letter-spacing:-.3px;margin:0 0 2px;color:#111;}
+  .pdf .sub{color:#777;font-size:10px;margin:0 0 14px;}
+  .pdf h6{font-size:9.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;color:#555;margin:16px 0 6px;}
+  .pdf table{width:100%;border-collapse:collapse;}
+  .pdf th{text-align:left;color:#999;font-weight:700;font-size:8.5px;text-transform:uppercase;letter-spacing:.3px;padding:5px 6px;border-bottom:1px solid #ededed;}
+  .pdf td{padding:5px 6px;border-bottom:1px solid #ededed;color:#222;font-size:10px;}
+  .pdf td.r,.pdf th.r{text-align:right;}
+  .pdf tr:last-child td{border-bottom:none;}
+  .pdf .stats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
+  .pdf .stat{background:#f7f7f5;border-radius:8px;padding:9px 12px;min-width:92px;}
+  .pdf .stat .l{font-size:8px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:#999;margin-bottom:3px;}
+  .pdf .stat .v{font-size:14px;font-weight:800;}
+
+  ul.reco{max-width:76ch;padding-left:20px;} ul.reco li{margin-bottom:11px;font-size:14px;color:var(--ink2);}
+  ul.reco li b{color:var(--ink);}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Design · Accounting → Reports</p>
+<h1>Exporting a report</h1>
+<p class="lede">Every report screen in the app is a table you can read and cannot take away. The export
+machinery already exists and is used on six other screens — this is about pointing it at the reports, and the
+three decisions that are not obvious once you do.</p>
+
+<!-- ============================================================ -->
+<section>
+  <h2>1 · The gap</h2>
+  <p class="h2sub">Nothing here is new infrastructure. <code>ExportMenu</code>, <code>rowsToCsv</code>,
+  <code>buildTableReportHtml</code>, <code>buildDashboardReportHtml</code>, <code>shareCsv</code> and
+  <code>sharePdf</code> all ship. Six screens call them; the reports are not among those six.</p>
+
+  <table class="dtbl">
+    <tr><th>Screen</th><th>CSV</th><th>PDF</th><th>How</th></tr>
+    <tr><td>Inventory · products</td><td><span class="tag yes">Yes</span></td><td><span class="tag yes">Yes</span></td><td><code>ExportMenu</code> + <code>PRODUCT_EXPORT_COLUMNS</code></td></tr>
+    <tr><td>People · customers, team</td><td><span class="tag yes">Yes</span></td><td><span class="tag yes">Yes</span></td><td><code>ExportMenu</code></td></tr>
+    <tr><td>Accounting · Transactions</td><td><span class="tag yes">Yes</span></td><td><span class="tag yes">Yes</span></td><td><code>ExportMenu</code></td></tr>
+    <tr><td>Accounting · Expenses</td><td><span class="tag yes">Yes</span></td><td><span class="tag yes">Yes</span></td><td><code>ExportMenu</code></td></tr>
+    <tr><td>Accounting · Overview</td><td><span class="tag yes">Yes</span></td><td><span class="tag yes">Yes</span></td><td><code>ExportMenu</code></td></tr>
+    <tr><td>Schedule</td><td><span class="tag yes">Yes</span></td><td><span class="tag yes">Yes</span></td><td><code>ExportMenu</code></td></tr>
+    <tr><td><b>P&amp;L, tax and labour</b> <i>(legacy statements)</i></td><td><span class="tag no">No</span></td><td><span class="tag yes">Yes</span></td><td>Its own header button → <code>buildDashboardReportHtml</code></td></tr>
+    <tr><td><b>The seven report screens</b></td><td><span class="tag no">No</span></td><td><span class="tag no">No</span></td><td>—</td></tr>
+    <tr><td><b>The ledger screens</b> — Trial Balance, Journals, Chart of Accounts, Audit Log, Fixed Assets, and the three statements</td><td><span class="tag no">No</span></td><td><span class="tag no">No</span></td><td>—</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">So the legacy statements screen is the odd one out in both directions:
+  it is the only screen with a PDF and no CSV, and the only report that exports at all. Whatever lands here should
+  fold it back into the same pattern rather than leaving a second one.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>2 · Where the control goes</h2>
+  <p class="h2sub">On the title row, via <code>useHeaderActions</code> — the mechanism that exists precisely for
+  this, and whose own comment says so: <i>"Export needs that tab's filtered rows"</i>. It travels upward because
+  the shell renders the header before the tab, and moving the title down into the tab would take the range
+  selector with it and reset the range on every switch.</p>
+
+  <div class="scroller">
+    <div class="frame w1180">
+      <p class="crumb">Reports ▸ Sales by Category</p>
+      <div class="head">
+        <div>
+          <p class="ey">Reports</p>
+          <h3>Sales by Category</h3>
+          <p>Revenue and margin by product category.</p>
+        </div>
+        <div class="ctrl">
+          <span class="chip">Export CSV</span>
+          <span class="chip">Export PDF</span>
+          <span class="chip">7 days ⌄</span>
+          <span class="chip">All stores ⌄</span>
+        </div>
+      </div>
+      <div class="cardx">
+        <p class="ctitle">By category · 7 days</p>
+        <table class="tbl">
+          <tr><th>Category</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">Margin</th></tr>
+          <tr><td>Serum</td><td class="r num">42</td><td class="r num">$904.00</td><td class="r num">38%</td></tr>
+          <tr><td>Cleanser</td><td class="r num">31</td><td class="r num">$558.00</td><td class="r num">41%</td></tr>
+          <tr><td>Sunscreen</td><td class="r num">19</td><td class="r num">$399.00</td><td class="r num">35%</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">The buttons are chips, not the cream block</h3>
+  <p class="note"><code>ExportMenu</code> hardcodes <code>#111111</code>, a 10px radius and 11px text — the cream
+  palette, from before Accounting was converted. It already renders that way on four bento screens, which is the
+  known interim state, but a fifth and sixth placement is the moment to give it a <code>bento</code> variant
+  rather than widen the debt. It also sits in the control-bar row here, beside the range and store chips, so it
+  should be shaped like them.</p>
+  <div class="pair two">
+    <div>
+      <div class="frameHead"><b>ExportMenu today</b> <i>#111111 · r10 · 11px</i></div>
+      <div class="frame"><div class="ctrl"><span class="creambtn">Export CSV</span><span class="creambtn">Export PDF</span><span class="chip">7 days ⌄</span></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>A bento variant</b> <i>control-bar chip · r999 · 12.5px</i></div>
+      <div class="frame"><div class="ctrl"><span class="chip">Export CSV</span><span class="chip">Export PDF</span><span class="chip">7 days ⌄</span></div></div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">Quiet chips rather than a solid fill, on the rule the hub cards already
+  follow: solid means the press <i>writes</i>. An export produces a file and changes nothing in the shop, so it
+  takes the same weight as the range picker it sits beside.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>3 · Decision one — where the CSV columns come from</h2>
+  <p class="h2sub">This is the real work, and the reason it is not a one-line change per screen. The report tables
+  and the exporter do not speak the same type.</p>
+
+<pre class="code">// what the report screens have — components, for the screen
+type <b>Column</b>&lt;T&gt;    = { key: string; header: string; numeric?: boolean; <b>render: (row: T) =&gt; ReactNode</b> }
+
+// what the exporter needs — text, for a file
+type <b>CsvColumn</b>&lt;T&gt; = { header: string; <b>value: (row: T) =&gt; string</b> }</pre>
+
+  <p class="note"><code>render</code> returns a <code>&lt;ValueCell&gt;</code> element. There is no honest way to
+  get <code>"$904.00"</code> back out of a React element, so the text has to be declared somewhere. Two places it
+  could go:</p>
+
+  <div class="pair two" style="margin-top:16px">
+    <div class="opt lose">
+      <div class="verdict">Option A · the precedent</div>
+      <h4>A second column list per screen</h4>
+      <p class="note" style="font-size:13px">Exactly what Inventory, People and Expenses already do —
+      <code>PRODUCT_EXPORT_COLUMNS</code> beside the display columns. Six screens set this precedent, so it needs
+      no argument to justify.</p>
+<pre class="code">const COLUMNS: Column&lt;Row&gt;[] = [
+  { key:'cat', header:'Category',
+    render: r =&gt; &lt;NameCell text={r.name}/&gt; },
+]
+<b>const EXPORT_COLUMNS</b>: CsvColumn&lt;Row&gt;[] = [
+  { header:'Category',
+    value: r =&gt; r.name },
+]</pre>
+      <p class="note" style="font-size:13px;margin-top:10px">The cost: two lists per screen across seven screens,
+      and nothing makes them agree. Rename a column header and the CSV keeps the old one silently.</p>
+    </div>
+    <div class="opt win">
+      <div class="verdict">Option B · recommended</div>
+      <h4>One list, with the text on it</h4>
+      <p class="note" style="font-size:13px">Add an optional <code>text</code> to <code>Column&lt;T&gt;</code>.
+      <code>DataTable</code> ignores it; the exporter reads it. One list is the source of both, so they cannot
+      drift.</p>
+<pre class="code">const COLUMNS: Column&lt;Row&gt;[] = [
+  { key:'cat', header:'Category',
+    render: r =&gt; &lt;NameCell text={r.name}/&gt;,
+    <b>text: r =&gt; r.name</b> },
+]
+
+// and one helper, once:
+<b>csvColumnsOf(COLUMNS)</b> // drops any column
+                     // with no `text`</pre>
+      <p class="note" style="font-size:13px;margin-top:10px">A column with no <code>text</code> is simply not
+      exported — which is the right default for an actions column or a sparkline, and makes "is this in the file?"
+      a visible property of the column rather than a second list to remember.</p>
+    </div>
+  </div>
+  <p class="note" style="margin-top:16px">Recommending <b>B</b>, with one caveat worth stating plainly: it is the
+  option that does <i>not</i> match the six existing screens, so it either leaves two patterns in the app or
+  implies a follow-up to move those six across. I would take that trade — the drift Option A allows is the exact
+  failure this codebase keeps writing comments about, and the six existing callers can move later without a
+  behaviour change. If you would rather stay uniform today, A is a defensible call and the rest of this document
+  is unaffected.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>4 · Decision two — the reports that are not one table</h2>
+  <p class="h2sub">A PDF can hold sections. A CSV file is one grid. Two of these reports have more than one table,
+  so the two formats cannot carry the same thing and the screen has to say which it is giving you.</p>
+
+  <table class="dtbl">
+    <tr><th>Report</th><th>Tables on screen</th><th>PDF</th><th>CSV</th></tr>
+    <tr><td>Sales Reports</td><td>By day <b>+</b> by payment method</td><td>Both, as two sections</td><td><span class="tag pick">By day</span> — the daily grid is the one people take to a spreadsheet</td></tr>
+    <tr><td>Inventory Balance</td><td>Per store <b>+</b> totals</td><td>Both</td><td><span class="tag pick">Per store</span></td></tr>
+    <tr><td>Item Performance</td><td>One</td><td>One table</td><td>The table</td></tr>
+    <tr><td>Sales by Employee</td><td>One</td><td>One table</td><td>The table</td></tr>
+    <tr><td>Sales by Category</td><td>One</td><td>One table</td><td>The table</td></tr>
+    <tr><td>Low Stock &amp; Reorder</td><td>One</td><td>One table</td><td>The table</td></tr>
+    <tr><td>Stock Movement</td><td>One</td><td>One table</td><td>The table</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">Rather than adding a picker for the two multi-table screens, the CSV
+  takes the report's <b>primary</b> grid and the button says so on press — one file, named
+  <code>sales-by-day-1-14-aug.csv</code>, which answers the question by being named honestly. A chooser for two
+  screens out of seven is a control most people meet once and never need.</p>
+
+  <h3 class="sub">What the PDF looks like</h3>
+  <p class="note">Already solved — <code>buildDashboardReportHtml</code> renders stat tiles over sectioned tables,
+  and it is what the legacy statements screen uses today. Reports get the same shell, so an exported
+  Sales Report and an exported P&amp;L look like one family.</p>
+  <div class="pair two" style="margin-top:14px">
+    <div>
+      <div class="frameHead"><b>Sales Reports</b> <i>buildDashboardReportHtml — stats + two sections</i></div>
+      <div class="pdf">
+        <h5>yusefshop — Sales Reports</h5>
+        <p class="sub">1–14 Aug 2026 · All stores</p>
+        <div class="stats">
+          <div class="stat"><div class="l">Revenue</div><div class="v">$1,861.00</div></div>
+          <div class="stat"><div class="l">Orders</div><div class="v">47</div></div>
+          <div class="stat"><div class="l">Average sale</div><div class="v">$39.60</div></div>
+        </div>
+        <h6>By day</h6>
+        <table>
+          <tr><th>Date</th><th class="r">Orders</th><th class="r">Revenue</th></tr>
+          <tr><td>14 Aug</td><td class="r">6</td><td class="r">$247.85</td></tr>
+          <tr><td>13 Aug</td><td class="r">9</td><td class="r">$362.10</td></tr>
+          <tr><td>12 Aug</td><td class="r">4</td><td class="r">$151.00</td></tr>
+        </table>
+        <h6>By payment method</h6>
+        <table>
+          <tr><th>Method</th><th class="r">Amount</th><th class="r">Share</th></tr>
+          <tr><td>Cash</td><td class="r">$1,079.38</td><td class="r">58%</td></tr>
+          <tr><td>ZAAD</td><td class="r">$539.69</td><td class="r">29%</td></tr>
+          <tr><td>e-Dahab</td><td class="r">$241.93</td><td class="r">13%</td></tr>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Sales by Category</b> <i>buildTableReportHtml — one table</i></div>
+      <div class="pdf">
+        <h5>yusefshop — Sales by Category</h5>
+        <p class="sub">1–14 Aug 2026 · All stores</p>
+        <table>
+          <tr><th>Category</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">Margin</th></tr>
+          <tr><td>Serum</td><td class="r">42</td><td class="r">$904.00</td><td class="r">38%</td></tr>
+          <tr><td>Cleanser</td><td class="r">31</td><td class="r">$558.00</td><td class="r">41%</td></tr>
+          <tr><td>Sunscreen</td><td class="r">19</td><td class="r">$399.00</td><td class="r">35%</td></tr>
+          <tr><td>Toner</td><td class="r">12</td><td class="r">$180.00</td><td class="r">44%</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>5 · Decision three — what the subtitle promises</h2>
+  <p class="h2sub">Every exported file carries a subtitle line, and it is the only place the file records what it
+  is a view of. Get it wrong and a spreadsheet outlives the context that made it true.</p>
+  <p class="note">Four of the seven reports follow the shell's date range; three do not, and each already declares
+  which on its hub card via <code>followsRange</code>. The export subtitle must read that same flag rather than
+  printing the range unconditionally — a Low Stock export stamped "1–14 Aug" would be a file claiming to be a
+  fortnight's stock position, which is not a thing that exists.</p>
+  <table class="dtbl">
+    <tr><th>Report</th><th>Follows the range</th><th>Subtitle on the file</th></tr>
+    <tr><td>Sales Reports, Item Performance, Sales by Employee, Sales by Category, Stock Movement</td><td><span class="tag yes">Yes</span></td><td><code>1–14 Aug 2026 · All stores</code></td></tr>
+    <tr><td>Inventory Balance, Low Stock &amp; Reorder</td><td><span class="tag no">No</span></td><td><code>As at 14 Aug 2026, 4:32 PM · All stores</code> — an instant, with the time, because stock moves during a day</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">The store filter goes on every file for the same reason: an inventory
+  export from one shop of three, opened a month later, is indistinguishable from the whole company's unless it
+  says so.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>6 · Scope</h2>
+  <ul class="reco">
+    <li><b>The seven report screens</b> get Export CSV and Export PDF on the title row. That is the request, and
+    it is the bulk of the work.</li>
+    <li><b>Fold the legacy statements screen in.</b> It has a PDF and no CSV, and its own bespoke header button.
+    Moving it onto the shared control gives it a CSV and removes the second pattern.</li>
+    <li><b>Give <code>ExportMenu</code> a <code>bento</code> variant</b> rather than placing the cream block on two
+    more converted screens.</li>
+    <li><b>Not in this pass: the ledger screens.</b> Trial Balance, Journals, Chart of Accounts, Audit Log and
+    Fixed Assets are tables and would be easy; the three statements are <code>StatementRow</code> lists with
+    sections and subtotals, which is a different export shape and a different conversation about whether a
+    balance sheet as a CSV is a useful object at all. Worth doing, worth doing separately.</li>
+  </ul>
+  <p class="note" style="margin-top:18px">One thing I would flag before building: <b>decision one is the only one
+  that is hard to undo.</b> Adding <code>text</code> to <code>Column&lt;T&gt;</code> touches a type every table in
+  the app uses, so it is worth agreeing before rather than after.</p>
+</section>
+
+</div>

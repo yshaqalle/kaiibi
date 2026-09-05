@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -27,13 +28,15 @@ const COLUMNS: Column<StockGroupRow>[] = [
     key: 'store',
     header: 'Store',
     render: (row) => <NameCell title={row.label} meta={`${row.rows} ${row.rows === 1 ? 'product' : 'products'} carried`} />,
+    text: (row) => row.label,
   },
-  { key: 'units', header: 'Units on hand', numeric: true, render: (row) => <ValueCell value={String(row.units)} /> },
+  { key: 'units', header: 'Units on hand', numeric: true, render: (row) => <ValueCell value={String(row.units)} />, text: (row) => String(row.units) },
   {
     key: 'value',
     header: 'Value at cost',
     numeric: true,
     render: (row) => <ValueCell value={formatCents(row.valueCents)} strong />,
+    text: (row) => formatCents(row.valueCents),
   },
   {
     key: 'unvalued',
@@ -43,15 +46,18 @@ const COLUMNS: Column<StockGroupRow>[] = [
     // the ones the eye stops on.
     render: (row) =>
       row.unvalued === 0 ? <ValueCell value="—" tone="muted" /> : <ValueCell value={String(row.unvalued)} tone="warning" />,
+    text: (row) => (row.unvalued === 0 ? '—' : String(row.unvalued)),
   },
 ];
 
 export function InventoryBalanceView({
   locationFilter,
   setRefresh,
+  setHeaderActions,
 }: {
   locationFilter: string | null;
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<StockOnHandRow[] | null>(null);
@@ -94,6 +100,18 @@ export function InventoryBalanceView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={stores}
+        columns={COLUMNS}
+        title="Inventory Balance"
+        // Null on purpose: this screen reports a POSITION and ignores the
+        // shell's range, so the file is stamped with the instant it was read
+        // rather than a window it never honoured.
+        rangeLabel={null}
+        locationFilter={locationFilter}
+        filenamePrefix="inventory-balance"
+      />
       <BentoCard title="On the shelves" scope="As of today">
         <View style={styles.tiles}>
           <StatTile value={String(totals.units)} label="Units on hand" variant="bento" />
