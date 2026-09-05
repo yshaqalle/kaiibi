@@ -33,6 +33,13 @@ export type PaletteColors = {
   // A CONTROL'S BOUNDARY: the search field, a category pill. Never a card.
   // Clears 3:1, which `hairline` does not and must not -- see edgeInk.
   edge: string;
+  // THE TINTED ACTION TIER. A quiet action -- "Edit cart", a clear chip, the
+  // empty-state nudge -- wears the accent washed toward ground, with its label
+  // in the accent stepped dark enough to read. Two tokens because the plain
+  // accent as TYPE on its own wash fails 4.5:1 on azure (4.15:1) -- the accent
+  // is tuned to carry white, which is the opposite job.
+  accentWash: string;
+  accentInk: string;
   // `muted`'s mirror, for the ONE inverted surface this page has: the shop card,
   // which is filled with `ink` and sets its type in `ground`. Secondary lines on
   // it (the place, the about paragraph) need the same step down that `muted`
@@ -89,7 +96,7 @@ export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 // nobody notices is wrong.
 type BasePaletteColors = Omit<
   PaletteColors,
-  'muted' | 'danger' | 'stockOut' | 'onDarkMuted' | 'hairline' | 'edge'
+  'muted' | 'danger' | 'stockOut' | 'onDarkMuted' | 'hairline' | 'edge' | 'accentWash' | 'accentInk'
 >;
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
@@ -204,6 +211,26 @@ export function edgeInk(palette: StorefrontPalette): string {
   return stepUntilContrast(hairlineInk(palette), c.soft, 3);
 }
 
+// The wash reuses HAIRLINE_BLEND's proportion toward ground -- far enough to
+// be unmistakably a tint (tested < 1.6:1 against ground), near enough to keep
+// the palette's hue. On the ink palette this degrades to a light grey, which
+// is correct: that palette's whole point is having no colour.
+const ACCENT_WASH_BLEND = 0.88;
+
+export function accentWashOf(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  return blendHex(c.accent, c.ground, ACCENT_WASH_BLEND);
+}
+
+// Stepped against the WASH (its own surface), then re-checked against ground
+// by the tests -- ground is lighter than the wash on every palette, so a
+// value that clears ground clears soft too.
+export function accentInkOf(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  const onWash = stepUntilContrast(c.accent, accentWashOf(palette), 4.5);
+  return stepUntilContrast(onWash, c.ground, 4.5);
+}
+
 // Checkout form errors ("Add your name...", a bad phone, a missing landmark)
 // used to hard-code clay's own accent (#98452a) as the error colour on every
 // palette -- so a shop on ink, palm, sea, saffron or plum saw an unrelated
@@ -265,6 +292,8 @@ export function paletteColors(palette: StorefrontPalette): PaletteColors {
     onDarkMuted: onDarkMutedInk(key),
     hairline: hairlineInk(key),
     edge: edgeInk(key),
+    accentWash: accentWashOf(key),
+    accentInk: accentInkOf(key),
   };
 }
 

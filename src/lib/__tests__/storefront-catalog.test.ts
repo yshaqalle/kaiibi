@@ -261,3 +261,24 @@ describe('palette lookup does not fall through the prototype chain', () => {
     expect(mutedInk(bad as StorefrontPalette)).toBe(mutedInk('ink'));
   });
 });
+
+describe('the tinted action tier', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s keeps accent type readable on its wash', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.accentInk, c.accentWash)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s keeps accent type readable on bare ground too', (key) => {
+    // A tinted pill sits on ground and on soft; the type must survive both,
+    // and ground is the lighter (harder) of the two on every palette.
+    const c = paletteColors(key);
+    expect(contrastRatio(c.accentInk, c.ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s keeps the wash a tint, not a second fill', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.accentWash, c.ground)).toBeLessThan(1.6);
+  });
+});
