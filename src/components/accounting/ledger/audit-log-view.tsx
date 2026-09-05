@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
@@ -53,6 +54,13 @@ const COLUMNS: Column<AuditRow>[] = [
         tone="muted"
       />
     ),
+    text: (row) =>
+      new Date(row.createdAt).toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
   },
   {
     key: 'what',
@@ -63,6 +71,13 @@ const COLUMNS: Column<AuditRow>[] = [
         meta={describe(row)}
       />
     ),
+    // Title and detail joined: the log's whole value is what changed, and the
+    // detail is the half that says which record.
+    text: (row) => {
+      const what = `${ACTION_LABELS[row.action]} ${(SUBJECT_LABELS[row.subjectTable] ?? row.subjectTable).toLowerCase()}`;
+      const detail = describe(row);
+      return detail ? `${what} · ${detail}` : what;
+    },
   },
   {
     key: 'who',
@@ -72,10 +87,11 @@ const COLUMNS: Column<AuditRow>[] = [
     // maintenance script wrote it, and saying "System" is more honest than a
     // blank cell that reads as a bug.
     render: (row) => <ValueCell value={row.actorId ? 'A person' : 'System'} tone="muted" />,
+    text: (row) => (row.actorId ? 'A person' : 'System'),
   },
 ];
 
-export function AuditLogView({ setRefresh }: { setRefresh: RefreshSetter }) {
+export function AuditLogView({ setRefresh, setHeaderActions }: { setRefresh: RefreshSetter; setHeaderActions: HeaderActionsSetter }) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -92,6 +108,17 @@ export function AuditLogView({ setRefresh }: { setRefresh: RefreshSetter }) {
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows}
+        columns={COLUMNS}
+        title="Audit Log"
+        // A position read at an instant, so the file is stamped with the
+        // moment rather than a window it never honoured.
+        rangeLabel={null}
+        locationFilter={null}
+        filenamePrefix="audit-log"
+      />
       <BentoCard title="Activity" scope="Last 200" bodyStyle={styles.tableBody}>
         <DataTable
           columns={COLUMNS}

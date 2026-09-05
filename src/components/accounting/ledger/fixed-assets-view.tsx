@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput } from '@/components/date-input';
 import { type LedgerView } from '@/components/accounting/ledger/ledger-hub';
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
@@ -72,9 +73,11 @@ function cashAccounts(accounts: Account[]): Account[] {
 
 export function FixedAssetsView({
   setRefresh,
+  setHeaderActions,
   onOpenView,
 }: {
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
   onOpenView: (view: LedgerView) => void;
 }) {
   const { shop, can } = useAuth();
@@ -195,8 +198,9 @@ export function FixedAssetsView({
           }
         />
       ),
+      text: (row) => row.name,
     },
-    { key: 'bought', header: 'Bought', width: 116, render: (row) => <ValueCell value={row.acquiredOn} tone="muted" /> },
+    { key: 'bought', header: 'Bought', width: 116, render: (row) => <ValueCell value={row.acquiredOn} tone="muted" />, text: (row) => row.acquiredOn },
     {
       key: 'method',
       header: 'Method',
@@ -211,6 +215,7 @@ export function FixedAssetsView({
           tone="muted"
         />
       ),
+      text: (row) => (row.disposedOn ? 'Disposed' : `Straight line · ${row.lifeMonths} months`),
     },
     {
       key: 'cost',
@@ -218,6 +223,7 @@ export function FixedAssetsView({
       width: 110,
       numeric: true,
       render: (row) => <ValueCell value={formatAccountingCents(row.costCents)} tone={row.disposedOn ? 'muted' : 'default'} />,
+      text: (row) => formatAccountingCents(row.costCents),
     },
     {
       key: 'depreciated',
@@ -230,6 +236,7 @@ export function FixedAssetsView({
           tone={row.disposedOn ? 'muted' : row.accumulatedCents > 0 ? 'danger' : 'muted'}
         />
       ),
+      text: (row) => formatAccountingCents(row.accumulatedCents),
     },
     {
       key: 'book',
@@ -245,6 +252,10 @@ export function FixedAssetsView({
           strong={row.netBookCents !== null}
         />
       ),
+      // The database's null travels as an em dash. A sold asset is off the
+      // balance sheet and has no book value; exporting 0.00 would put it back
+      // on as something worth nothing.
+      text: (row) => (row.netBookCents === null ? '—' : formatAccountingCents(row.netBookCents)),
     },
     {
       key: 'action',
@@ -284,6 +295,17 @@ export function FixedAssetsView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={assets ?? []}
+        columns={columns}
+        title="Fixed Assets"
+        // A position read at an instant, so the file is stamped with the
+        // moment rather than a window it never honoured.
+        rangeLabel={null}
+        locationFilter={null}
+        filenamePrefix="fixed-assets"
+      />
       {readError ? (
         // 'partial' rather than 'wrong': nothing here is the reader's to fix,
         // and a 'wrong' with no action trains people to skip the whole family.

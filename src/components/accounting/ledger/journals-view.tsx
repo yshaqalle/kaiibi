@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { type DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -24,7 +25,7 @@ function entrySizeCents(entry: JournalEntry): number {
 }
 
 const COLUMNS: Column<JournalEntry>[] = [
-  { key: 'ref', header: 'Ref', width: 96, render: (row) => <ValueCell value={row.reference ?? '—'} tone="muted" /> },
+  { key: 'ref', header: 'Ref', width: 96, render: (row) => <ValueCell value={row.reference ?? '—'} tone="muted" />, text: (row) => row.reference ?? '—' },
   {
     key: 'date',
     header: 'Date',
@@ -32,6 +33,7 @@ const COLUMNS: Column<JournalEntry>[] = [
     render: (row) => (
       <ValueCell value={entryDateLabel(row.entryDate)} tone="muted" />
     ),
+    text: (row) => entryDateLabel(row.entryDate),
   },
   {
     key: 'description',
@@ -42,11 +44,21 @@ const COLUMNS: Column<JournalEntry>[] = [
         meta={row.status === 'reversed' ? 'reversed — see the mirror entry' : `${row.lines.length} lines · ${row.source}`}
       />
     ),
+    // A reversed entry says so in the file too. Exporting only the description
+    // would put a live-looking row in a spreadsheet for an entry that has been
+    // undone.
+    text: (row) => (row.status === 'reversed' ? `${row.description} (reversed)` : row.description),
   },
-  { key: 'amount', header: 'Amount', numeric: true, render: (row) => <ValueCell value={formatCents(entrySizeCents(row))} strong /> },
+  {
+    key: 'amount',
+    header: 'Amount',
+    numeric: true,
+    render: (row) => <ValueCell value={formatCents(entrySizeCents(row))} strong />,
+    text: (row) => formatCents(entrySizeCents(row)),
+  },
 ];
 
-export function JournalsView({ dateRange, setRefresh }: { dateRange: DateRange; setRefresh: RefreshSetter }) {
+export function JournalsView({ dateRange, setRefresh, setHeaderActions, rangeLabel }: { dateRange: DateRange; setRefresh: RefreshSetter; setHeaderActions: HeaderActionsSetter; rangeLabel: string | null }) {
   const { shop } = useAuth();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -69,6 +81,15 @@ export function JournalsView({ dateRange, setRefresh }: { dateRange: DateRange; 
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={entries}
+        columns={COLUMNS}
+        title="Journals"
+        rangeLabel={rangeLabel}
+        locationFilter={null}
+        filenamePrefix="journals"
+      />
       <BentoCard title="In this range">
         <View style={styles.tiles}>
           <StatTile value={String(entries.length)} label="Entries" variant="bento" />

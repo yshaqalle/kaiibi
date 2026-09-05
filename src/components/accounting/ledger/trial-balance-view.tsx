@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { type LedgerView } from '@/components/accounting/ledger/ledger-hub';
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -15,8 +16,8 @@ import { toDateColumn } from '@/lib/period';
 import { trialBalance, type TrialBalanceRow } from '@/lib/ledger-math';
 
 const COLUMNS: Column<TrialBalanceRow>[] = [
-  { key: 'code', header: 'Code', width: 74, render: (row) => <ValueCell value={row.code} tone="muted" /> },
-  { key: 'name', header: 'Account', render: (row) => <NameCell title={row.name} /> },
+  { key: 'code', header: 'Code', width: 74, render: (row) => <ValueCell value={row.code} tone="muted" />, text: (row) => row.code },
+  { key: 'name', header: 'Account', render: (row) => <NameCell title={row.name} />, text: (row) => row.name },
   {
     key: 'debit',
     header: 'Debit',
@@ -27,6 +28,10 @@ const COLUMNS: Column<TrialBalanceRow>[] = [
     render: (row) => (
       <ValueCell value={row.debitCents === 0 ? '—' : formatCents(row.debitCents)} tone={row.debitCents === 0 ? 'muted' : 'default'} />
     ),
+    // The em dash travels, for the same reason the cell shows one: an empty
+    // side of a trial balance is empty, and 0.00 in a spreadsheet column reads
+    // as a posted zero.
+    text: (row) => (row.debitCents === 0 ? '—' : formatCents(row.debitCents)),
   },
   {
     key: 'credit',
@@ -35,14 +40,17 @@ const COLUMNS: Column<TrialBalanceRow>[] = [
     render: (row) => (
       <ValueCell value={row.creditCents === 0 ? '—' : formatCents(row.creditCents)} tone={row.creditCents === 0 ? 'muted' : 'default'} />
     ),
+    text: (row) => (row.creditCents === 0 ? '—' : formatCents(row.creditCents)),
   },
 ];
 
 export function TrialBalanceView({
   setRefresh,
+  setHeaderActions,
   onOpenView,
 }: {
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
   onOpenView: (view: LedgerView) => void;
 }) {
   const { shop } = useAuth();
@@ -77,6 +85,17 @@ export function TrialBalanceView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows}
+        columns={COLUMNS}
+        title="Trial Balance"
+        // A position read at an instant, so the file is stamped with the
+        // moment rather than a window it never honoured.
+        rangeLabel={null}
+        locationFilter={null}
+        filenamePrefix="trial-balance"
+      />
       <BentoCard title="As of today" scope="Every posted entry">
         <View style={styles.tiles}>
           <StatTile value={formatCompactCents(totals.debitCents)} label="Total debits" variant="bento" />

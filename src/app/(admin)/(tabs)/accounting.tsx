@@ -302,10 +302,10 @@ function AccountingScreen() {
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
             {tab === 'accounting' && ledgerView === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} unpostedRows={unpostedRows} can={can} />}
-            {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
-            {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
-            {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} />}
-            {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} rangeLabel={rangeLabel} />}
+            {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} />}
             {tab === 'accounting' && view === 'entry' && <JournalEntryView onPosted={() => setView('journals')} setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'backfill' && <BackfillView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'income' && <IncomeStatementView dateRange={dateRange} setRefresh={setTabRefresh} />}
@@ -318,7 +318,7 @@ function AccountingScreen() {
                 a book value for the last seven days is not a thing -- so this
                 screen ignores the shell's window, and its hub card says "As of
                 today" for that reason. */}
-            {tab === 'accounting' && view === 'assets' && <FixedAssetsView setRefresh={setTabRefresh} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'assets' && <FixedAssetsView setRefresh={setTabRefresh} setHeaderActions={setHeaderActions} onOpenView={setView} />}
             {/* No `dateRange`: a period is a calendar month the ledger already
                 owns, so this screen lists every one of them rather than the
                 shell's window. Its hub card says "Every month" for that

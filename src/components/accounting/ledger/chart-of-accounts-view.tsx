@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { type LedgerView } from '@/components/accounting/ledger/ledger-hub';
-import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { ReportExport } from '@/components/accounting/reports/report-export';
+import { useTabRefresh, type HeaderActionsSetter, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -27,6 +28,9 @@ const COLUMNS: Column<Row>[] = [
     width: 74,
     render: (row) =>
       row.kind === 'section' ? <Text style={styles.section}>{row.group.label}</Text> : <ValueCell value={row.account.code} tone="muted" />,
+    // A section heading has no code. Exporting its label here instead would put
+    // "Assets" in a column of account numbers.
+    text: (row) => (row.kind === 'section' ? '' : row.account.code),
   },
   {
     key: 'name',
@@ -42,6 +46,15 @@ const COLUMNS: Column<Row>[] = [
           meta={row.account.isContra ? 'reduces its section' : undefined}
         />
       ),
+    // The section's own label lands in THIS column, so a flat file still shows
+    // where each block starts -- the one piece of the chart's shape a CSV can
+    // carry without an indentation column nothing can compute on.
+    text: (row) =>
+      row.kind === 'section'
+        ? row.group.label
+        : row.account.isContra
+          ? `${row.account.name} (reduces its section)`
+          : row.account.name,
   },
   {
     key: 'balance',
@@ -53,14 +66,17 @@ const COLUMNS: Column<Row>[] = [
       ) : (
         <ValueCell value={formatCents(row.balanceCents)} />
       ),
+    text: (row) => formatCents(row.kind === 'section' ? row.group.subtotalCents : row.balanceCents),
   },
 ];
 
 export function ChartOfAccountsView({
   setRefresh,
+  setHeaderActions,
   onOpenView,
 }: {
   setRefresh: RefreshSetter;
+  setHeaderActions: HeaderActionsSetter;
   onOpenView: (view: LedgerView) => void;
 }) {
   const { shop } = useAuth();
@@ -109,6 +125,17 @@ export function ChartOfAccountsView({
 
   return (
     <View style={styles.wrap}>
+      <ReportExport
+        setHeaderActions={setHeaderActions}
+        rows={rows}
+        columns={COLUMNS}
+        title="Chart of Accounts"
+        // A position read at an instant, so the file is stamped with the
+        // moment rather than a window it never honoured.
+        rangeLabel={null}
+        locationFilter={null}
+        filenamePrefix="chart-of-accounts"
+      />
       <BentoCard title="Right now" scope="As of today">
         <View style={styles.tiles}>
           <StatTile value={formatCompactCents(equation.assetsCents)} label="Assets" variant="bento" />
