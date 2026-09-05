@@ -614,7 +614,24 @@ const styles = StyleSheet.create({
   wrap: { gap: 18 },
   group: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, marginBottom: 10 },
   groupNote: { fontSize: 11.5, fontWeight: '500', color: theme.bentoMuted },
-  cell: { width: '100%' },
+  // `flexGrow`, not just a width, and it is the whole reason the cards in a row
+  // never lined up despite the grid being told to stretch them.
+  //
+  // BentoGrid does its half correctly: `rowAlign="stretch"` puts
+  // `alignItems: 'stretch'` on the row, so the CELL takes the height of the
+  // tallest card in it, and `cellInner` grows into that. The chain then reached
+  // this Pressable -- a column child with a width and no grow -- which sized
+  // itself to its content. `Card fill` grew to fill the PRESSABLE, and the
+  // Pressable was already as short as the card, so the grow bought nothing and
+  // the row stayed ragged.
+  //
+  // Deliberately NOT fixed in bento.tsx: the grid was never wrong. Adding grow
+  // there unconditionally is the exact mistake its own comments record twice --
+  // in a `top` grid a cell has no row height to fill and Yoga hands the grow
+  // the available height instead, which made a single card a viewport tall on
+  // native. Both hubs pass `rowAlign="stretch"` explicitly, so growing is safe
+  // HERE and stays scoped to the two files that asked for it.
+  cell: { width: '100%', flexGrow: 1 },
   // Everything from `card` down is a deliberate DUPLICATE of ledger-hub's
   // sheet, and the two must be changed together -- hub-card-proportions.test.tsx
   // asserts against both renders for exactly that reason. See that file's
