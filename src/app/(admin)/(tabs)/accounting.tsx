@@ -325,7 +325,15 @@ function AccountingScreen() {
                 reason. */}
             {tab === 'accounting' && view === 'close' && <ClosePeriodView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'reports' && reportView === 'hub' && (
-              <ReportsHub onOpen={setView} onOpenLedgerView={openLedgerView} rangeLabel={rangeLabel} can={can} />
+              <ReportsHub
+                onOpen={setView}
+                onOpenLedgerView={openLedgerView}
+                // The aging cards leave Reports for the tab that holds the
+                // strip. No view to set: the strip lives on the tab itself.
+                onOpenTab={setTab}
+                rangeLabel={rangeLabel}
+                can={can}
+              />
             )}
             {/* The seven reports, dispatched through REPORT_SCREENS rather
                 than as seven `&&` lines. The map is a Record over every

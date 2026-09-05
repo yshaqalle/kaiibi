@@ -1,0 +1,331 @@
+<meta charset="utf-8" />
+<title>The decisions still open</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7; --warn:#b07206; --loss:#d72b3e; --profit:#008340;
+        --c1:#2f6bff; --sep:#a9a8b2; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:72ch;margin:0 0 12px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:78ch;}
+  h3.sub{font-size:14px;font-weight:800;margin:28px 0 8px;letter-spacing:-.01em;}
+  section{margin-top:58px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:78ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .pick{color:#0b7a44;font-weight:750;} .drop{color:#b52233;font-weight:750;}
+  @media (prefers-color-scheme: dark){ .pick{color:#5fd39a;} .drop{color:#ff8a93;} }
+  :root[data-theme="dark"] .pick{color:#5fd39a;} :root[data-theme="dark"] .drop{color:#ff8a93;}
+  :root[data-theme="light"] .pick{color:#0b7a44;} :root[data-theme="light"] .drop{color:#b52233;}
+
+  .qbar{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 4px;}
+  .qnum{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);}
+  .scroller{overflow-x:auto;padding-bottom:8px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;}
+  .pair{display:grid;gap:24px;grid-template-columns:1fr;} .pair > div{min-width:0;}
+  @media (min-width:1100px){ .pair.two{grid-template-columns:1fr 1fr;} }
+
+  .crumb{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 6px;font-size:12.5px;}
+  .crumb a{color:var(--d-mut);font-weight:700;text-decoration:none;}
+  .crumb .sep{color:var(--sep);} .crumb .here{color:var(--d-ink2);font-weight:800;}
+  .ttl{margin:0;font-size:24px;font-weight:800;letter-spacing:-.024em;}
+  .blurb{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+  .ctrl{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .chip.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  .cardx{background:var(--d-sf);border-radius:26px;padding:20px;margin-bottom:12px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;}
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tbl th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);font-weight:800;padding:0 8px 8px 0;border-bottom:1px solid var(--d-rule);}
+  .tbl td{padding:9px 8px 9px 0;border-bottom:1px solid var(--d-ln);color:var(--d-ink2);}
+  .tbl td.r,.tbl th.r{text-align:right;}
+  .tbl tr:last-child td{border-bottom:none;}
+  .tbl td.name{color:var(--d-ink);font-weight:700;}
+  .tot td{border-top:1px solid var(--d-rule);font-weight:800;color:var(--d-ink);}
+  .warn{color:var(--warn);font-weight:800;} .bad{color:var(--loss);font-weight:800;}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
+  .tile{background:var(--d-soft);border-radius:18px;padding:14px;}
+  .tile .l{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .tile .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;}
+  .tile .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  .opt{border:1px solid var(--ln);border-radius:14px;padding:18px;background:var(--sf);}
+  .opt h4{margin:0 0 3px;font-size:14px;font-weight:800;}
+  .opt .verdict{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;color:var(--mut);}
+  .opt.win .verdict{color:#0b7a44;} @media (prefers-color-scheme: dark){ .opt.win .verdict{color:#5fd39a;} }
+  pre.code{background:var(--pg2);border-radius:12px;padding:13px 15px;overflow-x:auto;font-size:12.5px;line-height:1.55;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink2);margin:10px 0 0;}
+  pre.code b{color:var(--ink);font-weight:700;}
+  ul.reco{max-width:78ch;padding-left:20px;} ul.reco li{margin-bottom:10px;font-size:14px;color:var(--ink2);}
+  ul.reco li b{color:var(--ink);}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Design · what is still open</p>
+<h1>The decisions still open</h1>
+<p class="lede">Five things are waiting on a call rather than on work. Each one below is a question, the options
+drawn, and what I would pick. Nothing here has been built.</p>
+<p class="lede" style="font-size:14px;color:var(--mut)">Figures are illustrative — the test shop has almost no
+receivables, so the tables use plausible numbers to show shape rather than data.</p>
+
+<!-- ============================================================ -->
+<section>
+  <div class="qbar"><span class="qnum">Decision 1</span></div>
+  <h2>Is “Aging Receivables” a new screen, or a view of a tab you already have?</h2>
+  <p class="h2sub">This is the biggest one, because it decides whether the next block of work is four screens or
+  two. <b>Owed to you</b> already answers most of what an aging report is for.</p>
+
+  <div class="scroller">
+    <div class="frame w1180">
+      <p class="crumb"><a href="#">Accounting</a><span class="sep">›</span><span class="here">Owed to you</span></p>
+      <p class="ttl" style="font-size:20px">Owed to you — as it ships today</p>
+      <div class="cardx" style="margin-top:12px">
+        <table class="tbl">
+          <tr><th>Customer</th><th class="r">Owed</th><th class="r">Unpaid since</th><th class="r">Waiting</th></tr>
+          <tr><td class="name">Hibo Ibraahim</td><td class="r num">$128.07</td><td class="r num">2 Aug</td><td class="r warn">34 days</td></tr>
+          <tr><td class="name">Iman Jamel <span style="color:var(--d-mut);font-weight:500">· 2 unpaid sales</span></td><td class="r num">$72.00</td><td class="r num">21 Aug</td><td class="r num">15 days</td></tr>
+          <tr><td class="name">Amal Yusuf</td><td class="r num">$32.80</td><td class="r num">1 Sept</td><td class="r num">4 days</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">It already has who, how much, since when, and how long — and it already
+  goes amber past thirty days. So an aging report is <b>not new information</b>. What it adds is one thing:
+  <b>totals per bucket</b>, which is the number you take to a conversation about cash, and which no screen
+  computes today.</p>
+
+  <div class="pair two" style="margin-top:18px">
+    <div class="opt">
+      <div class="verdict">Option A</div>
+      <h4>A separate Aging Receivables report</h4>
+      <p class="note" style="font-size:13px">A card on the Reports hub, its own screen, buckets down the page. It
+      is what the original plan listed, and it matches the other reports.</p>
+      <p class="note" style="font-size:13px;margin-top:8px">The cost: a second screen listing the same customers as
+      <b>Owed to you</b>, with the same amounts, sorted differently. Two places to look for one question, and the
+      day they disagree, both stop being believed.</p>
+    </div>
+    <div class="opt win">
+      <div class="verdict">Option B · recommended</div>
+      <h4>A bucket strip on the tab that already exists</h4>
+      <p class="note" style="font-size:13px">Put the four totals above the table it already has, and let each one
+      filter the rows beneath it. The report becomes a <i>lens</i> on the tab rather than a copy of it.</p>
+      <p class="note" style="font-size:13px;margin-top:8px">The Reports hub still gets its card — it opens
+      <b>Owed to you</b> with a bucket selected, exactly as the three statement cards already open the ledger's
+      screens on the Accounting tab. That pattern is shipped and understood.</p>
+    </div>
+  </div>
+
+  <div class="frameHead" style="margin-top:20px"><b>Option B drawn</b> <i>— the strip is the report; the table is the tab</i></div>
+  <div class="scroller">
+    <div class="frame w1180">
+      <div class="head">
+        <div>
+          <p class="crumb"><a href="#">Accounting</a><span class="sep">›</span><span class="here">Owed to you</span></p>
+          <p class="ttl">Owed to you</p>
+          <p class="blurb">Which customers owe the shop, and since when.</p>
+        </div>
+        <div class="ctrl"><span class="chip">Export CSV</span><span class="chip">Export PDF</span><span class="chip">All stores ⌄</span></div>
+      </div>
+      <div class="cardx">
+        <p class="ctitle">How old the money is · as at today</p>
+        <div class="tiles">
+          <div class="tile"><div class="l">Current</div><div class="n num">$32.80</div><div class="h">not yet 30 days</div></div>
+          <div class="tile"><div class="l">30 – 59 days</div><div class="n num">$72.00</div><div class="h">1 customer</div></div>
+          <div class="tile"><div class="l">60 – 89 days</div><div class="n num">$128.07</div><div class="h">1 customer</div></div>
+          <div class="tile"><div class="l">90+ days</div><div class="n num bad">$0.00</div><div class="h">none — good</div></div>
+        </div>
+        <p class="note" style="font-size:11.5px;color:var(--d-mut);margin:0">Press a bucket to show only those rows.
+        The buckets total $232.87, which is the figure on the tab above.</p>
+      </div>
+      <div class="cardx">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <p class="ctitle" style="margin:0">Who owes it</p>
+          <span class="chip on" style="padding:6px 13px;font-size:12px">60 – 89 days ✕</span>
+        </div>
+        <table class="tbl">
+          <tr><th>Customer</th><th class="r">Owed</th><th class="r">Unpaid since</th><th class="r">Waiting</th></tr>
+          <tr><td class="name">Hibo Ibraahim</td><td class="r num">$128.07</td><td class="r num">2 Aug</td><td class="r warn">34 days</td></tr>
+          <tr class="tot"><td>Bucket total</td><td class="r num">$128.07</td><td></td><td></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px"><b>The same call applies to payables</b> — Aging Payables is the same
+  strip on the <b>Bills</b> tab, off the same bucketing function with the direction flipped. That is the shared
+  logic the coverage map promised, and it stays shared.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <div class="qbar"><span class="qnum">Decision 2</span></div>
+  <h2>Are the balance summaries reports, or a column?</h2>
+  <p class="h2sub">Customer Balance Summary and Vendor Balance Summary were two of the four. Once Decision 1 goes
+  to B, it is worth asking whether they exist at all.</p>
+  <table class="dtbl">
+    <tr><th>Report</th><th>What it would show</th><th>Where that already is</th><th></th></tr>
+    <tr><td>Customer Balance Summary</td><td>Outstanding balance per customer</td><td><b>Owed to you</b>, exactly — that IS a balance summary, one row per customer</td><td><span class="drop">Drop it</span></td></tr>
+    <tr><td>Vendor Balance Summary</td><td>What is owed to each supplier</td><td>Nowhere. <b>Bills</b> lists individual bills, never rolled up by vendor</td><td><span class="pick">Build it</span></td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">So the "four reports over two functions" is really <b>one new roll-up
+  and two bucket strips</b>. The vendor roll-up is the only genuinely absent view of the four, because Bills is a
+  list of documents where the question is about a counterparty.</p>
+
+  <div class="frameHead" style="margin-top:18px"><b>Vendor Balance Summary</b> <i>— a card on the Bills tab, not a screen of its own</i></div>
+  <div class="scroller">
+    <div class="frame w1180">
+      <div class="cardx">
+        <p class="ctitle">What you owe, by supplier · as at today</p>
+        <table class="tbl">
+          <tr><th>Supplier</th><th class="r">Open bills</th><th class="r">Not yet due</th><th class="r">Overdue</th><th class="r">Total owed</th></tr>
+          <tr><td class="name">Skinfood Wholesale</td><td class="r num">3</td><td class="r num">$420.00</td><td class="r num bad">$300.00</td><td class="r num">$720.00</td></tr>
+          <tr><td class="name">TikTok Marketing</td><td class="r num">1</td><td class="r num">$300.00</td><td class="r num">—</td><td class="r num">$300.00</td></tr>
+          <tr><td class="name">Landlord</td><td class="r num">1</td><td class="r num">$320.00</td><td class="r num">—</td><td class="r num">$320.00</td></tr>
+          <tr class="tot"><td>Total</td><td class="r num">5</td><td class="r num">$1,040.00</td><td class="r num bad">$300.00</td><td class="r num">$1,340.00</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <div class="qbar"><span class="qnum">Decision 3</span></div>
+  <h2>Should cards in a row be the same height?</h2>
+  <p class="h2sub">A shipped defect with two honest answers. Both hub files carry a comment claiming the cards line
+  up via <code>rowAlign="stretch"</code> + <code>fill</code>; on web they do not, and have not for as long as the
+  hubs have existed.</p>
+  <div class="scroller">
+    <div class="frame w1180">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start">
+        <div class="cardx" style="margin:0"><div style="width:36px;height:36px;border-radius:10px;background:var(--d-soft);margin-bottom:12px"></div><b style="font-size:15px">Chart of Accounts</b><p style="font-size:12.5px;color:var(--d-mut);margin:6px 0 0;line-height:1.5">Assets, liabilities, equity, revenue and expense accounts.</p><div style="margin-top:14px;font-size:11.5px;color:var(--d-mut2)">31 accounts</div></div>
+        <div class="cardx" style="margin:0"><div style="width:36px;height:36px;border-radius:10px;background:var(--d-soft);margin-bottom:12px"></div><b style="font-size:15px">Journals</b><p style="font-size:12.5px;color:var(--d-mut);margin:6px 0 0;line-height:1.5">Every journal entry recorded, in order.</p><div style="margin-top:14px;font-size:11.5px;color:var(--d-mut2)">7 days</div></div>
+        <div class="cardx" style="margin:0"><div style="width:36px;height:36px;border-radius:10px;background:var(--d-soft);margin-bottom:12px"></div><b style="font-size:15px">Post History</b><p style="font-size:12.5px;color:var(--d-mut);margin:6px 0 0;line-height:1.5">Replay past sales, refunds, deliveries and bills into the ledger.</p><div style="margin-top:14px;font-size:11.5px" class="warn">3,973 unposted</div></div>
+        <div class="cardx" style="margin:0"><div style="width:36px;height:36px;border-radius:10px;background:var(--d-soft);margin-bottom:12px"></div><b style="font-size:15px">Trial Balance</b><p style="font-size:12.5px;color:var(--d-mut);margin:6px 0 0;line-height:1.5">Every account's debit and credit balance, side by side.</p><div style="margin-top:14px;font-size:11.5px;color:var(--d-mut2)">As of today</div></div>
+      </div>
+      <p style="font-size:11.5px;color:var(--d-mut);margin:12px 0 0">As it ships — 193 / 174 / 212 / 193px, ragged along the bottom.</p>
+    </div>
+  </div>
+  <div class="pair two" style="margin-top:18px">
+    <div class="opt win">
+      <div class="verdict">Option A · recommended</div>
+      <h4>Make the claim true — equalise the heights</h4>
+      <p class="note" style="font-size:13px">A row of cards is a set of peers, and a ragged bottom edge reads as
+      one card being unfinished. It is also what the code already says it does, so the comment stops lying.</p>
+      <p class="note" style="font-size:13px;margin-top:8px">The risk is real and is why this is a decision:
+      <code>BentoGrid</code> is rendered by Dashboard as well, and the file's own comments record a previous
+      attempt at percentage heights that made every card a viewport tall on iPhone. It needs its own verified
+      change on both platforms, not a one-line edit.</p>
+    </div>
+    <div class="opt">
+      <div class="verdict">Option B</div>
+      <h4>Delete the claim instead</h4>
+      <p class="note" style="font-size:13px">Drop <code>rowAlign="stretch"</code> and <code>fill</code>, correct
+      both comments, and accept ragged bottoms. Cheap, honest, and no risk to Dashboard.</p>
+      <p class="note" style="font-size:13px;margin-top:8px">Defensible — the cards are still readable — but it
+      settles for the thing that looks like a bug.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <div class="qbar"><span class="qnum">Decision 4</span></div>
+  <h2>Does a balance sheet as a CSV mean anything?</h2>
+  <p class="h2sub">The eight ledger screens export nothing. Five are tables and are easy. The three statements are
+  not tables, and that is the question.</p>
+  <table class="dtbl">
+    <tr><th>Screen</th><th>Shape</th><th>CSV</th><th>PDF</th></tr>
+    <tr><td>Trial Balance, Journals, Chart of Accounts, Audit Log, Fixed Assets</td><td>A <code>DataTable</code></td><td><span class="pick">Yes</span> — add <code>text</code> to the columns, same as the seven reports</td><td>Yes</td></tr>
+    <tr><td>Income Statement, Balance Sheet, Cash Flow</td><td><code>StatementRow</code> lists — indented sections, subtotals, a total that must reconcile</td><td><span class="drop">No</span></td><td><span class="pick">Yes</span></td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">A statement is a <b>document</b>, not a dataset. Its meaning is in the
+  hierarchy — which lines roll into which subtotal — and a flat CSV either loses that or fakes it with an
+  indentation column nothing can compute on. An accountant asked for "the balance sheet" wants the balance sheet,
+  and that is the PDF.</p>
+  <p class="note">So: <b>CSV and PDF for the five tables, PDF only for the three statements.</b> This is the one
+  place in the app where a screen would deliberately offer one format and not the other, so the button row simply
+  shows one button rather than explaining itself.</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <div class="qbar"><span class="qnum">Decision 5</span></div>
+  <h2>Should the header-actions contract be able to loop at all?</h2>
+  <p class="h2sub">Not a visual decision, but it is the one that already cost a bug report, so it belongs on the
+  list. <code>useHeaderActions</code> publishes a React element into shell state; that is a circuit, and it is
+  safe only while every caller hands it stable dependencies.</p>
+  <div class="pair two">
+    <div class="opt">
+      <div class="verdict">Option A · what we did</div>
+      <h4>Fix the caller, keep the contract</h4>
+<pre class="code">const openNewBill = <b>useCallback</b>(
+  () =&gt; setEditingBill('new'), []);</pre>
+      <p class="note" style="font-size:13px;margin-top:10px">Done, tested, shipped. But the trap stays armed: the
+      next tab that passes an inline arrow gets the same runaway, and nothing catches it until somebody opens that
+      tab and reads the console.</p>
+    </div>
+    <div class="opt win">
+      <div class="verdict">Option B · recommended next</div>
+      <h4>Remove the circuit</h4>
+      <p class="note" style="font-size:13px">Have the shell hold a <i>render function</i> rather than an element,
+      published once on mount through a ref. Then a tab re-rendering cannot write to shell state at all, and the
+      dependency list stops being load-bearing.</p>
+<pre class="code">// the tab registers once, and re-renders
+// cannot feed back into the shell
+useHeaderActions(setActions,
+  <b>() =&gt;</b> &lt;&gt;…buttons…&lt;/&gt;, [])</pre>
+      <p class="note" style="font-size:13px;margin-top:10px">Six call sites, all mechanical. Worth it because the
+      current contract asks every future caller to know a rule that nothing enforces.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>What I would do, in order</h2>
+  <ul class="reco">
+    <li><b>1 · Bucket strips on Owed to you and Bills</b> (Decision 1B). One bucketing function, two placements,
+    two hub cards that open them. This is the whole of "aging receivables and payables" and it adds no screens.</li>
+    <li><b>2 · The vendor roll-up</b> (Decision 2). The only one of the original four that shows something no
+    screen shows. Drop Customer Balance Summary — it is the Owed to you tab.</li>
+    <li><b>3 · Ledger exports for the five tables</b> (Decision 4). Mechanical now that <code>text</code> and
+    <code>ReportExport</code> exist. PDF only for the three statements.</li>
+    <li><b>4 · Remove the header-actions circuit</b> (Decision 5). Before another tab is added, not after.</li>
+    <li><b>5 · Card heights</b> (Decision 3), as its own change verified on web and iPhone, because
+    <code>BentoGrid</code> carries Dashboard too.</li>
+  </ul>
+  <p class="note" style="margin-top:16px">Deliberately not on this list: <b>Discounts &amp; Refunds</b> and
+  <b>Budget vs Actual</b>, which are real gaps but need no decision — they are ordinary reports over data that
+  exists. And <b>purchase orders</b>, which is not a reporting question at all: kaiibi has no PO model, and
+  whether it should is a product call to make on its own.</p>
+</section>
+
+</div>

@@ -302,6 +302,71 @@ export const VALUATION_CARD = {
 };
 
 /**
+ * The two aging schedules.
+ *
+ * DOORS ONTO EXISTING TABS, not screens of their own, and that is the whole
+ * design decision (docs/design/open-decisions-mockup.html, decision 1). Owed to
+ * you already lists every customer who owes, how much, since when and for how
+ * long; Bills does the same for suppliers. The only thing an aging report adds
+ * is the total per bucket, so the buckets went onto those tabs as a strip and
+ * these cards open them with one already chosen.
+ *
+ * The alternative was two more screens listing the same people with the same
+ * amounts in a different order -- two places to look for one question, and a
+ * guarantee that one day they disagree.
+ *
+ * `requires` is null for both: the tabs behind them read tables under RLS and
+ * answer a reader without permission with an honest empty state, which is the
+ * rule this hub already uses for the seven reports.
+ */
+export const AGING_CARDS: {
+  key: 'aging-receivable' | 'aging-payable';
+  tab: 'receivables' | 'invoices';
+  label: string;
+  blurb: string;
+  group: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  scope: string;
+  action: string;
+  available: boolean;
+  waitingOn: string;
+  followsRange: boolean;
+  requires: Permission | null;
+}[] = [
+  {
+    key: 'aging-receivable',
+    tab: 'receivables',
+    label: 'Aging Receivables',
+    blurb: 'How old the money owed to the shop is, in 30-day bands. Opens Owed to you.',
+    group: 'Customers and suppliers',
+    icon: 'hourglass-outline',
+    // Not the chosen range. A debt's age is measured from today whatever window
+    // the picker is on, and a card promising a window the screen does not keep
+    // is a card that gets believed.
+    scope: 'As of today',
+    action: 'Open in Owed to you',
+    available: true,
+    waitingOn: '',
+    followsRange: false,
+    requires: null,
+  },
+  {
+    key: 'aging-payable',
+    tab: 'invoices',
+    label: 'Aging Payables',
+    blurb: 'How old the money the shop owes is, in the same bands. Opens Bills.',
+    group: 'Customers and suppliers',
+    icon: 'hourglass-outline',
+    scope: 'As of today',
+    action: 'Open in Bills',
+    available: true,
+    waitingOn: '',
+    followsRange: false,
+    requires: null,
+  },
+];
+
+/**
  * The existing Reports tab, which this hub is placed in front of rather than
  * on top of.
  *
@@ -345,7 +410,13 @@ export const HUB_META = {
  * the action pill, and gets no press target at all rather than one that
  * refuses. A door is present exactly when `available` is true.
  */
-type CardDoor = { tab: 'reports'; view: ReportView } | { tab: 'accounting'; view: LedgerView } | null;
+type CardDoor =
+  | { tab: 'reports'; view: ReportView }
+  | { tab: 'accounting'; view: LedgerView }
+  // A tab with no `view` of its own -- the aging strips live ON Owed to you and
+  // Bills rather than behind a route, so the door names the tab and nothing else.
+  | { tab: 'receivables' | 'invoices' }
+  | null;
 
 type HubCard = {
   key: string;
@@ -372,6 +443,7 @@ const HUB_CARDS: HubCard[] = [
   ...LEDGER_STATEMENT_CARDS.map((v) => ({ ...v, door: { tab: 'accounting' as const, view: v.key } })),
   // Last in its band on purpose: three doors, then the one card explaining why
   // there is no fourth.
+  ...AGING_CARDS.map((v) => ({ ...v, door: { tab: v.tab } as const })),
   { ...VALUATION_CARD, door: null },
   { ...STATEMENTS_CARD, door: { tab: 'reports' as const, view: STATEMENTS_CARD.key } },
 ];
@@ -407,6 +479,7 @@ export function visibleReportViews(can: (permission: Permission) => boolean): ty
 export function ReportsHub({
   onOpen,
   onOpenLedgerView,
+  onOpenTab,
   rangeLabel,
   can,
 }: {
@@ -418,6 +491,12 @@ export function ReportsHub({
    * knows how to change tabs.
    */
   onOpenLedgerView: (view: LedgerView) => void;
+  /**
+   * Opens Owed to you or Bills. A third callback rather than a cleverer
+   * `onOpen`, for the reason the second one exists: these leave the Reports tab
+   * entirely, and only the shell knows how to change tabs.
+   */
+  onOpenTab: (tab: 'receivables' | 'invoices') => void;
   /**
    * What the shell's date picker is actually set to, e.g. "7 days" or
    * "1–14 Aug". Null before the picker has reported, which is why every card
@@ -436,8 +515,11 @@ export function ReportsHub({
     return acc;
   }, {});
 
-  const openDoor = (door: NonNullable<CardDoor>) =>
-    door.tab === 'accounting' ? onOpenLedgerView(door.view) : onOpen(door.view);
+  const openDoor = (door: NonNullable<CardDoor>) => {
+    if (door.tab === 'accounting') return onOpenLedgerView(door.view);
+    if (door.tab === 'reports') return onOpen(door.view);
+    return onOpenTab(door.tab);
+  };
 
   return (
     <View style={styles.wrap}>

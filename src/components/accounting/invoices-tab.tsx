@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
+import { AgingStrip } from '@/components/accounting/aging-strip';
 import { InvoiceEditorModal } from '@/components/accounting/invoice-editor-modal';
 import { RecordPaymentModal } from '@/components/accounting/record-payment-modal';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
@@ -12,6 +13,7 @@ import { BentoFlow } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
+import { agingTotals, daysSince, inBucket, type AgingBucket } from '@/lib/aging';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { getPayableState, type PayableState } from '@/lib/ledger';
@@ -48,12 +50,15 @@ export function InvoicesTab({
   locationFilter,
   setHeaderActions,
   setRefresh,
+  initialBucket = null,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
   setRefresh: RefreshSetter;
+  /** Set by the Reports hub's Aging Payables card. See ReceivablesTab. */
+  initialBucket?: AgingBucket | null;
 }) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
@@ -149,14 +154,35 @@ export function InvoicesTab({
 
   const totals = useMemo(() => invoiceTotals(openInScope), [openInScope]);
 
+  // The payables half of the same schedule the Owed to you tab shows, off the
+  // same function with the direction flipped. Aged from `issuedOn` -- the day
+  // the debt arose -- NOT from `dueOn`: see lib/aging.ts. Overdue stays a
+  // separate fact and keeps its own badge, so a bill can be sixty days old and
+  // not yet due without either signal being wrong.
+  //
+  // Over `openInScope`, never `visible`: an aging schedule is about every
+  // unpaid bill, and the list below is filtered to a date range.
+  const [bucket, setBucket] = useState<AgingBucket | null>(initialBucket);
+  const [agedAt, setAgedAt] = useState(() => Date.now());
+  const ageOf = useCallback((invoice: Invoice) => daysSince(invoice.issuedOn, agedAt), [agedAt]);
+  const buckets = useMemo(
+    () => agingTotals(openInScope, { days: ageOf, cents: (invoice) => balanceCents(invoice) }),
+    [openInScope, ageOf]
+  );
+
   // Unpaid bills always show, even when issued outside the window -- the list
   // would otherwise disagree with the totals right above it. Merged by id so a
   // bill in both sets appears once.
   const visible = useMemo(() => {
     const byId = new Map(rangeInScope.map((invoice) => [invoice.id, invoice]));
     for (const invoice of openInScope) byId.set(invoice.id, invoice);
-    return sortInvoicesForDisplay(Array.from(byId.values()));
-  }, [rangeInScope, openInScope]);
+    const all = sortInvoicesForDisplay(Array.from(byId.values()));
+    // Choosing a bucket narrows to UNPAID bills of that age. A settled bill has
+    // no age to speak of -- it is not owed -- so leaving it in would put rows in
+    // a bucket whose total does not count them.
+    if (bucket === null) return all;
+    return inBucket(all.filter((invoice) => balanceCents(invoice) > 0), bucket, ageOf);
+  }, [rangeInScope, openInScope, bucket, ageOf]);
 
   const close = () => setEditing(null);
 
@@ -291,7 +317,14 @@ export function InvoicesTab({
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <BentoCard title="Bills" scope="Selected range">
+      <BentoCard title="How old the money is" scope="every unpaid bill">
+        <AgingStrip totals={buckets} selected={bucket} onSelect={setBucket} />
+      </BentoCard>
+
+      <BentoCard
+        title={bucket ? `Bills · ${buckets.find((b) => b.key === bucket)?.label}` : 'Bills'}
+        scope={bucket ? 'unpaid, any date' : 'Selected range'}
+      >
       {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : visible.length === 0 ? (

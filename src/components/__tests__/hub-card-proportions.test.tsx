@@ -21,7 +21,7 @@ function renderHubs() {
   act(() => {
     ledger = create(<LedgerHub onOpen={() => {}} accountCount={31} unpostedRows={0} can={anything} />);
     reports = create(
-      <ReportsHub onOpen={() => {}} onOpenLedgerView={() => {}} rangeLabel="7 days" can={anything} />,
+      <ReportsHub onOpen={() => {}} onOpenLedgerView={() => {}} onOpenTab={() => {}} rangeLabel="7 days" can={anything} />,
     );
   });
   return { ledger, reports };
