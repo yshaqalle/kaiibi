@@ -15,6 +15,17 @@ export type CustomerBalance = {
   paidCents: number;
   refundedCents: number;
   owedCents: number;
+  // When this sale falls due (20261026000000). A `date` column, so a bare
+  // 'YYYY-MM-DD' -- read it with fromDateColumn, never `new Date(...)`, which
+  // would parse it as UTC midnight and lose a day for a shop ahead of UTC.
+  dueOn: string | null;
+  // A `customers` column the view carries along (20261026000100), so it repeats
+  // identically on every unsettled sale of one customer's. It records that the
+  // shop OPENED a reminder, never that one was delivered.
+  lastRemindedAt: string | null;
+  // The customer's CURRENT number, not the snapshot the sale froze. A reminder
+  // is an attempt to reach somebody today; the frozen one belongs on a receipt.
+  customerPhone: string | null;
 };
 
 export type SettlementAllocation = { saleId: string; payments: PaymentLine[] };
@@ -29,6 +40,9 @@ function mapRow(row: any): CustomerBalance {
     paidCents: row.paid_cents ?? 0,
     refundedCents: row.refunded_cents ?? 0,
     owedCents: row.owed_cents ?? 0,
+    dueOn: row.due_on ?? null,
+    lastRemindedAt: row.last_reminded_at ?? null,
+    customerPhone: row.customer_phone ?? null,
   };
 }
 

@@ -168,6 +168,31 @@ export async function deleteCustomer(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Record that the shop opened a payment reminder for this customer.
+ *
+ * Returns the stamp it wrote so the caller can update the row in place. The
+ * receivables list would otherwise have to refetch the whole outstanding
+ * query to make "Reminded today" appear, and a full reload after every button
+ * press is a visible stutter for one changed word.
+ *
+ * WHAT THIS DOES NOT CLAIM. A wa.me link hands the message to WhatsApp and we
+ * are never told what happened next -- not whether it sent, not whether it was
+ * read. So this is written when the shop OPENS the draft, and every label
+ * built on it says "reminded", never "sent". Writing it on open rather than on
+ * some confirmation we cannot observe is the honest option: the alternative is
+ * a column that stays empty forever.
+ */
+export async function markReminded(customerId: string, at: Date = new Date()): Promise<string> {
+  const stamp = at.toISOString();
+  const { error } = await supabase
+    .from('customers')
+    .update({ last_reminded_at: stamp })
+    .eq('id', customerId);
+  if (error) throw error;
+  return stamp;
+}
+
 // Derived stats for the customer detail screen -- fetches this customer's
 // sales and reduces client-side, same style as getMonthToDateRevenueCents
 // in src/lib/sales.ts (no SQL aggregate/RPC for this in the codebase yet).

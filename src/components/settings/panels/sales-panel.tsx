@@ -7,6 +7,7 @@ import { Btn, PageHeader, Pill, Row, Section, Toggle } from '@/components/settin
 import { createCurrency, deleteCurrency, setCurrencyActive, updateCurrency } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { discountLabel } from '@/lib/promotions';
+import { DEFAULT_REMINDER_TEMPLATE } from '@/lib/reminder';
 import { updateShop } from '@/lib/shops';
 import type { Currency, Promotion, Shop } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
@@ -550,15 +551,29 @@ export function PaymentsPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pr
   const [zaad, setZaad] = useState(shop.paymentZaadEnabled);
   const [eDahab, setEDahab] = useState(shop.paymentEdahabEnabled);
   const [splitPayment, setSplitPayment] = useState(shop.paymentSplitEnabled);
+  const [termInput, setTermInput] = useState(String(shop.creditTermDays));
+  // The stored template, or empty when the shop has never written one. Empty
+  // stays empty rather than being pre-filled with the default text: a field
+  // showing the default is indistinguishable from a shop that typed it out, and
+  // saving it would freeze today's wording against every future improvement.
+  // The placeholder shows the default instead.
+  const [templateInput, setTemplateInput] = useState(shop.reminderTemplate ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Clamped to the same range the CHECK constraint enforces (20261026000000),
+  // so an out-of-range number is corrected here rather than rejected by
+  // Postgres with a message about a constraint nobody has heard of.
+  const term = Math.min(365, Math.max(0, Math.floor(Number(termInput) || 0)));
 
   const dirty =
     cash !== shop.paymentCashEnabled ||
     zaad !== shop.paymentZaadEnabled ||
     eDahab !== shop.paymentEdahabEnabled ||
-    splitPayment !== shop.paymentSplitEnabled;
+    splitPayment !== shop.paymentSplitEnabled ||
+    term !== shop.creditTermDays ||
+    templateInput.trim() !== (shop.reminderTemplate ?? '');
 
   const save = async () => {
     setSaving(true);
@@ -569,6 +584,11 @@ export function PaymentsPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pr
         paymentZaadEnabled: zaad,
         paymentEdahabEnabled: eDahab,
         paymentSplitEnabled: splitPayment,
+        creditTermDays: term,
+        // Cleared back to null, not saved as an empty string: null is what
+        // tells src/lib/reminder.ts to use the built-in wording, where '' would
+        // be a template that produces an empty WhatsApp draft.
+        reminderTemplate: templateInput.trim() || null,
       });
       await onSaved();
       setSaved(true);
@@ -600,6 +620,43 @@ export function PaymentsPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pr
           <Toggle value={splitPayment} onValueChange={setSplitPayment} />
         </Row>
       </Section>
+      <Section title="Selling on account">
+        <Text style={styles.hint}>
+          How long a customer has to settle a sale taken on account. Applied to every new credit sale — the
+          cashier can still give one sale a different date at the till. Changing it affects sales made from
+          now on; dates already given to customers are left as they are.
+        </Text>
+        <Row
+          label="Payment term"
+          desc={term === 0 ? 'Due on the day of the sale' : `Due ${term} ${term === 1 ? 'day' : 'days'} after the sale`}
+        >
+          <TextInput
+            value={termInput}
+            onChangeText={setTermInput}
+            placeholder="30"
+            placeholderTextColor="#999999"
+            keyboardType="number-pad"
+            style={styles.rateInput}
+          />
+          <Text style={styles.percentSign}>{term === 1 ? 'day' : 'days'}</Text>
+        </Row>
+      </Section>
+      <Section title="Payment reminders">
+        <Text style={styles.hint}>
+          The WhatsApp message sent from Accounting → Owed to you. Leave it blank to use the wording below.
+          Write it in whichever language your customers read — {'{customer}'}, {'{shop}'}, {'{amount}'} and{' '}
+          {'{due}'} are filled in for you.
+        </Text>
+        <TextInput
+          value={templateInput}
+          onChangeText={setTemplateInput}
+          placeholder={DEFAULT_REMINDER_TEMPLATE}
+          placeholderTextColor="#999999"
+          multiline
+          numberOfLines={3}
+          style={styles.templateInput}
+        />
+      </Section>
     </View>
   );
 }
@@ -614,6 +671,20 @@ const styles = StyleSheet.create({
   percentSign: { fontSize: 14, fontWeight: '700', color: '#9CA3AF' },
   loyaltySummary: { marginTop: 12, marginBottom: 4 },
   loyaltyWarning: { color: '#9A6700', fontWeight: '700' },
+  // Full width and multiline, unlike the numeric fields above: this is a
+  // sentence a shop writes, and a 60px right-aligned box would make it
+  // unreadable while typing. textAlignVertical keeps Android's cursor at the
+  // top rather than vertically centring a growing field.
+  templateInput: {
+    backgroundColor: '#F2F2F2',
+    borderRadius: 10,
+    minHeight: 78,
+    padding: 12,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#111111',
+    textAlignVertical: 'top',
+  },
 });
 
 const modalStyles = StyleSheet.create({

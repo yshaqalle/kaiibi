@@ -17,19 +17,37 @@ export function WhatsAppButton({
   name,
   variant = 'icon',
   message,
+  onOpened,
+  accessibilityLabel,
 }: {
   phone: string | null | undefined;
   name: string;
   variant?: 'icon' | 'pill';
   message?: string;
+  /**
+   * Fired after the chat is handed to WhatsApp -- for a caller that needs to
+   * record the attempt, as the receivables tab does with `last_reminded_at`.
+   *
+   * Named for what actually happened. A wa.me link is one-way: we are told
+   * nothing about whether the message was sent, delivered or read, so a
+   * callback called `onSent` would be inviting every caller to write down
+   * something untrue.
+   */
+  onOpened?: () => void;
+  /** Overrides the default label where the button means more than "message". */
+  accessibilityLabel?: string;
 }) {
   if (!whatsappLink(phone)) return null;
 
-  const label = `Message ${name} on WhatsApp`;
+  const label = accessibilityLabel ?? `Message ${name} on WhatsApp`;
+  const open = () => {
+    openWhatsApp(phone!, message);
+    onOpened?.();
+  };
 
   if (variant === 'pill') {
     return (
-      <Pressable accessibilityLabel={label} onPress={() => openWhatsApp(phone!, message)} style={styles.pill}>
+      <Pressable accessibilityLabel={label} onPress={open} style={styles.pill}>
         <FontAwesome name="whatsapp" size={16} color="#FFFFFF" />
         <Text style={styles.pillText}>WhatsApp</Text>
       </Pressable>
@@ -37,7 +55,7 @@ export function WhatsAppButton({
   }
 
   return (
-    <Pressable accessibilityLabel={label} onPress={() => openWhatsApp(phone!, message)} style={styles.icon} hitSlop={6}>
+    <Pressable accessibilityLabel={label} onPress={open} style={styles.icon} hitSlop={6}>
       <FontAwesome name="whatsapp" size={18} color="#25D366" />
     </Pressable>
   );

@@ -26,7 +26,10 @@ const choiceProps: React.ComponentProps<typeof RestChoice> = {
   chosen: false,
   customerName: 'Farah Hassan',
   currency: null,
+  dueOn: '2026-10-05',
+  defaultTermDays: 30,
   onChange: () => {},
+  onDueOnChange: () => {},
   onNeedCustomer: () => {},
 };
 
@@ -49,6 +52,25 @@ describe('RestChoice', () => {
     const text = render(<RestChoice {...choiceProps} />);
     expect(text).toContain('Carry $34.74');
     expect(text).not.toContain('remaining');
+  });
+
+  it('says nothing about a due date until the choice is actually made', () => {
+    // A deadline announced on every ordinary sale that scrolls past this
+    // control untouched is noise about something nobody has chosen.
+    expect(render(<RestChoice {...choiceProps} />)).not.toContain('Due ');
+  });
+
+  it('states the due date once chosen, rather than asking for one', () => {
+    // The whole point of the shop-wide term: zero taps in the common case, and
+    // a date the cashier can read out to the customer.
+    //
+    // Built with the same Intl call the component uses rather than a literal:
+    // day/month order is the reader's locale, so pinning "5 October" here would
+    // fail under a US test runner for a component that is behaving correctly.
+    const expected = new Date(2026, 9, 5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+    const text = render(<RestChoice {...choiceProps} chosen />);
+    expect(text).toContain(`Due ${expected}`);
+    expect(text).toContain('Change');
   });
 
   it('says "the remaining" once part of it has been taken', () => {

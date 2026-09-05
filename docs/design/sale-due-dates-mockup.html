@@ -1,0 +1,596 @@
+<meta charset="utf-8" />
+<title>A credit sale says when it comes back</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; }
+
+  /* The app frames below are pinned to the bento LIGHT palette from
+     src/constants/theme.ts, in both page themes -- kaiibi has no dark mode yet,
+     so a dark-mode frame would be drawing a screen that does not exist. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7; --warn:#b07206; --loss:#d72b3e; --profit:#008340;
+        --c1:#2f6bff; --sep:#a9a8b2; --acc-wash:#e6edff; --acc-ink:#1b47b8; --warn-wash:#f8efdc; --warn-ink:#8a5a05; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:72ch;margin:0 0 12px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:78ch;}
+  h3.sub{font-size:14px;font-weight:800;margin:28px 0 8px;letter-spacing:-.01em;}
+  section{margin-top:58px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:78ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .pick{color:#0b7a44;font-weight:750;} .drop{color:#b52233;font-weight:750;}
+  @media (prefers-color-scheme: dark){ .pick{color:#5fd39a;} .drop{color:#ff8a93;} }
+  :root[data-theme="dark"] .pick{color:#5fd39a;} :root[data-theme="dark"] .drop{color:#ff8a93;}
+  :root[data-theme="light"] .pick{color:#0b7a44;} :root[data-theme="light"] .drop{color:#b52233;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);}
+  .scroller{overflow-x:auto;padding-bottom:8px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.phone{width:392px;}
+  .pair{display:grid;gap:24px;grid-template-columns:1fr;} .pair > div{min-width:0;}
+  @media (min-width:1100px){ .pair.two{grid-template-columns:1fr 1fr;} }
+  .trio{display:grid;gap:18px;grid-template-columns:1fr;}
+  @media (min-width:900px){ .trio{grid-template-columns:repeat(3,1fr);} }
+
+  .ttl{margin:0;font-size:24px;font-weight:800;letter-spacing:-.024em;}
+  .blurb{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+  .ctrl{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .chip.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  .cardx{background:var(--d-sf);border-radius:26px;padding:20px;margin-bottom:12px;}
+  .cardx.tight{padding:20px 10px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
+  .cscope{font-size:11px;font-weight:700;color:var(--d-mut);background:var(--d-soft);border-radius:999px;padding:4px 10px;}
+  .ctitle .pad{padding:0 10px;}
+
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tbl th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);font-weight:800;padding:0 8px 8px 0;border-bottom:1px solid var(--d-rule);}
+  .tbl td{padding:10px 8px 10px 0;border-bottom:1px solid var(--d-ln);color:var(--d-ink2);vertical-align:middle;}
+  .tbl td.r,.tbl th.r{text-align:right;}
+  .tbl tr:last-child td{border-bottom:none;}
+  .tbl td.name{color:var(--d-ink);font-weight:700;}
+  .tbl .meta{display:block;font-size:10.5px;font-weight:600;color:var(--d-mut2);margin-top:1px;}
+  .warn{color:var(--warn);font-weight:800;} .bad{color:var(--loss);font-weight:800;}
+  .strong{color:var(--d-ink);font-weight:800;}
+
+  .badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800;letter-spacing:.04em;white-space:nowrap;}
+  .badge.late{background:var(--warn-wash);color:var(--warn-ink);}
+  .badge.soon{background:var(--d-soft);color:var(--d-mut);}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .tiles.two{grid-template-columns:repeat(2,1fr);max-width:420px;}
+  .tile{background:var(--d-soft);border-radius:18px;padding:14px;border:1px solid transparent;}
+  .tile.on{background:var(--d-sf);border-color:var(--d-rule);}
+  .tile .l{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .tile.on .l{color:var(--d-ink2);}
+  .tile .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;}
+  .tile .n.alarm{color:var(--warn);}
+  .tile .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  .caveat{margin-top:12px;background:var(--d-soft);border-radius:14px;padding:11px 13px;font-size:11.5px;color:var(--d-mut);line-height:1.45;}
+  .caveat b{color:var(--d-ink2);font-weight:800;}
+
+  /* The POS pay-later control */
+  .rest{margin-top:12px;padding:14px;border-radius:18px;background:var(--d-soft);}
+  .rest.on{background:var(--acc-wash);}
+  .rest .rhead{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .rest .rtitle{font-size:14px;font-weight:800;color:var(--d-ink);}
+  .rest.on .rtitle{color:var(--acc-ink);}
+  .rest .raction{flex-shrink:0;font-size:11.5px;font-weight:800;letter-spacing:.03em;color:var(--d-mut);}
+  .rest.on .raction{color:var(--acc-ink);}
+  .rest .rdetail{font-size:11.5px;font-weight:600;color:var(--d-mut);margin-top:3px;line-height:1.4;}
+  .rest.on .rdetail{color:var(--acc-ink);}
+  .rest .rdue{display:flex;align-items:baseline;gap:8px;margin-top:7px;font-size:11.5px;font-weight:800;color:var(--acc-ink);}
+  .rest .rdue .chg{font-size:11px;font-weight:800;color:var(--acc-ink);text-decoration:underline;text-underline-offset:2px;opacity:.85;}
+  .rest .recho{font-size:10px;font-weight:600;color:var(--acc-ink);margin-top:2px;opacity:.85;}
+
+  .sheet{background:var(--d-sf);border-radius:22px;padding:18px;}
+  .sheet h5{margin:0 0 2px;font-size:15px;font-weight:800;}
+  .sheet .sub{margin:0 0 14px;font-size:11.5px;color:var(--d-mut);}
+  .opts{display:flex;flex-direction:column;gap:8px;}
+  .opt2{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:14px;background:var(--d-soft);font-size:13px;font-weight:700;color:var(--d-ink2);}
+  .opt2.on{background:var(--acc-wash);color:var(--acc-ink);}
+  .opt2 .when{font-size:11.5px;font-weight:700;color:var(--d-mut);}
+  .opt2.on .when{color:var(--acc-ink);}
+
+  .srow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid var(--d-ln);}
+  .srow:last-child{border-bottom:none;}
+  .srow .sl{font-size:13.5px;font-weight:700;color:var(--d-ink);}
+  .srow .sh{font-size:11.5px;color:var(--d-mut);margin-top:2px;max-width:52ch;}
+  .stepper{display:flex;align-items:center;gap:0;border:1px solid var(--d-rule);border-radius:12px;overflow:hidden;flex-shrink:0;}
+  .stepper button{border:0;background:var(--d-sf);font-size:16px;font-weight:800;color:var(--d-ink2);padding:8px 13px;cursor:default;}
+  .stepper .val{padding:8px 12px;font-size:13.5px;font-weight:800;background:var(--d-soft);min-width:74px;text-align:center;}
+
+  .flag{border-left:3px solid var(--warn);background:var(--pg2);border-radius:0 12px 12px 0;padding:14px 16px;margin-top:16px;}
+  .flag b{font-weight:800;}
+  .open{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:14px;}
+  .open h4{margin:0 0 4px;font-size:14px;font-weight:800;}
+  .ba{display:grid;gap:10px;grid-template-columns:1fr;margin-top:10px;}
+  @media (min-width:760px){ .ba{grid-template-columns:1fr 1fr;} }
+  .ba > div{border:1px solid var(--ln);border-radius:12px;padding:12px 14px;font-size:13px;}
+  .ba .k{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);margin-bottom:5px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">kaiibi · design · accounting + pos</p>
+  <h1>A credit sale says when it comes back</h1>
+  <p class="lede">
+    Today a sale on account has an age and no deadline. The shop can see that Amina has owed
+    $1,240 for thirty-four days, but not whether thirty-four days is late — because nothing
+    ever said when it was due. This adds the missing half: a due date, defaulted from a
+    shop-wide term, stamped by the database, and shown everywhere the debt already is.
+  </p>
+  <p class="note">
+    The whole design turns on one restraint: <b>the common case is zero taps</b>. A cashier ringing
+    up a credit sale should not be asked for a date. The shop already has a policy — thirty days —
+    so the control states the answer and offers to change it.
+  </p>
+
+  <!-- ─────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>1 · The pay-later control</h2>
+    <p class="h2sub">
+      <code>src/components/pos/rest-choice.tsx</code> — the one control that carries what the
+      payments did not cover. It gains one line, and only once the choice is made.
+    </p>
+
+    <div class="trio">
+      <div>
+        <div class="frameHead"><b>Not chosen</b><i>unchanged</i></div>
+        <div class="frame phone" style="width:auto;">
+          <div class="rest">
+            <div class="rhead">
+              <span class="rtitle">Pay later</span>
+              <span class="raction">Choose</span>
+            </div>
+            <div class="rdetail">Carry the remaining $1,240.00 on Amina Hersi's account</div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:10px;font-size:12.5px;">
+          No date here. Announcing a deadline for something not yet chosen is noise on every
+          ordinary sale that scrolls past this control without touching it.
+        </p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>Chosen</b><i>the new line</i></div>
+        <div class="frame phone" style="width:auto;">
+          <div class="rest on">
+            <div class="rhead">
+              <span class="rtitle">Paying later</span>
+              <span class="raction">Undo</span>
+            </div>
+            <div class="rdetail">$1,240.00 carried on Amina Hersi's account</div>
+            <div class="rdue"><span>Due 5 October</span><span class="chg">Change</span></div>
+            <div class="recho">SOS 708,400</div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:10px;font-size:12.5px;">
+          A statement, not a question. <b>Change</b> is a link, not a field — the date is already
+          decided, and the link is the escape hatch for the sale where it isn't.
+        </p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>No customer yet</b><i>unchanged</i></div>
+        <div class="frame phone" style="width:auto;">
+          <div class="rest">
+            <div class="rhead">
+              <span class="rtitle">Pay later</span>
+              <span class="raction">Attach a customer</span>
+            </div>
+            <div class="rdetail">Carry $1,240.00 on a customer's account</div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:10px;font-size:12.5px;">
+          Still no date. The server refuses a nameless debt, so the next step is the customer;
+          a due date shown before there is anyone to owe it is answering the second question first.
+        </p>
+      </div>
+    </div>
+
+    <h3 class="sub">Change — an inline expansion, not a sheet</h3>
+    <p class="note">
+      Named terms rather than a calendar. They exist because "in two weeks" is how a shopkeeper
+      actually thinks about a variation, and making them count the days on a calendar to express
+      it is the tax the shop-wide default was meant to remove.
+    </p>
+    <div class="flag">
+      <p class="note" style="max-width:none;">
+        <b>Changed during implementation, on purpose.</b> This was drawn as a bottom sheet. On a
+        phone the pay-later control already sits <i>inside</i> the checkout sheet, and a sheet
+        opened from a sheet is dropped on iOS — this repo's own documented trap, the one that
+        looks like a dead button. So the options expand inline within the card instead. Same four
+        choices, no second surface, and no <code>useStagedSheet</code> plumbing for a control this
+        small. The frame below shows the sheet as originally drawn; the built version puts these
+        four pills directly under the "Due …" line.
+      </p>
+    </div>
+    <div class="pair two" style="margin-top:14px;">
+      <div>
+        <div class="frame phone" style="width:auto;">
+          <div class="sheet">
+            <h5>When is this due?</h5>
+            <p class="sub">Amina Hersi · $1,240.00 · this sale only</p>
+            <div class="opts">
+              <div class="opt2"><span>On collection</span><span class="when">Today, 5 Sep</span></div>
+              <div class="opt2"><span>In 14 days</span><span class="when">19 Sep</span></div>
+              <div class="opt2 on"><span>In 30 days · shop default</span><span class="when">5 Oct</span></div>
+              <div class="opt2"><span>Pick a date…</span><span class="when">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="note">
+          <b>The shop default is labelled as the shop default.</b> A cashier who opens this sheet
+          and sees the chosen row say <i>shop default</i> learns the policy exists and that they
+          are about to depart from it — which is most of what stops a per-sale override from
+          quietly becoming the norm.
+        </p>
+        <p class="note">
+          <b>The override is per sale and does not stick.</b> The next sale is 30 days again.
+          A sticky override is a setting that nobody knows they changed.
+        </p>
+        <p class="note">
+          <b>On collection</b> is today's date rather than a null. A due date that is sometimes
+          absent puts the aging column back in the position this work exists to get it out of —
+          two different measurements in one bucket.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>2 · The shop-wide term</h2>
+    <p class="h2sub">One field in Settings. It is the only place a shop states its credit policy.</p>
+
+    <div class="scroller">
+      <div class="frame" style="max-width:760px;">
+        <div class="cardx">
+          <p class="ctitle">Selling on account</p>
+          <div class="srow">
+            <div>
+              <div class="sl">Payment term</div>
+              <div class="sh">How long a customer has to settle a credit sale. Applied to every new
+                sale on account; any one sale can be given a different date at the till.</div>
+            </div>
+            <div class="stepper">
+              <button>−</button><span class="val">30 days</span><button>+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:14px;">
+      A stepper rather than a free number field: the realistic range is 7 to 90 in weekly-ish
+      steps, and a text input invites <code>0</code>, <code>3650</code> and an empty string, each
+      of which needs a rule nobody wants to write or read. Changing it affects sales made
+      <i>after</i> the change — existing due dates are already stamped and are not recomputed,
+      which is the point of stamping them.
+    </p>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>3 · Owed to you</h2>
+    <p class="h2sub">
+      <code>src/components/accounting/receivables-tab.tsx</code> — a Due column, a badge, and the
+      aging strip repointed from "days since the sale" to "days past due".
+    </p>
+
+    <div class="scroller">
+      <div class="frame w1180">
+        <div class="head">
+          <div>
+            <p class="ttl">Accounting</p>
+            <p class="blurb">What the shop is owed, what it owes, and what it made.</p>
+          </div>
+          <div class="ctrl">
+            <span class="chip">This month</span><span class="chip">All stores</span>
+          </div>
+        </div>
+        <div class="ctrl" style="margin-bottom:14px;">
+          <span class="chip">Overview</span><span class="chip on">Owed to you</span>
+          <span class="chip">Bills</span><span class="chip">Cash &amp; Budgets</span><span class="chip">Reports</span>
+        </div>
+
+        <div class="cardx">
+          <p class="ctitle"><span>Owed to the shop</span><span class="cscope">right now</span></p>
+          <div class="tiles two">
+            <div class="tile">
+              <div class="l">Owed to you</div><div class="n num">$2,726</div>
+              <div class="h">from 4 customers</div>
+            </div>
+            <div class="tile">
+              <div class="l">Past due</div><div class="n num alarm">$1,650</div>
+              <div class="h">2 of them, worth a phone call</div>
+            </div>
+          </div>
+          <div class="caveat">
+            Already counted as revenue on the day of the sale, not income still to come. This is how
+            much of it is sitting with customers rather than in the till.
+          </div>
+          <div class="caveat">
+            <b>Sales made before due dates existed</b> were given one thirty days after the sale, so the
+            whole column measures the same thing. For those sales the date is derived, not agreed
+            with the customer.
+          </div>
+        </div>
+
+        <div class="cardx">
+          <p class="ctitle"><span>How late the money is</span><span class="cscope">right now</span></p>
+          <div class="tiles">
+            <div class="tile">
+              <div class="l">Current</div><div class="n num">$1,076</div>
+              <div class="h">under 30 days past due</div>
+            </div>
+            <div class="tile on">
+              <div class="l">30 – 59 days</div><div class="n num">$1,240</div>
+              <div class="h">1 of them</div>
+            </div>
+            <div class="tile">
+              <div class="l">60 – 89 days</div><div class="n num">$410</div>
+              <div class="h">1 of them</div>
+            </div>
+            <div class="tile">
+              <div class="l">90+ days</div><div class="n num">$0</div>
+              <div class="h">three months or more</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cardx tight">
+          <p class="ctitle pad"><span>Who owes what</span></p>
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="padding-left:10px;">Customer</th>
+                <th class="r">Owed</th>
+                <th class="r">Due</th>
+                <th class="r">Past due</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="name" style="padding-left:10px;">Amina Hersi<span class="meta">4 unpaid sales</span></td>
+                <td class="r strong num">$1,240.00</td>
+                <td class="r num">2 Aug <span class="badge late">Late</span></td>
+                <td class="r warn num">34 days</td>
+              </tr>
+              <tr>
+                <td class="name" style="padding-left:10px;">Farah Yusuf</td>
+                <td class="r strong num">$410.00</td>
+                <td class="r num">7 Jul <span class="badge late">Late</span></td>
+                <td class="r warn num">60 days</td>
+              </tr>
+              <tr>
+                <td class="name" style="padding-left:10px;">Deeq Warsame<span class="meta">2 unpaid sales</span></td>
+                <td class="r strong num">$860.50</td>
+                <td class="r num">9 Sep <span class="badge soon">Due soon</span></td>
+                <td class="r num" style="color:var(--d-mut2);">not yet</td>
+              </tr>
+              <tr>
+                <td class="name" style="padding-left:10px;">Hodan Ali</td>
+                <td class="r strong num">$215.75</td>
+                <td class="r num">28 Sep</td>
+                <td class="r num" style="color:var(--d-mut2);">not yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="sub">What each column now says</h3>
+    <table class="dtbl">
+      <thead><tr><th>Column</th><th>Before</th><th>After</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Unpaid since</td><td>Date of the oldest unpaid sale</td>
+          <td class="drop">Removed</td>
+          <td>Replaced by Due. Keeping both puts two dates side by side, and the one that
+              governs action is the deadline, not the origin.</td>
+        </tr>
+        <tr>
+          <td>Due</td><td>—</td><td class="pick">Earliest due date across that customer's unpaid sales, plus a badge</td>
+          <td>Earliest, not latest: the row is a prompt to make one phone call, and the call is
+              warranted by the most overdue sale in it.</td>
+        </tr>
+        <tr>
+          <td>Waiting → <b>Past due</b></td><td>Days since the oldest sale</td>
+          <td class="pick">Days past the earliest due date, or "not yet"</td>
+          <td>The rename is load-bearing. "Waiting: 34 days" and "Past due: 34 days" are
+              different claims and the number is different too.</td>
+        </tr>
+        <tr>
+          <td>Customer, Owed</td><td colspan="2">Unchanged</td>
+          <td>Still sorted biggest debt first.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub">The two badges</h3>
+    <p class="note">
+      <span class="badge late" style="vertical-align:middle;">Late</span> is amber-washed — a task,
+      not a loss, the same reading the 90+ tile already takes. <span class="badge soon"
+      style="vertical-align:middle;">Due soon</span> is grey and means within seven days; it is the
+      one that lets a shop ring ahead instead of chasing afterwards. A row comfortably ahead of its
+      date gets no badge at all, because a badge on every row is a badge on none. Both carry a
+      word, so neither depends on its colour.
+    </p>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>4 · The meaning that changes under someone's feet</h2>
+    <p class="h2sub">This is the part to say out loud when it ships, not to bury in a changelog.</p>
+
+    <div class="flag">
+      <p class="note" style="max-width:none;">
+        <b>The aging strip stops measuring age and starts measuring lateness.</b> The four buckets,
+        their boundaries and their reconciliation are untouched — <code>src/lib/aging.ts</code> takes
+        a days accessor and never knew where the number came from, so receivables simply pass a
+        different one. But every figure in the strip will move on the day this lands, and a
+        customer who was in <i>60 – 89 days</i> yesterday can be in <i>Current</i> today without
+        paying a shilling. That is the improvement. It is also a number somebody may already be
+        reading weekly.
+      </p>
+    </div>
+
+    <div class="open">
+      <h4>One thing the brief and the code disagree about</h4>
+      <p class="note">
+        The intent was recorded as: <i>"Current" stops meaning "under 30 days old" and starts
+        meaning "not yet due"</i>. With the bucketing left alone that is not quite what happens.
+        <code>bucketForDays</code> puts everything under 30 into <code>current</code>, and
+        <code>daysSince</code> clamps negatives to zero — so a sale not yet due and a sale
+        <i>twenty days late</i> both land in Current.
+      </p>
+      <div class="ba">
+        <div>
+          <div class="k">Leave the bucketing alone</div>
+          Current means <b>under 30 days past due</b>. The hint under the tile has to say that,
+          not "not yet due". A shop chasing a two-week-late debt won't find it in a bucket, but
+          it is on the list with a <span class="badge late">Late</span> badge and a Past due
+          figure, so nothing is hidden — it is just not bucketed separately.
+        </div>
+        <div>
+          <div class="k">Split the first bucket</div>
+          Current means <b>not yet due</b>, and a new <b>1 – 29 days</b> bucket holds the freshly
+          late. Truer to the words, and five tiles still fit the 2×2 wrap badly. This is a change
+          to <code>AGING_BUCKETS</code> and its reconciliation test, which the brief ruled out.
+        </div>
+      </div>
+      <p class="note" style="margin-top:12px;">
+        <b>Drawn as the first.</b> The strip above says <i>under 30 days past due</i> and the tab
+        is titled <i>How late the money is</i>. It respects the "don't touch the bucketing"
+        constraint, and the honest hint costs nothing. Worth a look before I build it, since the
+        wording in the brief implies the second.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>5 · Underneath</h2>
+    <p class="h2sub">Migration <code>20261026000000</code>. Nothing here is visible; all of it is why the screens can be simple.</p>
+
+    <table class="dtbl">
+      <thead><tr><th>Piece</th><th>Shape</th><th>Why this way</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>shops.credit_term_days</code></td>
+          <td><code>int not null default 30</code></td>
+          <td>The policy, in one place. A check constraint keeps it in a sane range so the
+              stepper's bounds are not the only thing enforcing them.</td>
+        </tr>
+        <tr>
+          <td><code>sales.due_on</code></td>
+          <td><code>date</code>, nullable in the column, never null in practice</td>
+          <td>Nullable so the trigger has something to fill. <code>due_on</code> is already the
+              name this concept carries on <code>invoices</code>, so the two sides of the ledger
+              agree on their vocabulary.</td>
+        </tr>
+        <tr>
+          <td>Trigger</td>
+          <td><code>before insert on public.sales</code>, fills <code>due_on</code> only when null</td>
+          <td>Not a change to <code>complete_sale</code>. That function has been reproduced
+              verbatim nineteen times and the repo has already lost an edit that way. A trigger is
+              a write path that cannot be forgotten, and filling only a null leaves the per-sale
+              override working. <code>sales</code> already carries two before-insert triggers, so
+              this is the established pattern rather than a new one.</td>
+        </tr>
+        <tr>
+          <td>The date it counts from</td>
+          <td><code>shop_local_date() + credit_term_days</code></td>
+          <td>Not <code>now()::date</code>. Somalia is UTC+3, so an evening sale would otherwise
+              come due a day early. <code>shop_local_date()</code> already exists for exactly this
+              and its own comments explain why there is no <code>shops.timezone</code>.</td>
+        </tr>
+        <tr>
+          <td>Backfill</td>
+          <td>Every unsettled sale gets <code>created_at + 30</code></td>
+          <td>So the aging column measures one thing from day one. The alternative — aging from
+              the due date where there is one and the sale date otherwise — is two measurements in
+              one bucket, the exact failure the aging work avoided. The <code>context</code> caveat
+              on the tab says the historic dates were derived.</td>
+        </tr>
+        <tr>
+          <td><code>customer_balances</code></td>
+          <td>Gains <code>due_on</code></td>
+          <td>The view is already per unsettled sale, which is the right grain — the earliest due
+              date per customer is then a grouping concern, not a query one.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="note" style="margin-top:16px;">
+      <b>One client-side consequence.</b> <code>groupByCustomer</code> in
+      <code>src/lib/receivables.ts</code> collapses sales to one row per person and currently
+      tracks <code>oldestAt</code>. It gains <code>earliestDueOn</code> alongside it, tracked the
+      same way. That is the accessor the aging strip is handed —
+      <code>aging.ts</code> itself is untouched.
+    </p>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>6 · Deliberately not in this</h2>
+    <table class="dtbl">
+      <thead><tr><th>Not doing</th><th>Why not</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>The <code>useHeaderActions</code> circuit</td>
+          <td>Stays dropped. The live instance is fixed and the trap is pinned by
+              <code>header-actions-loop.test.tsx</code>. Redraw it when an Accounting tab is
+              actually being added — the earlier recommendation for it was wrong and it should not
+              be built as previously written.</td>
+        </tr>
+        <tr>
+          <td>Touching <code>AGING_BUCKETS</code> or the reconciliation test</td>
+          <td>Out of scope by decision. See §4 for the one place that decision is visible.</td>
+        </tr>
+        <tr>
+          <td>Overdue on the Bills side</td>
+          <td>Bills already carry <code>due_on</code> and already flag overdue. This brings
+              receivables level with payables, not past them.</td>
+        </tr>
+        <tr>
+          <td>Reminders, interest, statements</td>
+          <td>A due date is the prerequisite for all three and none of them is this change.</td>
+        </tr>
+        <tr>
+          <td>Recomputing existing due dates when the term changes</td>
+          <td>A stamped date is a commitment made to a customer. Editing history because a setting
+              moved is how a ledger stops being one.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
