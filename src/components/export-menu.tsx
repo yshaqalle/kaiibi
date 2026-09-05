@@ -10,7 +10,7 @@ import { buildDashboardReportHtml, buildTableReportHtml, type ReportSection } fr
 // Exports whatever `rows` the caller currently has on screen -- each of
 // Inventory/Sales/Customers passes its own already-filtered/searched/sorted
 // list, so the export always matches what's visible, not the full table.
-export function ExportMenu<T>({ rows, columns, title, subtitle, filenamePrefix, variant = 'default', pdfSections }: {
+export function ExportMenu<T>({ rows, columns, title, subtitle, filenamePrefix, variant = 'default', pdfSections, formats = ['csv', 'pdf'] }: {
   rows: T[];
   columns: CsvColumn<T>[];
   title: string;
@@ -41,6 +41,16 @@ export function ExportMenu<T>({ rows, columns, title, subtitle, filenamePrefix, 
    * people would meet once.
    */
   pdfSections?: ReportSection[];
+  /**
+   * Which buttons to offer. Both by default.
+   *
+   * `['pdf']` is the three financial statements, and it is a decision rather
+   * than a limitation: a statement is a document whose meaning lives in which
+   * lines roll into which subtotal, and a flat CSV either loses that or fakes
+   * it with an indentation column nothing can compute on. The button row simply
+   * shows one button rather than explaining itself.
+   */
+  formats?: ('csv' | 'pdf')[];
 }) {
   const bento = variant === 'bento';
   const [busy, setBusy] = useState<'csv' | 'pdf' | null>(null);
@@ -72,6 +82,7 @@ export function ExportMenu<T>({ rows, columns, title, subtitle, filenamePrefix, 
 
   return (
     <View style={styles.row}>
+      {formats.includes('csv') ? (
       <Pressable onPress={exportCsv} disabled={busy !== null} style={[styles.button, bento && styles.buttonBento]}>
         {busy === 'csv' ? (
           <ActivityIndicator size="small" color={bento ? theme.bentoInk2 : '#FFFFFF'} />
@@ -79,6 +90,8 @@ export function ExportMenu<T>({ rows, columns, title, subtitle, filenamePrefix, 
           <Text style={[styles.buttonText, bento && styles.buttonTextBento]}>Export CSV</Text>
         )}
       </Pressable>
+      ) : null}
+      {formats.includes('pdf') ? (
       <Pressable onPress={exportPdf} disabled={busy !== null} style={[styles.button, bento && styles.buttonBento]}>
         {busy === 'pdf' ? (
           <ActivityIndicator size="small" color={bento ? theme.bentoInk2 : '#FFFFFF'} />
@@ -86,6 +99,7 @@ export function ExportMenu<T>({ rows, columns, title, subtitle, filenamePrefix, 
           <Text style={[styles.buttonText, bento && styles.buttonTextBento]}>Export PDF</Text>
         )}
       </Pressable>
+      ) : null}
     </View>
   );
 }
