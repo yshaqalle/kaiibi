@@ -145,7 +145,7 @@ function postgrestError(message: string) {
 async function render(): Promise<ReactTestRenderer> {
   let tree: ReactTestRenderer | undefined;
   await act(async () => {
-    tree = create(<FixedAssetsView setRefresh={(() => {}) as unknown as RefreshSetter} onOpenView={() => {}} />);
+    tree = create(<FixedAssetsView setRefresh={(() => {}) as unknown as RefreshSetter} setHeaderActions={() => {}} onOpenView={() => {}} />);
   });
   return tree!;
 }
