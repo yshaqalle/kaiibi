@@ -74,6 +74,14 @@ export type Shop = {
   paymentZaadEnabled: boolean;
   paymentEdahabEnabled: boolean;
   paymentSplitEnabled: boolean;
+  // How long a customer has to settle a sale taken on account. Applied by a
+  // database trigger to every new sale (20261026000000), so no write path can
+  // forget it; any single sale can still be given a different date at the till.
+  creditTermDays: number;
+  // The WhatsApp payment reminder the shop sends, with {customer} {shop}
+  // {amount} {due} placeholders. Null means "use the built-in default" — see
+  // src/lib/reminder.ts, which owns the wording and the substitution.
+  reminderTemplate: string | null;
   // Note values the drawer tally offers, keyed by currency code, in that
   // currency's minor unit: {"USD": [10000, ...], "SLSH": [1000000, ...]}.
   // A starting point, not a constraint — the tally accepts values not listed

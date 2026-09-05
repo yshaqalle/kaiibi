@@ -125,6 +125,26 @@ export async function deleteSale(saleId: string): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Give one sale a due date other than the shop's usual term.
+ *
+ * A direct UPDATE rather than an RPC, and the only table-level sales write the
+ * app performs. The alternative was a `p_due_on` parameter on complete_sale --
+ * a ~400-line security-definer function that every migration touching it
+ * reproduces verbatim, and which has already silently lost an unrelated edit
+ * that way (see 20260908000300). One nullable column, guarded by the same
+ * `sales.edit` permission the insert policy already demands of whoever rang
+ * the sale up, is much less to get wrong.
+ *
+ * Only called when a cashier actually changed the date. Left alone, the
+ * before-insert trigger from 20261026000000 has already stamped the shop's
+ * term, so the ordinary credit sale makes no second round trip.
+ */
+export async function setSaleDueOn(saleId: string, dueOn: string): Promise<void> {
+  const { error } = await supabase.from('sales').update({ due_on: dueOn }).eq('id', saleId);
+  if (error) throw error;
+}
+
 // Refunds the given quantity of one or more of a sale's items, restoring
 // their stock — see refund_sale_items in the refunds migration. Amounts are
 // computed server-side (cumulative, to avoid rounding drift across partial

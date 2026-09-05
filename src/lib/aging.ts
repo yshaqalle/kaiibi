@@ -7,15 +7,26 @@
  * sixty days" is how the two screens end up disagreeing about the same
  * fortnight.
  *
- * WHAT IS BEING AGED. The age is measured from the day the debt AROSE -- the
- * sale for a receivable, the issue date for a bill -- not from a due date.
- * That is the classical meaning of an aging schedule, and here it is also the
- * only one available: a kaiibi sale has no due date at all, so ageing
- * receivables "past due" would need a term nobody has entered. Bills do carry a
- * due date, and being overdue is a real and different fact -- the Bills tab
- * already flags it, and it stays a separate signal rather than being folded in
- * here. A bill can sit in the 60-89 bucket and not be overdue; that is not a
- * contradiction, it is the two facts saying different things.
+ * WHAT IS BEING AGED IS THE CALLER'S CHOICE, and the two callers now differ.
+ * This module takes a `days` accessor and has never known where the number
+ * came from, which is what let the answer change without touching anything
+ * here.
+ *
+ *   - RECEIVABLES age from the DUE DATE. Since 20261026000000 a sale carries
+ *     one, so "how late is this" is answerable and is the question a shop acts
+ *     on. See agingDaysFor in src/lib/receivables.ts.
+ *   - BILLS age from the ISSUE DATE, unchanged. That is the classical meaning
+ *     of an aging schedule. Being overdue is a real and different fact that
+ *     the Bills tab flags separately: a bill can sit in the 60-89 bucket and
+ *     not be overdue, which is not a contradiction but the two facts saying
+ *     different things.
+ *
+ * The consequence for the labels below: `hint` cannot describe both. It is
+ * written for the bill sense -- age since the debt arose -- and the
+ * receivables tab relabels the hints for the past-due sense after calling
+ * agingTotals. Relabelling in the caller rather than parameterising here keeps
+ * this module's arithmetic, its boundaries and its reconciliation identical
+ * for both directions, which is the whole reason it is one module.
  */
 
 export type AgingBucket = 'current' | 'd30' | 'd60' | 'd90';

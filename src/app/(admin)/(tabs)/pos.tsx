@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -59,7 +59,7 @@ import { cashMovementsByCurrency, withDenomination } from '@/lib/register-sessio
 import { createProduct, findProductsByCode, listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
-import { completeSale } from '@/lib/sales';
+import { completeSale, setSaleDueOn } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
 import type { CartLine, Currency, Discount, NewProductInput, PaymentLine, PaymentMethod, Product, Promotion, StaffMember } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -102,6 +102,12 @@ function PosScreen() {
   // account. Off by default and off again on every basket change: taking the
   // money is the ordinary path, and this is the deliberate departure from it.
   const [payLater, setPayLater] = useState(false);
+  // When this sale falls due, as 'YYYY-MM-DD'. Null means "whatever the shop's
+  // term works out to" -- the ordinary case, and the one that costs the cashier
+  // no taps. It only becomes a value when the cashier changes it, which is also
+  // the only case that needs writing to the server: the database stamps the
+  // shop's term itself on insert (20261026000000).
+  const [dueOnOverride, setDueOnOverride] = useState<string | null>(null);
   // The customer picker's open state, held here so the pay-later control can
   // open it. Without that, "attach a customer" was an instruction with nowhere
   // to follow it to.
@@ -544,6 +550,9 @@ function PosScreen() {
   if (choiceSetForTotal !== total) {
     setChoiceSetForTotal(total);
     setPayLater(false);
+    // The override goes with the choice it qualified. A date chosen for a
+    // basket that has since changed is a decision nobody made about this sale.
+    setDueOnOverride(null);
   }
 
   // What this customer already owed. Fetch only -- nothing is cleared here,
@@ -702,6 +711,20 @@ function PosScreen() {
         pricingNow,
         leavingBalance
       );
+      // Only when the cashier changed it. The trigger already stamped the
+      // shop's own term on insert, so the ordinary sale needs no second write.
+      //
+      // Sent as a follow-up UPDATE rather than a parameter on complete_sale:
+      // that function is ~400 lines, is reproduced verbatim by every migration
+      // that touches it, and has already lost an unrelated edit that way. A
+      // one-column patch under the same `sales.edit` permission the insert
+      // required is far less to get wrong. It is deliberately NOT awaited into
+      // the failure path below -- the sale itself succeeded, the money is
+      // recorded, and a due date a fortnight out is not worth telling the
+      // cashier the checkout failed.
+      if (leavingBalance && dueOnOverride) {
+        setSaleDueOn(saleId, dueOnOverride).catch(() => {});
+      }
       const completed: ReceiptData = {
         saleId,
         shopName: shop.name,
@@ -760,6 +783,7 @@ function PosScreen() {
       // watches them; these two are reset here as well so the next sale starts
       // from the safe choice even if the same customer is picked straight back.
       setPayLater(false);
+      setDueOnOverride(null);
       setSettlingFor(null);
       setSettleIntent(false);
       setEditingTransactionDiscount(false);
@@ -1064,7 +1088,10 @@ function PosScreen() {
       chosen={payLater}
       customerName={selectedCustomer?.name ?? null}
       currency={secondCurrency}
+      dueOn={dueOnOverride}
+      defaultTermDays={shop?.creditTermDays ?? 30}
       onChange={setPayLater}
+      onDueOnChange={setDueOnOverride}
       onNeedCustomer={() => setCustomerPickerOpen(true)}
     />
   ) : null;

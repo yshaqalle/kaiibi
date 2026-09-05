@@ -57,6 +57,11 @@ const owed = (saleId: string, owedCents: number, saleCreatedAt: string): Custome
   paidCents: 0,
   refundedCents: 0,
   owedCents,
+  // Irrelevant to allocation, which only reads owedCents and the sale order --
+  // present because the view supplies them on every row.
+  dueOn: null,
+  lastRemindedAt: null,
+  customerPhone: null,
 });
 
 const cash = (amountCents: number): PaymentLine => ({
@@ -240,7 +245,8 @@ describe('listOutstanding', () => {
   it('reads every unsettled sale in the shop, oldest first', async () => {
     fake.rows = [
       { customer_id: 'c1', customer_name: 'Farah Hassan', sale_id: 'old', sale_created_at: '2026-08-12T10:00:00.000Z',
-        total_cents: 3474, paid_cents: 0, refunded_cents: 0, owed_cents: 3474 },
+        total_cents: 3474, paid_cents: 0, refunded_cents: 0, owed_cents: 3474,
+        due_on: '2026-09-11', last_reminded_at: '2026-09-03T09:00:00.000Z', customer_phone: '063 555 0101' },
     ];
     const rows = await listOutstanding('shop1');
     expect(rows).toEqual([
@@ -253,9 +259,24 @@ describe('listOutstanding', () => {
         paidCents: 0,
         refundedCents: 0,
         owedCents: 3474,
+        dueOn: '2026-09-11',
+        lastRemindedAt: '2026-09-03T09:00:00.000Z',
+        customerPhone: '063 555 0101',
       },
     ]);
     expect(fake.eqs).toEqual([['customer_balances', 'shop_id', 'shop1']]);
+  });
+
+  it('reads a row that predates the due-date columns as nulls, not as undefined', async () => {
+    // The view always supplies both now, but a cached or partial read must not
+    // produce `undefined` -- every consumer below narrows on `null`.
+    fake.rows = [
+      { customer_id: 'c1', customer_name: 'Farah Hassan', sale_id: 'old', sale_created_at: '2026-08-12T10:00:00.000Z',
+        total_cents: 3474, paid_cents: 0, refunded_cents: 0, owed_cents: 3474 },
+    ];
+    const [only] = await listOutstanding('shop1');
+    expect(only.dueOn).toBeNull();
+    expect(only.lastRemindedAt).toBeNull();
   });
 });
 

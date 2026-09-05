@@ -33,6 +33,14 @@ function mapShopRow(row: any): Shop {
     paymentZaadEnabled: row.payment_zaad_enabled,
     paymentEdahabEnabled: row.payment_edahab_enabled,
     paymentSplitEnabled: row.payment_split_enabled,
+    // Defaulted rather than read straight through, for the reason the loyalty
+    // fields give above: a row fetched before 20261026000000 reaches this
+    // database has no such column, and `undefined` would render the credit-term
+    // stepper blank and save NaN. 30 is the column default.
+    creditTermDays: row.credit_term_days ?? 30,
+    // Null is meaningful here rather than a missing value: it is what tells
+    // src/lib/reminder.ts to use the built-in wording.
+    reminderTemplate: row.reminder_template ?? null,
     notifyDailySummary: row.notify_daily_summary,
     notifyLargeSale: row.notify_large_sale,
     notifyLowStock: row.notify_low_stock,
@@ -142,6 +150,7 @@ export async function updateShop(id: string, input: Partial<{
   loyaltyEnabled: boolean; loyaltyPointsPerUsd: number; loyaltyCentsPerPoint: number; loyaltyPointsAvailableAfterDays: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
+  creditTermDays: number; reminderTemplate: string | null;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
   notifyViaPush: boolean; notifyViaEmail: boolean; notifyViaWhatsapp: boolean;
   defaultLowStockLevel: number; expiryTrackingEnabled: boolean; expiryWarningLeadDays: number;
@@ -172,6 +181,8 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.paymentZaadEnabled !== undefined && { payment_zaad_enabled: input.paymentZaadEnabled }),
       ...(input.paymentEdahabEnabled !== undefined && { payment_edahab_enabled: input.paymentEdahabEnabled }),
       ...(input.paymentSplitEnabled !== undefined && { payment_split_enabled: input.paymentSplitEnabled }),
+      ...(input.creditTermDays !== undefined && { credit_term_days: input.creditTermDays }),
+      ...(input.reminderTemplate !== undefined && { reminder_template: input.reminderTemplate }),
       ...(input.notifyDailySummary !== undefined && { notify_daily_summary: input.notifyDailySummary }),
       ...(input.notifyLargeSale !== undefined && { notify_large_sale: input.notifyLargeSale }),
       ...(input.notifyLowStock !== undefined && { notify_low_stock: input.notifyLowStock }),
