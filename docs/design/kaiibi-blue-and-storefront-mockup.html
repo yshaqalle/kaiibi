@@ -1,0 +1,938 @@
+<meta charset="utf-8" />
+<title>Kaiibi — The Blue System & the Storefront</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:78ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:62px;scroll-margin-top:20px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;word-break:break-word;}
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  /* contents */
+  .toc{border:1px solid var(--ln);border-radius:14px;background:var(--sf);padding:16px 20px;margin-top:24px;}
+  .toc ol{margin:0;padding-left:20px;columns:2;column-gap:34px;font-size:13.5px;}
+  .toc li{margin-bottom:5px;break-inside:avoid;}
+  .toc a{color:var(--ink2);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover,.toc a:focus-visible{color:var(--ink);border-bottom-color:var(--blue);}
+  @media (max-width:640px){ .toc ol{columns:1;} }
+  a:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:2px;}
+
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:84ch;}
+  .call b{color:var(--ink);}
+  .call.badT{border-left-color:#d72b3e;}
+  .call.okT{border-left-color:#008340;}
+
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:640px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+     background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+  td.num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;font-variant-numeric:tabular-nums;}
+
+  .verdict{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;white-space:nowrap;display:inline-block;}
+  .verdict.pass{background:#d9efe4;color:#007a38;}
+  .verdict.fail{background:#fbeaec;color:#d12339;}
+  .verdict.same{background:#e6edff;color:#1b47b8;}
+  .verdict.ship{background:#d9efe4;color:#007a38;}
+  .verdict.dec{background:#e6edff;color:#1b47b8;}
+  .verdict.prop{background:#f1f1f4;color:#5e5d65;}
+  .verdict.bug{background:#fbeaec;color:#d12339;}
+  @media (prefers-color-scheme: dark){
+    .verdict.pass,.verdict.ship{background:#123a2a;color:#7fe8bc;}
+    .verdict.fail,.verdict.bug{background:#3d1a20;color:#ff8a93;}
+    .verdict.same,.verdict.dec{background:#1a2440;color:#8fb4ff;}
+    .verdict.prop{background:#26262e;color:#a5a5b0;}
+  }
+  :root[data-theme="dark"] .verdict.pass,:root[data-theme="dark"] .verdict.ship{background:#123a2a;color:#7fe8bc;}
+  :root[data-theme="dark"] .verdict.fail,:root[data-theme="dark"] .verdict.bug{background:#3d1a20;color:#ff8a93;}
+  :root[data-theme="dark"] .verdict.same,:root[data-theme="dark"] .verdict.dec{background:#1a2440;color:#8fb4ff;}
+  :root[data-theme="dark"] .verdict.prop{background:#26262e;color:#a5a5b0;}
+
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;
+    margin-right:6px;border:1px solid rgba(0,0,0,.12);}
+
+  .caption{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+     color:var(--mut);margin:26px 0 9px;}
+  .caption em{font-weight:600;letter-spacing:0;text-transform:none;font-style:normal;opacity:.8;}
+  .caption.good{color:#008340;} .caption.bad{color:#d72b3e;}
+  @media (prefers-color-scheme: dark){ .caption.good{color:#2eb872;} .caption.bad{color:#e8515f;} }
+  :root[data-theme="dark"] .caption.good{color:#2eb872;}
+  :root[data-theme="dark"] .caption.bad{color:#e8515f;}
+
+  /* ── role cards ──────────────────────────────────────────────────────────── */
+  .roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px;margin-top:18px;}
+  .role{border:1px solid var(--ln);border-radius:15px;background:var(--sf);overflow:hidden;}
+  .role .demo{padding:20px;display:flex;align-items:center;justify-content:center;min-height:92px;background:#ffffff;}
+  .role .meta{padding:13px 15px 15px;border-top:1px solid var(--ln);}
+  .role .nm{font-size:13px;font-weight:800;letter-spacing:-.01em;}
+  .role .hx{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--mut);margin-top:2px;}
+  .role .rt{font-size:11.5px;color:var(--ink2);margin-top:8px;}
+
+  /* the blue system tokens */
+  .b-fill{background:#0071e3;color:#fff;border-radius:999px;padding:11px 20px;font-size:13.5px;font-weight:700;display:inline-block;}
+  .b-tint{background:#e6edff;color:#1b47b8;border-radius:999px;padding:11px 20px;font-size:13.5px;font-weight:700;display:inline-block;}
+  .b-chip{background:#e6edff;color:#1b47b8;border-radius:11px;width:40px;height:40px;
+    display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;}
+  .b-bad{background:#e8f2fe;color:#0071e3;border-radius:999px;padding:11px 20px;font-size:13.5px;font-weight:700;display:inline-block;}
+
+  /* ── app specimens ───────────────────────────────────────────────────────── */
+  .stage{background:#f4f4f5;border:1px solid var(--ln);border-radius:16px;padding:18px;}
+  .fw{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;}
+
+  .sale{background:#fff;border-radius:20px;padding:20px;max-width:380px;font-size:13px;color:#0b0b0d;}
+  .sale .hd{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .sale .hd h4{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em;}
+  .sale .out{border:1px solid #dcdce4;border-radius:999px;padding:6px 13px;font-size:12px;font-weight:600;color:#1a1a1e;}
+  .sale .cust{display:flex;align-items:center;gap:11px;padding:15px 0;border-bottom:1px solid #ececf0;margin-top:6px;}
+  .sale .av{width:38px;height:38px;border-radius:50%;background:#e6edff;color:#1b47b8;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12.5px;}
+  .sale .cn{font-weight:700;font-size:14px;}
+  .sale .ci{font-size:12px;color:#5e5d65;}
+  .sale .pts{margin-top:14px;}
+  .sale .pts b{display:block;font-size:12.5px;}
+  .sale .pts s{display:block;text-decoration:none;font-size:12.5px;color:#5e5d65;}
+  .sale .li{display:flex;gap:11px;margin-top:15px;}
+  .sale .th{width:44px;height:44px;border-radius:10px;background:#f6f6f7;flex:0 0 44px;}
+  .sale .ln{font-size:12.5px;font-weight:700;line-height:1.35;}
+  .sale .pr{display:flex;align-items:center;gap:9px;margin-top:7px;}
+  .sale .pr b{font-size:14px;font-weight:800;}
+  .tpill{background:#e6edff;color:#1b47b8;border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;}
+  .sale .qtyrow{display:flex;justify-content:space-between;align-items:center;margin-top:9px;}
+  .sale .qty{display:flex;align-items:center;gap:12px;border:1px solid #dcdce4;border-radius:999px;padding:5px 13px;}
+  .sale .qty i{color:#1b47b8;font-style:normal;font-weight:800;font-size:15px;}
+  .sale .wide{display:block;text-align:center;margin-top:13px;width:100%;}
+  .sale .row{display:flex;justify-content:space-between;align-items:center;background:#e6edff;
+    color:#1b47b8;border-radius:11px;padding:11px 14px;margin-top:10px;font-size:13px;font-weight:700;}
+  .sale .tot{display:flex;justify-content:space-between;align-items:baseline;
+    border-top:1px solid #ececf0;margin-top:14px;padding-top:13px;}
+  .sale .tot span{font-size:14px;font-weight:800;}
+  .sale .tot b{font-size:25px;font-weight:800;letter-spacing:-.02em;}
+  .sale .earn{font-size:12px;color:#5e5d65;margin-top:2px;}
+  .sale .charge{background:#0071e3;color:#fff;border-radius:13px;padding:15px 0;text-align:center;
+    font-size:15px;font-weight:800;margin-top:13px;}
+  .sale .foot{display:flex;justify-content:space-between;font-size:12px;color:#5e5d65;margin-top:11px;}
+
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;}
+  .tab{background:#fff;border:1px solid #ececf0;border-radius:999px;padding:8px 16px;
+    font-size:13px;font-weight:600;color:#5e5d65;position:relative;}
+  .tab.on{background:#0071e3;border-color:#0071e3;color:#fff;}
+  .tab .new{position:absolute;top:-8px;right:-8px;background:#0071e3;color:#fff;font-size:8px;
+    font-weight:800;letter-spacing:.04em;padding:2px 5px;border-radius:6px;box-shadow:0 0 0 2px #f4f4f5;}
+  .hubgroup{font-size:15px;font-weight:800;letter-spacing:-.01em;color:#0b0b0d;margin:18px 0 0;}
+  .hubgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:12px;}
+  .hub{background:#fff;border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:11px;}
+  .hub h5{margin:0;font-size:15px;font-weight:800;letter-spacing:-.01em;color:#0b0b0d;}
+  .hub p{margin:0;font-size:12.5px;color:#5e5d65;line-height:1.5;flex:1;}
+  .hub .ft{display:flex;justify-content:space-between;align-items:center;gap:9px;}
+  .hub .mt{font-size:11.5px;color:#717078;}
+  .hub .sm{padding:8px 15px;font-size:12.5px;}
+
+  /* ── storefront specimens ────────────────────────────────────────────────── */
+  .shop{background:var(--s);color:var(--i);padding:13px;font-size:13px;border-radius:0;}
+  .phone{width:318px;border:1px solid var(--ln);border-radius:20px;overflow:hidden;flex:0 0 auto;}
+  .phonewrap{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:16px;}
+  .anchor{background:var(--i);border-radius:26px;padding:15px 16px;margin-bottom:11px;}
+  .anchor .nm{color:var(--g);font-size:17px;font-weight:800;letter-spacing:-.02em;}
+  .anchor .pl{color:var(--odm);font-size:12px;margin-top:2px;}
+  .srch{border:1px solid var(--e);border-radius:10px;padding:8px 12px;color:var(--m);font-size:12.5px;background:var(--g);margin-bottom:10px;}
+  .cats{display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap;}
+  .cat{background:var(--g);border:1px solid var(--e);border-radius:999px;padding:5px 11px;font-size:11.5px;font-weight:600;color:var(--i);}
+  .cat.on{background:var(--a);border-color:var(--a);color:#fff;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .tile{border-radius:18px;overflow:hidden;background:var(--g);}
+  .tile .ph{height:66px;background:var(--s);}
+  .tile .bd{padding:9px 10px 11px;}
+  .tile .tn{font-size:11.5px;font-weight:700;line-height:1.3;min-height:29px;}
+  .tile .prc{font-size:13.5px;font-weight:800;margin-top:5px;}
+  .tile .add{margin-top:8px;background:var(--a);color:#fff;border-radius:999px;padding:5px 0;text-align:center;font-size:11.5px;font-weight:700;}
+  .tile .wa{margin-top:5px;background:#1f7a4d;color:#fff;border-radius:999px;padding:5px 0;text-align:center;font-size:11.5px;font-weight:700;}
+  .bar{margin-top:11px;background:var(--a);color:#fff;border-radius:999px;padding:12px 16px;
+    display:flex;justify-content:space-between;font-size:13px;font-weight:700;}
+
+  /* checkout slip */
+  .spec{background:#eef4ef;border:1px solid var(--ln);border-radius:14px;padding:16px;}
+  .spec.sm{max-width:400px;}
+  .slip{background:#fbfcfa;border-radius:999px;padding:8px 8px 8px 16px;display:flex;
+    align-items:center;justify-content:space-between;gap:14px;box-shadow:0 6px 20px rgba(18,33,26,.13);}
+  .slip .ev{display:flex;align-items:center;gap:11px;}
+  .thumbs{display:flex;}
+  .thumbs i{width:30px;height:30px;border-radius:9px;background:#dfe4e0;display:block;border:2px solid #fbfcfa;margin-left:-9px;}
+  .thumbs i:first-child{margin-left:0;}
+  .slip .cnt{font-size:13px;font-weight:800;color:#12211a;line-height:1.25;}
+  .slip .cnt s{display:block;text-decoration:none;font-size:11.5px;font-weight:600;color:#616b66;}
+  .slip .go{background:#0071e3;color:#fff;border-radius:999px;padding:11px 20px;font-size:13.5px;font-weight:800;}
+  .barold{background:#1f6b45;color:#fff;border-radius:999px;padding:14px 0;text-align:center;font-size:14px;font-weight:800;}
+
+  .vp{background:#eef4ef;border:1px solid var(--ln);border-radius:12px;padding:20px 10px 14px;position:relative;margin-top:14px;}
+  .vp .lbl{position:absolute;top:6px;left:12px;font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#616b66;}
+  .vp .col{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .vp .col i{height:40px;border-radius:9px;background:#fbfcfa;display:block;}
+  .vp .barfull{margin-top:12px;background:#1f6b45;color:#fff;border-radius:999px;padding:10px 0;text-align:center;font-size:12px;font-weight:800;}
+  .vp .barcol{max-width:520px;margin:12px auto 0;background:#1f6b45;color:#fff;border-radius:999px;padding:10px 0;text-align:center;font-size:12px;font-weight:800;}
+  .measure{font-size:11px;color:var(--mut);margin-top:6px;font-family:ui-monospace,Menlo,monospace;text-align:center;}
+
+  /* footer / branding */
+  .ft{background:#12211a;border-radius:26px;padding:20px 20px 22px;}
+  .ft .top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
+  .ft .nm{font-family:Georgia,serif;color:#fbfcfa;font-size:19px;font-weight:700;line-height:1.15;}
+  .ft .pl{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#acb2ae;margin-top:6px;}
+  .ft .wa{background:#1f7a4d;color:#fff;border-radius:999px;padding:9px 16px;font-size:12.5px;font-weight:700;}
+  .ft .hr{height:1px;background:rgba(255,255,255,.14);margin-top:17px;}
+  .ft .terms{font-size:11.5px;color:#acb2ae;margin-top:15px;}
+  .ft .sig{display:inline-flex;align-items:center;gap:10px;margin-top:19px;}
+  .ft .sig .eb2{font-size:9px;font-weight:800;letter-spacing:.13em;color:#acb2ae;}
+  .ft .sig .wm{font-size:14.5px;font-weight:800;letter-spacing:-.01em;color:#fbfcfa;margin-top:1px;line-height:1;}
+  .mk{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;
+    border-radius:6px;font-size:13px;font-weight:800;background:#fbfcfa;color:#12211a;}
+
+  /* footer gallery — the dark surface, four ways */
+  .ftgal{display:grid;grid-template-columns:repeat(auto-fit,minmax(212px,1fr));gap:14px;margin-top:16px;}
+  .mft{background:var(--fi);border-radius:18px;padding:15px 16px;}
+  .mft .n{font-family:Georgia,"Times New Roman",serif;color:var(--fg);font-size:14.5px;font-weight:700;line-height:1.2;}
+  .mft .p{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--fm);margin-top:5px;}
+  .mft .hr2{height:1px;background:rgba(255,255,255,.14);margin-top:12px;}
+  .mft .t{font-size:9.5px;color:var(--fm);margin-top:10px;}
+  .mft .s2{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;}
+  .mft .lk{display:inline-flex;align-items:center;gap:6px;}
+  .mft .mk3{width:15px;height:15px;border-radius:4px;background:var(--fg);color:var(--fi);
+    display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;}
+  .mft .eb4{font-size:5.5px;font-weight:800;letter-spacing:.12em;color:var(--fm);}
+  .mft .wm3{font-size:10px;font-weight:800;color:var(--fg);line-height:1;margin-top:1px;}
+  .mft .wa3{background:#1f7a4d;color:#fff;border-radius:999px;padding:4px 11px;font-size:8.5px;font-weight:700;}
+  .galnote{font-size:12px;color:var(--ink2);margin:8px 0 0;line-height:1.5;max-width:34ch;}
+  .galnote b{color:var(--ink);}
+
+  /* improvement cards */
+  .imp{border:1px solid var(--ln);border-radius:14px;background:var(--sf);padding:16px 18px;margin-top:13px;}
+  .imp .hd{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;}
+  .imp h4{margin:0;font-size:14.5px;font-weight:800;letter-spacing:-.01em;}
+  .imp dl{margin:10px 0 0;display:grid;grid-template-columns:auto 1fr;gap:5px 13px;font-size:13.5px;}
+  .imp dt{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);padding-top:4px;}
+  .imp dd{margin:0;color:var(--ink2);}
+  .imp dd b{color:var(--ink);}
+
+  .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px;margin-top:18px;}
+  .opt{border:1px solid var(--ln);border-radius:14px;background:var(--sf);padding:16px 17px;}
+  .opt h4{margin:0 0 3px;font-size:14.5px;font-weight:800;letter-spacing:-.01em;}
+  .opt .tag{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);}
+  .opt p{margin:8px 0 0;font-size:13px;color:var(--ink2);}
+  .opt.pick{border-color:var(--blue);border-width:1.5px;}
+
+  ul.tight{margin:10px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ul.tight li{margin-bottom:7px;}
+  ul.tight li b{color:var(--ink);}
+  ol.steps{margin:12px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ol.steps li{margin-bottom:8px;}
+  ol.steps li b{color:var(--ink);}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Kaiibi · consolidated design review</p>
+  <h1>The blue system, and everything open on the storefront</h1>
+  <p class="lede">One document, replacing the three separate mockups. Part one is the blue treatment —
+  solid buttons, tinted buttons, tinted chips — specified properly, because the version in the
+  proposal has a contrast failure in the control it uses most. Part two is the storefront: what
+  already shipped, one real defect, the checkout bar, and kaiibi branding.</p>
+
+  <div class="call badT"><b>Scope decision (2026-09-05): storefront only.</b> §1–2 (the admin blue —
+  POS, Accounting, any <code>theme.ts</code> token) are <b>out of scope</b> and kept for reference;
+  the admin keeps its near-black actions. The build plan covering §3–7 plus the checkout redesign is
+  <code>docs/superpowers/plans/2026-09-05-storefront-apple-blue-and-branding.md</code> — the tinted
+  tier it specifies lives in the storefront's own palette system (<code>accentWash</code> /
+  <code>accentInk</code> in <code>storefront-catalog.ts</code>), not in <code>theme.ts</code>.</div>
+
+  <div class="toc">
+    <ol>
+      <li><a href="#s1">The blue system — three roles, two blues</a></li>
+      <li><a href="#s2">Applied: POS and Accounting</a></li>
+      <li><a href="#s3">Where blue stops: the storefront</a></li>
+      <li><a href="#s4">Azure — shipped</a></li>
+      <li><a href="#s5">The checkout bar</a></li>
+      <li><a href="#s6">Four more improvements</a></li>
+      <li><a href="#s7">Kaiibi branding</a></li>
+      <li><a href="#s8">Status and order of work</a></li>
+    </ol>
+  </div>
+
+  <hr class="rule" style="margin-top:26px;" />
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s1">
+    <h2>1 · The blue system — three roles, two blues</h2>
+    <p class="h2sub">The treatment is right: a solid blue for the one real action, a tinted blue for
+    secondary actions, a tinted chip for icons. The mistake is using <b>one</b> blue for all three.
+    A colour that carries white at 4.5:1 is far too light to <em>be</em> text on its own wash.</p>
+
+    <div class="call badT"><b>The failure, precisely.</b> In the proposal, tinted buttons set
+    <code>#0071E3</code> on <code>#E8F2FE</code> — that is <b>4.15:1</b>, under the 4.5 floor for
+    normal text. It is not an edge case: it is "View list", "Run report", "+Discount", "+ Discount the
+    order" and the "Cash · $18.00" row — the most numerous controls on both screens, at 12–13px.</div>
+
+    <div class="roles">
+      <div class="role">
+        <div class="demo"><span class="b-fill">Charge $18.00</span></div>
+        <div class="meta">
+          <div class="nm">Fill — the one real action</div>
+          <div class="hx">#0071E3 · white on it</div>
+          <div class="rt"><span class="verdict pass">4.70:1</span> Charge, + New account, active tab.</div>
+        </div>
+      </div>
+      <div class="role">
+        <div class="demo"><span class="b-tint">View list</span></div>
+        <div class="meta">
+          <div class="nm">Tint — secondary actions</div>
+          <div class="hx">#1B47B8 on #E6EDFF</div>
+          <div class="rt"><span class="verdict pass">6.79:1</span> Already shipped as <code>bentoAccentInk</code> / <code>Wash</code>.</div>
+        </div>
+      </div>
+      <div class="role">
+        <div class="demo"><div class="b-chip">≡</div></div>
+        <div class="meta">
+          <div class="nm">Chip — icon containers</div>
+          <div class="hx">#1B47B8 on #E6EDFF</div>
+          <div class="rt"><span class="verdict pass">6.79:1</span> Same pair. A glyph needs only 3:1, so this is generous.</div>
+        </div>
+      </div>
+      <div class="role" style="border-color:#d72b3e;">
+        <div class="demo"><span class="b-bad">View list</span></div>
+        <div class="meta">
+          <div class="nm">What not to do</div>
+          <div class="hx">#0071E3 on #E8F2FE</div>
+          <div class="rt"><span class="verdict fail">4.15:1</span> The fill blue used as text.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="call okT"><b>The good news: two of the three already exist in <code>theme.ts</code>.</b>
+    <code>bentoAccentWash</code> <code>#E6EDFF</code> and <code>bentoAccentInk</code>
+    <code>#1B47B8</code> are shipped, contrast-solved and already used by <code>badge.tsx</code>'s
+    <code>info</code> variant. The system needs <b>one new token</b> — the solid fill — not a new
+    palette.</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Role</th><th>Token</th><th>Value</th><th>On</th><th>Ratio</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Solid button, active pill</td><td><code>bentoAccentFill</code></td><td class="num"><span class="sw" style="background:#0071e3;"></span>#0071E3</td><td class="num">white</td><td class="num">4.70</td><td><span class="verdict prop">New</span></td></tr>
+          <tr><td>Tinted button, tinted row</td><td><code>bentoAccentWash</code> + <code>Ink</code></td><td class="num"><span class="sw" style="background:#e6edff;"></span>#E6EDFF / <span class="sw" style="background:#1b47b8;"></span>#1B47B8</td><td class="num">wash</td><td class="num">6.79</td><td><span class="verdict ship">Shipped</span></td></tr>
+          <tr><td>Blue text on a white card</td><td><code>bentoAccentInk</code></td><td class="num"><span class="sw" style="background:#1b47b8;"></span>#1B47B8</td><td class="num">white</td><td class="num">7.95</td><td><span class="verdict ship">Shipped</span></td></tr>
+          <tr><td>Chart marks — unchanged</td><td><code>bentoSeries1</code></td><td class="num"><span class="sw" style="background:#2f6bff;"></span>#2F6BFF</td><td class="num">white</td><td class="num">4.50</td><td><span class="verdict ship">Shipped</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:12px;"><b>Why the fill is not <code>bentoSeries1</code>.</b>
+    <code>#2F6BFF</code> is the existing blue and the obvious candidate, but white on it is
+    <b>4.4988:1</b> — it misses 4.5 by 0.0012. That is the token behaving correctly: it was validated
+    as a <em>chart mark</em> at 3:1 with its number written beside it in ink, never as a fill carrying
+    white type. Leave it doing its job and add a fill beside it.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s2">
+    <h2>2 · Applied: POS and Accounting</h2>
+    <p class="h2sub">The two screens from the proposal, rebuilt with the corrected pair — every tinted
+    control now clears 4.5:1. Visually almost identical; the blue text is a step deeper.</p>
+
+    <div class="fw">
+    <div class="stage" style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+      <div class="sale">
+        <div class="hd"><h4>Current sale</h4>
+          <div style="display:flex;gap:7px;"><span class="out">1 item</span><span class="out">Clear</span></div></div>
+        <div class="cust">
+          <div class="av">HI</div>
+          <div><div class="cn">Hibo Ibraahim</div><div class="ci">252634000889</div></div>
+        </div>
+        <div class="pts"><b>Points</b><s>No points yet. Earns 18 points on this sale.</s></div>
+        <div class="li">
+          <div class="th"></div>
+          <div style="flex:1;">
+            <div class="ln">SKIN1004 Madagascar Centella Poremizing Deep Cleansing Foam (125 ml)</div>
+            <div class="pr"><b>$18.00</b><span class="tpill">+Discount</span></div>
+            <div class="qtyrow">
+              <div class="qty"><i>−</i><span>1</span><i>+</i></div>
+              <b style="font-size:14px;">$18.00</b>
+            </div>
+          </div>
+        </div>
+        <span class="b-tint wide">+ Discount the order</span>
+        <div class="row"><span>Cash · $18.00</span><span>×</span></div>
+        <div class="tot"><span>Total</span><b>$18.00</b></div>
+        <div class="earn">Earns 18 points</div>
+        <div class="charge">Charge $18.00 · Cash</div>
+        <div class="foot"><span>Hold for later</span><span>Served by nobody yet</span></div>
+      </div>
+
+      <div style="flex:1;min-width:420px;">
+        <div class="tabs">
+          <span class="tab">Overview</span><span class="tab">Transactions</span><span class="tab">Bills</span>
+          <span class="tab">Expenses</span><span class="tab">Payroll</span><span class="tab">Cash &amp; Budgets</span>
+          <span class="tab on">Accounting<span class="new">NEW</span></span><span class="tab">Reports</span>
+        </div>
+        <div class="hubgroup">Ledger &amp; journals</div>
+        <div class="hubgrid">
+          <div class="hub">
+            <div class="b-chip">≡</div>
+            <h5>Chart of Accounts</h5>
+            <p>Assets, liabilities, equity, income, and expense accounts.</p>
+            <div class="ft"><span class="mt">86 accounts</span><span class="b-fill sm">+ New account</span></div>
+          </div>
+          <div class="hub">
+            <div class="b-chip">✎</div>
+            <h5>General Journal Entry</h5>
+            <p>Post a manual debit/credit entry to the ledger.</p>
+            <div class="ft"><span class="mt">Manual entry</span><span class="b-fill sm">+ New entry</span></div>
+          </div>
+          <div class="hub">
+            <div class="b-chip">▤</div>
+            <h5>Journals List</h5>
+            <p>Every journal entry recorded, in order.</p>
+            <div class="ft"><span class="mt">7 days</span><span class="b-tint sm">View list</span></div>
+          </div>
+          <div class="hub">
+            <div class="b-chip">≣</div>
+            <h5>Trial Balance</h5>
+            <p>Every account's debit and credit balance, side by side.</p>
+            <div class="ft"><span class="mt">As of today</span><span class="b-tint sm">Run report</span></div>
+          </div>
+        </div>
+        <div class="hubgroup">Banking &amp; bills</div>
+        <div class="hubgrid">
+          <div class="hub">
+            <div class="b-chip">⇄</div>
+            <h5>Cash and Bank Transfers</h5>
+            <p>Move money between drawers, banks, and mobile wallets.</p>
+            <div class="ft"><span class="mt">7 days</span><span class="b-fill sm">+ New transfer</span></div>
+          </div>
+          <div class="hub">
+            <div class="b-chip">▦</div>
+            <h5>Create Bill</h5>
+            <p>Credit Bill (pay later) or Cash Bill (paid now).</p>
+            <div class="ft"><span class="mt">Credit · Cash</span><span class="b-fill sm">+ New bill</span></div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:13px;font-size:12.5px;">Reproduced from the provided
+        reference design — groups, labels, scopes and button assignments as given: solid on the four
+        cards that <b>create</b> (+ New account, + New entry, + New transfer, + New bill), tinted on
+        the two that view or run. The one deliberate deviation is §1's contrast fix: tinted labels are
+        <code>#1B47B8</code> on <code>#E6EDFF</code>, because the reference's <code>#0071E3</code> on
+        <code>#E8F2FE</code> measures 4.15:1. Where this reference's <em>content</em> differs from the
+        shipped hub (Chart of Accounts as a create, the Banking &amp; bills cards), reconciling that is
+        an admin product question outside this plan — the reference defines the look.</p>
+      </div>
+    </div>
+    </div>
+
+    <h3>Accounting is not a redesign — it is a repoint</h3>
+    <p class="note">The shipped Accounting hubs <b>already have this exact structure</b>: an icon tile,
+    a title, a blurb, a scope, and a two-tier action that is solid when the card creates something and
+    tinted when it does not. It is all there in grey. <code>ledger-hub.tsx</code> and
+    <code>reports-hub.tsx</code> share one style block, so going blue is five values in two files, plus
+    the tab pill.</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Style rule</th><th>Today</th><th>Becomes</th></tr></thead>
+        <tbody>
+          <tr><td><code>iconTile.backgroundColor</code></td><td class="num"><span class="sw" style="background:#f6f6f7;"></span>bentoSoft</td><td class="num"><span class="sw" style="background:#e6edff;"></span>bentoAccentWash</td></tr>
+          <tr><td><code>action.backgroundColor</code></td><td class="num"><span class="sw" style="background:#f6f6f7;"></span>bentoSoft</td><td class="num"><span class="sw" style="background:#e6edff;"></span>bentoAccentWash</td></tr>
+          <tr><td><code>actionText.color</code></td><td class="num"><span class="sw" style="background:#1a1a1e;"></span>bentoInk2</td><td class="num"><span class="sw" style="background:#1b47b8;"></span>bentoAccentInk</td></tr>
+          <tr><td><code>actionSolid.backgroundColor</code></td><td class="num"><span class="sw" style="background:#0b0b0d;"></span>bentoInk</td><td class="num"><span class="sw" style="background:#0071e3;"></span>bentoAccentFill <span class="verdict prop">new</span></td></tr>
+          <tr><td><code>actionTextSolid.color</code></td><td class="num"><span class="sw" style="background:#ffffff;"></span>bentoSurface</td><td class="num">unchanged</td></tr>
+          <tr><td><code>tab-pills.tsx</code> <code>pillActive</code></td><td class="num"><span class="sw" style="background:#0b0b0d;"></span>bentoInk</td><td class="num"><span class="sw" style="background:#0071e3;"></span>bentoAccentFill</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:12px;">One thing to decide rather than assume:
+    <code>reports-hub.tsx</code> has <b>no solid variant at all</b> — every reports card is tinted,
+    because none of them create anything. That is correct and should survive the recolour. If solid
+    blue starts appearing on Reports cards, the "one fill per region" rule below has already been lost.</p>
+
+    <h3>Two rules that keep it readable as it spreads</h3>
+    <ul class="tight">
+      <li><b>One fill per screen region.</b> On the sale panel, Charge is the only solid blue — every
+      other blue control is tinted. The moment a second solid button appears beside it, neither is
+      "the" action. The Accounting cards obey this too: one solid per card, at most.</li>
+      <li><b>Status colour is not the accent.</b> Profit green, loss red and the refund amber keep
+      their own tokens and their mandatory glyph. A screen where blue means "press" and green means
+      "good" stays legible; one where blue means both does not.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s3">
+    <h2>3 · Where blue stops: the storefront</h2>
+    <p class="h2sub">The admin is kaiibi's. The storefront is the shop's, and it renders in one of
+    seven merchant-chosen palettes for a stranger with no account.</p>
+
+    <div class="call"><b>Kaiibi blue crosses onto the shop page in exactly one place: the checkout
+    affordance</b> (decided 2026-09-05). The slip's Checkout button and the place-order button are
+    <code>#0071E3</code> on every palette — a fixed transactional colour, the same pattern WhatsApp
+    green already sets: committing an order goes through kaiibi whichever shop you are in, so that one
+    moment wears one recognisable colour. Everything else on the shop page stays the shop's: Add
+    buttons, the active category pill, tints, type — all palette-drawn. A shop that wants the
+    <em>whole page</em> blue picks Azure (§4), where page and affordance agree byte-for-byte.</div>
+
+    <p class="note" style="margin-top:14px;">Worth recording, since it came up: <b>the storefront
+    already matches the Accounting tab's surface system.</b> Page tone, card fill, radii and the
+    borderless treatment are identical values, not merely similar — <code>theme-shared.tsx</code> says
+    so in its own header. Only the colours differ, and that difference is the feature.</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Role</th><th>Accounting</th><th>Storefront (ink palette)</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Page tone</td><td class="num"><span class="sw" style="background:#f4f4f5;"></span>bentoPage #f4f4f5</td><td class="num"><span class="sw" style="background:#f4f4f5;"></span><code>soft</code> #f4f4f5</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>Card</td><td class="num"><span class="sw" style="background:#ffffff;"></span>bentoSurface #ffffff</td><td class="num"><span class="sw" style="background:#ffffff;"></span><code>ground</code> #ffffff</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>Card / inset radius</td><td class="num">26 / 18</td><td class="num">26 / 18</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>Card treatment</td><td>Borderless, unshadowed</td><td>Borderless, unshadowed</td><td><span class="verdict same">Identical</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s4">
+    <h2>4 · Azure — shipped <span class="verdict ship" style="vertical-align:middle;">Done</span></h2>
+    <p class="h2sub">Apple blue is now a palette a shop can pick, seventh in the list beside Plum.</p>
+
+    <div class="phonewrap">
+      <div>
+        <p class="caption" style="margin-top:0;">Azure <em>— #0071E3</em></p>
+        <div class="phone">
+          <div class="shop" style="--g:#fbfcfe;--s:#eef2fa;--i:#101623;--a:#0071e3;--m:#60646d;--e:#868689;--odm:#abaeb4;">
+            <div class="anchor"><div class="nm">Hargeisa Men's Clothing</div><div class="pl">Main stree, Hargeisa</div></div>
+            <div class="srch">Search this shop</div>
+            <div class="cats"><span class="cat on">All</span><span class="cat">Shirts</span><span class="cat">Trousers</span></div>
+            <div class="grid">
+              <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Oxford Shirt</div><div class="prc">$22.00</div><div class="add">Add</div></div></div>
+              <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Denim Jacket</div><div class="prc">$36.00</div><div class="wa">WhatsApp</div></div></div>
+            </div>
+            <div class="bar"><span>2 items</span><span>Checkout · $58.00</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:290px;">
+        <div class="tw" style="margin-top:0;">
+          <table style="min-width:0;">
+            <thead><tr><th>Stored value</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><code>ground</code></td><td class="num"><span class="sw" style="background:#fbfcfe;"></span>#fbfcfe</td></tr>
+              <tr><td><code>soft</code></td><td class="num"><span class="sw" style="background:#eef2fa;"></span>#eef2fa</td></tr>
+              <tr><td><code>ink</code></td><td class="num"><span class="sw" style="background:#101623;"></span>#101623</td></tr>
+              <tr><td><code>accent</code></td><td class="num"><span class="sw" style="background:#0071e3;"></span>#0071e3</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:13px;">Label <b>Azure</b>, suits <em>pharmacy, clinic,
+        services</em> — deliberately distinct from Sea, which is a deep teal-navy for tool shops. Every
+        other token derives from ground/soft/ink, so the blue touched exactly one stored value.</p>
+        <p class="note" style="margin-top:10px;"><b>Verified:</b> <code>tsc --noEmit</code> clean;
+        <code>jest storefront</code> green — re-verified 2026-09-05 on the parked worktree's
+        <code>origin/main</code> base at 223 suites / 4,099 tests. Because every gate is an
+        <code>it.each</code> over <code>PALETTES</code>, azure was picked up automatically —
+        <code>✓ azure carries white text on its accent</code>.</p>
+      </div>
+    </div>
+
+    <h3>Also tried: the teal set (2026-09-05) — not adopted</h3>
+    <p class="h2sub">Six swatches, run through the same gates as everything else, composed into one
+    candidate, and then set aside in favour of apple blue. Kept because the per-swatch verdicts are
+    reusable the next time a colour family is proposed:</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Swatch</th><th>White on it</th><th>ΔE → WhatsApp</th><th>Verdict as a role</th></tr></thead>
+        <tbody>
+          <tr><td><span class="sw" style="background:#008080;"></span><b>Teal</b> #008080</td><td class="num">4.77 ✓</td><td class="num">27.3 ✓</td><td><span class="verdict pass">Accent</span> — and ΔE 26.3 from Sea's accent, so it is a distinct palette, not a duplicate</td></tr>
+          <tr><td><span class="sw" style="background:#006d5b;"></span><b>Teal green</b> #006D5B</td><td class="num">6.29 ✓</td><td class="num">16.6 ✓</td><td><span class="verdict pass">Legal</span> but snug — 1.6 over the WhatsApp floor Palm was just moved away from. Second choice.</td></tr>
+          <tr><td><span class="sw" style="background:#367588;"></span><b>Teal blue</b> #367588</td><td class="num">5.18 ✓</td><td class="num">41.0 ✓</td><td><span class="verdict fail">Redundant</span> — ΔE <b>12.3</b> from Sea's own accent #155b78. This swatch already ships; it is called Sea.</td></tr>
+          <tr><td><span class="sw" style="background:#40e0d0;"></span><b>Turquoise</b> #40E0D0</td><td class="num">1.64 ✗</td><td class="num">—</td><td><span class="verdict same">Surface only</span> — it tints Lagoon's <code>soft</code> below</td></tr>
+          <tr><td><span class="sw" style="background:#00ffff;"></span><b>Aqua</b> #00FFFF</td><td class="num">1.25 ✗</td><td class="num">—</td><td><span class="verdict fail">No role</span> — near-white luminance at full saturation; unusable as fill or type</td></tr>
+          <tr><td><span class="sw" style="background:#add8e6;"></span><b>Light blue</b> #ADD8E6</td><td class="num">1.53 ✗</td><td class="num">—</td><td><span class="verdict same">Surface only</span> — a wash/soft tone, never an action</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note" style="margin-top:14px;"><b>Composed properly, the set makes one good palette —
+    Lagoon.</b> Accent from the top row, surfaces tinted by the bottom row, and the ink built to the
+    rule the Palm fix established: charcoal with a whisper of the hue (ΔE ink → WhatsApp 51.8), so
+    the dark bookend never reads as a teal card under a green button. <b>Passes all 21 gates.</b></p>
+
+    <div class="phonewrap">
+      <div>
+        <p class="caption" style="margin-top:0;">Lagoon <em>— ground #FAFDFD · soft #E7F6F4 · ink #0F1C1C · accent #008080</em></p>
+        <div class="phone">
+          <div class="shop" style="--g:#fafdfd;--s:#e7f6f4;--i:#0f1c1c;--a:#008080;--m:#5f6969;--e:#858888;--odm:#aab1b1;">
+            <div class="anchor"><div class="nm">Hargeisa Men's Clothing</div><div class="pl">Main stree, Hargeisa</div></div>
+            <div class="srch">Search this shop</div>
+            <div class="cats"><span class="cat on">All</span><span class="cat">Shirts</span><span class="cat">Trousers</span></div>
+            <div class="grid">
+              <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Oxford Shirt</div><div class="prc">$22.00</div><div class="add">Add</div></div></div>
+              <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Denim Jacket</div><div class="prc">$36.00</div><div class="wa">WhatsApp</div></div></div>
+            </div>
+            <div class="bar" style="background:#0071e3;"><span>2 items</span><span>Checkout · $58.00</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:290px;">
+        <div class="mft" style="--fi:#0f1c1c;--fg:#fafdfd;--fm:#aab1b1;max-width:300px;">
+          <div class="n">Hargeisa Men's Clothing Store</div>
+          <div class="p">Main stree, Hargeisa</div>
+          <div class="hr2"></div>
+          <div class="t">Pay on collection · Prices set by the shop</div>
+          <div class="s2">
+            <span class="lk"><span class="mk3">k</span><span><span class="eb4">POWERED BY</span><br /><span class="wm3">kaiibi</span></span></span>
+            <span class="wa3">WhatsApp</span>
+          </div>
+        </div>
+        <p class="note" style="margin-top:13px;">Derived set: muted <code>#5F6969</code> · wash
+        <code>#DCEEEE</code> · accentInk <code>#007171</code> (stepped to 4.5:1 on its wash) · the
+        checkout stays <code>CHECKOUT_BLUE</code>, fixed on every palette. Note the Add button and
+        WhatsApp sit side by side at ΔE 27 — the separation Palm lacked.</p>
+        <p class="note" style="margin-top:10px;"><b>Status: explored, not adopted (rejected
+        2026-09-05)</b> — apple blue stays the direction. Kept for the record like Slate; if ever
+        wanted, it is the Azure recipe — one <code>COLORS</code> row, one <code>PALETTES</code> row,
+        one constraint value.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s5">
+    <h2>5 · The checkout bar</h2>
+    <p class="h2sub">The last thing a customer touches before committing money, and currently a
+    1,972-pixel slab that says four words.</p>
+
+    <h3>It escapes the reading column</h3>
+    <p class="note">Every theme centres its scroller at <code>SHOP_MAX_WIDTH</code> (1080).
+    <code>CheckoutBar</code> is a <em>sibling</em> of that scroller inside the full-width root, so
+    <code>left:14 / right:14</code> anchors to the window. It is the one element on the page not in
+    the column.</p>
+
+    <div class="vp">
+      <span class="lbl">Viewport 2000 · today</span>
+      <div class="col"><i></i><i></i><i></i><i></i></div>
+      <div class="barfull">Checkout · $34.99</div>
+      <div class="measure">bar 1972px · goods 1080px</div>
+    </div>
+    <div class="vp" style="margin-top:14px;">
+      <span class="lbl">Viewport 2000 · fixed</span>
+      <div class="col"><i></i><i></i><i></i><i></i></div>
+      <div class="barcol">Checkout · $34.99</div>
+      <div class="measure">both 1080px</div>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Also wrong</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td><b>The first Add reflows the page</b></td><td>Bottom padding is conditional — <code>itemCount &gt; 0 &amp;&amp; styles.gridWithCheckoutBar</code> — so adding the first item jumps content by 76px.</td></tr>
+          <tr><td><b>The clearance is hand-measured</b></td><td><code>CHECKOUT_BAR_CLEARANCE = 76</code>, whose own comment says changing the bar requires re-measuring it.</td></tr>
+          <tr><td><b>Two cart affordances</b></td><td>The Visit panel's <code>Cart · 1</code> beside the bar's <code>Checkout · $34.99</code> — one shows count, the other money, neither both.</td></tr>
+          <tr><td><b>It carries no evidence</b></td><td>A total and a verb. The customer commits on trust; the only way to check is to leave the page.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="caption bad">Today</p>
+    <div class="spec sm"><div class="barold">Checkout · $34.99</div></div>
+
+    <p class="caption good">The slip <em>— evidence left, action right</em></p>
+    <div class="spec sm">
+      <div class="slip">
+        <div class="ev"><div class="thumbs"><i></i><i></i><i></i></div>
+          <div class="cnt">$112.97<s>3 items · collection</s></div></div>
+        <div class="go">Checkout</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;">The container becomes <code>ground</code> and the action
+    becomes a <b>proportionate button</b> rather than a 1,000px field of colour — filled with the fixed
+    <code>CHECKOUT_BLUE #0071E3</code> on every palette (see §3). Thumbnails answer "what am I buying",
+    the count answers "how much of it", and the fulfilment word sets the expectation before the form
+    does. Same control on both widths, so it does not fork the layout.</p>
+
+    <div class="opts">
+      <div class="opt pick"><div class="tag">Do first</div><h4>A · Into the column</h4>
+        <p>One line. Pure correctness, no design debate. Worth doing even if the slip never happens.</p></div>
+      <div class="opt"><div class="tag">The real work</div><h4>B · The slip</h4>
+        <p>Takes the measured clearance and the unconditional padding with it, and absorbs the
+        two-cart problem for free.</p></div>
+      <div class="opt"><div class="tag">Only if</div><h4>C · Desktop dock</h4>
+        <p>A corner card on wide screens. Better on desktop, and a second layout to maintain — worth
+        it only if desktop traffic is real.</p></div>
+    </div>
+
+    <h3>Two desktop facts folded into the plan</h3>
+    <p class="note"><b>The column widens.</b> The whole shop is capped at <code>SHOP_MAX_WIDTH</code>
+    1080 — on a 1,600px+ window that is a strip with dead gutters. Plan Task 8 raises it to
+    <b>1320</b>, the admin shell's own desktop ceiling, and gives the product grid a <b>fifth
+    column</b> past 1280px so tiles stay near the ~250px they were designed at. The slip, the tab
+    rail and all three theme scrollers read the same constant, so nothing else moves by hand.</p>
+    <p class="note" style="margin-top:10px;"><b>Long catalogues already scroll safely.</b> Market and
+    Window render a virtualized <code>FlatList</code> (only visible tiles mount, however many
+    products exist); Counter is a plain price-list scroll built for length. Finding tools kick in as
+    the list grows: search appears at 12+ items, and the category band jumps the list. The one
+    unbounded piece is the <em>fetch</em> — the public read returns the whole catalogue in one call —
+    fine at hundreds of products, noted in the plan as its own future task at thousands.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s6">
+    <h2>6 · Four more improvements</h2>
+
+    <div class="imp">
+      <div class="hd"><h4>1 · Palm paints "Buy" and "Message us" the same green</h4><span class="verdict bug">Defect</span></div>
+      <dl>
+        <dt>Observed</dt><dd>Palm's <code>accent</code> <code>#1F6B45</code> against the fixed WhatsApp
+        button <code>#1F7A4D</code> — <b>ΔE 7.51</b>, half the codebase's own ΔE 15 floor. Every other
+        palette sits 49–88 away.</dd>
+        <dt>Fix</dt><dd>Two values in one row. Accent → <code>#14543A</code> (ΔE 19.07, white-text
+        contrast improves 6.47:1 → 8.90:1), and ink → <code>#15191B</code> — charcoal instead of
+        green-black, so the dark surfaces stop being a green card under a green button (see §7's
+        four-way gallery).</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>2 · The shop name renders over a grey shape, and the tagline renders twice</h4><span class="verdict bug">Defect</span></div>
+      <dl>
+        <dt>Observed</dt><dd>On the live shop: a grey angular block behind the headline, and the
+        tagline printed twice — bold over the shape, then again as plain text.</dd>
+        <dt>Why it matters</dt><dd>It is the anchor card, the first thing a stranger reads, and a
+        duplicated line reads as broken software on a page whose whole job is looking trustworthy
+        enough to walk to.</dd>
+        <dt>Status</dt><dd>Not yet traced.</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>3 · Open/closed state disappears at the door</h4><span class="verdict prop">Worth doing</span></div>
+      <dl>
+        <dt>Observed</dt><dd><code>isOpenAt</code> is called in exactly two places — the Visit panel
+        and <code>shop-directory-card.tsx</code>. A customer sees <code>Open now</code> in the
+        directory and <b>loses it the moment they enter the shop</b>.</dd>
+        <dt>Fix</dt><dd>Surface it in the slip — "collection · opens 8am". Zero new data.</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>4 · The accent is spent on decoration as well as action</h4><span class="verdict prop">Polish</span></div>
+      <dl>
+        <dt>Observed</dt><dd>On the shop page the accent fills the checkout bar, the active category
+        pill, the Add buttons, the <code>Open now</code> pill <em>and</em> the nine stock dots.</dd>
+        <dt>Why</dt><dd>The dots are a readout, not something you press — the same "one fill per
+        region" rule as §2.</dd>
+        <dt>Fix</dt><dd>Draw in-stock dots in <code>ink</code>, matching what the catalogue already
+        does for in-stock <em>text</em>. Out-of-stock keeps its ring.</dd>
+      </dl>
+    </div>
+
+    <div class="call">Deliberately not listed: the empty middle of the "In the shop" card. It looks
+    like a rhythm problem and is not — <code>marginTop: 'auto'</code> is doing it on purpose, with a
+    comment explaining that the alternative is dead air at the bottom.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s7">
+    <h2>7 · Kaiibi branding <span class="verdict dec" style="vertical-align:middle;">Decided</span></h2>
+    <p class="h2sub">There is none today. The split that decides every placement: <b>attribution</b>
+    is permanent and quiet; <b>acquisition</b> is one ask, after the order.</p>
+
+    <div class="spec sm" style="background:#eef4ef;">
+      <div class="ft">
+        <div class="top">
+          <div><div class="nm">Hargeisa Men's<br />Clothing Store</div><div class="pl">Main stree, Hargeisa</div></div>
+          <div class="wa">WhatsApp</div>
+        </div>
+        <div class="hr"></div>
+        <div class="terms">Pay on collection · Prices set by the shop</div>
+        <div class="sig">
+          <span class="mk">k</span>
+          <span><span class="eb2">POWERED BY</span><br /><span class="wm">kaiibi</span></span>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;">A <b>colophon lockup</b>, not a line of text: the mark at
+    real size, a caps eyebrow in the same letterspaced meta style the footer's place line already
+    wears, and the wordmark in <code>ground</code>. The first cut shared the terms row to save height
+    — and on any narrow footer it wrapped into a stray third line that read as a leftover. The lockup
+    costs ~24px and reads as a signature. Still drawn only from <code>onDarkMuted</code> and
+    <code>ground</code> plus the monochrome mark (the chip stands in for
+    <code>kaiibi-mark-white.png</code>), so it recolours seven ways for free — never the shop's
+    accent, and never kaiibi blue on the shop's own page.</p>
+
+    <h3>The dark surface, four ways</h3>
+    <p class="note">"Green and black is not good" names a real defect, and it is not the footer's — it
+    is Palm's. Palm's ink is a <em>green</em> black, so the fixed WhatsApp green sits on a surface
+    from its own family, with sage muted text completing the murk. The rule that fixes it:
+    <b>the hue lives in the accent; the dark surface goes charcoal with only a whisper of it.</b>
+    All four below pass every gate.</p>
+
+    <div class="ftgal">
+      <div>
+        <p class="caption bad" style="margin-top:0;">Palm · today</p>
+        <div class="mft" style="--fi:#12211a;--fg:#fbfcfa;--fm:#acb2ae;">
+          <div class="n">Hargeisa Men's Clothing Store</div>
+          <div class="p">Main stree, Hargeisa</div>
+          <div class="hr2"></div>
+          <div class="t">Pay on collection · Prices set by the shop</div>
+          <div class="s2">
+            <span class="lk"><span class="mk3">k</span><span><span class="eb4">POWERED BY</span><br /><span class="wm3">kaiibi</span></span></span>
+            <span class="wa3">WhatsApp</span>
+          </div>
+        </div>
+        <p class="galnote">A green button on a green-black card — ΔE(ink → WhatsApp) <b>47</b>. The complaint, reproduced.</p>
+      </div>
+
+      <div>
+        <p class="caption good" style="margin-top:0;">Palm · retuned — recommended</p>
+        <div class="mft" style="--fi:#15191b;--fg:#fbfcfa;--fm:#adafae;">
+          <div class="n">Hargeisa Men's Clothing Store</div>
+          <div class="p">Main stree, Hargeisa</div>
+          <div class="hr2"></div>
+          <div class="t">Pay on collection · Prices set by the shop</div>
+          <div class="s2">
+            <span class="lk"><span class="mk3">k</span><span><span class="eb4">POWERED BY</span><br /><span class="wm3">kaiibi</span></span></span>
+            <span class="wa3">WhatsApp</span>
+          </div>
+        </div>
+        <p class="galnote">Ink goes charcoal <b>#15191B</b> — ΔE <b>55</b>. Palm's green now lives only in its accent (<b>#14543A</b>, Task 4). Same shop, no murk.</p>
+      </div>
+
+      <div>
+        <p class="caption" style="margin-top:0;">Azure · the default</p>
+        <div class="mft" style="--fi:#101623;--fg:#fbfcfe;--fm:#abaeb4;">
+          <div class="n">Hargeisa Men's Clothing Store</div>
+          <div class="p">Main stree, Hargeisa</div>
+          <div class="hr2"></div>
+          <div class="t">Pay on collection · Prices set by the shop</div>
+          <div class="s2">
+            <span class="lk"><span class="mk3">k</span><span><span class="eb4">POWERED BY</span><br /><span class="wm3">kaiibi</span></span></span>
+            <span class="wa3">WhatsApp</span>
+          </div>
+        </div>
+        <p class="galnote">Navy ink <b>#101623</b> — ΔE <b>61</b>, the widest in the set. The green finally contrasts by hue, and the blue checkout is at home. This shop should probably just pick Azure.</p>
+      </div>
+
+      <div>
+        <p class="caption" style="margin-top:0;">Slate · explored, not adopted</p>
+        <div class="mft" style="--fi:#11161c;--fg:#fbfcfd;--fm:#abaeb1;">
+          <div class="n">Hargeisa Men's Clothing Store</div>
+          <div class="p">Main stree, Hargeisa</div>
+          <div class="hr2"></div>
+          <div class="t">Pay on collection · Prices set by the shop</div>
+          <div class="s2">
+            <span class="lk"><span class="mk3">k</span><span><span class="eb4">POWERED BY</span><br /><span class="wm3">kaiibi</span></span></span>
+            <span class="wa3">WhatsApp</span>
+          </div>
+        </div>
+        <p class="galnote">Cool graphite, accent <b>#34495E</b> (white at 9.3:1). Validated through every gate, then <b>rejected (2026-09-05)</b> — the existing seven cover it; a shop that dislikes green-black picks another palette. Kept for the record.</p>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px;">Why not lighten the footer instead? Because the dark
+    bookend is structural — it answers the anchor card at the top the way Dashboard's one near-black
+    card stops that page reading as a field of white rectangles. Lightening it everywhere solves
+    Palm's problem by demolishing the composition on all seven palettes; retuning one ink solves it
+    where it exists.</p>
+
+    <h3>Placements</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Surface</th><th>Whose page</th><th>What goes there</th></tr></thead>
+        <tbody>
+          <tr><td><b>Shop footer</b></td><td>The shop's</td><td>Wordmark, quiet, always</td></tr>
+          <tr><td><b>Order status page</b></td><td>Shared</td><td>Wordmark. The customer saves this link and reopens it — highest repeat exposure in the product</td></tr>
+          <tr><td><b>Order confirmation</b></td><td>Shared</td><td>Attribution plus one outlined acquisition line, below the order link</td></tr>
+          <tr><td><b>Shop directory</b></td><td><b>kaiibi's</b></td><td>Full branding, kaiibi blue included</td></tr>
+          <tr><td>Anchor card, tab rail, checkout bar</td><td>The shop's</td><td><b>Nothing</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Removed on Pro — three constraints from the code</h3>
+    <ul class="tight">
+      <li><b>It cannot use the entitlements path.</b> The storefront renders with no session;
+      <code>my_shop_entitlements()</code> is authed. The flag travels on
+      <code>get_public_storefront</code>, the <code>security definer</code> RPC that already decides
+      what an anonymous visitor sees.</li>
+      <li><b>Do not test <code>planKey === 'pro'</code>.</b> Plans get retired and hopped to a
+      successor, and <code>post_trial_plan_key</code> can move. Model it as a capability on the plan
+      row, as <code>plans.modules</code> already is.</li>
+      <li><b>Default to showing branding.</b> <code>entitlements.ts</code>'s own rule — over-permitting
+      "is the shape a monetization bypass takes". The perk is <em>hiding</em> the mark, so
+      <code>Boolean(row.hide_branding)</code> turning a missing column into <code>false</code> is
+      correct by construction.</li>
+    </ul>
+    <p class="note" style="margin-top:12px;">A shop in <code>grace</code> is fully usable by design, so
+    branding should stay hidden through grace and return on <code>expired</code> — another reason to
+    compute it server-side rather than in a client that has no business knowing about billing.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section id="s8">
+    <h2>8 · Status and order of work</h2>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Item</th><th>State</th><th>Size</th></tr></thead>
+        <tbody>
+          <tr><td>Azure palette</td><td><span class="verdict ship">Shipped</span></td><td>Done — tests green</td></tr>
+          <tr><td>Branding removed on Pro</td><td><span class="verdict dec">Decided</span></td><td>Needs the RPC column</td></tr>
+          <tr><td>Blue system — add the fill token</td><td><span class="verdict prop">Proposed</span></td><td>One token</td></tr>
+          <tr><td>Checkout bar into the column</td><td><span class="verdict prop">Proposed</span></td><td>One line</td></tr>
+          <tr><td>Palm accent → #14543A</td><td><span class="verdict bug">Defect</span></td><td>One value</td></tr>
+          <tr><td>Duplicated tagline / grey scrim</td><td><span class="verdict bug">Defect</span></td><td>Untraced</td></tr>
+          <tr><td>The slip</td><td><span class="verdict prop">Proposed</span></td><td>The real piece of work</td></tr>
+          <tr><td>Footer attribution</td><td><span class="verdict prop">Proposed</span></td><td>One row</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ol class="steps">
+      <li><b>The three one-liners.</b> Bar into the column, Palm's accent, and the fill token. All
+      pure fixes; none needs a decision.</li>
+      <li><b>Trace the duplicated tagline.</b> The only item a customer would call broken, on the first
+      card they read.</li>
+      <li><b>Roll the blue system through Accounting</b> — five values across
+      <code>ledger-hub.tsx</code>, <code>reports-hub.tsx</code> and <code>tab-pills.tsx</code>. The
+      structure and the solid/tinted split already exist; only the colours move. POS follows once the
+      pattern has been seen on a real screen.</li>
+      <li><b>Footer attribution</b>, then the Pro flag on the RPC.</li>
+      <li><b>Build the slip</b>, taking the measured clearance and unconditional padding with it.</li>
+      <li><b>Stock dots to ink</b>, and the desktop dock only if the traffic justifies it.</li>
+    </ol>
+  </section>
+
+</div>

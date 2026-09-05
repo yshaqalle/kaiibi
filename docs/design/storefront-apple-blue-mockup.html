@@ -1,0 +1,595 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — Matching the Accounting Tab</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:76ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:58px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:76ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;word-break:break-word;}
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:82ch;}
+  .call b{color:var(--ink);}
+  .call.badT{border-left-color:#d72b3e;}
+  .call.okT{border-left-color:#008340;}
+
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:640px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+     background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+  td.num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;
+    font-variant-numeric:tabular-nums;}
+  .verdict{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;white-space:nowrap;}
+  .verdict.pass{background:#d9efe4;color:#007a38;}
+  .verdict.fail{background:#fbeaec;color:#d12339;}
+  .verdict.same{background:#e6edff;color:#1b47b8;}
+  @media (prefers-color-scheme: dark){
+    .verdict.pass{background:#123a2a;color:#7fe8bc;} .verdict.fail{background:#3d1a20;color:#ff8a93;}
+    .verdict.same{background:#1a2440;color:#8fb4ff;}
+  }
+  :root[data-theme="dark"] .verdict.pass{background:#123a2a;color:#7fe8bc;}
+  :root[data-theme="dark"] .verdict.fail{background:#3d1a20;color:#ff8a93;}
+  :root[data-theme="dark"] .verdict.same{background:#1a2440;color:#8fb4ff;}
+
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;
+    margin-right:6px;border:1px solid rgba(0,0,0,.12);}
+
+  /* ── blue candidate swatches ─────────────────────────────────────────────── */
+  .blues{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px;margin-top:18px;}
+  .bl{border:1px solid var(--ln);border-radius:14px;overflow:hidden;background:var(--sf);}
+  .bl .chip{height:74px;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:13px;font-weight:700;letter-spacing:-.01em;}
+  .bl .meta{padding:11px 13px 13px;}
+  .bl .nm{font-size:12.5px;font-weight:800;letter-spacing:-.01em;}
+  .bl .hx{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--mut);margin-top:1px;}
+  .bl .rt{font-size:11.5px;color:var(--ink2);margin-top:8px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+
+  /* ── phone frames ────────────────────────────────────────────────────────── */
+  .phonewrap{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;margin-top:18px;}
+  .caption{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+     color:var(--mut);margin:0 0 9px;}
+  .caption em{font-weight:600;letter-spacing:0;text-transform:none;font-style:normal;opacity:.8;}
+  .phone{width:322px;border:1px solid var(--ln);border-radius:20px;overflow:hidden;flex:0 0 auto;}
+
+  /* The page tone is `soft`; cards are `ground`; the anchor is `ink`.
+     That mapping is theme-shared.tsx's, not this mockup's. */
+  .shop{background:var(--s);color:var(--i);padding:13px;font-size:13px;}
+  .anchor{background:var(--i);border-radius:26px;padding:15px 16px;margin-bottom:11px;}
+  .anchor .nm{color:var(--g);font-size:17px;font-weight:800;letter-spacing:-.02em;}
+  .anchor .pl{color:var(--odm);font-size:12px;margin-top:2px;}
+  .anchor .st{display:inline-block;margin-top:11px;border:1px solid var(--odm);color:var(--g);
+    border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;}
+  .srch{border:1px solid var(--e);border-radius:10px;padding:8px 12px;color:var(--m);
+    font-size:12.5px;background:var(--g);margin-bottom:10px;}
+  .cats{display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap;}
+  .cat{background:var(--g);border:1px solid var(--e);border-radius:999px;padding:5px 11px;
+    font-size:11.5px;font-weight:600;color:var(--i);}
+  .cat.on{background:var(--a);border-color:var(--a);color:#fff;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .tile{border-radius:18px;overflow:hidden;background:var(--g);}
+  .tile .ph{height:70px;background:var(--s);}
+  .tile .bd{padding:9px 10px 11px;}
+  .tile .tn{font-size:11.5px;font-weight:700;line-height:1.32;letter-spacing:-.01em;min-height:30px;}
+  .tile .pr{font-size:13.5px;font-weight:800;margin-top:5px;letter-spacing:-.01em;}
+  .tile .sk{font-size:10.5px;color:var(--i);margin-top:2px;}
+  .tile .oos{display:inline-block;background:var(--s);color:var(--so);font-size:10px;font-weight:800;
+    border-radius:999px;padding:2px 8px;margin-top:3px;}
+  .tile .add{margin-top:8px;background:var(--a);color:#fff;border-radius:999px;padding:5px 0;
+    text-align:center;font-size:11.5px;font-weight:700;}
+  .tile .wa{margin-top:5px;background:#25d366;color:#0b3d21;border-radius:999px;padding:5px 0;
+    text-align:center;font-size:11.5px;font-weight:700;}
+  .bar{margin-top:11px;background:var(--a);color:#fff;border-radius:999px;padding:12px 16px;
+    display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;}
+
+  /* an Accounting-tab card, drawn in the real bento tokens */
+  .bento{background:#f4f4f5;padding:13px;font-size:13px;color:#0b0b0d;}
+  .bcard{background:#fff;border-radius:26px;padding:16px;margin-bottom:11px;}
+  .bcard .eb{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#5e5d65;}
+  .bcard .vl{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-top:5px;}
+  .btiles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px;}
+  .btile{background:#f6f6f7;border-radius:18px;padding:11px 12px;}
+  .btile .l{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#717078;}
+  .btile .v{font-size:16px;font-weight:800;margin-top:3px;}
+  .bpills{display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap;}
+  .bpill{background:#fff;border:1px solid #ececf0;border-radius:999px;padding:5px 11px;
+    font-size:11.5px;font-weight:600;color:#5e5d65;}
+  .bpill.on{background:#0b0b0d;border-color:#0b0b0d;color:#fff;}
+  .badge{display:inline-block;background:#e6edff;color:#1b47b8;font-size:10px;font-weight:800;
+    border-radius:999px;padding:2px 8px;}
+  .badge.up{background:#d9efe4;color:#007a38;}
+  .brow{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #dcdce4;font-size:12.5px;}
+  .brow:last-child{border-bottom:0;}
+  .bars{display:flex;align-items:flex-end;gap:7px;height:52px;margin-top:12px;}
+  .bars i{flex:1;border-radius:4px 4px 0 0;background:#5f86ff;display:block;}
+  .bars i.pk{background:#2f6bff;}
+
+  /* ── desktop frames ──────────────────────────────────────────────────────── */
+  .fw{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;}
+  .scaler{position:relative;width:1100px;height:474px;overflow:hidden;
+    border:1px solid var(--ln);border-radius:14px;margin-bottom:8px;}
+  .scaled{width:1400px;transform:scale(.7857);transform-origin:top left;}
+
+  .dsk{background:var(--s);color:var(--i);font-size:14px;}
+  .dsk .top{background:var(--g);padding:13px 40px;display:flex;gap:8px;
+    border-bottom:1px solid var(--hl);}
+  .dsk .tb{border-radius:999px;padding:8px 20px;font-size:14px;font-weight:700;color:var(--m);}
+  .dsk .tb.on{background:var(--i);color:var(--g);}
+  .dsk .bd{padding:24px 40px 0;}
+  .dsk .row3{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:18px;}
+  .dsk .eb{font-size:11.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--m);}
+  .dsk .card{background:var(--g);border-radius:26px;padding:24px 26px;}
+  .dsk .anch{background:var(--i);border-radius:26px;padding:24px 26px;
+    display:flex;flex-direction:column;}
+  .dsk .anch .eb{color:var(--odm);}
+  .dsk .anch .nm{font-family:Georgia,"Times New Roman",serif;color:var(--g);
+    font-size:38px;line-height:1.06;font-weight:700;letter-spacing:-.015em;margin-top:9px;}
+  .dsk .anch .pl{font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--odm);margin-top:11px;}
+  .dsk .anch .tag{color:var(--g);font-size:16px;font-weight:700;margin-top:13px;line-height:1.35;}
+  .dsk .anch .wa{align-self:flex-start;margin-top:18px;background:#1f7a4d;color:#fff;
+    border-radius:999px;padding:11px 22px;font-size:14px;font-weight:700;}
+  .dsk .kv{display:flex;justify-content:space-between;padding:11px 0;
+    border-bottom:1px solid var(--hl);font-size:14px;}
+  .dsk .kv:last-of-type{border-bottom:0;}
+  .dsk .kv span:first-child{color:var(--m);}
+  .dsk .kv b{color:var(--i);}
+  .dsk .cartb{margin-top:16px;background:var(--i);color:var(--g);border-radius:999px;
+    padding:13px 0;text-align:center;font-size:14px;font-weight:700;}
+  .dsk .big{font-size:40px;font-weight:800;letter-spacing:-.03em;margin-top:10px;line-height:1;}
+  .dsk .sub{color:var(--m);font-size:14px;margin-top:4px;}
+  .dsk .dots{display:flex;gap:7px;margin-top:70px;}
+  .dsk .dots i{width:10px;height:10px;border-radius:50%;background:var(--a);display:block;}
+  .dsk .band{display:flex;justify-content:space-between;align-items:baseline;margin-top:26px;}
+  .dsk .cats{display:flex;gap:11px;margin-top:13px;}
+  .dsk .cat{background:var(--g);border:1px solid var(--e);border-radius:999px;
+    padding:10px 19px;font-size:14px;font-weight:700;}
+  .dsk .cat u{text-decoration:none;color:var(--m);margin-left:7px;font-weight:700;}
+  .dsk .hr{height:1px;background:var(--hl);margin-top:13px;}
+  .dsk .pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:14px;}
+  .dsk .pc{background:var(--g);border-radius:20px;padding:12px;}
+  .dsk .pc .ph{height:120px;border-radius:14px;background:var(--s);}
+  .dsk .bar{background:var(--a);color:#fff;text-align:center;padding:15px 0;
+    font-size:15px;font-weight:700;margin-top:20px;}
+  .dsk .info{display:inline-block;background:#e6edff;color:#1b47b8;font-size:11px;
+    font-weight:800;border-radius:999px;padding:3px 10px;margin-top:9px;}
+
+  .flag{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--ink2);
+    margin-top:10px;max-width:82ch;}
+  .flag .dot2{flex:0 0 auto;width:13px;height:13px;border-radius:50%;margin-top:4px;
+    border:1px solid rgba(0,0,0,.15);}
+
+  ul.tight{margin:10px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);max-width:76ch;}
+  ul.tight li{margin-bottom:7px;}
+  ul.tight li b{color:var(--ink);}
+
+  .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(262px,1fr));gap:14px;margin-top:18px;}
+  .opt{border:1px solid var(--ln);border-radius:14px;background:var(--sf);padding:16px 17px;}
+  .opt h4{margin:0 0 3px;font-size:14.5px;font-weight:800;letter-spacing:-.01em;}
+  .opt .tag{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);}
+  .opt p{margin:8px 0 0;font-size:13px;color:var(--ink2);}
+  .opt.pick{border-color:var(--blue);border-width:1.5px;}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Storefront · matching Accounting</p>
+  <h1>The Accounting tab is not blue — and the storefront already matches it</h1>
+  <p class="lede">Rechecked against what is actually shipped in
+  <code>src/app/(admin)/(tabs)/accounting.tsx</code> and <code>theme.ts</code>, not against the
+  proposal mockup. Two things came back that change the brief: Accounting's action colour is
+  near-black, not blue — and the storefront was already deliberately converted to Accounting's
+  surface system, down to identical hex values and identical radii.</p>
+
+  <hr class="rule" />
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>1 · What the Accounting tab actually is</h2>
+    <p class="h2sub">Bento is a <b>surface</b> system, not a colour scheme: a grey page, borderless
+    26px white cards floating on it, one inverted anchor card, and a cool-grey ink ramp. Colour is
+    rationed — and the blue in it is not a button.</p>
+
+    <div class="phonewrap">
+      <div>
+        <p class="caption">Accounting today <em>— real bento tokens</em></p>
+        <div class="phone">
+          <div class="bento">
+            <div class="bpills"><span class="bpill on">Overview</span><span class="bpill">Transactions</span><span class="bpill">Bills</span></div>
+            <div class="bcard">
+              <div class="eb">Revenue · 7 days</div>
+              <div class="vl">$247.85 <span class="badge up">↑ 243%</span></div>
+              <div class="bars"><i style="height:38%"></i><i style="height:52%"></i><i style="height:44%"></i><i class="pk" style="height:100%"></i><i style="height:61%"></i><i style="height:47%"></i><i style="height:55%"></i></div>
+              <div class="btiles">
+                <div class="btile"><div class="l">Gross profit</div><div class="v">$97.89</div></div>
+                <div class="btile"><div class="l">Sales tax held</div><div class="v">$4.39</div></div>
+              </div>
+            </div>
+            <div class="bcard">
+              <div class="eb">Payment methods</div>
+              <div style="margin-top:9px;">
+                <div class="brow"><span>Cash</span><span><b>$147.44</b> <span class="badge">58%</span></span></div>
+                <div class="brow"><span>ZAAD</span><span><b>$72.00</b> <span class="badge">29%</span></span></div>
+                <div class="brow"><span>e-Dahab</span><span><b>$32.80</b> <span class="badge">13%</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:290px;">
+        <p class="caption">Where colour is allowed</p>
+        <div class="tw" style="margin-top:0;">
+          <table style="min-width:0;">
+            <thead><tr><th>Role</th><th>Token</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td><b>Actions</b> — active pill, Apply button, anchor band</td><td><code>bentoInk</code></td><td class="num"><span class="sw" style="background:#0b0b0d;"></span>#0b0b0d</td></tr>
+              <tr><td>Chart marks — peak bar, series</td><td><code>bentoSeries1</code></td><td class="num"><span class="sw" style="background:#2f6bff;"></span>#2f6bff</td></tr>
+              <tr><td>Chart marks, receding</td><td><code>bentoSeriesSoft</code></td><td class="num"><span class="sw" style="background:#5f86ff;"></span>#5f86ff</td></tr>
+              <tr><td>Neutral emphasis badge</td><td><code>bentoAccentWash</code> / <code>Ink</code></td><td class="num"><span class="sw" style="background:#e6edff;"></span>#e6edff / <span class="sw" style="background:#1b47b8;"></span>#1b47b8</td></tr>
+              <tr><td>Status — must carry a glyph</td><td><code>bentoProfit</code> / <code>Loss</code> / <code>Warn</code></td><td class="num"><span class="sw" style="background:#008340;"></span> <span class="sw" style="background:#d72b3e;"></span> <span class="sw" style="background:#b07206;"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="call badT"><b>There is no blue button in Accounting.</b> Verified in the source:
+    <code>tab-pills.tsx</code> paints the active pill <code>bentoInk</code>, <code>range-menu.tsx</code>
+    paints Apply <code>bentoInk</code>, <code>bento-band.tsx</code> fills the anchor
+    <code>bentoInk</code>. <code>bentoSeries1</code> appears only in charts
+    (<code>bar-chart</code>, <code>waterfall-chart</code>, <code>payment-mix-chart</code>,
+    <code>ranking-chart</code>) and <code>bentoAccentInk</code> only as badge text
+    (<code>badge.tsx</code> <code>info</code>). <b>So "match Accounting's colour" means near-black
+    actions with blue rationed to charts and one badge</b> — the opposite of the all-blue-buttons
+    proposal.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>2 · The storefront was already converted</h2>
+    <p class="h2sub"><code>theme-shared.tsx</code> says so in its own header comment — "The app's own
+    system, recoloured… Bento is a SURFACE system rather than a colour scheme, which is exactly why it
+    survives being recoloured six ways." The mapping is deliberate, and on the default <code>ink</code>
+    palette the values come out identical.</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Role</th><th>Accounting</th><th>Storefront (ink palette)</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>The page tone</td><td class="num"><span class="sw" style="background:#f4f4f5;"></span>bentoPage #f4f4f5</td><td class="num"><span class="sw" style="background:#f4f4f5;"></span><code>soft</code> #f4f4f5</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>A card</td><td class="num"><span class="sw" style="background:#ffffff;"></span>bentoSurface #ffffff</td><td class="num"><span class="sw" style="background:#ffffff;"></span><code>ground</code> #ffffff</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>Card radius</td><td class="num">BENTO_RADIUS 26</td><td class="num">RADIUS.card 26</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>Inset / photo radius</td><td class="num">BENTO_RADIUS_TILE 18</td><td class="num">RADIUS.inset 18</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>Card treatment</td><td>Borderless, unshadowed</td><td>Borderless, unshadowed</td><td><span class="verdict same">Identical</span></td></tr>
+          <tr><td>The inverted anchor</td><td class="num"><span class="sw" style="background:#0b0b0d;"></span>bentoInk #0b0b0d</td><td class="num"><span class="sw" style="background:#141418;"></span><code>ink</code> #141418</td><td><span class="verdict pass">Near</span></td></tr>
+          <tr><td>Secondary type</td><td class="num"><span class="sw" style="background:#5e5d65;"></span>bentoMuted #5e5d65</td><td class="num"><span class="sw" style="background:#646467;"></span><code>muted</code> #646467</td><td><span class="verdict pass">Near</span></td></tr>
+          <tr><td>Hairline rule</td><td class="num"><span class="sw" style="background:#ececf0;"></span>bentoLine #ececf0</td><td class="num"><span class="sw" style="background:#e3e3e3;"></span><code>hairline</code> #e3e3e3</td><td><span class="verdict pass">Near</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note" style="margin-top:12px;">The three "near" rows are near <em>because they are
+    derived rather than picked</em>. Accounting hand-tunes each step in OKLab; the storefront computes
+    <code>muted</code> and <code>hairline</code> from <code>ink</code> and <code>ground</code> by a
+    fixed blend, because the same maths has to hold for six palettes at once. Chasing them to identical
+    values would mean hardcoding <code>ink</code>'s results and breaking the other five. <b>These gaps
+    are the system working, not drift.</b></p>
+
+    <div class="call okT"><b>So the honest answer to "make the storefront match Accounting" is: on the
+    <code>ink</code> palette, it already does.</b> Same page tone, same card fill, same radii, same
+    borderless treatment, same inverted anchor, same near-black actions. What differs is only what
+    <em>should</em> differ — the storefront can be recoloured five other ways, because it is the
+    shop's page and not kaiibi's.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>3 · Side by side</h2>
+    <p class="h2sub">Accounting's surface, then the storefront on <code>ink</code> — the match — then
+    the same storefront with Apple blue swapped into <code>accent</code>, which is a <em>departure</em>
+    from Accounting rather than a match to it.</p>
+
+    <div class="phonewrap">
+
+      <div>
+        <p class="caption">Storefront · Ink <em>— matches Accounting</em></p>
+        <div class="phone">
+          <div class="shop" style="--g:#ffffff;--s:#f4f4f5;--i:#141418;--a:#141418;--m:#646467;--e:#888888;--so:#7c5207;--odm:#afafb0;">
+            <div class="anchor">
+              <div class="nm">Jaalala Skincare</div>
+              <div class="pl">Hargeisa · Collect in store</div>
+              <div class="st">Open until 9pm</div>
+            </div>
+            <div class="srch">Search this shop</div>
+            <div class="cats"><span class="cat on">All</span><span class="cat">Serum</span><span class="cat">Toner</span></div>
+            <div class="grid">
+              <div class="tile"><div class="ph"></div><div class="bd">
+                <div class="tn">Torriden Balanceful Serum</div><div class="pr">$22.00</div>
+                <div class="sk">In stock</div><div class="add">Add</div></div></div>
+              <div class="tile"><div class="ph"></div><div class="bd">
+                <div class="tn">Anua Azelaic Acid Serum</div><div class="pr">$36.00</div>
+                <div class="oos">Ask us</div><div class="wa">WhatsApp</div></div></div>
+            </div>
+            <div class="bar"><span>2 items</span><span>Checkout · $58.00</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="caption" style="color:var(--blue);">Storefront · Apple blue <em>— a departure</em></p>
+        <div class="phone" style="border-color:var(--blue);">
+          <div class="shop" style="--g:#fbfcfe;--s:#eef2fa;--i:#101623;--a:#0071e3;--m:#60646d;--e:#868689;--so:#7b5209;--odm:#abaeb4;">
+            <div class="anchor">
+              <div class="nm">Jaalala Skincare</div>
+              <div class="pl">Hargeisa · Collect in store</div>
+              <div class="st">Open until 9pm</div>
+            </div>
+            <div class="srch">Search this shop</div>
+            <div class="cats"><span class="cat on">All</span><span class="cat">Serum</span><span class="cat">Toner</span></div>
+            <div class="grid">
+              <div class="tile"><div class="ph"></div><div class="bd">
+                <div class="tn">Torriden Balanceful Serum</div><div class="pr">$22.00</div>
+                <div class="sk">In stock</div><div class="add">Add</div></div></div>
+              <div class="tile"><div class="ph"></div><div class="bd">
+                <div class="tn">Anua Azelaic Acid Serum</div><div class="pr">$36.00</div>
+                <div class="oos">Ask us</div><div class="wa">WhatsApp</div></div></div>
+            </div>
+            <div class="bar"><span>2 items</span><span>Checkout · $58.00</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <p class="note" style="margin-top:14px;">Both frames use the mapping from
+    <code>theme-shared.tsx</code>: page = <code>soft</code>, card = <code>ground</code>, plate inside a
+    card = <code>soft</code> again, anchor = <code>ink</code> with its type in <code>ground</code>.
+    That is why the page is grey and the tiles are white — the same figure/ground relationship
+    Accounting uses.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>4 · A real shop, on desktop — Hargeisa Men's Clothing Store</h2>
+    <p class="h2sub">This one runs the <b>Palm</b> palette, and it surfaces a defect the phone frames
+    hid. Palm's <code>accent</code> is <code>#1F6B45</code>; the fixed WhatsApp button is
+    <code>#1F7A4D</code>. Those are two different greens doing two different jobs, and they are
+    <b>ΔE 7.51</b> apart — half the codebase's own ΔE 15 floor for telling two marks apart.</p>
+
+    <p class="caption">Today <em>— Palm. Two greens, one meaning.</em></p>
+    <div class="fw"><div class="scaler"><div class="scaled">
+      <div class="dsk" style="--g:#fbfcfa;--s:#eef4ef;--i:#12211a;--a:#1f6b45;--m:#616b66;--e:#868886;--odm:#acb2ae;--hl:#dfe2df;">
+        <div class="top"><span class="tb on">Shop</span><span class="tb">About</span></div>
+        <div class="bd">
+          <div class="row3">
+            <div class="anch">
+              <div class="eb">The shop</div>
+              <div class="nm">Hargeisa Men's<br />Clothing Store</div>
+              <div class="pl">Main stree, Hargeisa</div>
+              <div class="tag">You're Gonna Like the Way You Look, I Guarantee It</div>
+              <div class="wa">Message on WhatsApp</div>
+            </div>
+            <div class="card">
+              <div class="eb">Collecting</div>
+              <div style="margin-top:12px;">
+                <div class="kv"><span>Collect from</span><b>Main stree, Hargeisa</b></div>
+                <div class="kv"><span>Delivery</span><b>Collection only</b></div>
+                <div class="kv"><span>Pay</span><b>On collection</b></div>
+              </div>
+              <div class="cartb">Cart · 1</div>
+            </div>
+            <div class="card">
+              <div class="eb">In the shop</div>
+              <div class="big">9</div>
+              <div class="sub">items listed</div>
+              <div class="dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub" style="margin-top:9px;">all in stock today</div>
+            </div>
+          </div>
+          <div class="band"><div class="eb">Shop by category</div><div class="sub" style="font-size:13px;font-weight:700;">4 categories</div></div>
+          <div class="cats"><span class="cat">Shirts<u>3</u></span><span class="cat">Trousers<u>3</u></span><span class="cat">Outerwear<u>2</u></span><span class="cat">Accessories<u>1</u></span></div>
+          <div class="band" style="margin-top:22px;"><div class="eb">What's in today</div><div class="sub" style="font-size:13px;font-weight:700;">9 items</div></div>
+          <div class="hr"></div>
+          <div class="pgrid"><div class="pc"><div class="ph"></div></div><div class="pc"><div class="ph"></div></div><div class="pc"><div class="ph"></div></div><div class="pc"><div class="ph"></div></div></div>
+          <div class="bar">Checkout · $34.99</div>
+        </div>
+      </div>
+    </div></div>
+    <div class="flag"><span class="dot2" style="background:#1f7a4d;"></span>
+      <span><b>WhatsApp #1F7A4D</b> — a fixed, recognised affordance. "Message us."</span></div>
+    <div class="flag"><span class="dot2" style="background:#1f6b45;"></span>
+      <span><b>Checkout #1F6B45</b> — the shop's accent. "Buy." A different promise, in what reads as
+      the same colour.</span></div>
+
+    <h3>The same shop, with Apple blue in <code>accent</code></h3>
+    <p class="note">Nothing structural moves — same cards, same radii, same near-black Cart button and
+    inverted anchor. Only the accent changes, and the two affordances separate: ΔE 98.93 instead of
+    7.51.</p>
+    <div class="fw" style="margin-top:14px;"><div class="scaler" style="border-color:var(--blue);"><div class="scaled">
+      <div class="dsk" style="--g:#fbfcfe;--s:#eef2fa;--i:#101623;--a:#0071e3;--m:#60646d;--e:#868689;--odm:#abaeb4;--hl:#dfe0e4;">
+        <div class="top"><span class="tb on">Shop</span><span class="tb">About</span></div>
+        <div class="bd">
+          <div class="row3">
+            <div class="anch">
+              <div class="eb">The shop</div>
+              <div class="nm">Hargeisa Men's<br />Clothing Store</div>
+              <div class="pl">Main stree, Hargeisa</div>
+              <div class="tag">You're Gonna Like the Way You Look, I Guarantee It</div>
+              <div class="wa">Message on WhatsApp</div>
+            </div>
+            <div class="card">
+              <div class="eb">Collecting</div>
+              <div style="margin-top:12px;">
+                <div class="kv"><span>Collect from</span><b>Main stree, Hargeisa</b></div>
+                <div class="kv"><span>Delivery</span><b>Collection only</b></div>
+                <div class="kv"><span>Pay</span><b>On collection</b></div>
+              </div>
+              <div class="cartb">Cart · 1</div>
+            </div>
+            <div class="card">
+              <div class="eb">In the shop</div>
+              <div class="big">9</div>
+              <div class="sub">items listed</div>
+              <div class="dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="sub" style="margin-top:9px;">all in stock today</div>
+            </div>
+          </div>
+          <div class="band"><div class="eb">Shop by category</div><div class="sub" style="font-size:13px;font-weight:700;">4 categories</div></div>
+          <div class="cats"><span class="cat">Shirts<u>3</u></span><span class="cat">Trousers<u>3</u></span><span class="cat">Outerwear<u>2</u></span><span class="cat">Accessories<u>1</u></span></div>
+          <div class="band" style="margin-top:22px;"><div class="eb">What's in today</div><div class="sub" style="font-size:13px;font-weight:700;">9 items</div></div>
+          <div class="hr"></div>
+          <div class="pgrid"><div class="pc"><div class="ph"></div></div><div class="pc"><div class="ph"></div></div><div class="pc"><div class="ph"></div></div><div class="pc"><div class="ph"></div></div></div>
+          <div class="bar">Checkout · $34.99</div>
+        </div>
+      </div>
+    </div></div>
+
+    <h3>Separation from the WhatsApp green, by palette</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Palette</th><th>Accent</th><th>ΔE from #1F7A4D</th><th>Reads as a separate action?</th></tr></thead>
+        <tbody>
+          <tr><td><b>Palm</b> — this shop</td><td class="num"><span class="sw" style="background:#1f6b45;"></span>#1f6b45</td><td class="num">7.51</td><td><span class="verdict fail">No</span></td></tr>
+          <tr><td>Sea</td><td class="num"><span class="sw" style="background:#155b78;"></span>#155b78</td><td class="num">48.99</td><td><span class="verdict pass">Yes</span></td></tr>
+          <tr><td>Ink</td><td class="num"><span class="sw" style="background:#141418;"></span>#141418</td><td class="num">58.13</td><td><span class="verdict pass">Yes</span></td></tr>
+          <tr><td>Saffron</td><td class="num"><span class="sw" style="background:#8a5a05;"></span>#8a5a05</td><td class="num">60.22</td><td><span class="verdict pass">Yes</span></td></tr>
+          <tr><td>Clay</td><td class="num"><span class="sw" style="background:#98452a;"></span>#98452a</td><td class="num">72.10</td><td><span class="verdict pass">Yes</span></td></tr>
+          <tr><td>Plum</td><td class="num"><span class="sw" style="background:#8a2c62;"></span>#8a2c62</td><td class="num">87.86</td><td><span class="verdict pass">Yes</span></td></tr>
+          <tr><td>Apple blue</td><td class="num"><span class="sw" style="background:#0071e3;"></span>#0071e3</td><td class="num">98.93</td><td><span class="verdict pass">Yes</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="call badT"><b>Palm is the only palette with this problem</b>, and it is worth fixing on
+    its own terms regardless of what happens with blue — a shop on Palm currently paints "Buy" and
+    "Message us" in what a customer reads as one colour. The cheap fix is one value: stepping Palm's
+    accent to <code>#14543a</code> takes it to <b>ΔE 19.07</b> from the WhatsApp green — clear of the 15
+    floor — while <em>improving</em> its white-text contrast from 6.47:1 to 8.90:1, so it passes the
+    accent gate more comfortably than it does today. <b>Adopting blue would mask this, not solve it:</b>
+    the next shop that picks Palm brings it straight back.</div>
+
+    <div class="call"><b>Two things in your screenshot that are not palette bugs</b>, flagged because I
+    noticed them rather than because you asked: the shop name sits on a grey angular shape that looks
+    like a failed cover-photo scrim, and the tagline renders twice — once bold over that shape and once
+    as plain text below. Neither is colour. Say the word and I'll chase them down separately.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>5 · If you want Accounting's blue specifically</h2>
+    <p class="h2sub">It cannot be a storefront <code>accent</code>, and the margin is almost comic.
+    <code>storefront-catalog.test.ts</code> requires <code>contrastRatio(accent, '#ffffff') &gt;= 4.5</code>
+    for every palette, because accent is a fill that carries white label text.</p>
+
+    <div class="blues">
+      <div class="bl">
+        <div class="chip" style="background:#2f6bff;">Checkout · $58.00</div>
+        <div class="meta"><div class="nm">bentoSeries1</div><div class="hx">#2F6BFF</div>
+        <div class="rt"><span class="verdict fail">Fails</span> 4.4988:1</div></div>
+      </div>
+      <div class="bl">
+        <div class="chip" style="background:#5f86ff;">Checkout · $58.00</div>
+        <div class="meta"><div class="nm">bentoSeriesSoft</div><div class="hx">#5F86FF</div>
+        <div class="rt"><span class="verdict fail">Fails</span> 3.31:1</div></div>
+      </div>
+      <div class="bl">
+        <div class="chip" style="background:#1b47b8;">Checkout · $58.00</div>
+        <div class="meta"><div class="nm">bentoAccentInk</div><div class="hx">#1B47B8</div>
+        <div class="rt"><span class="verdict pass">Passes</span> 7.95:1</div></div>
+      </div>
+      <div class="bl">
+        <div class="chip" style="background:#0071e3;">Checkout · $58.00</div>
+        <div class="meta"><div class="nm">apple.com button</div><div class="hx">#0071E3</div>
+        <div class="rt"><span class="verdict pass">Passes</span> 4.70:1</div></div>
+      </div>
+    </div>
+
+    <div class="call"><b><code>#2F6BFF</code> misses by 0.0012.</b> White on it is 4.4988:1 against a
+    4.5:1 floor. That is not bad luck — it is the token doing its job. <code>bentoSeries1</code> was
+    validated as a <em>chart mark</em>, where the bar is 3:1 against the ground and the number is
+    written beside it in ink. It was never asked to carry white type, so it does not.
+    <code>bentoSeriesSoft</code> fails harder for the same reason.</div>
+
+    <div class="call okT"><b>The one bento blue that ports is <code>bentoAccentInk</code>
+    <code>#1B47B8</code></b>, at 7.95:1 — because it was already chosen as <em>ink</em>, a colour meant
+    to be read. And it arrives with its own wash, <code>#E6EDFF</code>, so the storefront could take the
+    whole <code>info</code> badge pair intact and use it exactly where Accounting does: a neutral
+    emphasis chip beside a figure. That is a real, faithful port of Accounting's blue — and note it is
+    a badge, not a button.</div>
+
+    <h3>What stays out of it either way</h3>
+    <ul class="tight">
+      <li><b>WhatsApp green.</b> A recognised affordance, not a brand colour — pinned by a test that no palette contains it.</li>
+      <li><b>Errors red, "Ask us" amber.</b> <code>stockOut</code> is explicitly "never the accent"; there is a regression test named for the time saffron broke that.</li>
+      <li><b>Status needs a glyph.</b> Accounting's rule — green/red is ΔE 4.0 for deutan viewers — applies to anything ported across.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>6 · The call</h2>
+    <p class="h2sub">Given the storefront already matches, "match Accounting" is really a choice about
+    how far to go.</p>
+
+    <div class="opts">
+      <div class="opt pick">
+        <div class="tag">Recommended · smallest</div>
+        <h4>A · Ship it — close the three near-misses only if they bother you</h4>
+        <p>The surfaces, radii and actions already agree. Optionally align <code>ink</code>'s three
+        derived steps toward the bento ramp. Cost is near zero; risk is that changing a derivation
+        constant moves all six palettes, so this is a "look at it, then decide" item, not an obvious win.</p>
+      </div>
+      <div class="opt">
+        <div class="tag">Faithful port</div>
+        <h4>B · Take Accounting's <em>badge</em> blue</h4>
+        <p>Add the <code>#E6EDFF</code> / <code>#1B47B8</code> pair as a neutral emphasis chip on the
+        shop page, matching <code>badge.tsx</code>'s <code>info</code>. Keeps actions near-black, which
+        is what Accounting does. This is the only port that is genuinely "the same blue".</p>
+      </div>
+      <div class="opt">
+        <div class="tag">A departure</div>
+        <h4>C · Apple blue as a seventh palette</h4>
+        <p><code>#0071E3</code> passes every gate and drops in as one row in <code>COLORS</code>. But be
+        clear that it makes the storefront <em>less</em> like Accounting, not more — Accounting has no
+        blue button to match.</p>
+      </div>
+    </div>
+
+    <div class="call"><b>My read:</b> you asked to match Accounting, and the measurement says the match
+    already exists. The thing that made it look mismatched is the proposal mockup, which paints every
+    button blue — and that is not what the shipped Accounting tab does. If what you actually want is
+    <em>the app to go blue</em>, that is a live and reasonable idea, but it is a change to Accounting
+    first, and the storefront should follow it rather than lead it.</div>
+  </section>
+
+</div>

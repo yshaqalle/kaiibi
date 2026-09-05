@@ -1,0 +1,850 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — The Bold Set (it moves)</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:78ch;}
+  h3{font-size:15px;font-weight:800;margin:28px 0 8px;}
+  section{margin-top:62px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .rule{height:1px;background:var(--ln);border:0;}
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:84ch;}
+  .call b{color:var(--ink);}
+  .call.okT{border-left-color:#008340;}
+
+  .caption{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);margin:0 0 9px;}
+  .caption em{font-weight:600;letter-spacing:0;text-transform:none;font-style:normal;opacity:.8;}
+  .duo{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-top:16px;}
+  .phone{width:336px;border:1px solid var(--ln);border-radius:24px;overflow:hidden;flex:0 0 auto;position:relative;}
+  .whatcol{flex:1;min-width:300px;}
+  .whatcol ul{margin:8px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);}
+  .whatcol li{margin-bottom:8px;}
+  .whatcol li b{color:var(--ink);}
+  .rn{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;
+    background:var(--pg2);color:var(--ink2);border-radius:6px;padding:1px 7px;margin-left:5px;vertical-align:1px;}
+  .tryme{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:#008340;margin:8px 0 0;}
+  @media (prefers-color-scheme: dark){ .tryme{color:#2eb872;} }
+  :root[data-theme="dark"] .tryme{color:#2eb872;}
+
+  .az{--g:#fbfcfe;--s:#eef2fa;--i:#101623;--a:#0071e3;--m:#60646d;--odm:#abaeb4;
+      --wash:#ddebfb;--washink:#0063c8;--hl:#dfe0e4;}
+
+  /* ═════════ THE STORE — the directory ═════════ */
+  .dir2{height:648px;overflow-y:auto;background:#f4f4f5;font-size:13px;color:#101014;
+    scrollbar-width:none;}
+  .dir2::-webkit-scrollbar{display:none;}
+  .dmast{padding:20px 15px 14px;background:#fff;border-bottom:1px solid #ececf0;}
+  .dwm{display:flex;align-items:center;gap:8px;}
+  .dwm .mk4{width:22px;height:22px;border-radius:7px;background:#0071e3;color:#fff;
+    display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;}
+  .dwm b{font-size:16px;font-weight:800;letter-spacing:-.02em;}
+  .dsub{font-size:11.5px;color:#5e5d65;margin-top:6px;}
+  .dsearch{margin-top:11px;background:#f4f4f5;border-radius:13px;padding:11px 13px;
+    font-size:12px;color:#717078;display:flex;gap:8px;align-items:center;}
+  .dcity{display:flex;gap:6px;padding:11px 15px 3px;}
+  .dc{background:#fff;border:1px solid #ececf0;border-radius:999px;padding:5px 13px;
+    font-size:11px;font-weight:700;color:#5e5d65;}
+  .dc.on{background:#0071e3;border-color:#0071e3;color:#fff;}
+  .dbody{padding:12px 15px 16px;}
+  .dfeat{position:relative;border-radius:20px;overflow:hidden;height:150px;margin-bottom:13px;}
+  .dfeat .im{position:absolute;inset:0;background:
+    radial-gradient(60% 60% at 80% 20%, #4a5f85 0%, transparent 70%),
+    linear-gradient(150deg,#33415e,#141b2b 80%);}
+  .dfeat .im::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 25%,rgba(16,22,35,.8));}
+  .dfeat .in{position:absolute;left:14px;right:14px;bottom:12px;display:flex;
+    justify-content:space-between;align-items:flex-end;gap:10px;}
+  .dfeat .fnm{font-family:Georgia,serif;color:#fff;font-size:17px;font-weight:700;line-height:1.15;}
+  .dfeat .fct{color:#dfe3ec;font-size:9.5px;font-weight:800;letter-spacing:.1em;
+    text-transform:uppercase;margin-top:4px;}
+  .dfeat .go2{background:#0071e3;color:#fff;border-radius:999px;padding:8px 15px;
+    font-size:11px;font-weight:800;white-space:nowrap;}
+  .dfeat .op2{position:absolute;top:11px;left:12px;background:rgba(255,255,255,.92);
+    color:#0a5c33;border-radius:999px;padding:3px 10px;font-size:9.5px;font-weight:800;}
+  .dsec{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:#77777f;margin:4px 1px 9px;}
+  .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .dcard{background:#fff;border-radius:16px;overflow:hidden;cursor:pointer;
+    transition:transform .2s cubic-bezier(.2,.7,.2,1), box-shadow .2s;}
+  .dcard:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(16,20,20,.1);}
+  .dcard .im{height:66px;background:linear-gradient(150deg,#e7ecf4,#c9d4e6);}
+  .dcard:nth-child(2) .im{background:linear-gradient(150deg,#efe7dc,#d6c4ab);}
+  .dcard:nth-child(3) .im{background:linear-gradient(150deg,#e4efe8,#b9d2c4);}
+  .dcard:nth-child(4) .im{background:linear-gradient(150deg,#f0e4ee,#d8bcd2);}
+  .dcard .bd{padding:9px 11px 11px;}
+  .dcard .nm3{font-size:12px;font-weight:800;letter-spacing:-.01em;line-height:1.25;}
+  .dcard .ct{display:flex;align-items:center;gap:5px;font-size:10px;color:#77777f;margin-top:3px;}
+  .dcard .dot3{width:6px;height:6px;border-radius:50%;background:#008340;}
+  .dcard .dot3.off{background:#c7c7cc;}
+  .dcard .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px;}
+  .dcard .tg{background:#f4f4f5;border-radius:6px;padding:2px 7px;font-size:9px;font-weight:700;color:#5e5d65;}
+
+  /* ═════════ 1 · THE LIVING ANCHOR ═════════ */
+  .p1{background:var(--s);padding:13px;font-size:13px;color:var(--i);}
+  .anchor{position:relative;border-radius:24px;padding:19px 17px 17px;overflow:hidden;background:var(--i);}
+  .aur{position:absolute;inset:-40%;opacity:.5;filter:blur(28px);
+    background:
+      radial-gradient(38% 42% at 28% 30%, #0071e3 0%, transparent 70%),
+      radial-gradient(34% 38% at 74% 62%, #00b4d8 0%, transparent 70%),
+      radial-gradient(30% 34% at 55% 20%, #3557c9 0%, transparent 72%);
+    animation: drift 14s ease-in-out infinite alternate;}
+  @keyframes drift{
+    0%{transform:translate(-4%,-3%) rotate(0deg) scale(1);}
+    50%{transform:translate(4%,3%) rotate(8deg) scale(1.08);}
+    100%{transform:translate(-2%,4%) rotate(-6deg) scale(1.02);}}
+  .anchor > *{position:relative;}
+  .nm{font-family:Georgia,"Times New Roman",serif;color:#fff;font-size:23px;font-weight:700;
+    line-height:1.14;letter-spacing:-.015em;}
+  .nm span{display:inline-block;opacity:0;transform:translateY(10px);
+    animation:riseIn .55s cubic-bezier(.2,.7,.2,1) forwards;}
+  .nm span:nth-child(1){animation-delay:.08s;} .nm span:nth-child(2){animation-delay:.16s;}
+  .nm span:nth-child(3){animation-delay:.24s;} .nm span:nth-child(4){animation-delay:.32s;}
+  @keyframes riseIn{to{opacity:1;transform:none;}}
+  .pl{color:var(--odm);font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;
+    margin-top:7px;opacity:0;animation:riseIn .5s .45s forwards;}
+  .strow{display:flex;gap:6px;margin-top:13px;opacity:0;animation:riseIn .5s .58s forwards;}
+  .stt{border:1px solid rgba(255,255,255,.34);color:#fff;border-radius:999px;padding:3px 11px;
+    font-size:10.5px;font-weight:700;}
+  .stt.on{background:var(--a);border-color:var(--a);}
+  .tag{margin-top:12px;color:#dfe5f2;font-size:12px;line-height:1.5;max-width:24ch;
+    opacity:0;animation:riseIn .5s .7s forwards;}
+
+  .marq{overflow:hidden;margin:12px -13px 0;padding:8px 0;border-top:1px solid var(--hl);
+    border-bottom:1px solid var(--hl);background:var(--g);}
+  .marq div{display:flex;gap:34px;white-space:nowrap;width:max-content;
+    animation:slide 22s linear infinite;font-size:10px;font-weight:800;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--m);}
+  @keyframes slide{to{transform:translateX(-50%);}}
+
+  /* ═════════ 2 · KINETIC TILES + FLY TO CART ═════════ */
+  .p2grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;}
+  .ktile{border-radius:18px;background:var(--g);padding:6px 6px 11px;cursor:pointer;
+    box-shadow:0 2px 10px rgba(16,22,35,.06);
+    transition:transform .22s cubic-bezier(.2,.7,.2,1), box-shadow .22s;}
+  .ktile:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(16,22,35,.13);}
+  .kph{height:96px;border-radius:13px;overflow:hidden;position:relative;
+    background:linear-gradient(150deg,var(--s),#dfe7f3);}
+  .kph::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(115deg, transparent 38%, rgba(255,255,255,.5) 50%, transparent 62%);
+    transform:translateX(-120%);}
+  .ktile:hover .kph::after{animation:sheen .8s ease;}
+  @keyframes sheen{to{transform:translateX(120%);}}
+  .kbd{padding:9px 5px 0;}
+  .ktn{font-size:11.5px;font-weight:700;line-height:1.3;min-height:29px;}
+  .kprow{display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+  .kprc{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .kstk{font-size:9.5px;color:var(--m);font-weight:600;}
+  .kadd{margin-top:8px;background:var(--a);color:#fff;border-radius:999px;padding:6px 0;
+    text-align:center;font-size:11.5px;font-weight:700;user-select:none;
+    transition:transform .12s;}
+  .kadd:active{transform:scale(.94);}
+  .slip2{margin-top:12px;background:var(--g);border-radius:999px;padding:7px 7px 7px 15px;
+    display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 6px 20px rgba(16,22,35,.14);}
+  .slip2.bump{animation:bump .35s cubic-bezier(.2,.7,.3,1.4);}
+  @keyframes bump{35%{transform:scale(1.035);}}
+  .s2cnt{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .s2cnt s{display:block;text-decoration:none;font-size:10px;font-weight:600;color:var(--m);}
+  .s2go{background:#0071e3;color:#fff;border-radius:999px;padding:9px 17px;font-size:12px;font-weight:800;}
+  .flydot{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--a);
+    z-index:9;pointer-events:none;box-shadow:0 2px 8px rgba(0,113,227,.5);}
+
+  /* ═════════ 3 · GLASS ═════════ */
+  .p3{position:relative;height:552px;overflow:hidden;font-size:13px;color:#101623;}
+  .p3bg{position:absolute;inset:0;background:
+      radial-gradient(60% 50% at 20% 15%, #35507c 0%, transparent 70%),
+      radial-gradient(55% 45% at 85% 30%, #1a7f9c 0%, transparent 70%),
+      radial-gradient(70% 60% at 50% 95%, #0b1b34 20%, transparent 90%),
+      linear-gradient(160deg,#22334f,#0d1626);
+    animation:drift 18s ease-in-out infinite alternate;}
+  .p3in{position:absolute;inset:0;padding:14px;overflow:hidden;}
+  .g-nm{font-family:Georgia,serif;color:#fff;font-size:21px;font-weight:700;line-height:1.15;
+    text-shadow:0 1px 12px rgba(0,0,0,.35);margin:6px 2px 0;}
+  .g-pl{color:rgba(255,255,255,.72);font-size:9.5px;font-weight:800;letter-spacing:.11em;
+    text-transform:uppercase;margin:5px 2px 12px;}
+  .gcard{background:rgba(251,252,254,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.5);border-radius:18px;padding:12px 13px;margin-bottom:10px;}
+  .gcats{display:flex;gap:6px;}
+  .gcat{background:rgba(255,255,255,.55);border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700;}
+  .gcat.on{background:#0071e3;color:#fff;}
+  .ggrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .gtile{background:rgba(251,252,254,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.5);border-radius:16px;padding:6px 6px 10px;}
+  .gph{height:78px;border-radius:11px;background:linear-gradient(150deg,rgba(255,255,255,.5),rgba(210,222,240,.55));}
+  .gtn{font-size:11px;font-weight:700;margin-top:8px;padding:0 4px;line-height:1.3;}
+  .gpr{font-size:14px;font-weight:800;padding:0 4px;margin-top:3px;}
+  .gadd{margin:8px 4px 0;background:#0071e3;color:#fff;border-radius:999px;padding:5px 0;
+    text-align:center;font-size:11px;font-weight:700;}
+  .gslip{position:absolute;left:13px;right:13px;bottom:13px;background:rgba(251,252,254,.8);
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,.55);border-radius:999px;padding:7px 7px 7px 15px;
+    display:flex;align-items:center;justify-content:space-between;}
+  .gcnt{font-size:12px;font-weight:800;}
+  .gcnt s{display:block;text-decoration:none;font-size:10px;font-weight:600;color:#5c6570;}
+  .ggo{background:#0071e3;color:#fff;border-radius:999px;padding:9px 16px;font-size:12px;font-weight:800;}
+
+  /* ═════════ 4 · SLIDING CATEGORY INDICATOR ═════════ */
+  .segwrap{position:relative;display:flex;background:var(--g);border-radius:999px;padding:4px;
+    margin-top:12px;border:1px solid var(--hl);}
+  .segpill{position:absolute;top:4px;bottom:4px;border-radius:999px;background:var(--a);
+    transition:left .28s cubic-bezier(.3,.8,.3,1), width .28s cubic-bezier(.3,.8,.3,1);}
+  .seg{position:relative;flex:1;text-align:center;padding:6px 0;font-size:11.5px;font-weight:700;
+    color:var(--m);cursor:pointer;user-select:none;transition:color .2s;}
+  .seg.on{color:#fff;}
+
+  /* ═════════ 4 · THE WEB-STORE VOCABULARY (Dribbble set) ═════════ */
+  .catrow{display:flex;gap:9px;margin-bottom:12px;}
+  .catcard{position:relative;flex:1;height:74px;border-radius:15px;overflow:hidden;cursor:pointer;
+    transition:transform .2s cubic-bezier(.2,.7,.2,1);}
+  .catcard:hover{transform:translateY(-2px);}
+  .catcard .im{position:absolute;inset:0;background:linear-gradient(150deg,#c7d4e8,#8fa3c2);}
+  .catcard:nth-child(2) .im{background:linear-gradient(150deg,#d9cfc2,#a4917c);}
+  .catcard:nth-child(3) .im{background:linear-gradient(150deg,#c9d8cf,#7f9a8c);}
+  .catcard .sc{position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,rgba(16,22,35,.66));}
+  .catcard .lb{position:absolute;left:9px;right:9px;bottom:7px;color:#fff;font-size:10.5px;font-weight:800;}
+  .catcard .lb u{text-decoration:none;font-weight:700;opacity:.75;font-size:9px;margin-left:4px;}
+  .w3grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .w3tile{border-radius:18px;background:var(--g);padding:6px 6px 11px;
+    box-shadow:0 2px 10px rgba(16,22,35,.06);}
+  .w3ph{position:relative;height:100px;border-radius:13px;overflow:hidden;
+    background:linear-gradient(150deg,var(--s),#dfe7f3);}
+  .w3tag{position:absolute;left:7px;bottom:7px;background:var(--g);color:var(--i);
+    border-radius:999px;padding:3px 10px;font-size:12px;font-weight:800;
+    box-shadow:0 1px 6px rgba(16,22,35,.14);font-variant-numeric:tabular-nums;}
+  .w3new{position:absolute;right:7px;top:7px;background:var(--a);color:#fff;
+    border-radius:7px;padding:2px 7px;font-size:8.5px;font-weight:800;letter-spacing:.05em;}
+  .w3tn{font-size:11.5px;font-weight:700;line-height:1.3;margin-top:9px;padding:0 5px;min-height:29px;}
+  .w3add{margin:8px 5px 0;background:var(--a);color:#fff;border-radius:999px;padding:6px 0;
+    text-align:center;font-size:11.5px;font-weight:700;}
+
+  /* ═════════ THE ONE — composed storefront ═════════ */
+  .one{height:648px;overflow-y:auto;background:var(--s);font-size:13px;color:var(--i);
+    scrollbar-width:none;position:relative;}
+  .one::-webkit-scrollbar{display:none;}
+  .hero2{position:relative;height:236px;overflow:hidden;}
+  .hero2 .im{position:absolute;inset:0;background:
+      radial-gradient(70% 60% at 75% 20%, #4a5f85 0%, transparent 70%),
+      linear-gradient(150deg,#33415e 10%,#141b2b 78%);}
+  .hero2 .im::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(180deg, rgba(16,22,35,.02) 30%, rgba(16,22,35,.82) 92%);}
+  .hero2 .in{position:absolute;left:16px;right:16px;bottom:15px;}
+  .hero2 .nm2{font-family:Georgia,"Times New Roman",serif;color:#fff;font-size:25px;font-weight:700;
+    line-height:1.12;letter-spacing:-.015em;}
+  .hero2 .nm2 span{display:inline-block;opacity:0;transform:translateY(10px);
+    animation:riseIn .55s cubic-bezier(.2,.7,.2,1) forwards;}
+  .hero2 .nm2 span:nth-child(1){animation-delay:.05s;}.hero2 .nm2 span:nth-child(2){animation-delay:.13s;}
+  .hero2 .nm2 span:nth-child(3){animation-delay:.21s;}.hero2 .nm2 span:nth-child(4){animation-delay:.29s;}
+  .hero2 .pl2{color:#dfe3ec;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;
+    margin-top:6px;opacity:0;animation:riseIn .5s .4s forwards;}
+  .hero2 .pills{display:flex;gap:6px;margin-top:11px;opacity:0;animation:riseIn .5s .52s forwards;}
+  .hero2 .p{border-radius:999px;padding:4px 12px;font-size:10.5px;font-weight:800;}
+  .hero2 .p.on{background:var(--a);color:#fff;}
+  .hero2 .p.gh{border:1px solid rgba(255,255,255,.4);color:#fff;}
+  .onebody{padding:12px 13px 0;}
+  .carwrap{position:relative;margin:0 -13px;}
+  .carw{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
+    padding:2px 13px 4px;scrollbar-width:none;cursor:grab;}
+  .carw.dragging{cursor:grabbing;scroll-snap-type:none;user-select:none;}
+  .carw::-webkit-scrollbar{display:none;}
+  .carr{position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:28px;height:28px;
+    border-radius:50%;background:var(--g);color:var(--i);border:1px solid var(--hl);
+    display:none;align-items:center;justify-content:center;font-size:14px;font-weight:800;
+    cursor:pointer;box-shadow:0 3px 10px rgba(16,22,35,.14);user-select:none;}
+  .carr.prev{left:6px;} .carr.next{right:6px;}
+  @media (hover:hover){ .carwrap:hover .carr{display:flex;} }
+  .dots2 i{cursor:pointer;}
+  .fly1{flex:0 0 82%;scroll-snap-align:center;border-radius:18px;padding:16px;color:#fff;min-height:96px;
+    display:flex;flex-direction:column;justify-content:space-between;}
+  .fly1 .fh{font-family:Georgia,serif;font-size:16.5px;font-weight:700;line-height:1.2;}
+  .fly1 .fs{font-size:11px;opacity:.85;margin-top:4px;}
+  .fly1 .fb{align-self:flex-start;background:rgba(255,255,255,.92);color:#101623;border-radius:999px;
+    padding:5px 13px;font-size:10.5px;font-weight:800;margin-top:12px;}
+  .fly1.a{background:linear-gradient(135deg,#0071e3,#0059b3);}
+  .fly1.b{background:linear-gradient(135deg,#1b2b4d,#101623);}
+  .fly1.c{background:linear-gradient(135deg,#0a8bc2,#0071e3);}
+  .dots2{display:flex;gap:5px;justify-content:center;margin:9px 0 13px;}
+  .dots2 i{width:5px;height:5px;border-radius:999px;background:var(--hl);transition:all .25s;}
+  .dots2 i.on{width:16px;background:var(--a);}
+  .secline{display:flex;justify-content:space-between;align-items:baseline;margin:14px 1px 9px;}
+  .secline b{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;}
+  .secline s{text-decoration:none;font-size:10.5px;font-weight:800;color:var(--washink);}
+  .onegrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-bottom:8px;}
+  .oneslip{position:sticky;bottom:10px;margin:6px 0 12px;z-index:5;}
+  .onefoot{background:var(--i);margin:10px -13px 0;padding:16px 16px 18px;}
+  .onefoot .fn{font-family:Georgia,serif;color:var(--g);font-size:14px;font-weight:700;}
+  .onefoot .ft{color:var(--odm);font-size:9.5px;margin-top:6px;}
+  .onesearch{margin:-21px 13px 0;position:relative;z-index:4;background:var(--g);
+    border-radius:14px;padding:11px 14px;box-shadow:0 8px 24px rgba(16,22,35,.13);
+    font-size:12px;color:var(--m);display:flex;align-items:center;gap:8px;}
+  .onesearch i{font-style:normal;opacity:.7;}
+
+  @media (prefers-reduced-motion: reduce){
+    .hero2 .nm2 span,.hero2 .pl2,.hero2 .pills{animation:none;opacity:1;transform:none;}
+    .aur,.p3bg,.marq div{animation:none;}
+    .nm span,.pl,.strow,.tag{animation:none;opacity:1;transform:none;}
+    .ktile,.kadd,.segpill{transition:none;}
+  }
+
+  .tw{overflow-x:auto;margin-top:16px;}
+  table{width:100%;min-width:600px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Storefront · the bold set</p>
+  <h1>This one moves. Press things.</h1>
+  <p class="lede">The earlier patterns were compositions; this is the <b>energy layer</b> — the React
+  Bits feeling, rebuilt from what the Expo stack actually ships (Reanimated, Skia, expo-blur,
+  expo-linear-gradient), so it runs in the app and on the web page from one codebase. Every effect
+  below is live in this mockup: hover the tiles, <b>click Add</b>, switch the categories. Each is
+  tagged with its React Native implementation.</p>
+
+  <hr class="rule" />
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The One — hero, carousel, and the finish</h2>
+    <p class="h2sub">The committed design, assembled: everything below in one scrollable storefront.
+    Drawn from the grammar your four Dribbble references share — the skincare shot's serif editorial
+    hero, the platform shot's floating search and promo carousel, the decor store's photo categories
+    and tag-on-photo cards, the fashion app's two-up mobile grid. <b>Scroll it. Swipe the carousel.
+    Click Add.</b></p>
+
+    <div class="duo">
+      <div class="phone az"><div class="one" data-fly>
+        <div class="hero2">
+          <div class="im"></div>
+          <div class="in">
+            <div class="nm2"><span>Hargeisa</span> <span>Men's</span> <span>Clothing</span> <span>Store</span></div>
+            <div class="pl2">Main stree · Hargeisa</div>
+            <div class="pills"><span class="p on">Open until 9pm</span><span class="p gh">Collection</span></div>
+          </div>
+        </div>
+        <div class="onesearch"><i>⌕</i> Search 9 items…</div>
+        <div class="onebody">
+          <div class="secline" style="margin-top:16px;"><b>This week</b></div>
+          <div class="carwrap">
+          <span class="carr prev" id="carPrev">‹</span>
+          <span class="carr next" id="carNext">›</span>
+          <div class="carw" id="carw">
+            <div class="fly1 a"><div><div class="fh">Eid stock has landed</div><div class="fs">New shirts and trousers, in today.</div></div><span class="fb">See what's new</span></div>
+            <div class="fly1 b"><div><div class="fh">10% off shirts</div><div class="fs">This week, at the counter.</div></div><span class="fb">Browse shirts</span></div>
+            <div class="fly1 c"><div><div class="fh">Order ahead on WhatsApp</div><div class="fs">Collect without the wait.</div></div><span class="fb">Message us</span></div>
+          </div>
+          </div>
+          <div class="dots2" id="dots2"><i class="on"></i><i></i><i></i></div>
+
+          <div class="secline"><b>Shop by category</b></div>
+          <div class="catrow">
+            <div class="catcard"><div class="im"></div><div class="sc"></div><div class="lb">Shirts<u>3</u></div></div>
+            <div class="catcard"><div class="im"></div><div class="sc"></div><div class="lb">Trousers<u>3</u></div></div>
+            <div class="catcard"><div class="im"></div><div class="sc"></div><div class="lb">Outerwear<u>2</u></div></div>
+          </div>
+
+          <div class="secline"><b>What's in today</b><s>All 9 →</s></div>
+          <div class="onegrid">
+            <div class="w3tile"><div class="w3ph"><span class="w3new">NEW</span><span class="w3tag">$22.00</span></div>
+              <div class="w3tn">Oxford Shirt, White</div><div class="kadd" data-price="22" style="margin:8px 5px 0;">Add</div></div>
+            <div class="w3tile"><div class="w3ph"><span class="w3tag">$36.00</span></div>
+              <div class="w3tn">Denim Jacket, Raw</div><div class="kadd" data-price="36" style="margin:8px 5px 0;">Add</div></div>
+            <div class="w3tile"><div class="w3ph"><span class="w3tag">$28.00</span></div>
+              <div class="w3tn">Chino, Navy</div><div class="kadd" data-price="28" style="margin:8px 5px 0;">Add</div></div>
+            <div class="w3tile"><div class="w3ph"><span class="w3new">NEW</span><span class="w3tag">$19.00</span></div>
+              <div class="w3tn">Flannel, Grey</div><div class="kadd" data-price="19" style="margin:8px 5px 0;">Add</div></div>
+          </div>
+
+          <div class="oneslip"><div class="slip2">
+            <span class="s2cnt"><span data-total>$0.00</span><s data-items>Cart is empty</s></span>
+            <span class="s2go">Checkout</span>
+          </div></div>
+
+          <div class="onefoot">
+            <div class="fn">Hargeisa Men's Clothing Store</div>
+            <div class="ft">Pay on collection · Prices set by the shop · Powered by kaiibi</div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">The composition, top to bottom</h3>
+        <ul>
+          <li><b>Photo hero</b> with a real bottom-weighted scrim, the serif wordmark rising in
+          once, the open pill living on it. No photo → the aurora anchor from §1 takes its place.
+          <span class="rn">RN: Image + LinearGradient + Reanimated entering</span></li>
+          <li><b>Floating search</b> overlapping the hero's edge — the platform-shot move that makes
+          the page read as designed, not stacked.</li>
+          <li><b>The carousel is the shop's flyers</b> — <code>flyer-carousel.tsx</code> already
+          ships in the codebase; this finally gives it the promo-banner slot the references all
+          have. Touch swipes; a mouse gets every affordance too — <b>wheel pans it, drag grabs it,
+          the dots are clickable, and arrows appear on hover</b>. The production build needs the
+          same wiring: RN-web horizontal lists don't speak mouse by default, so wheel/drag/arrow
+          handlers go into the carousel task explicitly. <span class="rn">RN: exists + web mouse
+          handlers</span></li>
+          <li><b>Photo categories, tag-on-photo cards, NEW badges</b> — the §4 vocabulary in its
+          final position.</li>
+          <li><b>The slip rides sticky</b> over the scroll, exactly as specced in the parked plan —
+          fly-to-cart works here too, into the sticky slip.</li>
+          <li><b>The ink footer closes it</b> with the colophon — the page's one dark bookend, since
+          the hero carries a photo instead of ink.</li>
+        </ul>
+        <h3>The references, honestly</h3>
+        <p class="note" style="font-size:12.5px;">Dribbble renders nothing to a fetcher, so the five
+        shots (27193963 skincare · 25717053 platform · 24925028 Getdecor · 25472436 fashion app ·
+        14359250 design-shop site) were read as their genres. What they agree on is this page's
+        spine: serif editorial hero, floating search, promo strip, visual categories, price-forward
+        cards. What was refused: wishlists, ratings, variant swatches — chrome for data models
+        kaiibi doesn't have.</p>
+        <p class="tryme">▶ Scroll the phone · swipe the carousel · click Add</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The Store — the directory, same energy</h2>
+    <p class="h2sub">Kaiibi's own page, where every shop gets found — and the one public surface
+    where kaiibi blue belongs at full strength. The parts already ship
+    (<code>shop-directory-card.tsx</code> has photo cards, open state, and a
+    <code>featuredShop()</code> picker); this is them, composed.</p>
+
+    <div class="duo">
+      <div class="phone"><div class="dir2">
+        <div class="dmast">
+          <div class="dwm"><span class="mk4">k</span><b>kaiibi</b></div>
+          <div class="dsub">Every shop, one place. Order ahead, collect in town.</div>
+          <div class="dsearch"><i style="font-style:normal;opacity:.7;">⌕</i> Find a shop — or a thing they sell…</div>
+        </div>
+        <div class="dcity"><span class="dc on">Hargeisa</span><span class="dc">Burco</span><span class="dc">Borama</span></div>
+        <div class="dbody">
+          <div class="dfeat">
+            <div class="im"></div>
+            <span class="op2">● Open now</span>
+            <div class="in">
+              <div><div class="fnm">Hargeisa Men's Clothing Store</div><div class="fct">Main Stree · Menswear</div></div>
+              <span class="go2">Visit shop</span>
+            </div>
+          </div>
+          <div class="dsec">All shops · 12</div>
+          <div class="dgrid">
+            <div class="dcard"><div class="im"></div><div class="bd">
+              <div class="nm3">Jaalala Skincare</div>
+              <div class="ct"><span class="dot3"></span>Open · Hargeisa</div>
+              <div class="tags"><span class="tg">Serum</span><span class="tg">Cleanser</span><span class="tg">+7</span></div>
+            </div></div>
+            <div class="dcard"><div class="im"></div><div class="bd">
+              <div class="nm3">Sahra Spices</div>
+              <div class="ct"><span class="dot3"></span>Open · Hargeisa</div>
+              <div class="tags"><span class="tg">Spice</span><span class="tg">Tea</span></div>
+            </div></div>
+            <div class="dcard"><div class="im"></div><div class="bd">
+              <div class="nm3">Geed Furniture</div>
+              <div class="ct"><span class="dot3 off"></span>Closed · opens 8am</div>
+              <div class="tags"><span class="tg">Chairs</span><span class="tg">Tables</span></div>
+            </div></div>
+            <div class="dcard"><div class="im"></div><div class="bd">
+              <div class="nm3">Nuura Cosmetics</div>
+              <div class="ct"><span class="dot3"></span>Open · Hargeisa</div>
+              <div class="tags"><span class="tg">Makeup</span><span class="tg">Perfume</span></div>
+            </div></div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">The composition</h3>
+        <ul>
+          <li><b>Kaiibi masthead, kaiibi blue</b> — wordmark, one-line promise, and a search that
+          finds <em>things as well as shops</em>: the directory rows already say what each shop
+          sells, so "shirts" finds every shop selling shirts. That is the directory's killer
+          feature, and today it is invisible.</li>
+          <li><b>City chips</b> — the first real filter a customer has.</li>
+          <li><b>The featured shop as a hero</b> — <code>featuredShop()</code> already picks one;
+          give it the photo-scrim-serif treatment and a blue Visit button. This is also the
+          merchant-side prize: being featured looks like something.</li>
+          <li><b>Shop cards with life</b> — photo, an open <em>dot with the word</em> (never colour
+          alone), the city, and what they sell as quiet tags. Closed shops say when they reopen
+          instead of just being grey.</li>
+          <li><b>Hover lift + stagger-in</b> — the same tier-1 motion grammar as the shop page.
+          <span class="rn">RN: Reanimated entering + web hover</span></li>
+        </ul>
+        <p class="note" style="font-size:12.5px;margin-top:12px;"><b>One rule carried over:</b> each
+        shop's card stays neutral — the shop's own palette blooms on <em>their</em> page, not in the
+        list. The directory is kaiibi's room; the shops are its guests.</p>
+        <p class="tryme">▶ Scroll · hover the cards</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>1 · The living anchor</h2>
+    <p class="h2sub">The shop's ink card stops being a slab: an aurora of the palette's own accent
+    drifts behind it, and the wordmark rises in word by word on first load — once, 550ms, never on
+    tab switches.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="p1">
+        <div class="anchor">
+          <div class="aur"></div>
+          <div class="nm"><span>Hargeisa</span> <span>Men's</span><br /><span>Clothing</span> <span>Store</span></div>
+          <div class="pl">Main stree · Hargeisa</div>
+          <div class="strow"><span class="stt on">Open until 9pm</span><span class="stt">Collection</span></div>
+          <div class="tag">You're gonna like the way you look — guaranteed.</div>
+        </div>
+        <div class="marq"><div>
+          <span>Shirts · 3</span><span>Trousers · 3</span><span>Outerwear · 2</span><span>Accessories · 1</span><span>Pay on collection</span><span>Answers on WhatsApp</span>
+          <span>Shirts · 3</span><span>Trousers · 3</span><span>Outerwear · 2</span><span>Accessories · 1</span><span>Pay on collection</span><span>Answers on WhatsApp</span>
+        </div></div>
+        <div class="segwrap" id="segwrap">
+          <div class="segpill" id="segpill"></div>
+          <div class="seg on">All</div><div class="seg">Shirts</div><div class="seg">Trousers</div><div class="seg">More</div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What's live here</h3>
+        <ul>
+          <li><b>Aurora anchor</b> — three radial blobs of the accent family, blurred, drifting on a
+          14s loop at 50% opacity. It IS the palette, so a Plum shop gets a plum aurora.
+          <span class="rn">RN: Skia mesh-gradient or 3 animated LinearGradients under blur</span></li>
+          <li><b>Wordmark rise</b> — per-word stagger, 80ms apart, once on load.
+          <span class="rn">RN: Reanimated entering animations</span></li>
+          <li><b>The facts marquee</b> — categories, counts and terms as a slow ticker; a shop's
+          whole shape in one glance. Pauses under reduced motion.
+          <span class="rn">RN: Reanimated loop on translateX</span></li>
+          <li><b>Sliding category pill</b> — the active state <em>travels</em> instead of teleporting.
+          Try it. <span class="rn">RN: Reanimated layout / measured left+width spring</span></li>
+        </ul>
+        <p class="tryme">▶ Watch the aurora · click the categories</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>2 · Kinetic tiles, and the fly-to-cart</h2>
+    <p class="h2sub">The signature interaction of the whole set. Add doesn't just increment a number
+    somewhere — a dot leaves the button, flies into the slip, the slip bumps, and the total counts
+    up. The customer <em>sees</em> the basket receive it.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="p1" data-fly style="position:relative;">
+        <div class="p2grid">
+          <div class="ktile"><div class="kph"></div><div class="kbd">
+            <div class="ktn">Oxford Shirt, White</div>
+            <div class="kprow"><span class="kprc">$22.00</span><span class="kstk">In stock</span></div>
+            <div class="kadd" data-price="22">Add</div></div></div>
+          <div class="ktile"><div class="kph"></div><div class="kbd">
+            <div class="ktn">Flannel, Grey</div>
+            <div class="kprow"><span class="kprc">$19.00</span><span class="kstk">In stock</span></div>
+            <div class="kadd" data-price="19">Add</div></div></div>
+          <div class="ktile"><div class="kph"></div><div class="kbd">
+            <div class="ktn">Chino, Navy</div>
+            <div class="kprow"><span class="kprc">$28.00</span><span class="kstk">In stock</span></div>
+            <div class="kadd" data-price="28">Add</div></div></div>
+          <div class="ktile"><div class="kph"></div><div class="kbd">
+            <div class="ktn">Denim Jacket</div>
+            <div class="kprow"><span class="kprc">$36.00</span><span class="kstk">In stock</span></div>
+            <div class="kadd" data-price="36">Add</div></div></div>
+        </div>
+        <div class="slip2">
+          <span class="s2cnt"><span data-total>$0.00</span><s data-items>Cart is empty</s></span>
+          <span class="s2go">Checkout</span>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What's live here</h3>
+        <ul>
+          <li><b>Fly-to-cart</b> — an accent dot arcs from the pressed Add into the slip; the slip
+          bumps 3.5% and settles. <span class="rn">RN: Reanimated shared value on an absolute dot;
+          spring on the slip</span></li>
+          <li><b>Count-up total</b> — the slip's figure tweens to its new value in 300ms, tabular
+          numerals so nothing shifts. <span class="rn">RN: Reanimated + measured text</span></li>
+          <li><b>Hover lift + sheen</b> (web) — tiles rise 3px and a light band sweeps the photo
+          once. Touch keeps the existing press-scale instead.
+          <span class="rn">RN web: hover handlers; native: press feedback only</span></li>
+        </ul>
+        <p class="tryme">▶ Click every Add button</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>3 · Glass — the shop with a atmosphere</h2>
+    <p class="h2sub">The shop's own cover photo, blurred to an ambient backdrop, with frosted cards
+    floating over it. Depth instead of flatness — the closest thing to "wow" a storefront can wear
+    while staying legible. Falls back to solid <code>ground</code> cards wherever blur is
+    unavailable or the shop has no photo.</p>
+
+    <div class="duo">
+      <div class="phone"><div class="p3">
+        <div class="p3bg"></div>
+        <div class="p3in">
+          <div class="g-nm">Hargeisa Men's Clothing Store</div>
+          <div class="g-pl">Main stree · Hargeisa · Open until 9pm</div>
+          <div class="gcard gcats"><span class="gcat on">All</span><span class="gcat">Shirts</span><span class="gcat">Trousers</span></div>
+          <div class="ggrid">
+            <div class="gtile"><div class="gph"></div><div class="gtn">Oxford Shirt, White</div><div class="gpr">$22.00</div><div class="gadd">Add</div></div>
+            <div class="gtile"><div class="gph"></div><div class="gtn">Denim Jacket</div><div class="gpr">$36.00</div><div class="gadd">Add</div></div>
+          </div>
+          <div class="gslip"><span class="gcnt">$58.00<s>2 items · collection</s></span><span class="ggo">Checkout</span></div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What's live here</h3>
+        <ul>
+          <li><b>Ambient photo backdrop</b> — the hero image blurred and slowly drifting behind
+          everything; here simulated with a gradient, in production it is the shop's real photo.
+          <span class="rn">RN: expo-blur over an Image, or Skia blur</span></li>
+          <li><b>Frosted cards</b> — 72–80% ground with backdrop blur and a hairline of white; type
+          stays full-contrast ink, so the WCAG story is unchanged — the <em>surface</em> is glass,
+          the <em>text ground</em> is still solid enough to test.
+          <span class="rn">RN: expo-blur tint; opaque fallback where unsupported</span></li>
+          <li><b>Honest degrade</b> — no photo → pattern A's solid page. Glass is a reward for the
+          shop that uploaded one, which is itself an editor nudge.</li>
+        </ul>
+        <p class="tryme">▶ Watch the backdrop drift</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>4 · The web-store vocabulary — the Dribbble set</h2>
+    <p class="h2sub">From dribbble.com/tags/web-store (the page itself won't render for a fetcher, so
+    this is that tag's reliably recurring vocabulary, filtered hard): the patterns that survive
+    contact with a real 9-item Hargeisa shop, translated into the palette system. The ones that
+    don't survive are listed too — knowing why is half the value.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="p1">
+        <div class="catrow">
+          <div class="catcard"><div class="im"></div><div class="sc"></div><div class="lb">Shirts<u>3</u></div></div>
+          <div class="catcard"><div class="im"></div><div class="sc"></div><div class="lb">Trousers<u>3</u></div></div>
+          <div class="catcard"><div class="im"></div><div class="sc"></div><div class="lb">Outerwear<u>2</u></div></div>
+        </div>
+        <div class="w3grid">
+          <div class="w3tile"><div class="w3ph"><span class="w3new">NEW</span><span class="w3tag">$22.00</span></div>
+            <div class="w3tn">Oxford Shirt, White</div><div class="w3add">Add</div></div>
+          <div class="w3tile"><div class="w3ph"><span class="w3tag">$36.00</span></div>
+            <div class="w3tn">Denim Jacket, Raw</div><div class="w3add">Add</div></div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What ports</h3>
+        <ul>
+          <li><b>Photo category tiles</b> — the single strongest steal from the tag: categories as
+          image cards with a scrim and a count, not text pills. The photo is <em>derived</em> — each
+          category borrows its first product-with-photo — so no new merchant work, and a photoless
+          category degrades to today's pill. <span class="rn">RN: Image + gradient scrim, exists</span></li>
+          <li><b>The price tag on the photo</b> — a <code>ground</code> pill sitting on the image,
+          where the tag's shots put it. The price is the number the customer came for; on the photo
+          it reads first, and the text block under the tile gets simpler.</li>
+          <li><b>The NEW badge, from data we have</b> — products carry a created-at; anything ≤14
+          days wears an accent chip. Zero backend, and it gives regulars a reason to re-open the
+          link — "what's new since last week" is the storefront's only recurring story.</li>
+        </ul>
+        <h3>What doesn't, and why</h3>
+        <ul>
+          <li><b>Colour-blocked pastel tiles</b> (every product on its own tinted plate) — the tag's
+          signature look, and a direct fight with this system's doctrine that colour is rationed and
+          palette-derived. A six-palette shop wearing rainbow plates stops being its palette.</li>
+          <li><b>Swatch dots, ratings, wishlist hearts</b> — each assumes a data model (variants,
+          reviews, accounts) kaiibi's products don't have. Designing the chrome before the model is
+          how a page fills with dead controls.</li>
+          <li><b>Floating cart bubble</b> — redundant with the slip, which already carries count,
+          total and evidence.</li>
+        </ul>
+        <p class="tryme">▶ Hover the category cards</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Where each effect belongs</h2>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Effect</th><th>Surface</th><th>Guardrail</th></tr></thead>
+        <tbody>
+          <tr><td><b>Aurora anchor</b></td><td>Anchor card, all themes</td><td>50% opacity ceiling; static radial under reduced motion; palette-derived only</td></tr>
+          <tr><td><b>Wordmark rise</b></td><td>First load only</td><td>Never on tab switch; ≤600ms total</td></tr>
+          <tr><td><b>Facts marquee</b></td><td>Shop tab, under the anchor</td><td>Slow (22s loop); static row under reduced motion; it is the trust strip, animated</td></tr>
+          <tr><td><b>Sliding pill</b></td><td>Category bar, tabs</td><td>280ms, transform-only</td></tr>
+          <tr><td><b>Fly-to-cart + count-up + bump</b></td><td>Every Add, the slip</td><td>Transform/opacity only — 60fps on low-end Android; simple opacity fade under reduced motion</td></tr>
+          <tr><td><b>Hover lift + sheen</b></td><td>Web only</td><td>Touch keeps press-scale; sheen runs once per hover</td></tr>
+          <tr><td><b>Glass</b></td><td>Photo-rich shops (Window/Poster)</td><td>Opaque fallback; text grounds stay contrast-testable</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="call okT"><b>Why this is buildable and the React Bits imports are not:</b> everything
+    above is transforms, opacity, gradients and blur — the four things Reanimated + Skia + expo-blur
+    do natively at 60fps, on the same code path the web page uses. Nothing here imports a DOM
+    library, loads WebGL, or adds a dependency the app doesn't already carry. The React Bits
+    <em>catalogue</em> supplied the vocabulary — aurora, split-text, count-up, spotlight — and this
+    is that vocabulary spoken in the storefront's own language: palette-derived colour, once-only
+    motion, reduced-motion no-ops, and the slowest phone in Hargeisa still first in line.</div>
+
+    <h3>If approved</h3>
+    <p class="note">The bold set layers onto pattern A rather than replacing it: <b>tier 1</b>
+    (fly-to-cart, count-up, sliding pill, wordmark rise) is one task of pure Reanimated with no new
+    dependencies; <b>tier 2</b> (aurora, marquee, photo category tiles, price tag on photo, NEW
+    badge) adds only expo-linear-gradient use and data already fetched; <b>tier 3</b> (glass) is its
+    own task gated on expo-blur and a cover photo. Tell me which tiers, and they join the parked
+    plan as tasks with the same test-and-verify discipline as everything else.</p>
+  </section>
+
+</div>
+
+<script>
+  // Sliding category pill
+  (function(){
+    var wrap=document.getElementById('segwrap'), pill=document.getElementById('segpill');
+    if(!wrap) return;
+    var segs=[].slice.call(wrap.querySelectorAll('.seg'));
+    function place(el){ pill.style.left=el.offsetLeft+'px'; pill.style.width=el.offsetWidth+'px'; }
+    place(wrap.querySelector('.seg.on'));
+    segs.forEach(function(s){ s.addEventListener('click',function(){
+      segs.forEach(function(x){x.classList.remove('on');}); s.classList.add('on'); place(s);
+    });});
+    window.addEventListener('resize',function(){ place(wrap.querySelector('.seg.on')); });
+  })();
+
+  // Fly-to-cart + count-up — every [data-fly] zone gets its own basket
+  (function(){
+    var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function fmt(n){ return '$'+n.toFixed(2); }
+    [].slice.call(document.querySelectorAll('[data-fly]')).forEach(function(zone){
+      var slip=zone.querySelector('.slip2'); if(!slip) return;
+      var totalEl=zone.querySelector('[data-total]'), itemsEl=zone.querySelector('[data-items]');
+      var total=0, items=0;
+      function countTo(target){
+        var start=total, t0=performance.now();
+        function tick(t){
+          var k=Math.min(1,(t-t0)/300), v=start+(target-start)*(1-Math.pow(1-k,3));
+          totalEl.textContent=fmt(v);
+          if(k<1) requestAnimationFrame(tick); else { total=target; totalEl.textContent=fmt(target); }
+        }
+        requestAnimationFrame(tick);
+      }
+      if(getComputedStyle(zone).position==='static') zone.style.position='relative';
+      zone.addEventListener('click',function(e){
+        var btn=e.target.closest('.kadd'); if(!btn) return;
+        var price=parseFloat(btn.getAttribute('data-price'))||0;
+        items+=1; itemsEl.textContent=items+(items===1?' item':' items')+' · collection';
+        var target=total+price;
+        if(reduce){ total=target; totalEl.textContent=fmt(target);
+          slip.classList.remove('bump'); void slip.offsetWidth; slip.classList.add('bump'); return; }
+        var zr=zone.getBoundingClientRect(), br=btn.getBoundingClientRect(), sr=slip.getBoundingClientRect();
+        var sTop=zone.scrollTop||0;
+        var dot=document.createElement('div'); dot.className='flydot';
+        var x0=br.left-zr.left+br.width/2-7, y0=br.top-zr.top+sTop+br.height/2-7;
+        var x1=sr.left-zr.left+28, y1=sr.top-zr.top+sTop+sr.height/2-7;
+        dot.style.left=x0+'px'; dot.style.top=y0+'px'; zone.appendChild(dot);
+        dot.animate([
+          {transform:'translate(0,0) scale(1)',opacity:1},
+          {transform:'translate('+((x1-x0)*0.55)+'px,'+((y1-y0)*0.35-34)+'px) scale(.9)',opacity:1,offset:.55},
+          {transform:'translate('+(x1-x0)+'px,'+(y1-y0)+'px) scale(.45)',opacity:.7}
+        ],{duration:520,easing:'cubic-bezier(.25,.6,.3,1)'}).onfinish=function(){
+          dot.remove();
+          slip.classList.remove('bump'); void slip.offsetWidth; slip.classList.add('bump');
+          countTo(target);
+        };
+      });
+    });
+  })();
+
+  // Carousel — dots track, and every mouse affordance: wheel, drag, arrows, clickable dots
+  (function(){
+    var car=document.getElementById('carw'), dots=document.getElementById('dots2');
+    if(!car||!dots) return;
+    var cards=[].slice.call(car.children), ds=[].slice.call(dots.children), t;
+    function current(){
+      var mid=car.scrollLeft+car.clientWidth/2, best=0, bd=1e9;
+      cards.forEach(function(c,i){
+        var cm=c.offsetLeft+c.offsetWidth/2, d=Math.abs(cm-mid);
+        if(d<bd){bd=d;best=i;}
+      });
+      return best;
+    }
+    function goTo(i){
+      i=Math.max(0,Math.min(cards.length-1,i));
+      var c=cards[i];
+      car.scrollTo({left:c.offsetLeft+c.offsetWidth/2-car.clientWidth/2,behavior:'smooth'});
+    }
+    car.addEventListener('scroll',function(){
+      clearTimeout(t);
+      t=setTimeout(function(){
+        var best=current();
+        ds.forEach(function(d,i){ d.classList.toggle('on', i===best); });
+      },60);
+    },{passive:true});
+    // Clickable dots
+    ds.forEach(function(d,i){ d.addEventListener('click',function(){ goTo(i); }); });
+    // Hover arrows
+    var prev=document.getElementById('carPrev'), next=document.getElementById('carNext');
+    if(prev) prev.addEventListener('click',function(){ goTo(current()-1); });
+    if(next) next.addEventListener('click',function(){ goTo(current()+1); });
+    // Mouse wheel: a vertical wheel over the carousel pans it horizontally
+    car.addEventListener('wheel',function(e){
+      var d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+      if(d===0) return;
+      e.preventDefault();
+      car.scrollLeft+=d;
+    },{passive:false});
+    // Drag-to-pan with a mouse (touch already scrolls natively)
+    var down=false,startX=0,startL=0,moved=false;
+    car.addEventListener('pointerdown',function(e){
+      if(e.pointerType!=='mouse') return;
+      down=true;moved=false;startX=e.clientX;startL=car.scrollLeft;
+      car.classList.add('dragging');
+    });
+    window.addEventListener('pointermove',function(e){
+      if(!down) return;
+      var dx=e.clientX-startX;
+      if(Math.abs(dx)>4) moved=true;
+      car.scrollLeft=startL-dx;
+    });
+    window.addEventListener('pointerup',function(){
+      if(!down) return;
+      down=false; car.classList.remove('dragging');
+      if(moved) goTo(current()); // settle onto the nearest card, since snap was off while dragging
+    });
+  })();
+</script>

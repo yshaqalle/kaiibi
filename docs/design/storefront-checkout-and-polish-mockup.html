@@ -1,0 +1,381 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — The Checkout Bar, and Five Other Things</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:76ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:58px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:76ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;word-break:break-word;}
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:82ch;}
+  .call b{color:var(--ink);}
+  .call.badT{border-left-color:#d72b3e;}
+  .call.okT{border-left-color:#008340;}
+
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:620px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+     background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+  td.num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;font-variant-numeric:tabular-nums;}
+
+  .caption{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+     color:var(--mut);margin:26px 0 9px;}
+  .caption em{font-weight:600;letter-spacing:0;text-transform:none;font-style:normal;opacity:.8;}
+  .caption.good{color:#008340;} .caption.bad{color:#d72b3e;}
+  @media (prefers-color-scheme: dark){ .caption.good{color:#2eb872;} .caption.bad{color:#e8515f;} }
+  :root[data-theme="dark"] .caption.good{color:#2eb872;}
+  :root[data-theme="dark"] .caption.bad{color:#e8515f;}
+
+  /* ── the width-escape diagram ────────────────────────────────────────────── */
+  .vp{background:#eef4ef;border:1px solid var(--ln);border-radius:12px;padding:14px 10px;
+    position:relative;margin-top:14px;}
+  .vp .col{max-width:540px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .vp .col i{height:44px;border-radius:9px;background:#fbfcfa;display:block;}
+  .vp .lbl{position:absolute;top:6px;left:12px;font-size:9.5px;font-weight:800;
+    letter-spacing:.08em;text-transform:uppercase;color:#616b66;}
+  .vp .barfull{margin-top:12px;background:#1f6b45;color:#fff;border-radius:999px;
+    padding:11px 0;text-align:center;font-size:12.5px;font-weight:800;}
+  .vp .barcol{max-width:540px;margin:12px auto 0;background:#1f6b45;color:#fff;border-radius:999px;
+    padding:11px 0;text-align:center;font-size:12.5px;font-weight:800;}
+  .measure{display:flex;justify-content:space-between;font-size:11px;color:var(--mut);
+    margin-top:7px;font-family:ui-monospace,Menlo,monospace;}
+
+  /* ── bar specimens ───────────────────────────────────────────────────────── */
+  .spec{background:#eef4ef;border:1px solid var(--ln);border-radius:14px;padding:16px;}
+  .spec.narrow{max-width:360px;}
+  .bar-old{background:#1f6b45;color:#fff;border-radius:999px;padding:14px 0;text-align:center;
+    font-size:14px;font-weight:800;}
+  .slip{background:#fbfcfa;border-radius:999px;padding:8px 8px 8px 16px;display:flex;
+    align-items:center;justify-content:space-between;gap:14px;
+    box-shadow:0 6px 20px rgba(18,33,26,.13);}
+  .slip .ev{display:flex;align-items:center;gap:11px;min-width:0;}
+  .thumbs{display:flex;}
+  .thumbs i{width:30px;height:30px;border-radius:9px;background:#dfe4e0;display:block;
+    border:2px solid #fbfcfa;margin-left:-9px;}
+  .thumbs i:first-child{margin-left:0;}
+  .slip .cnt{font-size:13px;font-weight:800;color:#12211a;line-height:1.25;}
+  .slip .cnt s{display:block;text-decoration:none;font-size:11.5px;font-weight:600;color:#616b66;}
+  .slip .go{background:#1f6b45;color:#fff;border-radius:999px;padding:11px 20px;
+    font-size:13.5px;font-weight:800;white-space:nowrap;}
+  .dock{max-width:330px;margin-left:auto;}
+
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:6px;}
+
+  /* ── improvement cards ───────────────────────────────────────────────────── */
+  .imp{border:1px solid var(--ln);border-radius:14px;background:var(--sf);padding:17px 18px;margin-top:14px;}
+  .imp .hd{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;}
+  .imp h4{margin:0;font-size:15px;font-weight:800;letter-spacing:-.01em;}
+  .imp .sev{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;white-space:nowrap;}
+  .sev.bug{background:#fbeaec;color:#d12339;}
+  .sev.polish{background:#e6edff;color:#1b47b8;}
+  .sev.ask{background:#f8efdc;color:#8a5a05;}
+  @media (prefers-color-scheme: dark){
+    .sev.bug{background:#3d1a20;color:#ff8a93;} .sev.polish{background:#1a2440;color:#8fb4ff;}
+    .sev.ask{background:#3a2c12;color:#f2c26a;}
+  }
+  :root[data-theme="dark"] .sev.bug{background:#3d1a20;color:#ff8a93;}
+  :root[data-theme="dark"] .sev.polish{background:#1a2440;color:#8fb4ff;}
+  :root[data-theme="dark"] .sev.ask{background:#3a2c12;color:#f2c26a;}
+  .imp dl{margin:11px 0 0;display:grid;grid-template-columns:auto 1fr;gap:5px 13px;font-size:13.5px;}
+  .imp dt{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--mut);padding-top:4px;}
+  .imp dd{margin:0;color:var(--ink2);}
+  .imp dd b{color:var(--ink);}
+
+  ul.tight{margin:10px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ul.tight li{margin-bottom:7px;}
+  ul.tight li b{color:var(--ink);}
+  ol.steps{margin:12px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ol.steps li{margin-bottom:8px;}
+  ol.steps li b{color:var(--ink);}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Storefront · checkout bar & polish</p>
+  <h1>The checkout bar is a phone control that never learned about desktop</h1>
+  <p class="lede">It is the last thing a customer touches before committing money, and right now it is
+  a 1,972-pixel-wide slab that says four words. Below: what is actually wrong with it (three of the
+  four are verifiable in the source, not matters of taste), three directions for replacing it, and
+  five other storefront improvements found while looking.</p>
+
+  <hr class="rule" />
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>1 · What the bar does today</h2>
+    <p class="h2sub">From <code>theme-shared.tsx</code>: absolutely positioned, <code>left: 14,
+    right: 14, bottom: 14</code>, a 999-radius pill with one centred string.</p>
+
+    <h3>It escapes the reading column</h3>
+    <p class="note">Every theme centres its scroller at <code>SHOP_MAX_WIDTH</code> (1080).
+    <code>CheckoutBar</code> is rendered as a <em>sibling</em> of that scroller, inside the theme's
+    full-width root — so <code>left:14 / right:14</code> anchors to the window, not the column. On a
+    2,000px screen the goods sit in 1,080px and the button spans 1,972px. It is the one element on the
+    page that is not in the column.</p>
+
+    <div class="vp">
+      <span class="lbl">Viewport 2000 · today</span>
+      <div class="col" style="margin-top:16px;"><i></i><i></i><i></i><i></i></div>
+      <div class="barfull">Checkout · $34.99</div>
+      <div class="measure"><span>◄ bar 1972px ─────────────────────────────────────────►</span></div>
+      <div class="measure" style="max-width:540px;margin:2px auto 0;"><span>◄── goods 1080px ──►</span></div>
+    </div>
+
+    <div class="vp" style="margin-top:16px;">
+      <span class="lbl">Viewport 2000 · in the column</span>
+      <div class="col" style="margin-top:16px;"><i></i><i></i><i></i><i></i></div>
+      <div class="barcol">Checkout · $34.99</div>
+      <div class="measure" style="max-width:540px;margin:7px auto 0;"><span>◄── both 1080px ──►</span></div>
+    </div>
+
+    <h3>Three more, in descending order of how provable they are</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Issue</th><th>Evidence</th><th>Kind</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Adding the first item reflows the page</b></td>
+            <td>The grid's bottom padding is applied conditionally —
+            <code>itemCount &gt; 0 &amp;&amp; styles.gridWithCheckoutBar</code> — so the first Add
+            jumps the content by <code>CHECKOUT_BAR_CLEARANCE</code>, 76px.</td>
+            <td>Verifiable</td>
+          </tr>
+          <tr>
+            <td><b>The clearance is a hand-measured constant</b></td>
+            <td><code>CHECKOUT_BAR_CLEARANCE = 76</code>, and its own comment says changing the bar
+            requires re-measuring it. Any redesign that changes the bar's height silently breaks the
+            padding.</td>
+            <td>Verifiable</td>
+          </tr>
+          <tr>
+            <td><b>Two cart affordances on desktop</b></td>
+            <td>The Visit panel carries a <code>Cart · 1</code> button while the bar says
+            <code>Checkout · $34.99</code> — same cart, two labels, two places, neither showing what
+            the other shows.</td>
+            <td>Verifiable</td>
+          </tr>
+          <tr>
+            <td><b>It carries no evidence</b></td>
+            <td>A total and a verb. It does not say how many items, or which. The customer commits on
+            trust, and the only way to check is to leave the page.</td>
+            <td>Design judgement</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>2 · Three directions</h2>
+    <p class="h2sub">Rendered in Palm, the palette the shop in question actually runs.</p>
+
+    <p class="caption bad">Today <em>— one zone, one claim</em></p>
+    <div class="spec narrow"><div class="bar-old">Checkout · $34.99</div></div>
+
+    <p class="caption">A · In the column <em>— the one-line fix, same control</em></p>
+    <p class="note">Move <code>CheckoutBar</code> inside the max-width wrapper, or give it the same
+    <code>maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center'</code>. Fixes the escape and nothing else.
+    Worth doing on its own merits even if you take neither of the others.</p>
+
+    <p class="caption good">B · The slip <em>— evidence left, action right — recommended</em></p>
+    <div class="grid2">
+      <div class="spec narrow">
+        <div class="slip">
+          <div class="ev">
+            <div class="thumbs"><i></i></div>
+            <div class="cnt">$34.99<s>1 item</s></div>
+          </div>
+          <div class="go">Checkout</div>
+        </div>
+      </div>
+      <div class="spec">
+        <div class="slip">
+          <div class="ev">
+            <div class="thumbs"><i></i><i></i><i></i></div>
+            <div class="cnt">$112.97<s>3 items · collection</s></div>
+          </div>
+          <div class="go">Checkout</div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;">The container becomes <code>ground</code> — a slip docked
+    at the bottom — and the accent goes back to being a <b>proportionate button</b> rather than a
+    1,000px field of colour. That is the substantive change: on the current bar the accent is the
+    background, so it stops reading as a thing you press. Here the thumbnails answer "what am I
+    buying", the count answers "how much of it", and the fulfilment word ("collection") sets the
+    expectation before the form does.</p>
+
+    <p class="caption">C · Docked on desktop <em>— B on phone, a corner card on wide</em></p>
+    <div class="spec">
+      <div class="dock">
+        <div class="slip">
+          <div class="ev">
+            <div class="thumbs"><i></i><i></i><i></i></div>
+            <div class="cnt">$112.97<s>3 items</s></div>
+          </div>
+          <div class="go">Checkout</div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;">On a wide screen a full-width bar is a phone idiom — the
+    cart is a persistent side concern, not a banner. Docking it bottom-right frees the column entirely
+    and removes the need for the clearance padding on desktop. The cost is a second layout to hold in
+    your head, and it only pays off if desktop traffic is real.</p>
+
+    <div class="call"><b>Recommendation: A now, B next, C only if the numbers justify it.</b> A is a
+    one-line correctness fix with no design debate attached. B is where the actual improvement is, and
+    it works identically on both widths, so it does not fork the layout. C is genuinely better on
+    desktop and genuinely more to maintain — worth it only if desktop is more than a rounding error
+    in this shop's traffic, which is a question about Hargeisa, not about CSS.</div>
+
+    <h3>What B changes in code</h3>
+    <ul class="tight">
+      <li><code>CheckoutBar</code> gains <code>products</code> (or just the first three cart lines'
+      image URLs) alongside <code>itemCount</code> and <code>subtotalCents</code>.</li>
+      <li>The container fills with <code>colors.ground</code> and takes a shadow; the inner button
+      keeps <code>colors.accent</code> with <code>ground</code> type — so the existing
+      <b>accent-carries-white gate is still the one that matters</b>, unchanged.</li>
+      <li>Thumbnails fall back to <code>colors.soft</code> when a product has no photo — the same
+      no-photo fallback the tiles already use, so a photoless shop degrades to a count and a total.</li>
+      <li><code>CHECKOUT_BAR_CLEARANCE</code> should stop being a constant. Measure the bar with
+      <code>onLayout</code> and feed the height into the scroller's padding, which removes the
+      re-measure trap the comment warns about.</li>
+      <li>Apply the padding <b>unconditionally</b> so the first Add does not reflow the grid.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>3 · Five other improvements</h2>
+    <p class="h2sub">Found while reading the storefront for the bar. Ranked by what a customer would
+    actually notice, and honest about which are defects versus judgement calls.</p>
+
+    <div class="imp">
+      <div class="hd"><h4>1 · Palm paints "Buy" and "Message us" the same green</h4><span class="sev bug">Defect</span></div>
+      <dl>
+        <dt>Observed</dt><dd>Palm's <code>accent</code> <code>#1F6B45</code> against the fixed WhatsApp
+        button <code>#1F7A4D</code> — <b>ΔE 7.51</b>, half the codebase's own ΔE 15 floor.</dd>
+        <dt>Why</dt><dd>Two different promises in one signal, on the shop's two most important
+        controls. Palm is the only palette with it; the rest sit 49–88 away.</dd>
+        <dt>Fix</dt><dd>One value. <code>#14543A</code> gives ΔE 19.07 <em>and</em> improves white-text
+        contrast from 6.47:1 to 8.90:1.</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>2 · The shop name renders over a grey shape, and the tagline renders twice</h4><span class="sev bug">Defect</span></div>
+      <dl>
+        <dt>Observed</dt><dd>In the live shop: a grey angular block behind "Clothing Store", and
+        "You're Gonna Like the Way You Look, I Guarantee It" printed twice — bold over the shape, then
+        again as plain text.</dd>
+        <dt>Why</dt><dd>This is the anchor card, the first thing a stranger reads. A duplicated line
+        reads as broken software, which is expensive on a page whose whole job is looking trustworthy
+        enough to walk to.</dd>
+        <dt>Fix</dt><dd>Not yet diagnosed — I have not traced it. Likely a headline/tagline field
+        rendered by two components, plus a cover-photo scrim with no photo behind it.</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>3 · The cart is in two places that disagree</h4><span class="sev polish">Polish</span></div>
+      <dl>
+        <dt>Observed</dt><dd>Visit panel: <code>Cart · 1</code>. Bottom bar: <code>Checkout ·
+        $34.99</code>. One shows the count, the other the money; neither shows both.</dd>
+        <dt>Why</dt><dd>Two controls for one object teaches the customer that neither is authoritative.</dd>
+        <dt>Fix</dt><dd>Falls out of direction B — once the bar shows count, total and thumbnails, the
+        panel's Cart button is redundant and can go, or become a plain "Review cart" link.</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>4 · Nothing tells the customer the shop is closed until checkout</h4><span class="sev ask">Worth checking</span></div>
+      <dl>
+        <dt>Observed</dt><dd><code>isOpenAt</code> is called in exactly two places:
+        <code>visit-panel.tsx</code>'s hours card, and <code>shop-directory-card.tsx</code>, which
+        prints <code>Open now</code> on the listing. So a customer sees the shop's open state in the
+        directory, and <b>loses it the moment they walk into the shop</b> — the Shop tab, where the
+        buying happens, never computes it.</dd>
+        <dt>Why</dt><dd>A collection-only shop that is closed cannot hand anything over. Someone
+        ordering at 11pm should learn that beside the Checkout button, not on a tab they may never open.</dd>
+        <dt>Fix</dt><dd>Surface the same computed state in the slip — "collection · opens 8am" instead
+        of "collection". Zero new data; <code>isOpenAt</code> already exists.</dd>
+      </dl>
+    </div>
+
+    <div class="imp">
+      <div class="hd"><h4>5 · The accent is spent on decoration as well as action</h4><span class="sev polish">Polish</span></div>
+      <dl>
+        <dt>Observed</dt><dd>On the shop page the accent fills the checkout bar, the active category
+        pill, the Add buttons, the <code>Open now</code> pill <em>and</em> the nine stock dots.</dd>
+        <dt>Why</dt><dd>The stock dots are a status readout, not something you press. When the same
+        colour means "tap me" five times and "just so you know" once, the tap signal gets diluted —
+        the same argument <code>storefront-catalog.ts</code> already makes for having no
+        <code>stockOk</code> token at all.</dd>
+        <dt>Fix</dt><dd>Draw in-stock dots in <code>ink</code> rather than <code>accent</code>,
+        matching the rule the catalogue applies to in-stock <em>text</em>. Out-of-stock keeps its
+        <code>stockOut</code> ring, so the distinction survives.</dd>
+      </dl>
+    </div>
+
+    <div class="call"><b>Deliberately not on this list:</b> the empty middle of the "In the shop" card.
+    It looks like a rhythm problem and is not — <code>stockFoot</code> takes
+    <code>marginTop: 'auto'</code> on purpose, with a comment explaining that on a wide layout the card
+    is stretched to the anchor's height and the alternative is dead air at the bottom. I went looking
+    for a bug there and found a decision.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>4 · Suggested order</h2>
+    <ol class="steps">
+      <li><b>Bar into the column</b> (§2A) and <b>Palm's accent</b> (§3.1). Two one-line changes, both
+      pure fixes, neither needs a design decision.</li>
+      <li><b>Trace the duplicated tagline</b> (§3.2). It is the only item here a customer would call
+      broken, and it is on the first card they read.</li>
+      <li><b>Build the slip</b> (§2B), taking the clearance measurement and the unconditional padding
+      with it. This is the real piece of work, and it absorbs §3.3 and §3.4 for free.</li>
+      <li><b>Stock dots to ink</b> (§3.5) — small, and best done while the accent's job is already
+      under discussion.</li>
+      <li><b>Desktop dock</b> (§2C) only if desktop traffic warrants a second layout.</li>
+    </ol>
+    <p class="note" style="margin-top:16px;">Nothing here touches the palette system, the six
+    palettes, or the bento surfaces — the slip is built from <code>ground</code>,
+    <code>accent</code> and <code>soft</code>, so it recolours six ways like everything else on
+    the page.</p>
+  </section>
+
+</div>

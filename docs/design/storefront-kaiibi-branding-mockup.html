@@ -1,0 +1,380 @@
+<meta charset="utf-8" />
+<title>Kaiibi Branding on the Storefront</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:76ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:58px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:76ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;word-break:break-word;}
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:82ch;}
+  .call b{color:var(--ink);}
+  .call.badT{border-left-color:#d72b3e;}
+  .call.okT{border-left-color:#008340;}
+
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:660px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+     background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+
+  .caption{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+     color:var(--mut);margin:26px 0 9px;}
+  .caption em{font-weight:600;letter-spacing:0;text-transform:none;font-style:normal;opacity:.8;}
+  .caption.good{color:#008340;} .caption.bad{color:#d72b3e;}
+  @media (prefers-color-scheme: dark){ .caption.good{color:#2eb872;} .caption.bad{color:#e8515f;} }
+  :root[data-theme="dark"] .caption.good{color:#2eb872;}
+  :root[data-theme="dark"] .caption.bad{color:#e8515f;}
+
+  /* ── the kaiibi mark, drawn in CSS as a stand-in for kaiibi-mark-white.png ── */
+  .mk{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;
+    border-radius:5px;font-size:11px;font-weight:800;line-height:1;flex:0 0 auto;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+  .mk.onink{background:rgba(255,255,255,.22);color:#fff;}
+  .mk.onlight{background:#12211a;color:#fbfcfa;}
+  .mk.lg{width:22px;height:22px;border-radius:6px;font-size:13px;}
+
+  /* ── specimens, in Palm ──────────────────────────────────────────────────── */
+  .spec{background:#eef4ef;border:1px solid var(--ln);border-radius:14px;padding:16px;}
+  .spec.sm{max-width:420px;}
+
+  .ft{background:#12211a;border-radius:26px;padding:22px 22px 24px;}
+  .ft .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
+  .ft .nm{font-family:Georgia,"Times New Roman",serif;color:#fbfcfa;font-size:20px;font-weight:700;line-height:1.15;}
+  .ft .pl{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:#acb2ae;margin-top:6px;}
+  .ft .wa{background:#1f7a4d;color:#fff;border-radius:999px;padding:9px 17px;font-size:12.5px;font-weight:700;}
+  .ft .hr{height:1px;background:rgba(255,255,255,.14);margin-top:19px;}
+  .ft .terms{font-size:11.5px;color:#acb2ae;margin-top:15px;}
+  .ft .footrow{display:flex;justify-content:space-between;align-items:center;gap:14px;
+    margin-top:15px;flex-wrap:wrap;}
+  .ft .brand{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:#acb2ae;
+    font-weight:600;}
+  .ft .brand b{color:#fbfcfa;font-weight:800;}
+
+  .conf{background:#fbfcfa;border-radius:26px;padding:22px;}
+  .conf .lab{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#616b66;}
+  .conf .num{font-size:30px;font-weight:800;letter-spacing:-.02em;color:#12211a;margin-top:4px;}
+  .conf .next{font-size:14px;color:#12211a;margin-top:11px;font-weight:600;}
+  .conf .lk{background:#eef4ef;border-radius:18px;padding:13px 15px;margin-top:15px;}
+  .conf .lk .l{font-size:11px;color:#616b66;font-weight:700;}
+  .conf .lk .v{font-size:12.5px;color:#12211a;font-family:ui-monospace,Menlo,monospace;margin-top:3px;}
+  .conf .acq{border-top:1px solid #dfe2df;margin-top:18px;padding-top:16px;
+    display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+  .conf .acq .t{font-size:12.5px;color:#616b66;}
+  .conf .acq .t b{color:#12211a;display:block;font-size:13.5px;font-weight:800;}
+  .conf .acq .btn{border:1px solid #868886;color:#12211a;border-radius:999px;
+    padding:9px 16px;font-size:12.5px;font-weight:800;white-space:nowrap;}
+
+  .dir{background:#ffffff;border-radius:22px;padding:17px;max-width:400px;}
+  .dir .row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+  .dir .nm{font-size:16px;font-weight:800;letter-spacing:-.01em;color:#101014;}
+  .dir .pl{font-size:12px;color:#77777f;margin-top:2px;}
+  .dir .open{background:#d9efe4;color:#007a38;font-size:10.5px;font-weight:800;
+    border-radius:999px;padding:3px 9px;white-space:nowrap;}
+  .dir .ver{display:inline-flex;align-items:center;gap:6px;margin-top:12px;
+    background:#f1f1f4;border-radius:999px;padding:5px 11px;font-size:11px;font-weight:800;color:#3d3d46;}
+
+  .wrongright{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:6px;}
+
+  ul.tight{margin:10px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ul.tight li{margin-bottom:7px;}
+  ul.tight li b{color:var(--ink);}
+  ol.steps{margin:12px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ol.steps li{margin-bottom:8px;}
+  ol.steps li b{color:var(--ink);}
+
+  .q{border:1px solid var(--ln);border-radius:13px;background:var(--sf);padding:15px 17px;margin-top:13px;}
+  .q h4{margin:0 0 5px;font-size:14px;font-weight:800;}
+  .q p{margin:0;font-size:13px;color:var(--ink2);}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Storefront · kaiibi branding</p>
+  <h1>Putting kaiibi on a page that belongs to the shop</h1>
+  <p class="lede">There is no branding on the storefront today — the footer prints the shop's name,
+  its place, a WhatsApp button and two terms, and stops. Adding kaiibi is straightforward, but only
+  once you separate the two things people mean by "branding", because they want opposite placements
+  and one of them can quietly cost the shop money.</p>
+
+  <hr class="rule" />
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>1 · Two different asks wearing one word</h2>
+    <p class="h2sub">Worth splitting before choosing placements, because the answer differs.</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th></th><th>Attribution</th><th>Acquisition</th></tr></thead>
+        <tbody>
+          <tr><td><b>Says</b></td><td>"This shop runs on kaiibi."</td><td>"You could have a shop like this."</td></tr>
+          <tr><td><b>Serves</b></td><td>kaiibi's credibility, and the shop's — a stranger sees the page is real software, not a screenshot.</td><td>kaiibi's growth. It converts the shop's visitor into kaiibi's lead.</td></tr>
+          <tr><td><b>Costs the shop</b></td><td>Nothing, if it is quiet and below the goods.</td><td>Real attention, if it appears before the customer has bought.</td></tr>
+          <tr><td><b>Belongs</b></td><td>The footer. Every page, always.</td><td>After the order is placed — never on the browsing page.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="call"><b>The rule that falls out of this:</b> attribution is a permanent, quiet mark on
+    the shop's page. Acquisition is a single, well-timed ask on the confirmation screen, once the
+    customer's own job is done. Putting "Create your own shop" above the goods monetises the shop's
+    traffic against the shop — and the merchant is the customer here.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>2 · Where it goes</h2>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Surface</th><th>Whose page</th><th>What goes there</th><th>How loud</th></tr></thead>
+        <tbody>
+          <tr><td><b>Shop footer</b> <code>shop-footer.tsx</code></td><td>The shop's</td><td>Wordmark + "Powered by kaiibi", linked</td><td>Quiet — <code>onDarkMuted</code>, 11.5px</td></tr>
+          <tr><td><b>Order confirmation</b> <code>order-placed.tsx</code></td><td>Shared</td><td>Attribution, plus one acquisition line</td><td>Modest — below the order link</td></tr>
+          <tr><td><b>Order status page</b> <code>public-order-view.tsx</code></td><td>Shared</td><td>Wordmark. The customer returns here repeatedly</td><td>Quiet</td></tr>
+          <tr><td><b>Shop directory</b> <code>shop-directory-card.tsx</code></td><td><b>kaiibi's</b></td><td>Full branding, header, the lot</td><td>Loud — it is kaiibi's own page</td></tr>
+          <tr><td>Anchor card, tab rail, checkout bar</td><td>The shop's</td><td><b>Nothing</b></td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:12px;">The directory is the surface people forget. It already
+    lists many shops and computes <code>Open now</code> for each — it is unambiguously kaiibi's page,
+    so it can carry the brand at full strength without taking anything from any single merchant.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>3 · The footer</h2>
+    <p class="h2sub">The natural home: already an <code>ink</code>-filled bookend with an
+    <code>onDarkMuted</code> secondary ramp, and <code>kaiibi-mark-white.png</code> is monochrome, so
+    it sits on all six palettes without importing a foreign colour.</p>
+
+    <p class="caption bad">Today <em>— the page just ends</em></p>
+    <div class="spec sm">
+      <div class="ft">
+        <div class="top">
+          <div><div class="nm">Hargeisa Men's<br />Clothing Store</div><div class="pl">Main stree, Hargeisa</div></div>
+          <div class="wa">WhatsApp</div>
+        </div>
+        <div class="hr"></div>
+        <div class="terms">Pay on collection · Prices set by the shop</div>
+      </div>
+    </div>
+
+    <p class="caption good">Proposed <em>— attribution on the line that already exists</em></p>
+    <div class="spec sm">
+      <div class="ft">
+        <div class="top">
+          <div><div class="nm">Hargeisa Men's<br />Clothing Store</div><div class="pl">Main stree, Hargeisa</div></div>
+          <div class="wa">WhatsApp</div>
+        </div>
+        <div class="hr"></div>
+        <div class="footrow">
+          <div class="terms" style="margin-top:0;">Pay on collection · Prices set by the shop</div>
+          <div class="brand"><span class="mk onink">k</span>Powered by <b>kaiibi</b></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:12px;">It shares the row with the terms line rather than adding
+    one, so the footer gains <b>zero height</b>. On a narrow phone the row wraps and the mark drops
+    below the terms, which is the right order of importance. Set in <code>onDarkMuted</code> with the
+    wordmark itself stepped up to <code>ground</code> — the same two-step the shop name and place
+    already use above it.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>4 · The confirmation — the one place acquisition is fair</h2>
+    <p class="h2sub">The customer has ordered. The shop has what it wanted. This is the only moment
+    where asking for something on kaiibi's behalf costs the merchant nothing.</p>
+
+    <div class="spec sm">
+      <div class="conf">
+        <div class="lab">Order number</div>
+        <div class="num">#1042</div>
+        <div class="next">Collect from Main stree, Hargeisa. Pay $34.99 on collection.</div>
+        <div class="lk">
+          <div class="l">Check on this order any time</div>
+          <div class="v">kaiibi.com/o/8fc21a</div>
+        </div>
+        <div class="acq">
+          <div class="t"><b>Run a shop yourself?</b>Take orders like this one on kaiibi.</div>
+          <div class="btn">See how</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="call"><b>Note what it is not.</b> The button is outlined, not accent-filled — the
+    accent belongs to the shop and to the act of buying, and an acquisition CTA wearing it would be
+    the loudest thing on a screen whose job is to confirm an order. It sits below the order link, so
+    the thing the customer came for stays first.</div>
+
+    <p class="note" style="margin-top:14px;">The order link is the highest-value branding surface on
+    the whole product and the easiest to overlook: it is a URL the customer <em>saves and reopens</em>
+    to check their order. Whatever lives on <code>public-order-view.tsx</code> gets seen repeatedly, by
+    someone in a good mood, at a moment kaiibi visibly worked.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>5 · The version the merchant actually wants</h2>
+    <p class="h2sub">Branding is usually a tax on the merchant. It does not have to be — if it carries
+    trust rather than just a name.</p>
+
+    <div class="spec sm">
+      <div class="dir">
+        <div class="row">
+          <div><div class="nm">Hargeisa Men's Clothing Store</div><div class="pl">Main stree, Hargeisa · Collection only</div></div>
+          <div class="open">Open now</div>
+        </div>
+        <div class="ver"><span class="mk onlight">k</span>Verified shop on kaiibi</div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:12px;">A stranger deciding whether to walk across Hargeisa to a
+    shop they found on a link is making a trust judgement with very little to go on. "Verified shop on
+    kaiibi" answers that — which means the merchant <em>wants</em> the badge, and kaiibi gets its name
+    on the page as a side effect rather than as a levy.</p>
+
+    <div class="call"><b>It has to be true, though.</b> A badge that every shop gets the moment it
+    signs up is decoration, and customers learn to ignore it. It needs to mean something checkable —
+    a confirmed phone number, a real address, a first completed order. Otherwise ship the plain
+    "Powered by" and skip this.</div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>6 · The colour rule</h2>
+    <p class="h2sub">This is where branding most easily breaks the storefront, and the failure is
+    invisible until you see it on a shop that is not grey.</p>
+
+    <div class="wrongright">
+      <div>
+        <p class="caption bad" style="margin-top:0;">Wrong <em>— kaiibi blue on a Palm shop</em></p>
+        <div class="spec">
+          <div class="ft" style="padding-bottom:20px;">
+            <div class="terms" style="margin-top:0;">Pay on collection</div>
+            <div class="footrow" style="margin-top:12px;">
+              <div class="brand"><span class="mk" style="background:#2f6bff;color:#fff;">k</span>
+              <span style="color:#5f86ff;font-weight:800;">Powered by kaiibi</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:9px;font-size:12.5px;">A foreign hue on a page whose every
+        other colour derives from the shop's palette. It reads as an advert someone pasted on, and it
+        competes with the accent for "this is the important thing".</p>
+      </div>
+      <div>
+        <p class="caption good" style="margin-top:0;">Right <em>— monochrome, on the ink footer</em></p>
+        <div class="spec">
+          <div class="ft" style="padding-bottom:20px;">
+            <div class="terms" style="margin-top:0;">Pay on collection</div>
+            <div class="footrow" style="margin-top:12px;">
+              <div class="brand"><span class="mk onink">k</span>Powered by <b>kaiibi</b></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:9px;font-size:12.5px;">Drawn from the palette's own
+        <code>onDarkMuted</code> and <code>ground</code>. Recolours six ways for free, and never
+        outranks the shop's own accent.</p>
+      </div>
+    </div>
+
+    <ul class="tight">
+      <li><b>Never the shop's <code>accent</code>.</b> That colour means "press this to buy". Branding is not pressable in that sense.</li>
+      <li><b>Never kaiibi's own blue on the shop page.</b> Save it for the directory and the marketing site, which are kaiibi's surfaces.</li>
+      <li><b>Use the white mark on <code>ink</code>, the black mark on light.</b> Both assets already exist — <code>kaiibi-mark-white.png</code> and <code>kaiibi-mark-black.png</code>.</li>
+      <li><b>It is a link, so it needs a visible focus state</b> — the footer is keyboard-reachable on web.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>7 · Open questions</h2>
+
+    <div class="q" style="border-color:#008340;"><h4>✓ Decided — branding is removed on Pro</h4>
+    <p>Which settles the architecture: the mark must be <b>one conditional in one place</b>, and the
+    footer is therefore the only sensible home. Three constraints came out of the code, and all three
+    point the same way — the decision belongs on the server, not the client.</p>
+    <ul class="tight" style="margin-top:11px;">
+      <li><b>It cannot use the entitlements path.</b> The storefront renders for a stranger with no
+      session; <code>my_shop_entitlements()</code> is authed. The flag has to travel on
+      <code>get_public_storefront</code>, the <code>security definer</code> RPC that already decides
+      what an anonymous visitor may see — so it becomes one more column in that explicit column list.</li>
+      <li><b>Do not test <code>planKey === 'pro'</code>.</b> Plans get retired and hopped to a
+      successor (<code>20260824000100_resolve_retired_plans.sql</code>), and
+      <code>platform_settings.post_trial_plan_key</code> can move. A hardcoded key breaks the first
+      time Pro is renamed or superseded. Model it as a capability on the plan row, the way
+      <code>plans.modules</code> already is — "an unknown entry is ignored by the reader, so a plan row
+      can outlive a catalog change".</li>
+      <li><b>The default must be "show branding".</b> <code>entitlements.ts</code> sets the rule: over-
+      restricting costs a retry, over-permitting "is the shape a monetization bypass takes". Here the
+      <em>perk</em> is hiding the mark, so absence must mean show. <code>Boolean(row.hide_branding)</code>
+      turns a missing column into <code>false</code> — branding visible — which is the same
+      shipped-ahead-of-the-database guard <code>offersDelivery</code> already uses.</li>
+    </ul>
+    <p style="margin-top:11px;">One question this opens: a shop in <code>grace</code> is fully usable
+    by design — payment is mobile money confirmed by hand — so branding should stay hidden through
+    grace and return only on <code>expired</code>. That is another reason to compute it in the RPC
+    rather than in the client, which has no business knowing about billing states at all.</p></div>
+
+    <div class="q"><h4>Where does the link go?</h4>
+    <p>A marketing page that explains kaiibi, or a sign-up? "Powered by kaiibi" clicked by a
+    <em>customer</em> is curiosity; clicked by a <em>shopkeeper</em> browsing a rival's shop it is
+    intent. The second is the valuable one, which argues for a page that sells rather than a form.</p></div>
+
+    <div class="q"><h4>Does "kaiibi" need a fixed wordmark treatment?</h4>
+    <p>Right now it would be set in the page's own font, which changes across the three themes. If
+    the name is meant to be recognisable, it wants to be an image or a pinned face — otherwise it is
+    just a word, styled differently on every shop.</p></div>
+
+    <div class="q"><h4>What is "verified" if we ship the badge?</h4>
+    <p>Needs a definition that a customer would agree is meaningful and that a shop can actually
+    reach. Confirmed phone plus a real collection address is the cheapest honest bar.</p></div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>8 · Suggested order</h2>
+    <ol class="steps">
+      <li><b>Footer attribution</b> — one row in <code>shop-footer.tsx</code>, zero added height, works on all six palettes and all three themes at once.</li>
+      <li><b>Order status page</b> — the same mark on <code>public-order-view.tsx</code>. Highest repeat exposure in the product, smallest change.</li>
+      <li><b>Confirmation acquisition line</b> — after deciding the link target and whether plans remove it.</li>
+      <li><b>Directory branding</b> — kaiibi's own page, so this can be as strong as the marketing site and needs no restraint.</li>
+      <li><b>Verified badge</b> — only once "verified" means something checkable.</li>
+    </ol>
+  </section>
+
+</div>

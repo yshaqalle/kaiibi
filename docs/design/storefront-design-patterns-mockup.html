@@ -1,0 +1,745 @@
+<meta charset="utf-8" />
+<title>Kaiibi Storefront — Four Patterns, One System</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#8fb4ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 26px;}
+  h2{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:78ch;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:30px 0 8px;}
+  section{margin-top:62px;}
+  p.note{font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;}
+  .rule{height:1px;background:var(--ln);border:0;margin:0;}
+
+  .call{border:1px solid var(--ln);border-left:3px solid var(--blue);border-radius:0 13px 13px 0;
+    background:var(--sf);padding:15px 18px;margin:20px 0 0;font-size:14px;color:var(--ink2);max-width:84ch;}
+  .call b{color:var(--ink);}
+  .call.okT{border-left-color:#008340;}
+  .call.badT{border-left-color:#d72b3e;}
+
+  .tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:620px;border-collapse:separate;border-spacing:0;font-size:13.5px;
+    background:var(--sf);border:1px solid var(--ln);border-radius:13px;overflow:hidden;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{color:var(--ink);}
+
+  .caption{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);margin:0 0 9px;}
+  .caption em{font-weight:600;letter-spacing:0;text-transform:none;font-style:normal;opacity:.8;}
+
+  .duo{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-top:16px;}
+  .phone{width:330px;border:1px solid var(--ln);border-radius:22px;overflow:hidden;flex:0 0 auto;}
+  .whatcol{flex:1;min-width:300px;}
+  .whatcol ul{margin:8px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);}
+  .whatcol li{margin-bottom:7px;}
+  .whatcol li b{color:var(--ink);}
+  .fits{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px;}
+  .fit{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 10px;border-radius:999px;background:var(--pg2);color:var(--ink2);}
+  .fit.hi{background:#e6edff;color:#1b47b8;}
+  @media (prefers-color-scheme: dark){ .fit.hi{background:#1a2440;color:#8fb4ff;} }
+  :root[data-theme="dark"] .fit.hi{background:#1a2440;color:#8fb4ff;}
+
+  /* ═══ Shared azure vars for every specimen ═══ */
+  .az{--g:#fbfcfe;--s:#eef2fa;--i:#101623;--a:#0071e3;--m:#60646d;--e:#868689;
+      --odm:#abaeb4;--wash:#ddebfb;--washink:#0063c8;--hl:#dfe0e4;}
+
+  /* ═══ PATTERN A · Refined bento ═══ */
+  .pa{background:var(--s);color:var(--i);padding:13px;font-size:13px;}
+  .pa .anchor{position:relative;background:var(--i);border-radius:26px;padding:17px 16px 15px;margin-bottom:12px;overflow:hidden;}
+  .pa .anchor::after{content:"";position:absolute;top:-60px;right:-60px;width:190px;height:190px;
+    border-radius:50%;background:radial-gradient(circle, var(--a) 0%, transparent 68%);opacity:.16;}
+  .pa .nm{font-family:Georgia,"Times New Roman",serif;color:var(--g);font-size:21px;font-weight:700;
+    line-height:1.12;letter-spacing:-.015em;position:relative;}
+  .pa .pl{color:var(--odm);font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin-top:6px;position:relative;}
+  .pa .statusrow{display:flex;gap:6px;margin-top:12px;position:relative;}
+  .pa .st{border:1px solid var(--odm);color:var(--g);border-radius:999px;padding:3px 10px;font-size:10.5px;font-weight:700;}
+  .pa .st.on{background:var(--a);border-color:var(--a);}
+  .pa .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--e);border-radius:12px;
+    padding:9px 12px;color:var(--m);font-size:12px;background:var(--g);margin-bottom:10px;}
+  .pa .srch i{font-style:normal;opacity:.7;}
+  .pa .cats{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+  .pa .cat{background:var(--g);border:1px solid var(--e);border-radius:999px;padding:5px 11px;
+    font-size:11.5px;font-weight:600;color:var(--i);display:inline-flex;gap:5px;align-items:baseline;}
+  .pa .cat u{text-decoration:none;color:var(--m);font-size:10px;font-weight:700;}
+  .pa .cat.on{background:var(--a);border-color:var(--a);color:#fff;}
+  .pa .cat.on u{color:rgba(255,255,255,.75);}
+  .pa .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .pa .tile{border-radius:18px;background:var(--g);padding:6px 6px 11px;
+    box-shadow:0 2px 10px rgba(16,22,35,.06);}
+  .pa .ph{height:96px;border-radius:13px;background:linear-gradient(150deg,var(--s),#e2e8f2);}
+  .pa .bd{padding:9px 5px 0;}
+  .pa .tn{font-size:11.5px;font-weight:700;line-height:1.3;min-height:29px;}
+  .pa .prow{display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+  .pa .prc{font-size:15px;font-weight:800;letter-spacing:-.01em;}
+  .pa .stk{font-size:9.5px;color:var(--m);font-weight:600;}
+  .pa .add{margin-top:8px;background:var(--a);color:#fff;border-radius:999px;padding:6px 0;text-align:center;font-size:11.5px;font-weight:700;}
+  .pa .wa{margin-top:8px;background:#1f7a4d;color:#fff;border-radius:999px;padding:6px 0;text-align:center;font-size:11.5px;font-weight:700;}
+  .pa .slip{margin-top:12px;background:var(--g);border-radius:999px;padding:7px 7px 7px 14px;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 6px 20px rgba(16,22,35,.14);}
+  .pa .thumbs{display:flex;}
+  .pa .thumbs b{width:26px;height:26px;border-radius:8px;background:var(--s);display:block;border:2px solid var(--g);margin-left:-8px;}
+  .pa .thumbs b:first-child{margin-left:0;}
+  .pa .cnt{font-size:12px;font-weight:800;line-height:1.2;}
+  .pa .cnt s{display:block;text-decoration:none;font-size:10px;font-weight:600;color:var(--m);}
+  .pa .go{background:#0071e3;color:#fff;border-radius:999px;padding:9px 16px;font-size:12px;font-weight:800;}
+
+  /* ═══ PATTERN B · Stall ═══ */
+  .pb{background:var(--s);color:var(--i);font-size:13px;}
+  .pb .bar{display:flex;justify-content:space-between;align-items:center;background:var(--g);
+    padding:11px 13px;border-bottom:1px solid var(--hl);}
+  .pb .bnm{font-family:Georgia,serif;font-size:15px;font-weight:700;}
+  .pb .bst{font-size:9.5px;font-weight:800;color:#fff;background:var(--a);border-radius:999px;padding:3px 9px;}
+  .pb .band{display:flex;gap:6px;padding:9px 13px;background:var(--g);border-bottom:1px solid var(--hl);
+    overflow:hidden;}
+  .pb .cat{flex:0 0 auto;background:var(--s);border-radius:999px;padding:5px 11px;font-size:11px;font-weight:700;color:var(--i);}
+  .pb .cat.on{background:var(--i);color:var(--g);}
+  .pb .sect{display:flex;justify-content:space-between;align-items:baseline;padding:13px 13px 8px;}
+  .pb .sh{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
+  .pb .sc{font-size:10.5px;color:var(--m);font-weight:700;}
+  .pb .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 13px 13px;}
+  .pb .tile{border-radius:14px;background:var(--g);overflow:hidden;}
+  .pb .ph{height:64px;background:linear-gradient(150deg,var(--s),#e2e8f2);}
+  .pb .bd{padding:7px 8px 9px;}
+  .pb .tn{font-size:10px;font-weight:700;line-height:1.28;min-height:26px;}
+  .pb .prc{font-size:12.5px;font-weight:800;margin-top:3px;}
+  .pb .add{margin-top:6px;background:var(--a);color:#fff;border-radius:999px;padding:4px 0;text-align:center;font-size:10px;font-weight:800;}
+  .pb .qty{margin-top:6px;display:flex;align-items:center;justify-content:space-between;
+    background:var(--wash);border-radius:999px;padding:3px 9px;}
+  .pb .qty i{font-style:normal;color:var(--washink);font-weight:800;font-size:12px;}
+  .pb .qty span{font-size:11px;font-weight:800;color:var(--washink);}
+  .pb .slipwrap{padding:0 13px 13px;}
+  .pb .slip{background:var(--g);border-radius:999px;padding:7px 7px 7px 14px;
+    display:flex;align-items:center;justify-content:space-between;box-shadow:0 6px 20px rgba(16,22,35,.14);}
+  .pb .cnt{font-size:12px;font-weight:800;}
+  .pb .cnt s{display:block;text-decoration:none;font-size:10px;font-weight:600;color:var(--m);}
+  .pb .go{background:#0071e3;color:#fff;border-radius:999px;padding:9px 16px;font-size:12px;font-weight:800;}
+
+  /* ═══ PATTERN C · Boutique ═══ */
+  .pc{background:var(--g);color:var(--i);font-size:13px;}
+  .pc .mast{padding:22px 16px 16px;border-bottom:1px solid var(--hl);}
+  .pc .eb{font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--m);}
+  .pc .nm{font-family:Georgia,serif;font-size:26px;font-weight:700;line-height:1.08;letter-spacing:-.02em;margin-top:7px;}
+  .pc .meta{display:flex;gap:12px;margin-top:11px;font-size:9.5px;font-weight:800;
+    letter-spacing:.09em;text-transform:uppercase;color:var(--m);}
+  .pc .meta b{color:var(--washink);}
+  .pc .cats{display:flex;gap:16px;padding:12px 16px;border-bottom:1px solid var(--hl);
+    font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--m);}
+  .pc .cats .on{color:var(--i);border-bottom:2px solid var(--a);padding-bottom:3px;}
+  .pc .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;}
+  .pc .ph{aspect-ratio:4/5;border-radius:14px;background:linear-gradient(160deg,var(--s),#e2e8f2);}
+  .pc .tn{font-size:11.5px;font-weight:700;margin-top:8px;line-height:1.3;}
+  .pc .prc{font-size:12.5px;font-weight:600;color:var(--ink2);margin-top:2px;font-variant-numeric:tabular-nums;color:var(--m);}
+  .pc .add{display:inline-block;margin-top:7px;color:var(--washink);background:var(--wash);
+    border-radius:999px;padding:4px 12px;font-size:10.5px;font-weight:800;}
+  .pc .foot{background:var(--i);padding:18px 16px;margin-top:6px;}
+  .pc .fn{font-family:Georgia,serif;color:var(--g);font-size:15px;font-weight:700;}
+  .pc .ft{color:var(--odm);font-size:10px;margin-top:8px;}
+  .pc .slip{margin:12px 12px 14px;background:var(--g);border:1px solid var(--hl);border-radius:999px;
+    padding:7px 7px 7px 14px;display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 6px 20px rgba(16,22,35,.12);}
+  .pc .cnt{font-size:12px;font-weight:800;}
+  .pc .cnt s{display:block;text-decoration:none;font-size:10px;font-weight:600;color:var(--m);}
+  .pc .go{background:#0071e3;color:#fff;border-radius:999px;padding:9px 16px;font-size:12px;font-weight:800;}
+
+  /* ═══ PATTERN D · Poster ═══ */
+  .pd{background:var(--s);color:var(--i);font-size:13px;}
+  .pd .hero{position:relative;height:190px;background:
+    linear-gradient(180deg, rgba(16,22,35,.06) 0%, rgba(16,22,35,.78) 82%),
+    linear-gradient(140deg,#3a4a63,#181f2e 70%);}
+  .pd .heroin{position:absolute;left:15px;right:15px;bottom:14px;}
+  .pd .nm{font-family:Georgia,serif;color:#fff;font-size:23px;font-weight:700;line-height:1.1;letter-spacing:-.015em;}
+  .pd .pl{color:#e8e6e0;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin-top:5px;}
+  .pd .chips{display:flex;gap:6px;margin-top:10px;}
+  .pd .chip2{background:rgba(255,255,255,.16);color:#fff;border-radius:999px;padding:3px 10px;
+    font-size:10px;font-weight:700;backdrop-filter:blur(4px);}
+  .pd .rail{padding:13px 0 2px;}
+  .pd .rh{display:flex;justify-content:space-between;align-items:baseline;padding:0 14px 8px;}
+  .pd .rt{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;}
+  .pd .ra{font-size:10.5px;font-weight:800;color:var(--washink);}
+  .pd .cards{display:flex;gap:9px;padding:0 14px 6px;overflow:hidden;}
+  .pd .tile{flex:0 0 108px;border-radius:15px;background:var(--g);overflow:hidden;
+    box-shadow:0 2px 8px rgba(16,22,35,.06);}
+  .pd .ph{height:76px;background:linear-gradient(150deg,var(--s),#e2e8f2);}
+  .pd .bd{padding:7px 9px 10px;}
+  .pd .tn{font-size:10px;font-weight:700;line-height:1.28;min-height:26px;}
+  .pd .prc{font-size:12.5px;font-weight:800;margin-top:3px;}
+  .pd .add{margin-top:6px;background:var(--a);color:#fff;border-radius:999px;padding:4px 0;text-align:center;font-size:10px;font-weight:800;}
+  .pd .slipwrap{padding:8px 13px 13px;}
+  .pd .slip{background:var(--g);border-radius:999px;padding:7px 7px 7px 14px;display:flex;
+    align-items:center;justify-content:space-between;box-shadow:0 6px 20px rgba(16,22,35,.14);}
+  .pd .cnt{font-size:12px;font-weight:800;}
+  .pd .cnt s{display:block;text-decoration:none;font-size:10px;font-weight:600;color:var(--m);}
+  .pd .go{background:#0071e3;color:#fff;border-radius:999px;padding:9px 16px;font-size:12px;font-weight:800;}
+
+  /* ═══ About / Visit specimens ═══ */
+  .tabhead{display:flex;gap:6px;padding:11px 13px;background:var(--g);border-bottom:1px solid var(--hl);}
+  .tabhead .t{border-radius:999px;padding:5px 13px;font-size:11px;font-weight:700;color:var(--m);}
+  .tabhead .t.on{background:var(--i);color:var(--g);}
+  .pnl{background:var(--s);padding:13px;font-size:13px;color:var(--i);}
+  .pcard{background:var(--g);border-radius:20px;padding:14px 15px;margin-bottom:11px;}
+  .pcard .eb{font-size:9px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--m);}
+
+  /* about · today */
+  .abT .story{font-size:11.5px;color:var(--m);line-height:1.55;margin-top:8px;}
+  .abT .gal{display:flex;gap:7px;margin-top:10px;}
+  .abT .gal b{flex:1;height:52px;border-radius:10px;background:linear-gradient(150deg,var(--s),#e2e8f2);display:block;}
+  .abT .stats{display:flex;justify-content:space-between;margin-top:4px;}
+  .abT .stat b{display:block;font-size:16px;font-weight:800;}
+  .abT .stat s{text-decoration:none;font-size:9.5px;color:var(--m);}
+  .abT .hl{font-size:11px;font-weight:700;margin-top:2px;}
+  .abT .hlb{font-size:10.5px;color:var(--m);margin-top:2px;line-height:1.45;}
+  .abT .faq{display:flex;justify-content:space-between;font-size:11px;font-weight:700;
+    padding:8px 0;border-bottom:1px solid var(--hl);}
+  .abT .faq:last-child{border-bottom:0;}
+  .abT .faq i{font-style:normal;color:var(--m);}
+
+  /* about · proposed */
+  .abP .cover{position:relative;height:118px;border-radius:20px;overflow:hidden;margin-bottom:11px;
+    background:linear-gradient(140deg,#3a4a63,#181f2e 70%);}
+  .abP .cover .strip{position:absolute;left:0;right:0;bottom:0;padding:9px 13px;
+    background:linear-gradient(180deg,transparent,rgba(16,22,35,.72));color:#fff;
+    font-size:10px;font-weight:700;}
+  .abP .thumbrow{display:flex;gap:7px;margin-bottom:11px;}
+  .abP .thumbrow b{flex:1;height:44px;border-radius:11px;background:linear-gradient(150deg,var(--s),#e2e8f2);display:block;}
+  .abP .proof{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px;}
+  .abP .chip{background:var(--g);border-radius:999px;padding:5px 11px;font-size:10px;font-weight:800;color:var(--i);}
+  .abP .chip u{text-decoration:none;color:var(--washink);}
+  .abP .story{font-size:11.5px;line-height:1.6;color:var(--i);}
+  .abP .story b{font-family:Georgia,serif;font-size:14px;display:block;margin-bottom:4px;}
+  .abP .hlrow{display:flex;gap:8px;margin-top:10px;}
+  .abP .hlc{flex:1;background:var(--s);border-radius:13px;padding:9px 10px;}
+  .abP .hlc b{font-size:10px;font-weight:800;display:block;}
+  .abP .hlc s{text-decoration:none;font-size:9.5px;color:var(--m);line-height:1.4;display:block;margin-top:2px;}
+
+  /* visit · today */
+  .vsT .row{display:flex;justify-content:space-between;font-size:11px;padding:7px 0;border-bottom:1px solid var(--hl);}
+  .vsT .row:last-child{border-bottom:0;}
+  .vsT .row span:first-child{color:var(--m);}
+  .vsT .row b{font-weight:700;}
+  .vsT .open{background:var(--a);color:#fff;border-radius:999px;padding:3px 9px;font-size:9.5px;font-weight:800;}
+
+  /* visit · proposed */
+  .vsP .decide{background:var(--i);border-radius:20px;padding:15px;margin-bottom:11px;}
+  .vsP .state{display:inline-block;background:var(--a);color:#fff;border-radius:999px;
+    padding:4px 12px;font-size:10.5px;font-weight:800;}
+  .vsP .lm{font-family:Georgia,serif;color:var(--g);font-size:18px;font-weight:700;line-height:1.2;margin-top:10px;}
+  .vsP .nb{color:var(--odm);font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;margin-top:4px;}
+  .vsP .acts{display:flex;gap:7px;margin-top:13px;}
+  .vsP .dir{flex:1;background:var(--g);color:var(--i);border-radius:999px;padding:9px 0;
+    text-align:center;font-size:11.5px;font-weight:800;}
+  .vsP .wa2{flex:1;background:#1f7a4d;color:#fff;border-radius:999px;padding:9px 0;
+    text-align:center;font-size:11.5px;font-weight:800;}
+  .vsP .today{display:flex;justify-content:space-between;align-items:center;}
+  .vsP .today b{font-size:11.5px;font-weight:800;}
+  .vsP .today s{text-decoration:none;font-size:10.5px;color:var(--washink);font-weight:800;}
+  .vsP .areas{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .vsP .area{background:var(--wash);color:var(--washink);border-radius:999px;padding:4px 11px;
+    font-size:10px;font-weight:800;}
+  .vsP .crow{display:flex;gap:8px;margin-top:2px;}
+  .vsP .cc{flex:1;background:var(--s);border-radius:13px;padding:9px 0;text-align:center;
+    font-size:10px;font-weight:800;color:var(--i);}
+
+  ol.steps{margin:12px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ol.steps li{margin-bottom:8px;}
+  ol.steps li b{color:var(--ink);}
+  ul.tight{margin:10px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  ul.tight li{margin-bottom:7px;}
+  ul.tight li b{color:var(--ink);}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Storefront · pattern exploration</p>
+  <h1>Four patterns for a more polished storefront</h1>
+  <p class="lede">Same system underneath every one — the seven palettes, the WCAG gates, the fixed
+  checkout blue and WhatsApp green, the slip, the 1320px column. What varies is the <em>composition</em>:
+  where the shop's identity sits, how dense the goods are, and what the page leads with. All four are
+  drawn in Azure; every one recolours through the palette like everything else. All four are plain
+  React Native — no library the app doesn't already carry.</p>
+
+  <hr class="rule" />
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>A · Refined Bento — polish, not surgery</h2>
+    <p class="h2sub">The shipped composition, kept — anchor, pills, grid — with the finish layer it
+    never got. This is "optimize the design we have" taken literally.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="pa">
+        <div class="anchor">
+          <div class="nm">Hargeisa Men's<br />Clothing Store</div>
+          <div class="pl">Main stree, Hargeisa</div>
+          <div class="statusrow"><span class="st on">Open until 9pm</span><span class="st">Collection</span></div>
+        </div>
+        <div class="srch"><i>⌕</i> Search this shop</div>
+        <div class="cats"><span class="cat on">All <u>9</u></span><span class="cat">Shirts <u>3</u></span><span class="cat">Trousers <u>3</u></span></div>
+        <div class="grid">
+          <div class="tile"><div class="ph"></div><div class="bd">
+            <div class="tn">Oxford Shirt, White</div>
+            <div class="prow"><span class="prc">$22.00</span><span class="stk">In stock</span></div>
+            <div class="add">Add</div></div></div>
+          <div class="tile"><div class="ph"></div><div class="bd">
+            <div class="tn">Denim Jacket</div>
+            <div class="prow"><span class="prc">$36.00</span><span class="stk">Ask us</span></div>
+            <div class="wa">WhatsApp</div></div></div>
+        </div>
+        <div class="slip">
+          <div style="display:flex;align-items:center;gap:9px;">
+            <span class="thumbs"><b></b><b></b></span>
+            <span class="cnt">$58.00<s>2 items · collection</s></span>
+          </div>
+          <span class="go">Checkout</span>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What changes</h3>
+        <ul>
+          <li><b>The anchor gets an accent glow</b> — a radial wash of the palette's accent at 16%
+          opacity bleeding from one corner of the ink card. One <code>expo-linear-gradient</code>
+          radial (or a pre-rendered PNG), and the flat slab reads as lit. Recolours per palette
+          automatically because it IS the accent.</li>
+          <li><b>Status becomes a pill row</b> — "Open until 9pm" (accent-filled when open) beside
+          "Collection". The open state finally lives on the shop page, not just the directory.</li>
+          <li><b>Tiles float</b> — 6% ink shadow, photo inset to radius 13 with 6px of card visible
+          around it. Borderless stays; depth arrives.</li>
+          <li><b>Price row carries the stock word</b> — price left, "In stock"/"Ask us" microtext
+          right, so the tile answers both questions on one line.</li>
+          <li><b>Category pills show counts</b> — "Shirts · 3". Cheap, and the page stops feeling
+          like a guess.</li>
+          <li><b>Search gets its glyph and a 12-radius field</b> instead of the bare bordered box.</li>
+        </ul>
+        <div class="fits"><span class="fit hi">Smallest diff</span><span class="fit">All 3 themes</span><span class="fit">No photo needed</span><span class="fit">Rides the parked plan</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>B · Stall — dense, quick, market energy</h2>
+    <p class="h2sub">For the shop whose customers know what they want: a compact header, a sticky
+    category band, three-up tiles, and quantity steppers that appear in place after the first Add —
+    the modern delivery-app grammar, in the shop's own palette.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="pb">
+        <div class="bar"><span class="bnm">Hargeisa Men's</span><span class="bst">Open</span></div>
+        <div class="band"><span class="cat on">All</span><span class="cat">Shirts</span><span class="cat">Trousers</span><span class="cat">Outerwear</span><span class="cat">Access…</span></div>
+        <div class="sect"><span class="sh">Shirts</span><span class="sc">3 items</span></div>
+        <div class="grid">
+          <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Oxford, White</div><div class="prc">$22</div><div class="add">Add</div></div></div>
+          <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Flannel, Grey</div><div class="prc">$19</div>
+            <div class="qty"><i>−</i><span>2</span><i>+</i></div></div></div>
+          <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Linen, Sand</div><div class="prc">$24</div><div class="add">Add</div></div></div>
+        </div>
+        <div class="sect"><span class="sh">Trousers</span><span class="sc">3 items</span></div>
+        <div class="grid">
+          <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Chino, Navy</div><div class="prc">$28</div><div class="add">Add</div></div></div>
+          <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Denim, Raw</div><div class="prc">$34</div><div class="add">Add</div></div></div>
+          <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Jogger, Black</div><div class="prc">$21</div><div class="add">Add</div></div></div>
+        </div>
+        <div class="slipwrap"><div class="slip">
+          <span class="cnt">$38.00<s>2 items · collection</s></span><span class="go">Checkout</span>
+        </div></div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What changes</h3>
+        <ul>
+          <li><b>The anchor collapses to a bar</b> — name plus an open pill. The full anchor card
+          still exists, but on the About tab; the shop page spends its pixels on goods.</li>
+          <li><b>Category band is sticky</b> and horizontal — always reachable on a 200-item
+          catalogue.</li>
+          <li><b>The grid groups by category with counts</b> — "SHIRTS · 3" — so a long page has
+          landmarks, not just rows.</li>
+          <li><b>Add becomes a stepper in place</b> — tap Add, the pill turns into − 2 + in the
+          tinted tier (<code>accentWash</code>/<code>accentInk</code>). The customer builds a basket
+          without ever leaving the grid. This is the one real interaction change in the set.</li>
+          <li><b>Three-up density</b> using the existing <code>priceDenseGrid</code> type step.</li>
+        </ul>
+        <div class="fits"><span class="fit hi">Best for big catalogues</span><span class="fit">Evolves Market</span><span class="fit">Stepper = new cart wiring</span><span class="fit">No photo needed</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>C · Boutique — editorial, light, unhurried</h2>
+    <p class="h2sub">Inverts the anchor decision: the page opens on <code>ground</code> with a
+    masthead — big serif wordmark, hairline rules, caps metadata — and the single dark surface moves
+    to the footer. Portrait photos, quiet prices, tinted Add.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="pc">
+        <div class="mast">
+          <div class="eb">Menswear · Hargeisa</div>
+          <div class="nm">Hargeisa Men's Clothing Store</div>
+          <div class="meta"><span><b>Open</b> until 9pm</span><span>Collection only</span></div>
+        </div>
+        <div class="cats"><span class="on">All</span><span>Shirts</span><span>Trousers</span><span>Outerwear</span></div>
+        <div class="grid">
+          <div><div class="ph"></div><div class="tn">Oxford Shirt, White</div><div class="prc">$22.00</div><span class="add">Add to cart</span></div>
+          <div><div class="ph"></div><div class="tn">Denim Jacket, Raw</div><div class="prc">$36.00</div><span class="add">Add to cart</span></div>
+        </div>
+        <div class="slip">
+          <span class="cnt">$58.00<s>2 items · collection</s></span><span class="go">Checkout</span>
+        </div>
+        <div class="foot">
+          <div class="fn">Hargeisa Men's Clothing Store</div>
+          <div class="ft">Pay on collection · Prices set by the shop · Powered by kaiibi</div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What changes</h3>
+        <ul>
+          <li><b>Masthead instead of anchor card</b> — the wordmark at 26px over ground, framed by
+          hairlines, with an eyebrow naming what the shop sells. Reads like a label, not an app.</li>
+          <li><b>Category tabs, not pills</b> — caps text with an accent underline on the active
+          one.</li>
+          <li><b>Portrait 4:5 photos, two-up, 16px gutters</b> — clothing, cosmetics and salon
+          product photography is portrait; the square-ish tile crops it badly today.</li>
+          <li><b>Add joins the tinted tier</b> — on this quiet page a solid accent pill per tile
+          would be eight shouts; the wash keeps the page calm and the slip's blue is the loudest
+          thing, which is correct.</li>
+          <li><b>The ink bookend survives at the foot</b>, carrying the colophon.</li>
+        </ul>
+        <div class="fits"><span class="fit hi">Best with photos</span><span class="fit">Evolves Window</span><span class="fit badT" style="background:#fbeaec;color:#d12339;">Trades away the anchor card</span></div>
+        <p class="note" style="margin-top:12px;"><b>The honest trade:</b> the anchor card was the
+        deliberate "centre of gravity" decision — this pattern spends it. Worth it only as a
+        <em>theme</em> a photo-rich shop opts into, never as the default.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>D · Poster — photo-led, rails per category</h2>
+    <p class="h2sub">Window's hero, finished properly: a real gradient scrim (which also fixes the
+    grey-shape defect class), and the catalogue as horizontal rails per category — browse by
+    swiping, jump by rail.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="pd">
+        <div class="hero"><div class="heroin">
+          <div class="nm">Hargeisa Men's<br />Clothing Store</div>
+          <div class="pl">Main stree, Hargeisa</div>
+          <div class="chips"><span class="chip2">Open until 9pm</span><span class="chip2">Collection</span></div>
+        </div></div>
+        <div class="rail">
+          <div class="rh"><span class="rt">Shirts</span><span class="ra">See all 3 →</span></div>
+          <div class="cards">
+            <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Oxford, White</div><div class="prc">$22</div><div class="add">Add</div></div></div>
+            <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Flannel, Grey</div><div class="prc">$19</div><div class="add">Add</div></div></div>
+            <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Linen, Sand</div><div class="prc">$24</div><div class="add">Add</div></div></div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rh"><span class="rt">Outerwear</span><span class="ra">See all 2 →</span></div>
+          <div class="cards">
+            <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Denim Jacket</div><div class="prc">$36</div><div class="add">Add</div></div></div>
+            <div class="tile"><div class="ph"></div><div class="bd"><div class="tn">Leather, Tan</div><div class="prc">$54</div><div class="add">Add</div></div></div>
+          </div>
+        </div>
+        <div class="slipwrap"><div class="slip">
+          <span class="cnt">$41.00<s>2 items · collection</s></span><span class="go">Checkout</span>
+        </div></div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">What changes</h3>
+        <ul>
+          <li><b>A real scrim</b> — <code>expo-linear-gradient</code>, transparent to 78% ink,
+          bottom-weighted, replacing the flat 0.55 overlay. This is also the fix for the grey angular
+          shape in the live defect: the scrim renders only over an actual photo, never over the
+          fallback.</li>
+          <li><b>Status chips on the hero</b> — white-at-16% pills, the same fixed on-scrim treatment
+          the type already uses.</li>
+          <li><b>Horizontal rails per category</b> — RN <code>FlatList horizontal</code> with snap;
+          each rail titled with a "See all N" that opens the category filtered. A 9-item shop shows
+          everything; a 200-item shop becomes browsable without a single long scroll.</li>
+          <li><b>Degrades honestly</b> — no photo, no hero: the shop falls back to pattern A's
+          anchor. Rails still work.</li>
+        </ul>
+        <div class="fits"><span class="fit hi">Best hero</span><span class="fit">Evolves Window</span><span class="fit">Rails suit mid-size catalogues</span><span class="fit">Needs one photo</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The About tab — photos first</h2>
+    <p class="h2sub">Everything a customer needs already renders here — story, gallery, stats,
+    highlights, FAQ — but in a reader's order, not a stranger's. A stranger trusts what they can
+    <em>see</em> before what they can read. The redesign is a re-weighting, not new features.</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="pnl abT">
+        <div class="tabhead" style="margin:-13px -13px 12px;"><span class="t">Shop</span><span class="t on">About</span><span class="t">Visit</span></div>
+        <div class="pcard">
+          <div class="eb">About the shop</div>
+          <div class="story">You're Gonna Like the Way You Look, I Guarantee It. Quality menswear on
+          Main Street since 2024 — shirts, trousers and outerwear picked for Hargeisa weather.</div>
+          <div class="gal"><b></b><b></b><b></b></div>
+        </div>
+        <div class="pcard"><div class="abT stats" style="display:flex;justify-content:space-between;">
+          <span class="stat"><b>9</b><s>items</s></span><span class="stat"><b>4</b><s>categories</s></span><span class="stat"><b>2024</b><s>trading since</s></span>
+        </div></div>
+        <div class="pcard"><div class="eb">Why shop here</div>
+          <div class="hl">Original brands only</div><div class="hlb">We buy sealed stock from the supplier, never loose.</div>
+        </div>
+        <div class="pcard"><div class="eb">Before you order</div>
+          <div class="faq"><span>Can I return an item?</span><i>+</i></div>
+          <div class="faq"><span>Do you deliver?</span><i>+</i></div>
+        </div>
+      </div></div>
+
+      <div class="phone az"><div class="pnl abP">
+        <div class="tabhead" style="margin:-13px -13px 12px;"><span class="t">Shop</span><span class="t on">About</span><span class="t">Visit</span></div>
+        <div class="cover"><div class="strip">Inside the shop · Main Street</div></div>
+        <div class="thumbrow"><b></b><b></b><b></b><b></b></div>
+        <div class="proof">
+          <span class="chip">Trading since <u>2024</u></span>
+          <span class="chip"><u>9</u> items in today</span>
+          <span class="chip">Answers on <u>WhatsApp</u></span>
+        </div>
+        <div class="pcard"><div class="story"><b>You're gonna like the way you look.</b>
+          Quality menswear on Main Street since 2024 — shirts, trousers and outerwear picked for
+          Hargeisa weather.</div>
+          <div class="hlrow">
+            <div class="hlc"><b>Original brands</b><s>Sealed supplier stock, never loose.</s></div>
+            <div class="hlc"><b>Try before you pay</b><s>Fitting at the counter.</s></div>
+          </div>
+        </div>
+        <div class="pcard"><div class="eb">Before you order</div>
+          <div class="abT faq" style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;padding:8px 0;"><span>Can I return an item?</span><i style="font-style:normal;color:var(--m);">+</i></div>
+        </div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">The re-weighting</h3>
+        <ul>
+          <li><b>Photos move to the top</b> — one cover with a caption strip, thumbnails under it.
+          The gallery exists today; it just sits below the text it should be vouching for.</li>
+          <li><b>The stats strip becomes proof chips</b> — "Trading since 2024 · 9 items in today ·
+          Answers on WhatsApp." Same numbers, phrased as reasons instead of a dashboard row.
+          <code>trading_since</code> already ships on the row.</li>
+          <li><b>Story and highlights merge into one card</b> — the shop's voice, opened by a serif
+          line, with the two best highlights as compact cards inside it.</li>
+          <li><b>FAQ keeps its place at the end</b> — it is the "before you order" checkpoint and it
+          already works.</li>
+        </ul>
+        <div class="fits"><span class="fit hi">No new data</span><span class="fit">Re-weighting only</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The Visit tab — one decision, then details</h2>
+    <p class="h2sub">The customer's question is single: <em>"can I get there before it closes, and
+    where exactly?"</em> Today four equal cards make them assemble the answer. The redesign leads
+    with a decision card — and its signature is the <b>landmark-first direction card</b>, designed to
+    be screenshotted and shown to a bajaj driver, because that is how this city actually
+    navigates (the schema's own comments say shops address themselves by landmark).</p>
+
+    <div class="duo">
+      <div class="phone az"><div class="pnl vsT">
+        <div class="tabhead" style="margin:-13px -13px 12px;"><span class="t">Shop</span><span class="t">About</span><span class="t on">Visit</span></div>
+        <div class="pcard"><div class="eb">Collect from</div>
+          <div class="row"><span>Address</span><b>Main stree, Hargeisa</b></div>
+          <div class="row"><span>Pay</span><b>On collection</b></div>
+        </div>
+        <div class="pcard"><div class="eb" style="display:flex;justify-content:space-between;">Opening hours <span class="open">Open now</span></div>
+          <div class="row"><span>Mon</span><b>8:00 – 21:00</b></div>
+          <div class="row"><span>Tue</span><b>8:00 – 21:00</b></div>
+          <div class="row"><span>Wed</span><b>8:00 – 21:00</b></div>
+          <div class="row"><span>Thu</span><b>8:00 – 21:00</b></div>
+        </div>
+        <div class="pcard"><div class="eb">Contact</div>
+          <div class="row"><span>WhatsApp</span><b>+252 63 400 0889</b></div>
+          <div class="row"><span>Phone</span><b>+252 63 400 0889</b></div>
+          <div class="row"><span>Instagram</span><b>@hargeisamens</b></div>
+        </div>
+      </div></div>
+
+      <div class="phone az"><div class="pnl vsP">
+        <div class="tabhead" style="margin:-13px -13px 12px;"><span class="t">Shop</span><span class="t">About</span><span class="t on">Visit</span></div>
+        <div class="decide">
+          <span class="state">Open · closes 9pm</span>
+          <div class="lm">Opposite Deero Mall,<br />Main Street</div>
+          <div class="nb">Hargeisa · Hargeisa Men's Clothing</div>
+          <div class="acts"><span class="dir">Get directions</span><span class="wa2">WhatsApp</span></div>
+        </div>
+        <div class="pcard">
+          <div class="today"><b>Today: 8:00 – 21:00</b><s>All hours ▾</s></div>
+        </div>
+        <div class="pcard"><div class="eb">Delivery, if you'd rather stay put</div>
+          <div class="areas"><span class="area">26 June · $1</span><span class="area">Jigjiga Yar · $1.50</span><span class="area">New Hargeisa · $2</span></div>
+        </div>
+        <div class="pcard" style="padding:9px 10px;"><div class="crow">
+          <span class="cc">Call</span><span class="cc">Instagram</span><span class="cc">Share shop</span>
+        </div></div>
+      </div></div>
+
+      <div class="whatcol">
+        <h3 style="margin-top:0;">The re-weighting</h3>
+        <ul>
+          <li><b>The decision card leads</b> — open state, then the <em>landmark</em> in serif at
+          direction-card size, then the two actions that matter: Get directions
+          (<code>mapsUrlFor()</code> already exists) and WhatsApp. On `ink`, so it is the page's
+          one dark card — screenshot it and any driver in Hargeisa can read it.</li>
+          <li><b>Hours collapse to today</b> — "Today: 8:00 – 21:00 · All hours ▾". The seven-row
+          week is reference material, not the decision.</li>
+          <li><b>Delivery areas become priced chips</b> — scannable in one glance, phrased as the
+          alternative: "if you'd rather stay put."</li>
+          <li><b>Contact flattens to an icon row</b> — Call · Instagram · <b>Share shop</b>, the new
+          affordance: a customer forwarding the shop to a friend is the cheapest marketing kaiibi
+          can give a merchant.</li>
+        </ul>
+        <div class="fits"><span class="fit hi">Signature: the direction card</span><span class="fit">mapsUrlFor exists</span><span class="fit">Needs: landmark field</span></div>
+        <p class="note" style="margin-top:12px;"><b>One honest gap:</b> the decision card wants a
+        <em>landmark</em> line and today the row carries address/neighborhood/city. If
+        <code>collectAddress</code> is written landmark-style (this region mostly does), it slots in
+        as-is; a dedicated optional "near…" field in the editor is the clean version.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Wave 2 — ideas aimed at the customer's trust</h2>
+    <p class="h2sub">Beyond composition: the things that make a stranger <em>like</em> a shop enough
+    to walk over or order. Ranked by expected effect.</p>
+    <ul class="tight">
+      <li><b>Somali-first storefront.</b> The single biggest lever on this list. The customer reading
+      a forwarded link in Hargeisa reads Somali; every storefront string is English today. A ~40-string
+      table (<code>so</code>/<code>en</code>), shop picks its language in the editor, customer can
+      flip. The landing page already ships a language switch, so the precedent exists in-repo.
+      <em>Needs product sign-off + a native speaker's review — not a task yet.</em></li>
+      <li><b>The trust strip on the Shop tab.</b> One quiet line under the anchor — "Open until 9pm ·
+      Collect near Deero Mall · Pay on collection" — so a customer never needs the Visit tab to feel
+      safe ordering. Composes from data already on the page.</li>
+      <li><b>Share, everywhere it pays.</b> "Share shop" on Visit (above) and "Share" on the product
+      sheet — both via the existing <code>waLink</code> composer, with the product's name and price in
+      the prefilled message. Customers forwarding products IS the storefront's growth loop.</li>
+      <li><b>Sold-out that answers.</b> "Ask us" today is a label plus a generic WhatsApp button.
+      Ensure the tap composes "Is the Denim Jacket coming back?" — the product's name in the message —
+      so the shop's reply can be a sale.</li>
+      <li><b>The order link that reassures.</b> The confirmation already gives a saved status link;
+      have the status page show the fulfilment word and the shop's open state alongside the order —
+      the customer's "is it ready yet?" answered without a chat message.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The polish kit — applies under any pattern</h2>
+    <p class="h2sub">Cross-cutting finish that costs little and is most of what "modern" actually
+    reads as. Half of it already exists in the codebase and just isn't applied everywhere.</p>
+    <ul class="tight">
+      <li><b>Press feedback everywhere pressable</b> — <code>press-feedback.ts</code> ships a scale/
+      opacity treatment; tiles and category pills don't use it yet. Every touch should answer.</li>
+      <li><b>Image fade-in + skeleton</b> — <code>storefront-skeleton.tsx</code> exists for load;
+      give tile photos a 150ms opacity fade on load so the grid stops popping.</li>
+      <li><b>The soft gradient photo fallback</b> — a no-photo tile today is flat <code>soft</code>;
+      a 150° two-stop gradient of soft→slightly-deeper (drawn from the palette) reads as intentional
+      rather than missing. Used in every specimen above.</li>
+      <li><b>Tabular numerals on every price</b> — <code>TABULAR</code> exists; audit the slip,
+      rails and steppers so digits never wiggle.</li>
+      <li><b>Focus rings on web</b> — the storefront is a website for its customers;
+      <code>outline: 2px accent</code> on focus-visible for pills, tiles, slip.</li>
+      <li><b>Reduced motion respected</b> — the glow, fades and stepper morph all no-op under
+      <code>prefers-reduced-motion</code> / RN's <code>isReduceMotionEnabled</code>.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Motion — and the React Bits question</h2>
+    <p class="h2sub">reactbits.dev was offered as a resource. Verified against its own docs: ~165
+    components, React DOM only (JS/TS × CSS/Tailwind, installed via shadcn/jsrepo; official ports
+    for Vue and Svelte, none for React Native).</p>
+
+    <div class="call badT"><b>Its components cannot mount here.</b> The storefront is one React
+    Native codebase rendering to the native app <em>and</em> the web page through react-native-web —
+    a DOM component library has nowhere to attach. And the page's own performance thesis cuts the
+    same way: <code>scale.ts</code> declined even a <em>webfont</em> because this page arrives as a
+    forwarded WhatsApp link on the slowest connection in the flow. A WebGL aurora fails that test
+    before it fails the technical one.</div>
+
+    <p class="note" style="margin-top:14px;"><b>What React Bits is good for here: a pattern
+    catalogue.</b> The ideas port; the code doesn't. The few that serve this page, translated to
+    Reanimated (already in the Expo stack, runs native + web):</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>React Bits idea</th><th>Verdict</th><th>As built here</th></tr></thead>
+        <tbody>
+          <tr><td><b>CountUp</b></td><td><span class="fit hi" style="font-size:10px;">Adopt</span></td><td>The slip's total ticks to its new value on add/remove — 200ms, tabular numerals so nothing shifts. The one place live motion carries information.</td></tr>
+          <tr><td><b>BlurText / SplitText</b> reveal</td><td><span class="fit hi" style="font-size:10px;">Adopt, once</span></td><td>The anchor wordmark and status pills stagger in on first load only — opacity + 8px translateY, 250ms, never on tab switches.</td></tr>
+          <tr><td><b>SpotlightCard / hover lift</b></td><td><span class="fit hi" style="font-size:10px;">Adopt on web</span></td><td>Tiles lift 2px with a deeper shadow on hover (web only); pairs with the existing <code>press-feedback</code> scale on touch.</td></tr>
+          <tr><td><b>Aurora / Particles / Waves</b> backgrounds</td><td><span class="fit" style="font-size:10px;background:#fbeaec;color:#d12339;">Decline</span></td><td>WebGL against a 3G-first page, decoration on a merchant's surface. The pattern-A accent glow is the calm version of the same instinct.</td></tr>
+          <tr><td><b>Cursor effects, Magnet, Dock, tilt cards</b></td><td><span class="fit" style="font-size:10px;background:#fbeaec;color:#d12339;">Decline</span></td><td>Touch-first customers have no cursor; a tilting product card is a gimmick between a person and a price.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note" style="margin-top:13px;">Three rules govern all of it: motion runs <b>once</b>
+    (on load or on change, never looping), stays <b>fast</b> (150–250ms), and <b>no-ops under
+    reduced motion</b> on every platform. If the flashier React Bits pieces are wanted anywhere,
+    that conversation is about a separate marketing site, not this codebase — even kaiibi's landing
+    components here are React Native.</p>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Recommendation</h2>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Pattern</th><th>What it is</th><th>Call</th></tr></thead>
+        <tbody>
+          <tr><td><b>A · Refined Bento</b></td><td>The shipped design, finished</td><td><b>Adopt as the base.</b> Small enough to ride the parked plan as one added task; every shop benefits, no shop's layout changes.</td></tr>
+          <tr><td><b>D · Poster</b></td><td>Window theme, evolved</td><td><b>Adopt as Window's next form</b> — it also owns the scrim-defect fix. Second phase, after A.</td></tr>
+          <tr><td><b>B · Stall</b></td><td>Dense grammar for big catalogues</td><td>Hold. Revisit when a shop crosses ~50 items; the stepper-in-tile is the piece worth keeping regardless.</td></tr>
+          <tr><td><b>C · Boutique</b></td><td>Editorial light page</td><td>Hold. Beautiful with photography, but it spends the anchor-card decision — a theme for later, not a direction.</td></tr>
+          <tr><td><b>About · photos first</b></td><td>Re-weighting, no new data</td><td><b>Adopt with A</b> — same finish pass, same components reordered.</td></tr>
+          <tr><td><b>Visit · decision card</b></td><td>Landmark-first direction card</td><td><b>Adopt with A</b>, minus the landmark field — start from <code>collectAddress</code>, add the "near…" editor field as its own small task.</td></tr>
+          <tr><td><b>Somali-first</b></td><td>The customer's language</td><td>Scope separately — biggest customer lever on the page, needs product sign-off and a native review.</td></tr>
+          <tr><td><b>Trust strip + share + sold-out prefill</b></td><td>Wave-2 small wins</td><td><b>Adopt with A</b> — each is a line-level change on data already present.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="call okT"><b>If you approve A (+ the polish kit), it becomes one new task in the
+    parked plan</b> — anchor glow, status pill row, tile elevation + photo inset, stock word on the
+    price row, pill counts, search field. All palette-driven, nothing new to the gates but the glow
+    (decorative, so only a not-too-loud ceiling applies). D follows as its own small plan once the
+    other session lands and Window's current state is stable.</div>
+  </section>
+
+</div>
