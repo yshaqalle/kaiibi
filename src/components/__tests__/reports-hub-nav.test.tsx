@@ -180,6 +180,12 @@ describe('the reports catalogue', () => {
       'inventory',
       'lowstock',
       'movement',
+      // The two aging schedules are doors onto Owed to you and Bills. Those
+      // tabs read tables under RLS, so a reader without permission gets an
+      // honest empty state rather than a door that raises -- same family as
+      // the seven above, and ungated for the same reason.
+      'aging-receivable',
+      'aging-payable',
       'valuation',
       'statements',
     ]);
@@ -194,6 +200,11 @@ describe('the reports catalogue', () => {
       'income',
       'balance',
       'cashflow',
+      // Between the statements and the signpost, which is where HUB_CARDS
+      // places them: the doors that leave this tab, then the card that opens
+      // nothing.
+      'aging-receivable',
+      'aging-payable',
       'valuation',
       'statements',
     ]);
@@ -215,13 +226,14 @@ describe('the hub renders what the catalogue says', () => {
   const renderHub = (rangeLabel: string | null = null) => {
     const onOpen = jest.fn();
     const onOpenLedgerView = jest.fn();
+    const onOpenTab = jest.fn();
     let tree!: ReturnType<typeof create>;
     act(() => {
       tree = create(
-        <ReportsHub onOpen={onOpen} onOpenLedgerView={onOpenLedgerView} rangeLabel={rangeLabel} can={() => true} />
+        <ReportsHub onOpen={onOpen} onOpenLedgerView={onOpenLedgerView} onOpenTab={onOpenTab} rangeLabel={rangeLabel} can={() => true} />
       );
     });
-    return { tree, onOpen, onOpenLedgerView };
+    return { tree, onOpen, onOpenLedgerView, onOpenTab };
   };
 
   /** The pressable wrapping the card with this label, if it has one. */
@@ -246,18 +258,25 @@ describe('the hub renders what the catalogue says', () => {
     // live card leading to an empty screen.
     for (const v of allCards()) {
       if (!v.available) continue;
-      const { tree, onOpen, onOpenLedgerView } = renderHub();
+      const { tree, onOpen, onOpenLedgerView, onOpenTab } = renderHub();
       const pressable = pressableFor(tree, v.label);
       expect(pressable).toBeDefined();
       act(() => {
         pressable!.props.onPress();
       });
-      // A card either moves within this hub or hands off to the Accounting
-      // tab. Exactly one of the two happens, and with this card's own key.
-      const handsOff = v.door?.tab === 'accounting';
-      expect(handsOff ? onOpenLedgerView : onOpen).toHaveBeenCalledWith(v.key);
-      expect(handsOff ? onOpenLedgerView : onOpen).toHaveBeenCalledTimes(1);
-      expect(handsOff ? onOpen : onOpenLedgerView).not.toHaveBeenCalled();
+      // A card does exactly one of three things: move within this hub, hand
+      // off to the Accounting tab, or leave for the tab that holds an aging
+      // strip. Whichever it is, it happens once and names its OWN destination,
+      // and the other two callbacks stay untouched.
+      const door = v.door;
+      const kind = door?.tab === 'accounting' ? 'ledger' : door?.tab === 'reports' ? 'hub' : 'tab';
+      const fired = { hub: onOpen, ledger: onOpenLedgerView, tab: onOpenTab }[kind];
+      const quiet = [onOpen, onOpenLedgerView, onOpenTab].filter((fn) => fn !== fired);
+      // The aging cards carry no view key -- the strip lives on the tab -- so
+      // what they must name is the tab itself.
+      expect(fired).toHaveBeenCalledWith(kind === 'tab' ? door!.tab : v.key);
+      expect(fired).toHaveBeenCalledTimes(1);
+      for (const fn of quiet) expect(fn).not.toHaveBeenCalled();
     }
   });
 
@@ -307,7 +326,7 @@ describe('the hub renders what the catalogue says', () => {
     let tree!: ReturnType<typeof create>;
     act(() => {
       tree = create(
-        <ReportsHub onOpen={jest.fn()} onOpenLedgerView={jest.fn()} rangeLabel={null} can={() => false} />
+        <ReportsHub onOpen={jest.fn()} onOpenLedgerView={jest.fn()} onOpenTab={jest.fn()} rangeLabel={null} can={() => false} />
       );
     });
     const shown = texts(tree.root);

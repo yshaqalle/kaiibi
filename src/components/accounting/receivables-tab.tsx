@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { AgingStrip } from '@/components/accounting/aging-strip';
 import { useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -9,6 +10,7 @@ import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/dat
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { listOutstanding, type CustomerBalance } from '@/lib/balances';
+import { agingTotals, inBucket, type AgingBucket } from '@/lib/aging';
 import { ageLabel, daysOwed, groupByCustomer, type Receivable } from '@/lib/receivables';
 import { formatCents, formatCompactCents } from '@/lib/currency';
 
@@ -57,7 +59,17 @@ function buildColumns(now: number): Column<Receivable>[] {
   ];
 }
 
-export function ReceivablesTab({ setRefresh }: { setRefresh: RefreshSetter }) {
+export function ReceivablesTab({
+  setRefresh,
+  initialBucket = null,
+}: {
+  setRefresh: RefreshSetter;
+  /**
+   * Set by the Reports hub's Aging Receivables card, which opens this tab with
+   * a bucket already chosen. The card is the report; this tab is where it runs.
+   */
+  initialBucket?: AgingBucket | null;
+}) {
   const { shop } = useAuth();
   const [rows, setRows] = useState<CustomerBalance[]>([]);
   // The clock these ages are measured against, stamped when the rows arrived.
@@ -87,6 +99,14 @@ export function ReceivablesTab({ setRefresh }: { setRefresh: RefreshSetter }) {
   useTabRefresh(setRefresh, reload);
 
   const receivables = useMemo(() => groupByCustomer(rows), [rows]);
+  const [bucket, setBucket] = useState<AgingBucket | null>(initialBucket);
+  // Aged from the day of the SALE, because a kaiibi sale carries no due date --
+  // see lib/aging.ts. The clock is `readAt`, the same fixed stamp the Waiting
+  // column uses, so a row cannot sit in one bucket and print an age from
+  // another.
+  const ageOf = useCallback((row: Receivable) => daysOwed(row.oldestAt, readAt), [readAt]);
+  const buckets = useMemo(() => agingTotals(receivables, { days: ageOf, cents: (r) => r.owedCents }), [receivables, ageOf]);
+  const shown = useMemo(() => inBucket(receivables, bucket, ageOf), [receivables, bucket, ageOf]);
   const columns = useMemo(() => buildColumns(readAt), [readAt]);
   const totalCents = receivables.reduce((sum, row) => sum + row.owedCents, 0);
   const overThirty = receivables.filter((row) => daysOwed(row.oldestAt, readAt) >= 30).length;
@@ -123,7 +143,14 @@ export function ReceivablesTab({ setRefresh }: { setRefresh: RefreshSetter }) {
 
       {/* Out of any grid: a collections list is read down a column, and a table
           in a half-width cell loses its gutters for nothing. */}
-      <BentoCard title="Who owes what" bodyStyle={styles.tableBody}>
+      <BentoCard title="How old the money is" scope="right now">
+        <AgingStrip totals={buckets} selected={bucket} onSelect={setBucket} />
+      </BentoCard>
+
+      <BentoCard
+        title={bucket ? `Who owes what · ${buckets.find((b) => b.key === bucket)?.label}` : 'Who owes what'}
+        bodyStyle={styles.tableBody}
+      >
         {error ? (
           <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => { reload(); } }}>
             {error}
@@ -131,9 +158,9 @@ export function ReceivablesTab({ setRefresh }: { setRefresh: RefreshSetter }) {
         ) : (
           <DataTable
             columns={columns}
-            rows={receivables}
+            rows={shown}
             keyExtractor={(row) => row.customerId}
-            emptyLabel="Nobody owes the shop anything."
+            emptyLabel={bucket ? 'Nothing in this bucket.' : 'Nobody owes the shop anything.'}
           />
         )}
       </BentoCard>
