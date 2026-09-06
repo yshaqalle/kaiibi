@@ -124,14 +124,31 @@ describe('goodsFitHeight', () => {
     expect(goodsFitHeight(twoRowHeight, rowHeight, 1200, 100, 100, pagePadding, pageGap, clearance)).toBe(twoRowHeight);
   });
 
-  it('returns the remainder itself when it lands between one row and two', () => {
+  // TWO ROWS OR NO BOUND -- the middle is what this refuses.
+  //
+  // An earlier rule returned the remainder here, which on a real shop at
+  // 1920x1080 drew a 387px box against a 321px tile: one row and a sliver of
+  // the next, scrolling inside a page that still scrolled. Neither half of
+  // what the bound was for.
+  it('refuses to bound at all when the remainder lands between one row and two', () => {
     // remainder = 636 - 100 - 100 - 32 - 28 - 76 = 300, between 200 (one row) and 414 (two).
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 636, 100, 100, pagePadding, pageGap, clearance)).toBe(300);
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 636, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
   });
 
-  it('floors at one row rather than collapsing further when the window is shorter still', () => {
-    // remainder = 400 - 100 - 100 - 32 - 28 - 76 = 64, below the 200px floor.
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 400, 100, 100, pagePadding, pageGap, clearance)).toBe(rowHeight);
+  it('still refuses when the window is shorter still, rather than squeezing the goods', () => {
+    // remainder = 400 - 100 - 100 - 32 - 28 - 76 = 64, nowhere near two rows.
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 400, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+  });
+
+  // The boundary itself, either side. A remainder of exactly two rows is
+  // enough; one pixel less is not, and the difference between them is the
+  // whole rule.
+  it('bounds at a remainder of exactly two rows, and not at one pixel less', () => {
+    const chrome = 100 + 100 + pagePadding * 2 + pageGap * 2 + clearance;
+    expect(goodsFitHeight(twoRowHeight, rowHeight, chrome + twoRowHeight, 100, 100, pagePadding, pageGap, clearance))
+      .toBe(twoRowHeight);
+    expect(goodsFitHeight(twoRowHeight, rowHeight, chrome + twoRowHeight - 1, 100, 100, pagePadding, pageGap, clearance))
+      .toBeNull();
   });
 
   it('returns null, never zero, when a measurement has not arrived yet', () => {
@@ -224,7 +241,7 @@ describe.each([
   // different page heights, on the same render, must produce two different
   // results -- the identical bar the row-height wiring test above holds
   // itself to, applied to the new measurements this task added.
-  it('shrinks its own bound to fit a shorter page, and grows again on a taller one', async () => {
+  it('drops its bound entirely on a page too short for two rows, and takes it back on a taller one', async () => {
     const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-fit-${theme}`), products(NUM_COLUMNS * 2));
 
     const cell = tree.root.findAll(
@@ -257,14 +274,23 @@ describe.each([
 
     // A shorter window, same header/footer: remainder = 1000 - 300 - 200 -
     // 2*SPACE.page - 2*SPACE.cardGap - CHECKOUT_BAR_CLEARANCE = 364, between
-    // one row (200) and two (414).
+    // one row (200) and two (414) -- so the bound goes away entirely and the
+    // page becomes an ordinary scrolling one, rather than the goods being
+    // squeezed into a box shorter than the two rows it was asked for.
     act(() => {
       page.props.onLayout({ nativeEvent: { layout: { height: 1000 } } });
     });
     const short = flatten(goodsList(tree).props.style).maxHeight;
 
     expect(short).not.toBe(tall);
-    expect(short).toBe(1000 - 300 - 200 - 2 * SPACE.page - 2 * SPACE.cardGap - CHECKOUT_BAR_CLEARANCE);
+    expect(short).toBeUndefined();
+
+    // And back again on a taller window, so this is a live decision rather
+    // than a one-way door.
+    act(() => {
+      page.props.onLayout({ nativeEvent: { layout: { height: 1400 } } });
+    });
+    expect(flatten(goodsList(tree).props.style).maxHeight).toBe(200 * 2 + SPACE.cardGap);
 
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   });

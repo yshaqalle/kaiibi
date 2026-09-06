@@ -1106,16 +1106,28 @@ export const ESTIMATED_ROW_HEIGHT = 260;
 // for why this is subtracted whether or not a cart is open). Whatever is left
 // is what the goods box is allowed to claim.
 //
-// CAPPED AT THE TWO-ROW HEIGHT, never past it -- a generous remainder does
-// not mean the goods get to grow a third row, it means the page has room to
-// spare and can simply not scroll. FLOORED AT ONE ROW, never below it -- a
-// window too short for two full rows still owes a customer SOMETHING to
-// browse; scrolling the goods' own one row a little further is the honest
-// trade, not showing nothing. Below that floor there is nothing left for
-// this function to hand back that helps, and the page scrolls again exactly
-// as it did before this pass existed -- which is correct for a phone in
-// landscape or a short laptop, not a case to paper over with a shorter goods
-// box than the content needs.
+// TWO ROWS OR NOTHING, and the middle ground is the thing this rule exists
+// to refuse.
+//
+// The first version floored at ONE row, on the reasoning that a short window
+// still owes the customer something to browse. Measured on a real shop at
+// 1920x1080 that produced a goods box of 387px against a 321px tile -- 1.2
+// rows: a strip showing one row and a sliver of the next, with its own
+// scrollbar, inside a page that still scrolled anyway. It honoured neither
+// half of what it was asked for, and it looked worse on a laptop than the
+// plain scrolling page it replaced. The customer's verdict was "not looking
+// good for the normal screen", which is the only measurement that counts.
+//
+// So the bound applies only where it earns its place: when the window can
+// hold two full rows alongside the header and the footer, the goods take
+// exactly two and the page has no reason to scroll. When it cannot -- and on
+// this shop's own header a 900px laptop cannot, by about 250px -- there is
+// no bound at all. The page becomes an ordinary web page that scrolls, which
+// is a thing every customer already knows how to use, and the goods keep
+// their natural height rather than being squeezed into a letterbox.
+//
+// CAPPED AT THE TWO-ROW HEIGHT, never past it: a generous remainder does not
+// mean the goods grow a third row, it means the page has room to spare.
 //
 // NULL, NEVER ZERO, whenever a measurement this needs has not arrived --
 // `twoRowHeight` null (goodsScrollHeight's own signal that there is nothing
@@ -1145,7 +1157,31 @@ export function goodsFitHeight(
 ): number | null {
   if (twoRowHeight == null || !rowHeight || !pageHeight || !headerHeight || !footerHeight) return null;
   const remainder = pageHeight - headerHeight - footerHeight - pagePadding * 2 - pageGap * 2 - checkoutClearance;
-  return Math.min(twoRowHeight, Math.max(remainder, rowHeight));
+  // Two rows, or leave it alone. `null` here means "no bound" to every caller
+  // that reads it, which is the same signal they already handle for "not
+  // measured yet" -- but they must NOT fall back to the two-row estimate in
+  // this case, because a deliberate refusal is not a missing measurement.
+  // See `goodsBoundFor` below, which is what callers actually use.
+  return remainder >= twoRowHeight ? twoRowHeight : null;
+}
+
+// WHAT THE THEMES ACTUALLY CALL, and the reason it exists is a distinction
+// `goodsFitHeight` alone cannot make: it returns null both for "I have not
+// been measured yet" and for "I measured, and this window does not deserve a
+// bound". Those two need OPPOSITE fallbacks -- the first wants the two-row
+// estimate so the box does not flash unbounded on the first frame, the second
+// wants no bound at all. Passing `measured` says which case the caller is in.
+export function goodsBoundFor(
+  twoRowHeight: number | null,
+  fitted: number | null,
+  measured: boolean,
+): number | null {
+  if (fitted != null) return fitted;
+  // Measured, and the answer was "no bound": an ordinary scrolling page.
+  if (measured) return null;
+  // Not measured yet: hold the two-row estimate so the first frame does not
+  // paint an unbounded grid that then snaps shorter.
+  return twoRowHeight;
 }
 
 // The cart lives in `storefront-cart.ts`, keyed by shop slug, and every

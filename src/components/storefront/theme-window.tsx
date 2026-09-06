@@ -11,7 +11,7 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  goodsBoundFor, goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
   gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
@@ -55,19 +55,32 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
   const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
   // See theme-market.tsx's identical block: three more measurements
-  // (page/header/footer) feed goodsFitHeight alongside the two-row cap
-  // above, none of them reset on a column-count change the way `rowHeight`
-  // is -- the header/footer's own content and the page's own height do not
-  // depend on numColumns.
+  // (page/header/footer) feed goodsFitHeight alongside the two-row cap above,
+  // and all of them -- not just `rowHeight` -- are dropped when the window's
+  // width changes, because the header's cards stack and the footer rewraps at
+  // a breakpoint and their old heights would otherwise size the goods box for
+  // a window that no longer exists.
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
+  useEffect(() => {
+    setPageHeight(null);
+    setHeaderHeight(null);
+    setFooterHeight(null);
+  }, [width]);
   const fitHeight = goodsFitHeight(
     twoRowHeight, rowHeight, pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
   );
-  // `?? twoRowHeight`, never `?? null` -- see theme-market.tsx's identical
-  // comment on why the fallback is the estimate, not an unbounded box.
-  const goodsHeight = fitHeight ?? twoRowHeight;
+  // See theme-market.tsx and goodsBoundFor: a refusal to bound and a missing
+  // measurement both read as null out of goodsFitHeight and want opposite
+  // fallbacks.
+  // Truthiness, not `!= null`, and deliberately the SAME test goodsFitHeight
+  // applies: a header that fires onLayout with height 0 before it has painted
+  // is not a measurement, it is a race. Reading it as one would drop the
+  // bound and let the grid paint unbounded for a frame -- which is exactly
+  // what the zero-header test caught the moment this rule changed.
+  const measured = !!pageHeight && !!headerHeight && !!footerHeight && !!rowHeight;
+  const goodsHeight = goodsBoundFor(twoRowHeight, fitHeight, measured);
   const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,

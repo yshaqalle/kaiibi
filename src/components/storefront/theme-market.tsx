@@ -11,7 +11,7 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  goodsBoundFor, goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
   gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
@@ -67,15 +67,38 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
+  // EVERY MEASUREMENT IS DROPPED WHEN THE WINDOW CHANGES WIDTH, not only the
+  // row's. The first version reset `rowHeight` alone, on the reasoning that
+  // the header and footer's own content does not depend on the column count.
+  // That reasoning is about CONTENT and the measurements are about LAYOUT:
+  // the header's three cards stack below `isWideShop` and unstack above it,
+  // and the footer rewraps -- so both really do change height with the width,
+  // and a width change that kept their old numbers left the goods box sized
+  // for a window that no longer exists. That is the "transition between
+  // screen sizes is not working" the customer saw: the numbers were right for
+  // whichever width the page happened to load at, and stale at every width it
+  // was resized to afterwards. Dropping all four to null re-enters the
+  // not-yet-measured branch for one frame, which every consumer already
+  // handles, and the fresh onLayout events land immediately after.
+  useEffect(() => {
+    setPageHeight(null);
+    setHeaderHeight(null);
+    setFooterHeight(null);
+  }, [width]);
   const fitHeight = goodsFitHeight(
     twoRowHeight, rowHeight, pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
   );
-  // `?? twoRowHeight`, never `?? null`: goodsFitHeight returns null whenever
-  // the page/header/footer have not measured yet (or measured as zero -- see
-  // its own comment), and the correct fallback for THAT is the estimate this
-  // page already showed before this pass existed, not an unbounded box that
-  // would flash oversized for one frame and then snap down.
-  const goodsHeight = fitHeight ?? twoRowHeight;
+  // Measured means "we know", including when what we know is that this window
+  // does not get a bound at all. See goodsBoundFor: a refusal and a missing
+  // measurement both look like null out of goodsFitHeight and need opposite
+  // fallbacks.
+  // Truthiness, not `!= null`, and deliberately the SAME test goodsFitHeight
+  // applies: a header that fires onLayout with height 0 before it has painted
+  // is not a measurement, it is a race. Reading it as one would drop the
+  // bound and let the grid paint unbounded for a frame -- which is exactly
+  // what the zero-header test caught the moment this rule changed.
+  const measured = !!pageHeight && !!headerHeight && !!footerHeight && !!rowHeight;
+  const goodsHeight = goodsBoundFor(twoRowHeight, fitHeight, measured);
   const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
