@@ -2037,6 +2037,15 @@ const styles = StyleSheet.create({
     borderRadius: 999, paddingVertical: 8, paddingLeft: 16, paddingRight: 8,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14,
     shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+    // Content already carries this Pressable past 44 (the comment on
+    // CHECKOUT_BAR_CLEARANCE above works the arithmetic: `slipGo`'s own
+    // padding puts the box at 55px) -- but that height comes from a CHILD's
+    // padding, not a literal number in THIS style, which is exactly what
+    // storefront-touch-targets.test.tsx's rule cannot see without laying
+    // out a single pixel. `minHeight` states the floor this box already
+    // clears, rather than leaving it implied by a child the sweep does not
+    // read into.
+    minHeight: TOUCH_TARGET,
   },
   slipEvidence: { flexDirection: 'row', alignItems: 'center', gap: 11, flexShrink: 1 },
   slipThumbs: { flexDirection: 'row' },

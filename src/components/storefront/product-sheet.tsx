@@ -1,7 +1,7 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { SHEET_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import { SHEET_MAX_WIDTH, SPACE, TABULAR, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import { ProductActions } from '@/components/storefront/theme-shared';
 import { AppModal } from '@/components/ui/app-modal';
 import { formatCents } from '@/lib/currency';
@@ -296,6 +296,14 @@ const styles = StyleSheet.create({
   // a hex literal for the same reason: it is a palette value, not a fixed
   // one, because this sheet renders on top of one of seven palettes.
   footer: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18, borderTopWidth: 1 },
-  close: { borderRadius: 999, paddingVertical: 12, alignItems: 'center', marginTop: 10 },
+  // TOUCH_TARGET, not a bigger padding number -- measured at 40px
+  // (`paddingVertical: 12` around 13.5px text) before this floor existed.
+  // Under 44, the same gap in the same sweep that missed `dismiss` above
+  // reaching its own floor through `hitSlop` instead -- see this file's own
+  // header comment on why that control took the other route.
+  close: {
+    borderRadius: 999, paddingVertical: 12, alignItems: 'center', marginTop: 10,
+    minHeight: TOUCH_TARGET, justifyContent: 'center',
+  },
   closeText: { fontSize: 13.5, fontWeight: '800' },
 });

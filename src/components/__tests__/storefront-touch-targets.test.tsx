@@ -31,17 +31,35 @@ jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest
 // `[role="button"], [role="link"], input`, and this test mirrors that
 // exactly rather than inventing a stricter net the live check does not
 // share) or a bare TextInput -- must carry EITHER the TOUCH_TARGET floor (a
-// `minHeight` in its own resolved style) OR a `hitSlop`. Not both, not a
-// specific pixel value beyond the floor itself: the property worth pinning
-// is that the control answers the RULE, the same reasoning
-// storefront-press-feedback.test.tsx gives for checking "is `style` a
-// function" rather than a specific opacity.
+// `minHeight`/`height` in its own resolved style) OR a `hitSlop` that
+// actually reaches TOUCH_TARGET once added to whatever literal size the
+// style already states -- see `meetsTouchTargetRule`'s own comment for why
+// that arithmetic only runs where a literal number exists to run it on.
 //
 // Why this single rule catches what a per-button assertion cannot: nothing
 // stops the NEXT control from being sized by "looked right", the way Add sat
 // at 26px for as long as it did with a full green test suite around it. A
 // rule about the whole tree is what a new, small control trips on the day it
 // is added, not the day someone happens to remember to test it.
+//
+// WHICH ROUTE COVERS WHICH STATE. The four `describe('every public-surface
+// control...')` cases below render each theme (and the directory) at its
+// OWN default, zero-cart, nothing-open state -- which is exactly the state
+// in which `ProductSheet` returns null, `CartSheet` renders `AppModal
+// visible={false}` (RN's own `Modal` renders null while closed), and
+// `CheckoutBar` returns null at `itemCount === 0`. None of those three ever
+// entered this sweep from that render alone, which is precisely how the
+// three controls in the second describe block below went unfloored under a
+// fully green suite. That block drives ONE theme (Market) through the
+// states the zero-cart render cannot reach -- an item added, the cart sheet
+// opened, a product sheet opened -- and is the only place those three
+// components are swept. It does not re-drive Window and Counter through the
+// same sequence: `CartSheet`, `ProductSheet` and `CheckoutBar` are the exact
+// same components, imported unchanged, in every theme that renders them
+// (theme-market.tsx, theme-window.tsx, theme-counter.tsx all pass the same
+// props through to the same three functions) -- there is no theme-specific
+// branch inside any of them left for a second render to catch that the
+// first did not.
 // ─────────────────────────────────────────────────────────────────────────
 
 // `Pressable`'s own style is a FUNCTION once `pressable()` (press-feedback.ts)
@@ -57,6 +75,16 @@ function resolvedStyle(node: { props?: { style?: unknown } }): Record<string, un
   return (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
 }
 
+// `hitSlop` is either a bare number (all four sides) or a partial
+// `{top,bottom,left,right}` object -- normalised here once so the arithmetic
+// below never has to branch on which shape it got.
+function normalizedHitSlop(hitSlop: unknown): { top: number; bottom: number; left: number; right: number } | null {
+  if (hitSlop == null) return null;
+  if (typeof hitSlop === 'number') return { top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop };
+  const h = hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
+  return { top: h.top ?? 0, bottom: h.bottom ?? 0, left: h.left ?? 0, right: h.right ?? 0 };
+}
+
 function meetsTouchTargetRule(node: { props?: { style?: unknown; hitSlop?: unknown } }): boolean {
   const flat = resolvedStyle(node);
   // `minHeight` is the floor everywhere a control's size comes from its own
@@ -66,8 +94,34 @@ function meetsTouchTargetRule(node: { props?: { style?: unknown; hitSlop?: unkno
   // otherwise-organic content -- and either one, set to at least
   // TOUCH_TARGET, is the same fact stated two different ways.
   const floored = [flat.minHeight, flat.height].some((v) => typeof v === 'number' && v >= TOUCH_TARGET);
-  const slopped = node.props?.hitSlop != null;
-  return floored || slopped;
+  if (floored) return true;
+
+  const slop = normalizedHitSlop(node.props?.hitSlop);
+  if (!slop) return false;
+
+  // A BARE `hitSlop` USED TO BE THE WHOLE CHECK -- `hitSlop={1}` passed,
+  // and the cart stepper (26px box + hitSlop 6 = 38, still short of 44)
+  // sailed through with it. `COMPACT_BUTTON_HIT_SLOP` (theme-shared.tsx)
+  // already does this arithmetic BY HAND in its own comment -- own box size
+  // plus its own slop, checked against 44 -- because that pair's box has no
+  // literal width/height in its style (it is sized by padding around text,
+  // which this harness cannot lay out). Where a literal `width`/`height` (or
+  // `minWidth`/`minHeight`) DOES sit in the resolved style -- the cart
+  // stepper's `width: 26, height: 26` is exactly this case -- the same
+  // arithmetic is checkable in code instead of by hand, so it is required:
+  // whichever axis carries a literal number must clear TOUCH_TARGET once its
+  // own hitSlop is added.
+  const baseHeight = [flat.height, flat.minHeight].find((v) => typeof v === 'number') as number | undefined;
+  const baseWidth = [flat.width, flat.minWidth].find((v) => typeof v === 'number') as number | undefined;
+  if (baseHeight == null && baseWidth == null) {
+    // Nothing literal to check an axis against -- a control sized by its own
+    // text and padding, the COMPACT_BUTTON_HIT_SLOP case above. Trusted at
+    // face value, exactly as every hitSlop was before this rule existed.
+    return true;
+  }
+  if (baseHeight != null && baseHeight + slop.top + slop.bottom < TOUCH_TARGET) return false;
+  if (baseWidth != null && baseWidth + slop.left + slop.right < TOUCH_TARGET) return false;
+  return true;
 }
 
 // Pressable is composite and forwards `onPress`/`accessibilityRole` down
@@ -209,6 +263,49 @@ describe('every public-surface control meets the touch-target rule', () => {
 
     const controls = touchControlsIn(tree);
     expect(controls.length).toBeGreaterThan(0);
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});
+
+// THE STATES THE FOUR TESTS ABOVE CANNOT REACH -- see this file's own header
+// comment ("WHICH ROUTE COVERS WHICH STATE") for why one theme, driven
+// through these three transitions, is proof for all of them: CartSheet,
+// ProductSheet and CheckoutBar are the same components under Market, Window
+// and Counter alike.
+describe('the states a zero-cart, nothing-open render never reaches', () => {
+  it('cart sheet open with lines, product sheet open, checkout bar with an item: every control still carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket);
+
+    // AN ITEM IN THE CART -- the one thing that turns CheckoutBar from null
+    // into a real Pressable, and CartSheet's empty-cart text into a
+    // scrolling list of lines with their own steppers and Close.
+    const add = tree.root.findAll(
+      (n) => n.props?.testID === 'product-tile-add' && typeof n.props?.onPress === 'function',
+    );
+    expect(add.length).toBeGreaterThan(0);
+    await act(async () => add[0].props.onPress());
+
+    // THE CART SHEET, OPEN -- AppModal renders null while `visible={false}`;
+    // this is the only way its own Close and stepper Pressables ever mount.
+    const cartButton = tree.root.findAll((n) => n.props?.testID === 'storefront-cart-button')[0];
+    await act(async () => cartButton.props.onPress());
+
+    // A PRODUCT SHEET, OPEN -- `ProductSheet` returns null with no product;
+    // this is the only way its own dismiss/Close mount.
+    const openTile = tree.root.findAll(
+      (n) => n.props?.testID === 'product-tile-open' && typeof n.props?.onPress === 'function',
+    );
+    expect(openTile.length).toBeGreaterThan(0);
+    await act(async () => openTile[0].props.onPress());
+
+    const controls = touchControlsIn(tree);
+    // Guards the guard, same reasoning as the zero-state sweeps above --
+    // and a stronger floor here, since this sweep exists specifically to
+    // reach cart-sheet-close, product-sheet-close and the cart-line
+    // steppers, which the count above must be large enough to include.
+    expect(controls.length).toBeGreaterThan(10);
 
     const failing = controls.filter((c) => !meetsTouchTargetRule(c));
     expect(failing.map((c) => c.props?.testID)).toEqual([]);

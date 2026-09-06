@@ -2,10 +2,23 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { AppModal } from '@/components/ui/app-modal';
-import { SHEET_MAX_WIDTH, SPACE, TABULAR } from '@/components/storefront/scale';
+import { SHEET_MAX_WIDTH, SPACE, TABULAR, TOUCH_TARGET } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
 import { CHECKOUT_BLUE, CHECKOUT_INK, type PaletteColors } from '@/lib/storefront-catalog';
+
+// THE STEPPER'S OWN HIT SLOP -- 26px (`stepButton`'s `width`/`height`,
+// below) is drawn small ON PURPOSE, sitting beside a name, an amount and a
+// second stepper inside one cart line; growing it to TOUCH_TARGET would
+// double the row's own height for a control that already reads clearly at
+// this size. `hitSlop` is scale.ts's own documented way out for exactly this
+// case -- but the review wave that reached for it here used `6`, un-costed:
+// 26 + 6 + 6 = 38, still short of 44. `9` is not a rounder-looking guess, it
+// is the smallest slop that actually clears the floor: 26 + 9 + 9 = 44,
+// checked by storefront-touch-targets.test.tsx's own arithmetic (it reads
+// this box's literal `width`/`height` from the resolved style and requires
+// the same sum), not merely trusted because a `hitSlop` prop is present.
+const STEPPER_HIT_SLOP = 9;
 
 type Props = {
   visible: boolean;
@@ -83,7 +96,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                       testID={`cart-line-decrease-${line.productId}`}
                       accessibilityRole="button"
                       accessibilityLabel={`Reduce ${line.name} quantity`}
-                      hitSlop={6}
+                      hitSlop={STEPPER_HIT_SLOP}
                       onPress={() => onChangeQuantity(line.productId, line.quantity - 1)}
                       style={pressable([styles.stepButton, { backgroundColor: colors.ground }])}
                     >
@@ -94,7 +107,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                       testID={`cart-line-increase-${line.productId}`}
                       accessibilityRole="button"
                       accessibilityLabel={`Increase ${line.name} quantity`}
-                      hitSlop={6}
+                      hitSlop={STEPPER_HIT_SLOP}
                       onPress={() => onChangeQuantity(line.productId, line.quantity + 1)}
                       style={pressable([styles.stepButton, { backgroundColor: colors.ground }])}
                     >
@@ -163,7 +176,12 @@ const styles = StyleSheet.create({
   lines: { flexShrink: 1 },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 },
   title: { fontSize: 19, fontWeight: '800', letterSpacing: -0.4 },
-  close: { borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14 },
+  // TOUCH_TARGET, not a bigger padding number -- measured at 29px
+  // (`paddingVertical: 7` around 12.5px text) before this floor existed,
+  // which is under 44 by 15px, not by a rounding error. `minHeight` raises
+  // exactly this control and nothing about how it looks otherwise -- see
+  // TOUCH_TARGET's own comment in scale.ts.
+  close: { borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14, minHeight: TOUCH_TARGET, justifyContent: 'center' },
   closeText: { fontSize: 12.5, fontWeight: '700' },
   empty: { fontSize: 14, fontWeight: '700', paddingVertical: 24, textAlign: 'center' },
   line: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
@@ -178,6 +196,13 @@ const styles = StyleSheet.create({
   subtotalLabel: { fontSize: 14, fontWeight: '800' },
   subtotalValue: { fontSize: 16, fontWeight: '800', ...TABULAR },
   caveat: { fontSize: 12, marginTop: 8, lineHeight: 16 },
-  checkout: { marginTop: 16, borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
+  // Same floor as `close` above, for the same reason: `paddingVertical: 13`
+  // around 14px bold text has no literal number this page's own touch-target
+  // sweep can check without it, whatever the real rendered height happens to
+  // measure -- and this is the button that ends a cart review with an order.
+  checkout: {
+    marginTop: 16, borderRadius: 999, paddingVertical: 13, alignItems: 'center',
+    minHeight: TOUCH_TARGET, justifyContent: 'center',
+  },
   checkoutText: { fontSize: 14, fontWeight: '800' },
 });
