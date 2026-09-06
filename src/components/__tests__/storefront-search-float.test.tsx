@@ -70,17 +70,21 @@ function flatten(style: unknown): Record<string, unknown> {
     .reduce((acc, s) => ({ ...(acc as object), ...(s as object) }), {}) as Record<string, unknown>;
 }
 
-// Pins the exact mechanism theme-shared.tsx's `searchRowFloating` style uses
-// for the overlap -- a node carrying BOTH the -21px pull and the zIndex that
-// keeps it painted above the anchor. Neither alone would be the regression
-// this suite exists to catch: a stray -21 with no zIndex could paint UNDER
-// the anchor on Android (elevation reorders siblings), and a zIndex with no
-// negative margin would not overlap anything at all.
+// Finds the floating wrapper by its `zIndex` alone -- `searchRowFloating` is
+// the only style in this component that sets `zIndex: 1`, so this is a
+// structural marker, not a magic-number match on the pull itself. Looking
+// for `marginTop === -21` here (what this used to do) would only prove the
+// STYLE VALUE was -21, which is not the same claim as "the card overlaps the
+// anchor by 21px" -- `headerNarrow`, the wrapper's own parent, is a column
+// flex container with `gap: SPACE.cardGap`, and RN sums a flex `gap` with a
+// child's own negative `marginTop` rather than letting one replace the
+// other. A -21 margin against a 14px gap renders as a 7px overlap, not 21 --
+// exactly the regression this file exists to catch, and exactly what a
+// bare `marginTop === -21` assertion cannot see, since it would pass
+// identically whatever the gap happened to be. `effectiveSearchOverlap`
+// below is what actually asserts the rendered offset.
 function findFloatingSearchWrapper(tree: ReactTestRenderer) {
-  return tree.root.findAll((n) => {
-    const s = flatten(n.props?.style);
-    return s.marginTop === -21 && s.zIndex === 1;
-  });
+  return tree.root.findAll((n) => flatten(n.props?.style).zIndex === 1);
 }
 
 // `toJSON()` renders only HOST nodes -- a composite like `<ShopAnchor/>` or
@@ -108,6 +112,33 @@ function findJsonByTestId(node: JsonNode | JsonNode[] | null, testID: string): J
     if (found) return found;
   }
   return null;
+}
+
+// THE ACTUAL REGRESSION CHECK: the parent's `gap` and the wrapper's own
+// `marginTop`, summed -- the number that lands on screen, not either style
+// value in isolation. `storefront-header` (ShopHeader's narrow-branch View)
+// is the wrapper's direct parent and carries `headerNarrow`'s `gap:
+// SPACE.cardGap`; the wrapper is whichever of its children carries the
+// `zIndex: 1` this component's floating style alone sets. Returns `null` if
+// either half is missing, so a caller can tell "no overlap wrapper found" (a
+// real assertion in its own right, above) apart from "found it, and the sum
+// is wrong".
+//
+// This is what makes the test resistant to drift in EITHER direction:
+// tightening `headerNarrow`'s gap without correspondingly loosening the
+// margin (or vice versa) changes this sum, whereas the old
+// `marginTop === -21` check would have passed unchanged either way.
+function effectiveSearchOverlap(tree: ReactTestRenderer): number | null {
+  const header = findJsonByTestId(tree.toJSON(), 'storefront-header');
+  if (!header) return null;
+  const gap = flatten(header.props?.style).gap;
+  const wrapper = (header.children ?? []).find(
+    (c): c is JsonNode => typeof c !== 'string' && flatten(c.props?.style).zIndex === 1,
+  );
+  if (typeof gap !== 'number' || !wrapper) return null;
+  const marginTop = flatten(wrapper.props?.style).marginTop;
+  if (typeof marginTop !== 'number') return null;
+  return gap + marginTop;
 }
 
 describe('the floating search card', () => {
@@ -138,6 +169,18 @@ describe('the floating search card', () => {
     expect(findFloatingSearchWrapper(tree).length).toBeGreaterThan(0);
   });
 
+  // THE FIX ITSELF: 21px, not 7. `effectiveSearchOverlap` sums the parent
+  // `headerNarrow`'s `gap` with the wrapper's own `marginTop` -- the two
+  // numbers that combine, in RN's flex layout, to decide how far the card
+  // actually climbs onto the anchor. Asserting the RAW `marginTop` alone (as
+  // this suite used to) would pass identically whether `headerNarrow`'s gap
+  // were 14 or 100 -- this is the assertion that actually fails if either
+  // number moves without the other following it.
+  it('the floating card overlaps the anchor by exactly 21px, gap and pull summed', async () => {
+    const tree = await render(catalogue(SEARCH_THRESHOLD), 'the-one-search-overlap');
+    expect(effectiveSearchOverlap(tree)).toBe(-21);
+  });
+
   // THE DEFECT THIS PINS: the floating card's -21px pull must land on
   // ShopAnchor's own bottom edge (a dark `ink` card, per the mockup's
   // `.onesearch` under `.hero2`), not on the light `ground` Collecting/Stock
@@ -157,10 +200,7 @@ describe('the floating search card', () => {
     expect(header).not.toBeNull();
     const kids = (header!.children ?? []).filter((c): c is JsonNode => typeof c !== 'string');
     const anchorIndex = kids.findIndex((k) => k.props?.testID === 'storefront-shop-card');
-    const floatingIndex = kids.findIndex((k) => {
-      const s = flatten(k.props?.style);
-      return s.marginTop === -21 && s.zIndex === 1;
-    });
+    const floatingIndex = kids.findIndex((k) => flatten(k.props?.style).zIndex === 1);
     expect(anchorIndex).toBeGreaterThanOrEqual(0);
     expect(floatingIndex).toBe(anchorIndex + 1);
   });

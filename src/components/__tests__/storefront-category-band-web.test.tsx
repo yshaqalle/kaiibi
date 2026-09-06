@@ -13,12 +13,14 @@ import { CategoryBand } from '@/components/storefront/category-band';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontCategory, StorefrontProduct } from '@/types/models';
 
-// category-band.tsx reaches theme-shared.tsx (for ON_SCRIM_INK/MUTED), which
-// reaches '@/lib/storefront' -> '@/lib/storage' -> '@/lib/supabase', which
-// constructs the real client at module load and throws without
-// EXPO_PUBLIC_SUPABASE_* -- same unblocking mock every other storefront
-// component test carries.
-jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+// No `@/lib/supabase` mock needed here any more (Fix 4 of the Phase 2
+// review): category-band.tsx used to import ON_SCRIM_INK/MUTED from
+// theme-shared.tsx, which reaches '@/lib/storefront' -> '@/lib/storage' ->
+// '@/lib/supabase' -- a real client constructed at module load that throws
+// without EXPO_PUBLIC_SUPABASE_*. Both constants now live in scale.ts, a
+// plain constants module with no such chain, so this test -- which only
+// ever imports CategoryBand directly, never a theme -- no longer needs to
+// unblock a dependency it was never really exercising.
 
 const colors = paletteColors('ink');
 

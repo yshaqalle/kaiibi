@@ -4,7 +4,9 @@ import {
   useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 
-import { clampOffset, nearestIndex, nextWheelOffset, supportsHover } from '@/components/storefront/mouse-pan';
+import {
+  clampOffset, nearestIndex, nextWheelOffset, shouldConsumeWheel, supportsHover, wheelPanDelta,
+} from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { openExternalUrl } from '@/lib/external-url';
 import { offerCopyFor } from '@/lib/poster';
@@ -271,11 +273,21 @@ export function FlyerCarousel({
   // half of the affordance: without it, the page behind the band scrolls
   // instead, since a browser never turns a vertical wheel into horizontal
   // scroll on its own for a horizontal-only overflow.
+  //
+  // `shouldConsumeWheel` runs FIRST, before `preventDefault()` -- this band's
+  // own version of the dead zone Task 14 first hit: `maxOffset` here is
+  // usually positive (a real carousel), but at either END of travel there is
+  // no room left in the direction the wheel is asking to move, and the old
+  // unconditional `preventDefault()` swallowed that tick anyway rather than
+  // letting it fall through to scroll the page. See mouse-pan.ts's own
+  // comment on `shouldConsumeWheel` for the full rule.
   function handleWheel(event: { deltaX: number; deltaY: number; preventDefault: () => void }) {
-    event.preventDefault();
     if (width <= 0) return;
-    setMousePanning(true);
     const maxOffset = Math.max(0, (count - 1) * width);
+    const delta = wheelPanDelta(event.deltaX, event.deltaY);
+    if (!shouldConsumeWheel(offsetXRef.current, maxOffset, delta)) return;
+    event.preventDefault();
+    setMousePanning(true);
     const next = nextWheelOffset(offsetXRef.current, event.deltaX, event.deltaY, maxOffset);
     offsetXRef.current = next;
     scroller.current?.scrollTo({ x: next, animated: false });

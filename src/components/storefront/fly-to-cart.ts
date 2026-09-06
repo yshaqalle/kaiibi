@@ -129,12 +129,45 @@ export function countUpValue(fromCents: number, toCents: number, elapsedMs: numb
 
 let slipTarget: Point | null = null;
 
-export function setSlipTarget(point: Point | null): void {
+// THE OWNER, tracked alongside the point itself -- what makes the cleanup
+// below identity-checked rather than unconditional (see `clearSlipTarget`'s
+// own comment). `unknown` rather than a named type: the only thing that ever
+// matters about an owner is `===`, and CheckoutBar's own call site supplies
+// a plain `{}` created once per mount via `useRef` for exactly that
+// comparison -- nothing here needs to know its shape.
+let slipTargetOwner: unknown;
+
+// `owner` is optional so every existing direct call (this repo's own tests,
+// which only ever care about the point) keeps working unchanged -- passing
+// none simply means "no one holds a claim to clear this", the same as
+// before this fix existed.
+export function setSlipTarget(point: Point | null, owner?: unknown): void {
   slipTarget = point;
+  slipTargetOwner = owner;
 }
 
 export function getSlipTarget(): Point | null {
   return slipTarget;
+}
+
+// THE IDENTITY-CHECKED CLEANUP `setSlipTarget` never had. CheckoutBar
+// registers a fresh target on every layout but had no matching cleanup at
+// all -- an unmounted CheckoutBar (a route transition, a shop with no items
+// left) left a stale, unreachable target sitting in the registry forever,
+// harmless only because a NEW CheckoutBar mounting elsewhere on the page
+// would overwrite it before anything ever read it. That is not a fix, it is
+// luck: two CheckoutBars briefly alive at once (the same outgoing-screen
+// overlap fly-to-cart-layer.tsx's own `unregisterFlyTrigger` guards against)
+// would let the one that finishes unmounting LAST silently erase the other's
+// live target instead. Clearing only when `owner` still matches the current
+// claim is what makes an out-of-order cleanup a no-op instead of a wipe --
+// the exact twin of `unregisterFlyTrigger` below, for the registry that
+// stores a value rather than a callback and so cannot use its own identity
+// as the check.
+export function clearSlipTarget(owner: unknown): void {
+  if (slipTargetOwner !== owner) return;
+  slipTarget = null;
+  slipTargetOwner = undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -157,6 +190,26 @@ export function registerFlyTrigger(trigger: FlyTrigger | null): void {
   flyTrigger = trigger;
 }
 
+// THE IDENTITY-CHECKED CLEANUP `registerFlyTrigger(null)` never was.
+// FlyToCartLayer's own effect used to unregister by calling
+// `registerFlyTrigger(null)` on cleanup -- unconditionally, whoever is
+// registered right now. Two `FlyToCartLayer`s briefly mounted at once (a
+// route transition where the outgoing `ShopChrome` has not yet unmounted
+// when the incoming one mounts) race: whichever cleanup runs LAST wins, and
+// if that is the OUTGOING layer's, it wipes the incoming layer's live
+// trigger with `null` -- fly-to-cart then silently does nothing for the rest
+// of the session, with no error and no failed test to point at it. Each
+// trigger function is already a fresh closure per mount (React never reuses
+// one across remounts), so comparing it by `===` against whatever is
+// CURRENTLY registered is enough to tell "am I still the one in here" apart
+// from "someone replaced me already" -- exactly what `registerFlyTrigger`
+// itself cannot do, since setting is meant to be unconditional (a NEW
+// mount's registration must always win over whatever was there before it).
+export function unregisterFlyTrigger(trigger: FlyTrigger): void {
+  if (flyTrigger !== trigger) return;
+  flyTrigger = null;
+}
+
 export function fireFlyToCart(origin: Point | null | undefined): void {
   if (!origin) return;
   if (!Number.isFinite(origin.x) || !Number.isFinite(origin.y)) return;
@@ -170,5 +223,6 @@ export function fireFlyToCart(origin: Point | null | undefined): void {
 // app code calls this.
 export function resetFlyToCartForTests(): void {
   slipTarget = null;
+  slipTargetOwner = undefined;
   flyTrigger = null;
 }

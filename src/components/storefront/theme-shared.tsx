@@ -10,11 +10,13 @@ import Animated, {
 import { Aurora } from '@/components/storefront/aurora';
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import {
-  countUpDuration, countUpValue, fireFlyToCart, setSlipTarget, slipBumpMotion,
+  clearSlipTarget, countUpDuration, countUpValue, fireFlyToCart, setSlipTarget, slipBumpMotion,
 } from '@/components/storefront/fly-to-cart';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import {
+  DISPLAY_FONT, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SCRIM_GRADIENT, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE,
+} from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { isConfigured, isOpenAt } from '@/lib/store-hours';
@@ -97,13 +99,15 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
 // comes across; the app's tokens do not.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Type ON the scrim, and so deliberately fixed -- the same pair, and the same
-// reasoning, as the constants this replaces in theme-window.tsx: the ground
-// underneath is an unknown photograph, and a palette's own ink would vanish
-// into it. Lives here now because the shop card is shared by all three themes
-// rather than being Window's alone.
-export const ON_SCRIM_INK = '#ffffff';
-export const ON_SCRIM_MUTED = '#e8e6e0';
+// Re-exported for backwards compatibility -- these two now live in scale.ts
+// (see that file's own comment) so a display component that only needs
+// them, CategoryBand chief among them, does not have to import this whole
+// module -- and with it `checkout-form`, `storefront-order` and
+// `@/lib/supabase` -- for two strings. This file still uses both directly
+// (below, and in ShopAnchor's own scrim), so importing them back in rather
+// than duplicating the values is what keeps this and scale.ts from being
+// able to drift apart.
+export { ON_SCRIM_INK, ON_SCRIM_MUTED };
 
 // A card. Borderless and unshadowed on purpose: the separation is the page
 // tone behind it, which is the whole of what makes a bento page read as
@@ -276,8 +280,8 @@ export function ShopAnchor({
               photograph under it. */}
           <LinearGradient
             testID="storefront-hero-scrim"
-            colors={['transparent', 'rgba(16,22,35,0.82)']}
-            locations={[0.3, 0.92]}
+            colors={SCRIM_GRADIENT.colors}
+            locations={SCRIM_GRADIENT.locations}
             style={styles.anchorScrim}
             pointerEvents="none"
           />
@@ -1100,6 +1104,14 @@ export function CheckoutBar({
   const reducedMotion = useReducedMotion();
   const slipRef = useRef<View>(null);
 
+  // THIS INSTANCE'S OWN CLAIM on the slip-target registry -- a plain object
+  // created once per mount, compared only by `===`. What makes the cleanup
+  // below identity-checked rather than unconditional: see
+  // `clearSlipTarget`'s own comment in fly-to-cart.ts for the hazard (an
+  // outgoing CheckoutBar's unmount racing an incoming one's mount, on a
+  // route transition) this guards against.
+  const slipOwnerRef = useRef({});
+
   // THE SLIP TARGET -- registered on every layout of this box (mount, and
   // any resize) rather than read once, so a laptop window resize or a
   // rotation keeps it honest. Window-space (measureInWindow), the same
@@ -1119,9 +1131,21 @@ export function CheckoutBar({
       measureInWindow?: (cb: (x: number, y: number, width: number, height: number) => void) => void;
     } | null;
     node?.measureInWindow?.((x, y, width, height) => {
-      setSlipTarget({ x: x + 28, y: y + height / 2 });
+      setSlipTarget({ x: x + 28, y: y + height / 2 }, slipOwnerRef.current);
     });
   }
+
+  // Clears this instance's OWN claim on unmount -- `setSlipTarget` never had
+  // a matching cleanup at all before this fix, so a CheckoutBar that
+  // unmounted left a stale, unreachable target sitting in the registry
+  // (harmless only by luck: the next CheckoutBar to lay out would overwrite
+  // it before anything read it). Mount/unmount only (`[]`): this must not
+  // re-run on every re-render, or it would clear the very target the effect
+  // above just set.
+  useEffect(() => {
+    const owner = slipOwnerRef.current;
+    return () => clearSlipTarget(owner);
+  }, []);
 
   // THE BUMP. Two shared values, one per branch of slipBumpMotion, rather
   // than one animated between two different meanings -- each stays at its
@@ -1559,6 +1583,18 @@ export function ConfirmationScreen({
 // every palette, and a derived token would be six values doing one job.
 const ON_INK_HAIRLINE = 'rgba(255,255,255,0.14)';
 
+// THE FLOATING SEARCH CARD'S OVERLAP ONTO THE ANCHOR -- 21px, the number the
+// mockup settled on. `headerNarrow` (below) is a column flex container with
+// `gap: SPACE.cardGap` between its children, and RN's flex `gap` and a
+// child's own negative `marginTop` SUM rather than one replacing the other --
+// so a margin of `-21` on top of a `SPACE.cardGap` (14) gap rendered as only
+// a 7px overlap, not 21, the whole time this shipped. Expressing the margin
+// as `-(SEARCH_FLOAT_OVERLAP + SPACE.cardGap)` is what keeps the two numbers
+// from being able to drift apart silently again: change the gap, and the
+// margin below moves with it, still landing on exactly this many pixels of
+// overlap.
+const SEARCH_FLOAT_OVERLAP = 21;
+
 const styles = StyleSheet.create({
   // ── bento surfaces ──
   card: { borderRadius: RADIUS.card, padding: SPACE.card },
@@ -1662,7 +1698,12 @@ const styles = StyleSheet.create({
   // relying on paint order, since Android's `elevation` on a sibling can
   // reorder that silently.
   searchRowInline: { marginTop: 10 },
-  searchRowFloating: { marginTop: -21, zIndex: 1 },
+  // The rendered overlap is `SEARCH_FLOAT_OVERLAP`, not this margin's own
+  // magnitude -- `headerNarrow`'s `gap` adds back onto it (see
+  // SEARCH_FLOAT_OVERLAP's own comment above). A bare `-21` here would be
+  // exactly the bug that shipped: correct-looking, wrong once the parent's
+  // gap is added in.
+  searchRowFloating: { marginTop: -(SEARCH_FLOAT_OVERLAP + SPACE.cardGap), zIndex: 1 },
   searchCard: {
     flex: 1,
     flexDirection: 'row',

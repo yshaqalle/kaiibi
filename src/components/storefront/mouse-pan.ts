@@ -41,6 +41,31 @@ export function nextWheelOffset(offset: number, deltaX: number, deltaY: number, 
   return clampOffset(offset + wheelPanDelta(deltaX, deltaY), maxOffset);
 }
 
+// WHETHER A WHEEL TICK SHOULD BE STOLEN FROM THE PAGE. Both wheel handlers
+// used to call `event.preventDefault()` unconditionally, before ever asking
+// whether the band had anywhere left to pan -- so a band that already fits
+// its viewport (`maxOffset` 0, the common case with a handful of categories
+// on a wide column) swallowed every wheel tick into a dead zone: the band
+// couldn't move (nothing to scroll) and the page behind it wasn't allowed to
+// either (the event was already prevented). The same trap bites a band that
+// DOES overflow the instant the pointer reaches either end of its travel --
+// the flyer carousel's full-width 16:9 surface, most of all.
+//
+// The fix is this question, asked BEFORE `preventDefault()`: is there travel
+// remaining in the direction this tick is asking to move? `delta > 0` means
+// "pan further toward the end", which only has anywhere to go while
+// `offset < maxOffset`; `delta < 0` means "pan back toward the start", which
+// only has anywhere to go while `offset > 0`. A delta of exactly zero (a
+// wheel event with nothing on either axis) consumes nothing -- there is no
+// direction to have travel in. Only when this returns `true` should a caller
+// prevent the default and pan; otherwise the tick must fall through and
+// scroll the page, exactly as if the band were not there.
+export function shouldConsumeWheel(offset: number, maxOffset: number, delta: number): boolean {
+  if (delta > 0) return offset < maxOffset;
+  if (delta < 0) return offset > 0;
+  return false;
+}
+
 // Which card a given scroll offset is closest to. `width` is one slide's
 // width and is assumed positive -- callers that cannot yet promise that
 // (onLayout has not fired) guard before calling in rather than this function

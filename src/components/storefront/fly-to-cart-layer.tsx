@@ -5,7 +5,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import {
-  arcOpacity, arcPoint, arcScale, flyToCartMotion, getSlipTarget, registerFlyTrigger,
+  arcOpacity, arcPoint, arcScale, flyToCartMotion, getSlipTarget, registerFlyTrigger, unregisterFlyTrigger,
   type Point,
 } from '@/components/storefront/fly-to-cart';
 import type { PaletteColors } from '@/lib/storefront-catalog';
@@ -76,7 +76,12 @@ export function FlyToCartLayer({ colors }: { colors: PaletteColors }) {
     }
 
     registerFlyTrigger(trigger);
-    return () => registerFlyTrigger(null);
+    // `unregisterFlyTrigger`, not `registerFlyTrigger(null)` -- see that
+    // function's own comment in fly-to-cart.ts. Comparing `trigger` (this
+    // closure) against whatever is CURRENTLY registered is what stops an
+    // outgoing ShopChrome's stale cleanup from wiping an incoming one's live
+    // trigger during a route transition where both are briefly mounted.
+    return () => unregisterFlyTrigger(trigger);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reducedMotion]);
 

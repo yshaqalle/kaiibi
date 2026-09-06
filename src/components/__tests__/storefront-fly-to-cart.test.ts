@@ -1,6 +1,6 @@
 import {
-  arcOpacity, arcPoint, arcScale, countUpDuration, countUpValue, fireFlyToCart, flyToCartMotion,
-  getSlipTarget, registerFlyTrigger, resetFlyToCartForTests, setSlipTarget, slipBumpMotion,
+  arcOpacity, arcPoint, arcScale, clearSlipTarget, countUpDuration, countUpValue, fireFlyToCart, flyToCartMotion,
+  getSlipTarget, registerFlyTrigger, resetFlyToCartForTests, setSlipTarget, slipBumpMotion, unregisterFlyTrigger,
 } from '@/components/storefront/fly-to-cart';
 
 afterEach(() => {
@@ -136,6 +136,35 @@ describe('the slip target registry', () => {
   it('holds whatever CheckoutBar last measured', () => {
     setSlipTarget({ x: 40, y: 600 });
     expect(getSlipTarget()).toEqual({ x: 40, y: 600 });
+  });
+});
+
+// THE INTERLEAVING THAT USED TO BREAK BOTH REGISTRIES: two owners briefly
+// alive at once (a route transition where the outgoing ShopChrome has not
+// yet unmounted when the incoming one mounts), and the FIRST one's cleanup
+// running AFTER the second has already registered. An unconditional clear
+// (what both registries did before this fix) wipes the second, live
+// registration; an identity-checked one leaves it alone because the
+// cleanup no longer owns the current claim.
+describe('cleanup only clears its own registration, not whoever replaced it', () => {
+  it('slip target: clearing an earlier owner after a later one has registered leaves the later one in place', () => {
+    const ownerA = {};
+    const ownerB = {};
+    setSlipTarget({ x: 10, y: 20 }, ownerA); // A registers (mounts)
+    setSlipTarget({ x: 99, y: 88 }, ownerB); // B registers (mounts) before A unmounts
+    clearSlipTarget(ownerA); // A's cleanup finally runs, out of order
+    expect(getSlipTarget()).toEqual({ x: 99, y: 88 });
+  });
+
+  it('fly trigger: unregistering an earlier trigger after a later one has registered leaves the later one callable', () => {
+    const triggerA = jest.fn();
+    const triggerB = jest.fn();
+    registerFlyTrigger(triggerA); // A registers (mounts)
+    registerFlyTrigger(triggerB); // B registers (mounts) before A unmounts
+    unregisterFlyTrigger(triggerA); // A's cleanup finally runs, out of order
+    fireFlyToCart({ x: 5, y: 5 });
+    expect(triggerB).toHaveBeenCalledWith({ x: 5, y: 5 });
+    expect(triggerA).not.toHaveBeenCalled();
   });
 });
 

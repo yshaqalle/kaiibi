@@ -9,10 +9,13 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { pillMotion } from '@/components/storefront/shop-tabs';
-import { ON_SCRIM_INK, ON_SCRIM_MUTED } from '@/components/storefront/theme-shared';
-import { clampOffset, nextWheelOffset, supportsHover } from '@/components/storefront/mouse-pan';
+import {
+  clampOffset, nextWheelOffset, shouldConsumeWheel, supportsHover, wheelPanDelta,
+} from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
-import { LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import {
+  LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SCRIM_GRADIENT, SPACE, TABULAR, TYPE,
+} from '@/components/storefront/scale';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontCategory, StorefrontProduct } from '@/types/models';
 
@@ -224,7 +227,17 @@ export function CategoryBand({
   // instead. See the `addEventListener` effect below for why this cannot be
   // wired through the JSX `onWheel` prop -- the exact defect Task 14 found
   // and fixed on the flyer carousel.
+  //
+  // `shouldConsumeWheel` runs FIRST, before `preventDefault()` -- the fix for
+  // the dead zone a shop with only a few categories used to sit in. With few
+  // enough categories to fit a 1320px column, `maxOffset()` is 0: there is
+  // nowhere for this band to pan, so the tick must fall through and scroll
+  // the page instead of being swallowed into nothing. See mouse-pan.ts's own
+  // comment on `shouldConsumeWheel` for the full rule, including the end-of-
+  // travel case.
   function handleWheel(event: { deltaX: number; deltaY: number; preventDefault: () => void }) {
+    const delta = wheelPanDelta(event.deltaX, event.deltaY);
+    if (!shouldConsumeWheel(offsetXRef.current, maxOffset(), delta)) return;
     event.preventDefault();
     const next = nextWheelOffset(offsetXRef.current, event.deltaX, event.deltaY, maxOffset());
     offsetXRef.current = next;
@@ -415,10 +428,14 @@ const TILE_WIDTH = 136;
 const TILE_HEIGHT = 92;
 
 // THE WINDOW: a photograph, a bottom-weighted scrim, the label and the count
-// on it. The scrim colours/locations match the shop card's own
-// `storefront-hero-scrim` (theme-shared.tsx) -- one gradient vocabulary for
-// "type over an unknown photo" rather than a second one invented for a
-// smaller box.
+// on it. The scrim is `SCRIM_GRADIENT` (scale.ts) -- the SAME constant the
+// shop card's own hero (`storefront-hero-scrim`, theme-shared.tsx) draws
+// with, not merely two literals tuned to look alike. They used to be the
+// latter: this tile's own colour and stop locations had drifted from the
+// hero's (0.66 alpha at [0.3, 1] here, 0.82 at [0.3, 0.92] there) while this
+// very comment claimed they matched. One shared constant is what makes "one
+// gradient vocabulary for type over an unknown photo" true rather than
+// aspirational.
 function CategoryTile({
   category, photoUrl, colors, selected, hovered, onHoverIn, onHoverOut, onSelect, onLayout,
 }: {
@@ -465,8 +482,8 @@ function CategoryTile({
       <Image source={{ uri: photoUrl }} style={styles.tilePhoto} resizeMode="cover" />
       <LinearGradient
         testID="storefront-category-scrim"
-        colors={['transparent', 'rgba(16,22,35,0.66)']}
-        locations={[0.3, 1]}
+        colors={SCRIM_GRADIENT.colors}
+        locations={SCRIM_GRADIENT.locations}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
