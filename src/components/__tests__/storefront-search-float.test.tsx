@@ -83,6 +83,33 @@ function findFloatingSearchWrapper(tree: ReactTestRenderer) {
   });
 }
 
+// `toJSON()` renders only HOST nodes -- a composite like `<ShopAnchor/>` or
+// `<SearchField/>` that returns a single element is transparent in this
+// tree, so ShopAnchor's own outer View (testID storefront-shop-card) and
+// SearchField's own outer View (the -21/zIndex wrapper) show up as direct
+// entries of whatever host View actually holds them, in render order. That
+// is what makes this a real structural check of WHO is whose sibling,
+// rather than a search that only proves the wrapper exists somewhere.
+type JsonNode = { type: string; props: Record<string, unknown>; children: (JsonNode | string)[] | null };
+
+function findJsonByTestId(node: JsonNode | JsonNode[] | null, testID: string): JsonNode | null {
+  if (!node) return null;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findJsonByTestId(child, testID);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (node.props?.testID === testID) return node;
+  for (const child of node.children ?? []) {
+    if (typeof child === 'string') continue;
+    const found = findJsonByTestId(child, testID);
+    if (found) return found;
+  }
+  return null;
+}
+
 describe('the floating search card', () => {
   it('placeholder reads the item count', async () => {
     const count = SEARCH_THRESHOLD + 2;
@@ -109,6 +136,33 @@ describe('the floating search card', () => {
     const tree = await render(catalogue(SEARCH_THRESHOLD), 'the-one-search-at');
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-search').length).toBeGreaterThan(0);
     expect(findFloatingSearchWrapper(tree).length).toBeGreaterThan(0);
+  });
+
+  // THE DEFECT THIS PINS: the floating card's -21px pull must land on
+  // ShopAnchor's own bottom edge (a dark `ink` card, per the mockup's
+  // `.onesearch` under `.hero2`), not on the light `ground` Collecting/Stock
+  // pair below it. `storefront-header` is ShopHeader's own narrow-branch
+  // View (theme-shared.tsx), whose direct children are, in order: the
+  // WhatsApp/Cart button row, ShopAnchor (testID storefront-shop-card), and
+  // headerPair (Collecting + Stock). The floating wrapper belongs in the
+  // middle slot -- ShopAnchor's very next sibling -- so a -21px pull placed
+  // ABOVE it in the render always overlaps the anchor and never the pair.
+  //
+  // Reverting to rendering the field as a sibling of the whole <ShopHeader/>
+  // (task 13's original bug) removes it from this node's children entirely,
+  // so `floatingIndex` becomes -1 and this fails.
+  it('the floating card is ShopAnchor\'s next sibling, not a sibling of the whole header', async () => {
+    const tree = await render(catalogue(SEARCH_THRESHOLD), 'the-one-search-sibling');
+    const header = findJsonByTestId(tree.toJSON(), 'storefront-header');
+    expect(header).not.toBeNull();
+    const kids = (header!.children ?? []).filter((c): c is JsonNode => typeof c !== 'string');
+    const anchorIndex = kids.findIndex((k) => k.props?.testID === 'storefront-shop-card');
+    const floatingIndex = kids.findIndex((k) => {
+      const s = flatten(k.props?.style);
+      return s.marginTop === -21 && s.zIndex === 1;
+    });
+    expect(anchorIndex).toBeGreaterThanOrEqual(0);
+    expect(floatingIndex).toBe(anchorIndex + 1);
   });
 });
 

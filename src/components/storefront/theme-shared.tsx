@@ -539,7 +539,7 @@ export function ShopPill({
 // a raw pixel test so the caller decides once, from the same measurement it
 // already takes to pick a column count.
 export function ShopHeader({
-  storefront, products, areas, colors, wide, itemCount, onOpenCart,
+  storefront, products, areas, colors, wide, itemCount, onOpenCart, narrowFloatingSearch,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
@@ -548,6 +548,14 @@ export function ShopHeader({
   wide: boolean;
   itemCount: number;
   onOpenCart: () => void;
+  // The floating SearchField element, or null -- computed and gated by the
+  // CALLER (ThemeMarket, via shouldOfferSearch) so that decision keeps
+  // living in exactly one place rather than being duplicated here. This
+  // component's only job is where to paint it: right after ShopAnchor and
+  // before headerPair, which is what makes its -21px pull land on the
+  // anchor's own bottom edge instead of on the Collecting/Stock pair below.
+  // Ignored entirely in the wide branch -- see ShopAnchor's placement there.
+  narrowFloatingSearch?: ReactNode;
 }) {
   const cartLabel = itemCount > 0 ? `Cart · ${itemCount}` : 'Cart';
   const cartA11y = itemCount > 0 ? `Open cart, ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'Open cart';
@@ -591,6 +599,7 @@ export function ShopHeader({
         />
       </View>
       <ShopAnchor storefront={storefront} colors={colors} />
+      {narrowFloatingSearch}
       <View style={styles.headerPair}>
         <CollectingCard storefront={storefront} areas={areas} colors={colors} style={styles.pairCard} stacked />
         <StockCard products={products} colors={colors} style={styles.pairCard} />
