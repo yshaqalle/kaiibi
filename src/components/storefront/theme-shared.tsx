@@ -1256,7 +1256,7 @@ const styles = StyleSheet.create({
   // The slot is what floats; the bar inside it is what the reading column
   // bounds. Absolute left/right anchor to the theme root, which is the full
   // window -- the maxWidth is what stops a 2000px screen getting a 1972px
-  // button while the goods sit in 1080px.
+  // button while the goods sit in SHOP_MAX_WIDTH.
   checkoutBarSlot: { position: 'absolute', left: 14, right: 14, bottom: 14, alignItems: 'center' },
   slip: {
     width: '100%', maxWidth: SHOP_MAX_WIDTH - 28,
