@@ -1,10 +1,11 @@
+import { Image, StyleSheet, Text } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import StoreDirectoryScreen from '@/app/store/index';
 import {
   DIRECTORY_MAX_WIDTH, ShopDirectoryCard, directoryColumnsForWidth,
 } from '@/components/storefront/shop-directory-card';
-import { paletteColors } from '@/lib/storefront-catalog';
+import { KAIIBI_BLUE, KAIIBI_INK, paletteColors } from '@/lib/storefront-catalog';
 import type { PublicShopSummary } from '@/types/models';
 
 const mockPush = jest.fn();
@@ -59,6 +60,39 @@ function press(tree: ReturnType<typeof create>, testID: string) {
     (n) => n.props?.testID === testID && typeof n.props?.onPress === 'function',
   );
   act(() => { node.props.onPress(); });
+}
+
+// SIBLING-ADJACENCY HELPERS, on the pattern storefront-theme-market.test.tsx
+// already uses for the same reason: `toJSON()` yields HOST nodes only, in
+// document order, so walking IT (rather than `tree.root.findAll`, which also
+// returns every composite wrapper in between) is what lets a test ask "is B
+// the very next sibling of A", not merely "does B come after A somewhere" --
+// the weaker check that stayed green through two wedged-content defects this
+// branch already shipped (see the brief this task came from).
+type HostNode = { type: string; props: Record<string, unknown>; children: unknown[] | null };
+
+function findByTestIdNode(root: HostNode, testID: string): HostNode | null {
+  if (root.props?.testID === testID) return root;
+  for (const child of root.children ?? []) {
+    if (typeof child === 'string') continue;
+    const found = findByTestIdNode(child as HostNode, testID);
+    if (found) return found;
+  }
+  return null;
+}
+
+function subtreeHasTestId(node: HostNode, testID: string): boolean {
+  if (node.props?.testID === testID) return true;
+  return (node.children ?? []).some(
+    (child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID),
+  );
+}
+
+function nextDirectChildAfter(parent: HostNode, testID: string): HostNode | string | null {
+  const children = parent.children ?? [];
+  const idx = children.findIndex((child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID));
+  if (idx === -1) return null;
+  return (children[idx + 1] as HostNode | string | undefined) ?? null;
 }
 
 describe('the directory card', () => {
@@ -302,5 +336,115 @@ describe('the directory screen', () => {
     mockList.mockResolvedValue([]);
     const tree = await renderScreen();
     expect(textOf(tree, 'storefront-directory-empty')).toContain('No shops are open yet.');
+  });
+});
+
+// THE MASTHEAD -- one lockup, one line of promise, one search field -- that
+// replaced a nav row followed by a whole second hero (an eyebrow pill, a
+// serif headline, a two-sentence lede). See the design record in
+// src/app/store/index.tsx, at the top of `header`, for the repetition
+// argument ("kaiibi" said twice within 120px) this rebuild is answering.
+describe('the masthead', () => {
+  it('drops the old eyebrow-headline-lede hero, and leads with the wordmark instead', async () => {
+    mockList.mockResolvedValue([summary()]);
+    const tree = await renderScreen();
+    expect(has(tree, 'storefront-directory-masthead')).toBe(true);
+    // The copy this masthead retired, pinned as an ABSENCE: if a future edit
+    // resurrects the eyebrow or the headline, this is the test that notices.
+    expect(textOf(tree, 'storefront-directory')).not.toContain('Buy from a real shop down the road');
+    expect(textOf(tree, 'storefront-directory')).not.toContain('Shops on Kaiibi');
+    // The wordmark IS the headline now -- it still lives inside the lockup
+    // that links home.
+    expect(textOf(tree, 'storefront-directory-home')).toContain('Kaiibi');
+  });
+
+  it('carries the mockup\'s one line of promise, verbatim', async () => {
+    mockList.mockResolvedValue([summary()]);
+    const tree = await renderScreen();
+    expect(textOf(tree, 'storefront-directory-promise')).toBe(
+      'Every shop, one place. Order ahead, collect in town.',
+    );
+  });
+
+  // ADJACENCY, NOT ORDER. `lockupIndex < promiseIndex < searchIndex` would
+  // stay green with unrelated content wedged between any of the three -- the
+  // exact defect this branch has shipped twice already (see the brief). This
+  // asks the stronger question: is the promise the LOCKUP ROW'S very next
+  // sibling inside the masthead, and is the search the PROMISE'S.
+  it('places the promise directly under the lockup row, and the search directly under the promise', async () => {
+    mockList.mockResolvedValue([summary()]);
+    const tree = await renderScreen();
+    const root = tree.toJSON() as HostNode;
+    const masthead = findByTestIdNode(root, 'storefront-directory-masthead');
+    expect(masthead).not.toBeNull();
+
+    const afterLockup = nextDirectChildAfter(masthead as HostNode, 'storefront-directory-home');
+    expect(afterLockup).not.toBeNull();
+    expect(typeof afterLockup === 'string' ? false
+      : subtreeHasTestId(afterLockup as HostNode, 'storefront-directory-promise')).toBe(true);
+
+    const afterPromise = nextDirectChildAfter(masthead as HostNode, 'storefront-directory-promise');
+    expect(afterPromise).not.toBeNull();
+    expect(typeof afterPromise === 'string' ? false
+      : subtreeHasTestId(afterPromise as HostNode, 'storefront-directory-search')).toBe(true);
+  });
+
+  it('names what shops sell in the search placeholder and its accessibility label, not just "shops"', async () => {
+    mockList.mockResolvedValue([summary(), summary({ slug: 'b' })]);
+    const tree = await renderScreen();
+    const field = tree.root.find((n) => n.props?.testID === 'storefront-directory-search');
+    expect(field.props.placeholder).toBe('Find a shop — or a thing they sell…');
+    expect(field.props.accessibilityLabel).toBe('Search 2 shops, or what they sell');
+  });
+
+  // EFFECT, not call: the plate must actually RENDER in kaiibi's own blue --
+  // read off the flattened style of the host node the mark's Image sits
+  // inside, compared against the named constant, never a hex literal retyped
+  // here (see KAIIBI_BLUE, storefront-catalog.ts).
+  it('fills the mark plate in kaiibi\'s own blue, not the directory\'s neutral ink', async () => {
+    mockList.mockResolvedValue([summary()]);
+    const tree = await renderScreen();
+    const mark = tree.root.findByType(Image).parent;
+    expect(mark).not.toBeNull();
+    const flattened = StyleSheet.flatten(mark!.props.style) as { backgroundColor?: string };
+    expect(flattened.backgroundColor).toBe(KAIIBI_BLUE);
+    expect(flattened.backgroundColor).not.toBe(colors.ink);
+  });
+});
+
+// THE SELECTED CHIP -- the mockup's `.dc.on{background:#0071e3}`, and the
+// only other place on this page kaiibi's own blue is allowed to appear.
+describe('the selected filter chip', () => {
+  it('fills the selected city chip in kaiibi blue, and leaves the unselected ones in the directory\'s ink', async () => {
+    mockList.mockResolvedValue([
+      summary({ slug: 'a', city: 'Hargeisa' }),
+      summary({ slug: 'b', city: 'Borama' }),
+    ]);
+    const tree = await renderScreen();
+
+    // "All cities" starts selected -- nothing has been tapped yet.
+    const allCities = tree.root.findAllByType(Text)
+      .find((t: { props: { children?: unknown } }) => t.props.children === 'All cities')!;
+    const allCitiesChip = StyleSheet.flatten(allCities.parent!.props.style) as { backgroundColor?: string };
+    expect(allCitiesChip.backgroundColor).toBe(KAIIBI_BLUE);
+    expect(StyleSheet.flatten(allCities.props.style).color).toBe(KAIIBI_INK);
+
+    const boramaLabel = tree.root.findAllByType(Text)
+      .find((t: { props: { children?: unknown } }) => t.props.children === 'Borama')!;
+    const boramaChipUnselected = StyleSheet.flatten(boramaLabel.parent!.props.style) as { backgroundColor?: string };
+    expect(boramaChipUnselected.backgroundColor).not.toBe(KAIIBI_BLUE);
+    expect(boramaChipUnselected.backgroundColor).toBe(colors.ground);
+
+    press(tree, 'storefront-directory-city-Borama');
+
+    const boramaLabelAfter = tree.root.findAllByType(Text)
+      .find((t: { props: { children?: unknown } }) => t.props.children === 'Borama')!;
+    const boramaChipSelected = StyleSheet.flatten(boramaLabelAfter.parent!.props.style) as { backgroundColor?: string };
+    expect(boramaChipSelected.backgroundColor).toBe(KAIIBI_BLUE);
+
+    const allCitiesAfter = tree.root.findAllByType(Text)
+      .find((t: { props: { children?: unknown } }) => t.props.children === 'All cities')!;
+    const allCitiesChipAfter = StyleSheet.flatten(allCitiesAfter.parent!.props.style) as { backgroundColor?: string };
+    expect(allCitiesChipAfter.backgroundColor).not.toBe(KAIIBI_BLUE);
   });
 });

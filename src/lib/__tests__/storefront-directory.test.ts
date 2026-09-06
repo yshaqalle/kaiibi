@@ -171,6 +171,50 @@ describe('searching the directory', () => {
     expect(searchShops(shops, 'borama grocers').map((s) => s.slug)).toEqual(['b']);
     expect(searchShops(shops, 'borama pharmacy')).toEqual([]);
   });
+
+  // The directory's killer feature: a customer who types what a shop SELLS,
+  // not its name, city or blurb, must still find it. `categories` here is
+  // populated exactly the way `list_public_storefronts` populates it --
+  // aggregated from `products.category` on the shop's listed, in-stock
+  // products, confirmed against
+  // 20261025000000_what_a_shop_sells_and_how_to_reach_it.sql -- not from
+  // `shops.categories`, a column nothing writes.
+  const trades = [
+    summary({
+      slug: 'trade-a', shopName: 'Zeta General', city: 'Burco',
+      headline: null, about: null, categories: ['Shirts', 'Trousers'],
+    }),
+    summary({
+      slug: 'trade-b', shopName: 'Omega Traders', city: 'Hargeisa',
+      headline: null, about: null, categories: ['Shirts'],
+    }),
+    summary({
+      slug: 'trade-c', shopName: 'Iota Retail', city: 'Borama',
+      headline: null, about: null, categories: ['Shirts'],
+    }),
+  ];
+
+  it('finds a shop by a category that appears in no other field', () => {
+    expect(searchShops(trades, 'trousers').map((s) => s.slug)).toEqual(['trade-a']);
+  });
+
+  // Existing name/city/blurb matches must keep working once the haystack
+  // widens -- widening a filter must never narrow an unrelated one.
+  it('still finds a shop by name, city and blurb once categories are in the haystack', () => {
+    expect(searchShops(shops, 'baraka').map((s) => s.slug)).toEqual(['b']);
+    expect(searchShops(shops, 'hargeisa').map((s) => s.slug)).toEqual(['a', 'c']);
+    expect(searchShops(shops, 'solar').map((s) => s.slug)).toEqual(['a']);
+  });
+
+  // THE AND RULE, ACROSS THE WIDENED HAYSTACK. "borama shirts" must find the
+  // Borama shop that stocks shirts and not the Hargeisa one that stocks the
+  // same thing -- each word still has to match on the SAME shop's own
+  // haystack, not on a category matched anywhere in the list.
+  it('keeps the multi-word AND rule across city and category: a city plus a trade finds only that city\'s shop', () => {
+    expect(searchShops(trades, 'borama shirts').map((s) => s.slug)).toEqual(['trade-c']);
+    expect(searchShops(trades, 'hargeisa shirts').map((s) => s.slug)).toEqual(['trade-b']);
+    expect(searchShops(trades, 'burco shirts').map((s) => s.slug)).toEqual(['trade-a']);
+  });
 });
 
 // Derived from the rows, exactly as the city chips are, so a chip can never

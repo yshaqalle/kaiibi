@@ -328,3 +328,20 @@ export const WHATSAPP_INK = '#ffffff';
 // the page and the affordance agree seamlessly. Carries white at 4.70:1.
 export const CHECKOUT_BLUE = '#0071e3';
 export const CHECKOUT_INK = '#ffffff';
+
+// KAIIBI'S OWN BLUE, fixed for the one page that is kaiibi's own room: `/store`,
+// the directory. Every shop's page wears that shop's palette; this page wears
+// no shop's -- it is `ink` throughout (see the comment atop src/app/store/
+// index.tsx) with exactly one exception, the brand mark and the selected
+// filter chip, and those get kaiibi's actual identity colour rather than the
+// directory's neutral ink.
+//
+// Same value as CHECKOUT_BLUE today, and deliberately NOT an alias of it: one
+// is the commit moment on every shop's page regardless of that shop's palette,
+// the other is kaiibi's own mark on kaiibi's own page, and the two happen to
+// coincide, not because one derives from the other. A rebrand could move this
+// one and leave checkout untouched, or the reverse -- pinning them equal
+// (below) documents the coincidence without merging the constants that would
+// make moving one silently move the other.
+export const KAIIBI_BLUE = '#0071e3';
+export const KAIIBI_INK = '#ffffff';

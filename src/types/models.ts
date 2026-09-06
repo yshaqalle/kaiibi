@@ -1469,10 +1469,15 @@ export type PublicShopSummary = {
   // the reader's own clock can answer it. `{}` means never set, which renders
   // as no badge at all rather than as "closed".
   openingHours: OpeningHours;
-  // What the shop says it sells, from `shops.categories` -- the list the owner
-  // picked at signup. A shop can be in more than one, and is filtered by any
-  // of them; picking a primary here would hide a pharmacy-and-grocer from
-  // whichever chip the customer actually tapped.
+  // What the shop actually has on the shelf, not what somebody ticked once at
+  // signup: `list_public_storefronts` aggregates this from `products.category`
+  // on the shop's listed, in-stock products. NOT `shops.categories` -- that
+  // column exists, `createShop` still defaults it, but nothing in the app
+  // writes to it (see
+  // 20261025000000_what_a_shop_sells_and_how_to_reach_it.sql). A shop can be
+  // in more than one, and is filtered by any of them; picking a primary here
+  // would hide a pharmacy-and-grocer from whichever chip the customer actually
+  // tapped.
   categories: string[];
   productCount: number;
 };

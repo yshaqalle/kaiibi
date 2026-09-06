@@ -2,6 +2,7 @@ import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
   paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN, CHECKOUT_BLUE, CHECKOUT_INK,
+  KAIIBI_BLUE, KAIIBI_INK,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -346,5 +347,20 @@ describe('checkout blue', () => {
     // If either value moves without the other, an Azure shop's page and its
     // checkout affordance drift apart -- pin the relationship.
     expect(paletteColors('azure').accent).toBe(CHECKOUT_BLUE);
+  });
+});
+
+describe("kaiibi's own blue", () => {
+  it('carries white text, which is its whole job on the mark plate and the selected chip', () => {
+    expect(contrastRatio(KAIIBI_INK, KAIIBI_BLUE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // Coincidence, not derivation: pinned equal so a future rebrand that moves
+  // one without the other is a failing test, not a silent drift, and so
+  // whoever reads a red diff here knows to go re-read both comments before
+  // "fixing" it back to a shared constant.
+  it('coincides with checkout blue today, without being an alias of it', () => {
+    expect(KAIIBI_BLUE).toBe(CHECKOUT_BLUE);
+    expect(KAIIBI_INK).toBe(CHECKOUT_INK);
   });
 });

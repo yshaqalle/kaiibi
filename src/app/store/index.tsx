@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import Head from 'expo-router/head';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
+  FlatList, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
@@ -11,7 +11,7 @@ import {
   DIRECTORY_GAP, DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard,
   directoryColumnsForWidth, featuredShop,
 } from '@/components/storefront/shop-directory-card';
-import { paletteColors } from '@/lib/storefront-catalog';
+import { KAIIBI_BLUE, KAIIBI_INK, paletteColors } from '@/lib/storefront-catalog';
 import {
   categoriesOf, citiesOf, inCategory, listPublicShops, searchShops,
 } from '@/lib/storefront-directory';
@@ -103,64 +103,90 @@ export default function StoreDirectoryScreen() {
 
   const header = (
     <View>
-      {/* THE DIRECTORY'S OWN NAV. /store sits at the app root, outside the
-          (public) group, so it inherits none of the marketing chrome -- which
-          left the page opening on a headline with no way back to anything and
-          no way for a shopkeeper reading it to sign up. */}
-      <View style={[styles.nav, { borderBottomColor: colors.hairline }]}>
-        <Pressable
-          testID="storefront-directory-home"
-          accessibilityRole="link"
-          onPress={() => router.push('/')}
-          style={pressable(styles.brand)}
-        >
-          <View style={[styles.brandMark, { backgroundColor: colors.ink }]}>
-            <Text style={[styles.brandMarkText, { color: colors.ground }]}>K</Text>
-          </View>
-          <Text style={[styles.brandName, { color: colors.ink }]}>Kaiibi</Text>
-        </Pressable>
-        <View style={styles.navSpacer} />
-        <Pressable
-          testID="storefront-directory-open-shop"
-          accessibilityRole="link"
-          onPress={() => router.push('/signup')}
-          style={pressable([styles.navCta, { backgroundColor: colors.ink }])}
-        >
-          <Text style={[styles.navCtaText, { color: colors.ground }]} numberOfLines={1}>
-            {width >= 560 ? 'Open your own shop' : 'Open a shop'}
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* CENTRED, which is the design and was the thing most visibly wrong:
-          a left-aligned hero over centred chips and a centred grid reads as
-          two pages stacked. */}
-      <View style={styles.hero}>
-        <View style={[styles.heroTag, { backgroundColor: colors.ground }]}>
-          <Text style={[styles.eyebrow, { color: colors.muted }]}>Shops on Kaiibi</Text>
+      {/* ONE MASTHEAD, not a nav row with a hero bolted under it. The nav used
+          to carry an ink "K" plate and the wordmark, and the hero immediately
+          below it opened on an eyebrow pill ("Shops on Kaiibi"), a serif
+          headline ("Buy from a real shop down the road") and a two-sentence
+          lede -- which said "kaiibi" twice within 120px, the same repetition
+          defect the Phase 2 whole-branch review found when one page said
+          "collection" three times. On kaiibi's OWN front door there is
+          nothing else to name: the WORDMARK is the headline, so the pill, the
+          headline and the lede all go, and what is left is the lockup, one
+          line of promise, and the search -- directly under it, because a
+          customer who now knows whose page this is has exactly one question
+          left, "can I find my shop", and the field is the answer.
+          `/store` sits at the app root, outside the (public) group, so it
+          inherits none of the marketing chrome -- which is why the lockup
+          still needs to be a link home and the CTA still needs to be here;
+          neither has anywhere else to live.
+          NOT painted `ground` the way the mockup's `.dmast` is: this View sits
+          inside the FlatList's own padded content area (`styles.grid`'s
+          `padding: SPACE.page`), so a fill here would be a floating white
+          rectangle inset from the screen's edges, not the edge-to-edge band
+          the mockup shows. Matching that would mean the masthead owning its
+          own full-bleed layer above the FlatList -- a real change this task's
+          three deltas do not ask for -- so it stays on the page's own tone,
+          which is what every other band on this page (chips, the row head)
+          already does. */}
+      <View testID="storefront-directory-masthead" style={[styles.masthead, { borderBottomColor: colors.hairline }]}>
+        <View style={styles.mastheadRow}>
+          <Pressable
+            testID="storefront-directory-home"
+            accessibilityRole="link"
+            onPress={() => router.push('/')}
+            style={pressable(styles.lockup)}
+          >
+            {/* THE ONE OTHER PLACE THIS PAGE TURNS KAIIBI BLUE. Every shop's
+                page wears that shop's own accent; this page wears none --
+                it's `ink` throughout, see the note atop this file -- except
+                here, where the plate is carrying kaiibi's own mark rather
+                than a shop's, and the selected filter chip below, where the
+                same argument applies to a choice the customer just made. */}
+            <View style={[styles.mark, { backgroundColor: KAIIBI_BLUE }]}>
+              <Image
+                source={require('@/assets/images/kaiibi-mark-white.png')}
+                style={styles.markImage}
+                accessibilityIgnoresInvertColors
+              />
+            </View>
+            <Text style={[styles.wordmark, { color: colors.ink }]}>Kaiibi</Text>
+          </Pressable>
+          <View style={styles.navSpacer} />
+          <Pressable
+            testID="storefront-directory-open-shop"
+            accessibilityRole="link"
+            onPress={() => router.push('/signup')}
+            style={pressable([styles.navCta, { backgroundColor: colors.ink }])}
+          >
+            <Text style={[styles.navCtaText, { color: colors.ground }]} numberOfLines={1}>
+              {width >= 560 ? 'Open your own shop' : 'Open a shop'}
+            </Text>
+          </Pressable>
         </View>
-        <Text style={[styles.title, width >= 720 && styles.titleWide, { color: colors.ink }]}>
-          Buy from a real shop down the road
-        </Text>
-        <Text style={[styles.lede, { color: colors.muted }]}>
-          Every shop here is a business someone runs in person. Browse what they have in today,
-          order on WhatsApp, and pay when you collect.
+
+        <Text testID="storefront-directory-promise" style={[styles.promise, { color: colors.muted }]}>
+          Every shop, one place. Order ahead, collect in town.
         </Text>
 
         {/* ALWAYS RENDERED, and the minimum that used to gate it is gone.
             It was borrowed from shouldOfferSearch on the shop page, where a
             search sits above a grid and genuinely earns its place by count.
-            Here it is part of the HERO -- the composition is tag, headline,
-            lede, field -- so hiding it below a threshold does not simplify the
-            page, it breaks it, which is exactly what a two-shop directory
-            showed. A field over two shops is redundant; a hero with a hole in
-            it is broken, and redundant beats broken. */}
+            Here it is part of the MASTHEAD -- the composition is lockup,
+            promise, field -- so hiding it below a threshold does not simplify
+            the page, it breaks it, which is exactly what a two-shop directory
+            showed. A field over two shops is redundant; a masthead with a
+            hole in it is broken, and redundant beats broken. */}
         <View style={[styles.searchRow, { backgroundColor: colors.ground, borderColor: colors.edge }]}>
           <Text style={[styles.searchIcon, { color: colors.muted }]}>🔍</Text>
           <TextInput
             testID="storefront-directory-search"
-            accessibilityLabel={`Search ${shops.length} shops`}
-            placeholder="Search shops, or a city"
+            // Names what changed underneath it: the haystack now includes
+            // every shop's stocked categories (searchShops,
+            // storefront-directory.ts), not just its name, city and blurb --
+            // so the label should say "shops" AND what they sell, not "shops"
+            // alone.
+            accessibilityLabel={`Search ${shops.length} shops, or what they sell`}
+            placeholder="Find a shop — or a thing they sell…"
             placeholderTextColor={colors.muted}
             value={query}
             onChangeText={setQuery}
@@ -396,12 +422,20 @@ function CityChip({
         // unselected chip is `ground` on `soft`, which is 1.04:1 on this
         // palette and so has no edge at all. The selected chip borders in its
         // own fill so the row does not shift by 2px when one is tapped.
+        //
+        // KAIIBI_BLUE, not `colors.ink`: a choice the customer just made on
+        // KAIIBI'S page is the other place this page's own colour belongs
+        // (see the mark plate above) -- the mockup fills the selected chip
+        // the same way (`.dc.on{background:#0071e3}`). Every OTHER pill on
+        // this page (unselected chips, the nav CTA) stays in the directory's
+        // neutral `ink`, because those are not a stated choice, they are
+        // chrome.
         active
-          ? { backgroundColor: colors.ink, borderColor: colors.ink }
+          ? { backgroundColor: KAIIBI_BLUE, borderColor: KAIIBI_BLUE }
           : { backgroundColor: colors.ground, borderColor: colors.edge },
       ])}
     >
-      <Text style={[styles.chipText, { color: active ? colors.ground : colors.muted }]}>{label}</Text>
+      <Text style={[styles.chipText, { color: active ? KAIIBI_INK : colors.muted }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -490,31 +524,42 @@ const styles = StyleSheet.create({
 
   featureWrap: { paddingBottom: 4 },
 
-  nav: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1,
-  },
+  // ONE MASTHEAD -- lockup row, promise, search -- replacing what used to be
+  // a nav (paddingTop/Bottom 14, its own bottom hairline) with a centred hero
+  // stacked under it. The hairline moves here, to the bottom of the WHOLE
+  // masthead: it is now one composition, so it gets one edge, where the old
+  // nav's hairline used to cut directly under the brand row and above a
+  // headline that had nothing to do with it.
+  masthead: { paddingTop: 18, paddingBottom: 22, borderBottomWidth: 1 },
+  mastheadRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   navSpacer: { flex: 1 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandMark: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  brandMarkText: { fontSize: 15, fontWeight: '800' },
-  brandName: { fontSize: 18, fontWeight: '800', letterSpacing: LETTER.displayLoud },
+  // Bigger gap than the old nav's `brand` (10 -> 12): the mark plate below is
+  // itself bigger, and the two need to keep the same visual ratio.
+  lockup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  // 44px, up from the old ink plate's 32px -- "masthead scale" per the design
+  // record above, because this plate is no longer one of two lockups on the
+  // page, it is the only one.
+  mark: {
+    width: 44, height: 44, borderRadius: RADIUS.inset - 4,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // The asset is already white-on-transparent (the same file ShopFooter loads
+  // for its own colophon), so the plate's colour is carried entirely by
+  // `mark`'s fill -- no tinting here, just sizing it inside the plate.
+  markImage: { width: 22, height: 22, resizeMode: 'contain' },
+  // The wordmark IS the headline now (see the design record above), so it
+  // reads at a size that can carry that job alone rather than the old nav's
+  // 18px aside-to-a-headline size.
+  wordmark: { fontSize: 26, fontWeight: '800', letterSpacing: LETTER.displayLoud },
   navCta: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11 },
   navCtaText: { fontSize: 13, fontWeight: '800' },
-
-  // Centred, and bounded independently of the grid: a 1,080px measure is right
-  // for a row of cards and far too wide for a sentence.
-  hero: { paddingTop: 40, paddingBottom: 26, alignItems: 'center', alignSelf: 'center', maxWidth: 640, width: '100%' },
-  heroTag: { borderRadius: RADIUS.pill, paddingHorizontal: 14, paddingVertical: 7 },
+  // One line, directly under the lockup row -- the promise the eyebrow pill,
+  // headline and lede used to take three lines and two repetitions of
+  // "kaiibi" to make.
+  promise: { fontSize: TYPE.body + 1.5, marginTop: 14 },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
-  title: {
-    fontFamily: DISPLAY_FONT, fontSize: 30, lineHeight: 35, fontWeight: '700',
-    letterSpacing: LETTER.displayLoud, marginTop: 16, textAlign: 'center',
-  },
-  titleWide: { fontSize: 40, lineHeight: 45 },
-  lede: { fontSize: TYPE.body + 1.5, lineHeight: 23, marginTop: 14, textAlign: 'center' },
 
   chips: { flexDirection: 'row', gap: 8, paddingBottom: 6, paddingRight: SPACE.page },
   chip: { borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1 },
