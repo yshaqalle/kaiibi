@@ -1079,6 +1079,46 @@ export function goodsScrollHeight(
   return rowHeight * 2 + rowGap;
 }
 
+// THE SAME BOX, THREE ROWS TALL, for a window with the room to spare.
+export function goodsThreeRowHeight(
+  measuredRowHeight: number | null,
+  rowGap: number,
+  rowCount: number,
+): number | null {
+  if (rowCount <= 2) return null;
+  const rowHeight = measuredRowHeight ?? ESTIMATED_ROW_HEIGHT;
+  return rowHeight * 3 + rowGap * 2;
+}
+
+// HOW MANY ROWS THE GOODS BOX SHOWS, and the rule is a range rather than a
+// number: never fewer than two, never more than three, three only when the
+// window has the room for it.
+//
+// WHY IT IS ALWAYS BOUNDED, even when the page then has to scroll. The point
+// of this box is not that the page fits -- on a 14" laptop it cannot, and the
+// arithmetic saying so is in this file's history -- it is that the page's
+// LENGTH STOPS DEPENDING ON THE CATALOGUE. Unbounded, a shop that grows from
+// 28 items to 280 grows a page ten times longer, and every customer pays for
+// that stock in scrolling before they reach the footer. Bounded, the page is
+// the same short page either way and the growth goes where it belongs: inside
+// the grid, which scrolls.
+//
+// That is the whole trade, and it is why "two rows or nothing" was wrong. It
+// read the requirement as being about the WINDOW when it was about the
+// CATALOGUE.
+export function goodsRowBound(
+  twoRowHeight: number | null,
+  threeRowHeight: number | null,
+  remainder: number | null,
+): number | null {
+  // Nothing to bound: one row of stock or none. The box is its own height.
+  if (twoRowHeight == null) return null;
+  // Three rows only when they genuinely fit, and only when a third row exists
+  // to show -- a three-row box over two rows of stock is dead space.
+  if (threeRowHeight != null && remainder != null && remainder >= threeRowHeight) return threeRowHeight;
+  return twoRowHeight;
+}
+
 // What a caller renders for the one frame between "the grid mounted" and
 // "the first row reported its own height" -- not a claim about any real
 // tile's height (that is precisely the number goodsScrollHeight refuses to
@@ -1089,65 +1129,30 @@ export function goodsScrollHeight(
 // "asserting a value you typed" failure this pass exists to stop shipping.
 export const ESTIMATED_ROW_HEIGHT = 260;
 
-// THE PAGE ITSELF MUST NOT SCROLL -- goodsScrollHeight above answers "how
-// tall CAN two rows be"; this answers "how tall may they actually GET, on
-// THIS window, without the page growing past its own height." Both halves of
-// one complaint ("i want the product to be fix to 2 rows and the page needs
-// to be properly designed to fit normally"): the goods keep their two-row
-// cap, and everything around them -- header, goods, footer -- has to resolve
-// to the window's height instead of stacking past it.
+// HOW MUCH ROOM THE GOODS BOX HAS, which is a different question from how
+// much it takes -- `goodsRowBound` above decides that, and only consults this
+// to choose between two rows and three.
 //
-// THE ARITHMETIC: what the page scroller was laid out at (`pageHeight`),
-// less the header and footer's own measured heights, less the page's own
-// padding (top AND bottom -- `pagePadding * 2`), less the two gaps that sit
-// between three stacked children (`pageGap * 2` -- header-to-goods,
-// goods-to-footer), less CHECKOUT_BAR_CLEARANCE (reserved unconditionally --
-// see `pageWithCheckoutBar`'s own comment in theme-market.tsx/theme-window.tsx
-// for why this is subtracted whether or not a cart is open). Whatever is left
-// is what the goods box is allowed to claim.
+// THE ARITHMETIC: what the page scroller was laid out at (`pageHeight`), less
+// the header and footer's own measured heights, less the page's own padding
+// (top AND bottom -- `pagePadding * 2`), less the two gaps between three
+// stacked children (`pageGap * 2` -- header-to-goods, goods-to-footer), less
+// CHECKOUT_BAR_CLEARANCE (reserved unconditionally -- see
+// `pageWithCheckoutBar`'s own comment in theme-market.tsx/theme-window.tsx).
 //
-// TWO ROWS OR NOTHING, and the middle ground is the thing this rule exists
-// to refuse.
+// The result may be NEGATIVE, and that is information rather than an error: a
+// 14" laptop showing this shop has 157px of room against a 348px row, which
+// is precisely why the page there scrolls no matter what this returns. It is
+// not this function's job to hide that.
 //
-// The first version floored at ONE row, on the reasoning that a short window
-// still owes the customer something to browse. Measured on a real shop at
-// 1920x1080 that produced a goods box of 387px against a 321px tile -- 1.2
-// rows: a strip showing one row and a sliver of the next, with its own
-// scrollbar, inside a page that still scrolled anyway. It honoured neither
-// half of what it was asked for, and it looked worse on a laptop than the
-// plain scrolling page it replaced. The customer's verdict was "not looking
-// good for the normal screen", which is the only measurement that counts.
-//
-// So the bound applies only where it earns its place: when the window can
-// hold two full rows alongside the header and the footer, the goods take
-// exactly two and the page has no reason to scroll. When it cannot -- and on
-// this shop's own header a 900px laptop cannot, by about 250px -- there is
-// no bound at all. The page becomes an ordinary web page that scrolls, which
-// is a thing every customer already knows how to use, and the goods keep
-// their natural height rather than being squeezed into a letterbox.
-//
-// CAPPED AT THE TWO-ROW HEIGHT, never past it: a generous remainder does not
-// mean the goods grow a third row, it means the page has room to spare.
-//
-// NULL, NEVER ZERO, whenever a measurement this needs has not arrived --
-// `twoRowHeight` null (goodsScrollHeight's own signal that there is nothing
-// to bound at all: one row of stock or none, see its own comment), or any of
-// rowHeight/pageHeight/headerHeight/footerHeight missing OR REPORTED AS
-// EXACTLY ZERO. The zero case is the one worth naming: a header measured
-// before it has painted fires a real onLayout event with height 0, which
-// this arithmetic cannot tell apart from a header that is genuinely
-// nothing -- treating it as "not measured yet" is the only reading that
-// cannot turn into a goods box collapsed to a sliver from one race between a
-// layout pass and a paint. A caller that gets null back has exactly one
-// correct move -- fall back to the two-row estimate it already had
-// (`goodsFitHeight(...) ?? twoRowHeight`, see theme-market.tsx/
-// theme-window.tsx) -- never to zero, and never to leaving the box
-// unbounded outright, which is what a caller that dropped the `?? ` would
-// wrongly do on every single render before the page/header/footer have laid
-// out even once.
+// NULL, NEVER ZERO, when a measurement has not arrived -- any of
+// pageHeight/headerHeight/footerHeight missing OR REPORTED AS EXACTLY ZERO. A
+// header measured before it has painted fires a real onLayout with height 0,
+// which this arithmetic cannot tell from a header that is genuinely nothing;
+// reading it as "not measured yet" is the only choice that cannot hand back a
+// remainder computed from a page that has not laid out. Callers treat null as
+// "no opinion yet" and fall back to two rows.
 export function goodsFitHeight(
-  twoRowHeight: number | null,
-  rowHeight: number | null,
   pageHeight: number | null,
   headerHeight: number | null,
   footerHeight: number | null,
@@ -1155,33 +1160,8 @@ export function goodsFitHeight(
   pageGap: number,
   checkoutClearance: number,
 ): number | null {
-  if (twoRowHeight == null || !rowHeight || !pageHeight || !headerHeight || !footerHeight) return null;
-  const remainder = pageHeight - headerHeight - footerHeight - pagePadding * 2 - pageGap * 2 - checkoutClearance;
-  // Two rows, or leave it alone. `null` here means "no bound" to every caller
-  // that reads it, which is the same signal they already handle for "not
-  // measured yet" -- but they must NOT fall back to the two-row estimate in
-  // this case, because a deliberate refusal is not a missing measurement.
-  // See `goodsBoundFor` below, which is what callers actually use.
-  return remainder >= twoRowHeight ? twoRowHeight : null;
-}
-
-// WHAT THE THEMES ACTUALLY CALL, and the reason it exists is a distinction
-// `goodsFitHeight` alone cannot make: it returns null both for "I have not
-// been measured yet" and for "I measured, and this window does not deserve a
-// bound". Those two need OPPOSITE fallbacks -- the first wants the two-row
-// estimate so the box does not flash unbounded on the first frame, the second
-// wants no bound at all. Passing `measured` says which case the caller is in.
-export function goodsBoundFor(
-  twoRowHeight: number | null,
-  fitted: number | null,
-  measured: boolean,
-): number | null {
-  if (fitted != null) return fitted;
-  // Measured, and the answer was "no bound": an ordinary scrolling page.
-  if (measured) return null;
-  // Not measured yet: hold the two-row estimate so the first frame does not
-  // paint an unbounded grid that then snaps shorter.
-  return twoRowHeight;
+  if (!pageHeight || !headerHeight || !footerHeight) return null;
+  return pageHeight - headerHeight - footerHeight - pagePadding * 2 - pageGap * 2 - checkoutClearance;
 }
 
 // The cart lives in `storefront-cart.ts`, keyed by shop slug, and every

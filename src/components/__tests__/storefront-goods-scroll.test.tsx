@@ -5,7 +5,7 @@ import { ThemeMarket } from '@/components/storefront/theme-market';
 import { ThemeWindow } from '@/components/storefront/theme-window';
 import { SPACE } from '@/components/storefront/scale';
 import {
-  CHECKOUT_BAR_CLEARANCE, ESTIMATED_ROW_HEIGHT, goodsFitHeight, goodsScrollHeight,
+  CHECKOUT_BAR_CLEARANCE, ESTIMATED_ROW_HEIGHT, goodsFitHeight, goodsRowBound, goodsScrollHeight, goodsThreeRowHeight,
 } from '@/components/storefront/theme-shared';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
@@ -119,44 +119,25 @@ describe('goodsFitHeight', () => {
   const pageGap = SPACE.cardGap; // 14 -- the SAME constant as the grid's own row gap today, but a distinct concept: the gap between the page's stacked header/goods/footer, not between two rows of tiles.
   const clearance = CHECKOUT_BAR_CLEARANCE; // 76, always reserved -- see pageWithCheckoutBar's own comment.
 
-  it('returns the two-row cap when the window leaves more room than two rows need', () => {
-    // remainder = 1200 - 100 - 100 - 32 - 28 - 76 = 864, comfortably above 414.
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 1200, 100, 100, pagePadding, pageGap, clearance)).toBe(twoRowHeight);
+  it('is the room left after the header, the footer, the padding, the gaps and the clearance', () => {
+    // 1200 - 100 - 100 - 32 - 28 - 76 = 864.
+    expect(goodsFitHeight(1200, 100, 100, pagePadding, pageGap, clearance)).toBe(864);
   });
 
-  // TWO ROWS OR NO BOUND -- the middle is what this refuses.
-  //
-  // An earlier rule returned the remainder here, which on a real shop at
-  // 1920x1080 drew a 387px box against a 321px tile: one row and a sliver of
-  // the next, scrolling inside a page that still scrolled. Neither half of
-  // what the bound was for.
-  it('refuses to bound at all when the remainder lands between one row and two', () => {
-    // remainder = 636 - 100 - 100 - 32 - 28 - 76 = 300, between 200 (one row) and 414 (two).
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 636, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
-  });
-
-  it('still refuses when the window is shorter still, rather than squeezing the goods', () => {
-    // remainder = 400 - 100 - 100 - 32 - 28 - 76 = 64, nowhere near two rows.
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 400, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
-  });
-
-  // The boundary itself, either side. A remainder of exactly two rows is
-  // enough; one pixel less is not, and the difference between them is the
-  // whole rule.
-  it('bounds at a remainder of exactly two rows, and not at one pixel less', () => {
-    const chrome = 100 + 100 + pagePadding * 2 + pageGap * 2 + clearance;
-    expect(goodsFitHeight(twoRowHeight, rowHeight, chrome + twoRowHeight, 100, 100, pagePadding, pageGap, clearance))
-      .toBe(twoRowHeight);
-    expect(goodsFitHeight(twoRowHeight, rowHeight, chrome + twoRowHeight - 1, 100, 100, pagePadding, pageGap, clearance))
-      .toBeNull();
+  // A NEGATIVE REMAINDER IS INFORMATION, not an error. A 14" laptop showing a
+  // real shop has 157px of room against a 348px row -- the page scrolls there
+  // no matter what, and this function's job is to say so rather than hide it
+  // behind a clamp.
+  it('reports a negative remainder rather than clamping it to zero', () => {
+    // 400 - 100 - 100 - 32 - 28 - 76 = 64, and smaller windows go below zero.
+    expect(goodsFitHeight(400, 100, 100, pagePadding, pageGap, clearance)).toBe(64);
+    expect(goodsFitHeight(200, 100, 100, pagePadding, pageGap, clearance)).toBeLessThan(0);
   });
 
   it('returns null, never zero, when a measurement has not arrived yet', () => {
-    expect(goodsFitHeight(twoRowHeight, rowHeight, null, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, null, 100, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, 100, null, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(null, rowHeight, 900, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(twoRowHeight, null, 900, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(null, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(900, null, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(900, 100, null, pagePadding, pageGap, clearance)).toBeNull();
   });
 
   // THE ZERO-HEIGHT GUARD -- a header (or footer, or the page itself)
@@ -166,10 +147,48 @@ describe('goodsFitHeight', () => {
   // that is the only reading that cannot turn a race between layout and
   // paint into a goods box collapsed to a sliver.
   it('treats a measurement that arrived as exactly zero the same as one that has not arrived at all', () => {
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, 0, 100, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, 100, 0, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(twoRowHeight, 0, 900, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
-    expect(goodsFitHeight(twoRowHeight, rowHeight, 0, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(900, 0, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(900, 100, 0, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(0, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+  });
+});
+
+// TWO ROWS ALWAYS, THREE WHEN THERE IS ROOM -- and the reason the box is
+// bounded even when the page then scrolls is that the page's LENGTH must stop
+// depending on the catalogue. A shop growing from 28 items to 280 must not
+// grow a page ten times longer; the growth belongs inside the grid.
+describe('goodsRowBound', () => {
+  const rowHeight = 200;
+  const gap = SPACE.cardGap;
+  const two = goodsScrollHeight(rowHeight, gap, 3)!;        // 414
+  const three = goodsThreeRowHeight(rowHeight, gap, 3)!;    // 628
+
+  it('shows three rows when the remainder has room for three', () => {
+    expect(goodsRowBound(two, three, three)).toBe(three);
+    expect(goodsRowBound(two, three, three + 500)).toBe(three);
+  });
+
+  it('falls back to two rows when three will not fit, however little room is left', () => {
+    expect(goodsRowBound(two, three, three - 1)).toBe(two);
+    expect(goodsRowBound(two, three, 0)).toBe(two);
+    // Negative room -- a 14" laptop. Still two rows: the page scrolls, but its
+    // length stays the same whether the shop lists 28 items or 280.
+    expect(goodsRowBound(two, three, -400)).toBe(two);
+  });
+
+  it('holds two rows while the window has not been measured', () => {
+    expect(goodsRowBound(two, three, null)).toBe(two);
+  });
+
+  it('never bounds a grid with nothing to scroll to', () => {
+    expect(goodsRowBound(null, null, 5000)).toBeNull();
+  });
+
+  it('does not offer a third row a shop does not have', () => {
+    // Two rows of stock: goodsThreeRowHeight is null, so a tall window still
+    // gets two -- a three-row box over two rows of tiles is dead space.
+    expect(goodsThreeRowHeight(rowHeight, gap, 2)).toBeNull();
+    expect(goodsRowBound(two, null, 5000)).toBe(two);
   });
 });
 
@@ -241,8 +260,12 @@ describe.each([
   // different page heights, on the same render, must produce two different
   // results -- the identical bar the row-height wiring test above holds
   // itself to, applied to the new measurements this task added.
-  it('drops its bound entirely on a page too short for two rows, and takes it back on a taller one', async () => {
-    const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-fit-${theme}`), products(NUM_COLUMNS * 2));
+  it('keeps its two-row bound on a short page, and takes a third row only when there is room', async () => {
+    // THREE rows of stock, not two: a third row is only ever offered when the
+    // shop actually has one to show, so a two-row fixture would pass this test
+    // for the wrong reason -- it would sit at two rows no matter how tall the
+    // window got, and the tall case would prove nothing.
+    const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-fit-${theme}`), products(NUM_COLUMNS * 3));
 
     const cell = tree.root.findAll(
       (n) => n.props?.testID === 'storefront-goods-row' && typeof n.props?.onLayout === 'function',
@@ -262,35 +285,35 @@ describe.each([
     expect(headerCol).toBeTruthy();
     expect(footerCol).toBeTruthy();
 
-    // A tall window: the remainder comfortably clears two rows (414), so the
-    // box stays at the two-row cap, unclipped.
+    // A tall window: remainder = 1400 - 300 - 200 - 32 - 28 - 76 = 764, which
+    // clears three rows (628), so the box takes the third.
     act(() => {
       page.props.onLayout({ nativeEvent: { layout: { height: 1400 } } });
       headerCol.props.onLayout({ nativeEvent: { layout: { height: 300 } } });
       footerCol.props.onLayout({ nativeEvent: { layout: { height: 200 } } });
     });
     const tall = flatten(goodsList(tree).props.style).maxHeight;
-    expect(tall).toBe(200 * 2 + SPACE.cardGap);
+    expect(tall).toBe(200 * 3 + SPACE.cardGap * 2);
 
     // A shorter window, same header/footer: remainder = 1000 - 300 - 200 -
-    // 2*SPACE.page - 2*SPACE.cardGap - CHECKOUT_BAR_CLEARANCE = 364, between
-    // one row (200) and two (414) -- so the bound goes away entirely and the
-    // page becomes an ordinary scrolling one, rather than the goods being
-    // squeezed into a box shorter than the two rows it was asked for.
+    // 32 - 28 - 76 = 364, which cannot hold three rows (628) -- so the box
+    // falls back to two and the page scrolls the difference. It does NOT
+    // shrink below two: the point of the bound is that the page's length
+    // stops depending on the catalogue, and that holds on every window.
     act(() => {
       page.props.onLayout({ nativeEvent: { layout: { height: 1000 } } });
     });
     const short = flatten(goodsList(tree).props.style).maxHeight;
 
     expect(short).not.toBe(tall);
-    expect(short).toBeUndefined();
+    expect(short).toBe(200 * 2 + SPACE.cardGap);
 
     // And back again on a taller window, so this is a live decision rather
     // than a one-way door.
     act(() => {
       page.props.onLayout({ nativeEvent: { layout: { height: 1400 } } });
     });
-    expect(flatten(goodsList(tree).props.style).maxHeight).toBe(200 * 2 + SPACE.cardGap);
+    expect(flatten(goodsList(tree).props.style).maxHeight).toBe(200 * 3 + SPACE.cardGap * 2);
 
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   });

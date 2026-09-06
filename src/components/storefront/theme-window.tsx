@@ -11,7 +11,7 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsBoundFor, goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  goodsFitHeight, goodsRowBound, goodsScrollHeight, goodsThreeRowHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
   gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
@@ -68,19 +68,13 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
     setHeaderHeight(null);
     setFooterHeight(null);
   }, [width]);
-  const fitHeight = goodsFitHeight(
-    twoRowHeight, rowHeight, pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
+  const threeRowHeight = goodsThreeRowHeight(rowHeight, SPACE.cardGap, rowCount);
+  const remainder = goodsFitHeight(
+    pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
   );
-  // See theme-market.tsx and goodsBoundFor: a refusal to bound and a missing
-  // measurement both read as null out of goodsFitHeight and want opposite
-  // fallbacks.
-  // Truthiness, not `!= null`, and deliberately the SAME test goodsFitHeight
-  // applies: a header that fires onLayout with height 0 before it has painted
-  // is not a measurement, it is a race. Reading it as one would drop the
-  // bound and let the grid paint unbounded for a frame -- which is exactly
-  // what the zero-header test caught the moment this rule changed.
-  const measured = !!pageHeight && !!headerHeight && !!footerHeight && !!rowHeight;
-  const goodsHeight = goodsBoundFor(twoRowHeight, fitHeight, measured);
+  // See theme-market.tsx and goodsRowBound: always two rows, three when the
+  // window has room for them.
+  const goodsHeight = goodsRowBound(twoRowHeight, threeRowHeight, remainder);
   const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,

@@ -11,7 +11,7 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsBoundFor, goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  goodsFitHeight, goodsRowBound, goodsScrollHeight, goodsThreeRowHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
   gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
@@ -85,20 +85,14 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
     setHeaderHeight(null);
     setFooterHeight(null);
   }, [width]);
-  const fitHeight = goodsFitHeight(
-    twoRowHeight, rowHeight, pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
+  const threeRowHeight = goodsThreeRowHeight(rowHeight, SPACE.cardGap, rowCount);
+  const remainder = goodsFitHeight(
+    pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
   );
-  // Measured means "we know", including when what we know is that this window
-  // does not get a bound at all. See goodsBoundFor: a refusal and a missing
-  // measurement both look like null out of goodsFitHeight and need opposite
-  // fallbacks.
-  // Truthiness, not `!= null`, and deliberately the SAME test goodsFitHeight
-  // applies: a header that fires onLayout with height 0 before it has painted
-  // is not a measurement, it is a race. Reading it as one would drop the
-  // bound and let the grid paint unbounded for a frame -- which is exactly
-  // what the zero-header test caught the moment this rule changed.
-  const measured = !!pageHeight && !!headerHeight && !!footerHeight && !!rowHeight;
-  const goodsHeight = goodsBoundFor(twoRowHeight, fitHeight, measured);
+  // Always bounded, between two rows and three -- see goodsRowBound. The page
+  // may still scroll on a short window, and that is the accepted trade: what
+  // this buys is a page whose LENGTH does not grow with the catalogue.
+  const goodsHeight = goodsRowBound(twoRowHeight, threeRowHeight, remainder);
   const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
