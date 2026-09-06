@@ -102,37 +102,40 @@ export function ShopTabRail({
 }) {
   const reducedMotion = useReducedMotion();
 
-  // THE GUARDRAIL TENSION, resolved: the branch rule is transform/opacity
-  // only, and `left`/`width` -- the mockup's own `.segpill` CSS transition
-  // -- are neither. So the pill's box is fixed at `left: 0, width: 1` and
-  // EVERY move is `translateX` (position) composed with `scaleX` (width,
-  // relative to that 1px base) -- both transforms, satisfying the guardrail
-  // literally rather than reaching for the layout properties the mockup
-  // itself animates. `transformOrigin: 'left'` is what makes `scaleX` grow
-  // the box from its LEFT edge instead of from its centre, which is what
-  // lets `translateX` alone still describe the box's left edge position.
+  // THE GUARDRAIL, RESOLVED WITHOUT FAKING A RADIUS. `left`/`width` -- the
+  // mockup's own `.segpill` CSS transition -- are neither transform nor
+  // opacity, so the pill's HORIZONTAL TRAVEL stays `translateX`, a
+  // transform, animated by Reanimated exactly as before. But the pill's
+  // WIDTH is now set directly, as a plain style value (`pillWidth`, React
+  // state, not a shared value) taken from the active tab's measured layout
+  // -- setting a style prop when the selection changes is not "animating
+  // width": nothing tweens it, it steps to the new tab's own width the
+  // instant selection changes, the same way this pill's `backgroundColor`
+  // already does. Only the position travels; the guardrail is about motion,
+  // not about which style properties may ever be set.
   //
-  // The trade this makes: `scaleX` stretches the WHOLE rendered layer,
-  // corner radius included, so the pill's rounded ends draw very slightly
-  // elliptical while `width` is mid-transition between two different tab
-  // widths, settling back to a true capsule the instant the spring lands.
-  // Given how close Shop/About/Visit's widths already are, this reads as
-  // nothing at normal viewing distance; it is the one honest cost of
-  // keeping this transform-only rather than animating layout.
+  // This replaces an earlier version that gave the pill a fixed 1px base
+  // width and grew it with `scaleX`. That does not work: border-radius
+  // resolves against the PRE-transform box, so `borderRadius: 999` on a
+  // 1px-wide box clamps to roughly a 0.5px corner, and `scaleX` then
+  // stretches that already-rasterized corner rather than recomputing it at
+  // the new size -- so the pill drew as a near-rectangle at every width,
+  // including at rest, never the capsule the comment here used to claim.
+  // Giving the pill its real width and letting `borderRadius: RADIUS.pill`
+  // resolve against the correctly-sized box is what actually renders one.
   const pillX = useSharedValue(0);
-  const pillScaleX = useSharedValue(0);
+  const [pillWidth, setPillWidth] = useState(0);
   const layoutsRef = useRef<Partial<Record<ShopTabKey, TabLayout>>>({});
   const hasMeasuredRef = useRef(false);
 
   function applyLayout(layout: TabLayout) {
     const motion = pillMotion(reducedMotion, !hasMeasuredRef.current);
     hasMeasuredRef.current = true;
+    setPillWidth(layout.width);
     if (motion === 'spring') {
       pillX.value = withSpring(layout.x, { damping: 18, stiffness: 180 });
-      pillScaleX.value = withSpring(layout.width, { damping: 18, stiffness: 180 });
     } else {
       pillX.value = layout.x;
-      pillScaleX.value = layout.width;
     }
   }
 
@@ -151,7 +154,7 @@ export function ShopTabRail({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- applyLayout closes over stable refs/shared values
   }, [active]);
 
-  const pillStyle = useAnimatedPillStyle(pillX, pillScaleX);
+  const pillStyle = useAnimatedPillStyle(pillX);
 
   // One tab is not a choice, and a rail showing it is chrome that never does
   // anything -- the same reasoning CategoryFilterBar and the category band
@@ -171,7 +174,10 @@ export function ShopTabRail({
             somehow never fires a layout event (an empty ScrollView on a
             platform that skips it) still shows the CORRECT tab filled, just
             without ever having slid there. */}
-        <Animated.View testID="storefront-tab-pill" style={[styles.pill, { backgroundColor: colors.ink }, pillStyle]} />
+        <Animated.View
+          testID="storefront-tab-pill"
+          style={[styles.pill, { backgroundColor: colors.ink, width: pillWidth }, pillStyle]}
+        />
         {tabs.map((tab) => {
           const selected = tab === active;
           return (
@@ -209,9 +215,9 @@ export function ShopTabRail({
 // Reanimated's babel plugin needs to see as a worklet -- reads cleanly next
 // to the two shared values it closes over, rather than being inlined where
 // ShopTabRail's own already-long body would bury it.
-function useAnimatedPillStyle(pillX: SharedValue<number>, pillScaleX: SharedValue<number>) {
+function useAnimatedPillStyle(pillX: SharedValue<number>) {
   return useAnimatedStyle(() => ({
-    transform: [{ translateX: pillX.value }, { scaleX: pillScaleX.value }],
+    transform: [{ translateX: pillX.value }],
   }));
 }
 
@@ -227,13 +233,13 @@ const styles = StyleSheet.create({
   // what a selected tab's fill IS now, see ShopTabRail's own comment.
   tabActive: { backgroundColor: 'transparent' },
   label: { fontSize: TYPE.meta + 1.5, fontWeight: '800', letterSpacing: LETTER.display },
-  // `left: 0, width: 1` -- a fixed, minimal base box. Every actual position
-  // and width comes from `transform` (translateX, scaleX) in
-  // useAnimatedPillStyle above, never from these two layout properties
-  // themselves changing.
+  // `width` is set inline at the call site (`pillWidth` state, from the
+  // active tab's measured layout) -- never here, and never animated. Only
+  // `top: 0, bottom: 0` are structural: they stretch the pill to the row's
+  // own height, whatever that is.
   pill: {
-    position: 'absolute', left: 0, top: 0, bottom: 0, width: 1,
-    borderRadius: RADIUS.pill, transformOrigin: 'left',
+    position: 'absolute', left: 0, top: 0, bottom: 0,
+    borderRadius: RADIUS.pill,
   },
 });
 

@@ -3,8 +3,12 @@ import {
   Image, Platform, Pressable, ScrollView, StyleSheet, Text, View,
   type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, type SharedValue,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { pillMotion } from '@/components/storefront/shop-tabs';
 import { ON_SCRIM_INK, ON_SCRIM_MUTED } from '@/components/storefront/theme-shared';
 import { clampOffset, nextWheelOffset, supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
@@ -28,6 +32,34 @@ import type { StorefrontCategory, StorefrontProduct } from '@/types/models';
 // show". Task 15 (below) changed nothing about that state or the filtering it
 // drives -- only which of the two shapes a category renders as.
 export const CATEGORY_BAND_MINIMUM = 2;
+
+// A CATEGORY'S OWN BOX, measured once at layout. `radius` travels with
+// x/width for the reason ShopTabRail's identical TabLayout never needed one:
+// three tabs are all the same shape, but a category can render as a
+// squarish photo tile (`RADIUS.inset`) or a compact text pill
+// (`RADIUS.pill`) -- see CategoryBand's own sliding-indicator comment below.
+type CategoryLayout = { x: number; width: number; radius: number };
+
+// THE SLIDING INDICATOR'S OWN DECISION: which box, if any, does the active
+// category own right now. Pulled out for the identical reason shop-tabs.tsx
+// pulls `pillMotion` out of ShopTabRail -- nothing about a shared value
+// reaching a position can be asserted through a render of this component.
+// Worse than ShopTabRail's case, in fact: the shared reanimated jest mock
+// backs `useSharedValue` with a plain object rather than a ref, so it does
+// not even survive a re-render triggered by something else (this band's own
+// `indicatorBox` state update, for one) -- a render can show the indicator's
+// WIDTH (real React state, persists correctly) but never its position
+// reliably. This lookup is where "selecting a different category moves the
+// indicator" actually lives, so it is what a test holds directly instead:
+// two different `active` values against the same `layouts` map must produce
+// two different boxes, which is the one fact a render cannot be trusted to
+// show here.
+export function activeCategoryBox(
+  active: string | null,
+  layouts: Partial<Record<string, CategoryLayout>>,
+): CategoryLayout | null {
+  return active ? layouts[active] ?? null : null;
+}
 
 // One category is a filter to everything -- a control that always returns the
 // whole catalogue is a control that never does anything. The RPC already drops
@@ -80,6 +112,72 @@ export function CategoryBand({
   // hundred products is exactly where the second shape starts to cost
   // something the first does not.
   const photos = useMemo(() => firstPhotoByCategory(products), [products]);
+
+  // THE SLIDING INDICATOR -- the requirement's "sliding active pill on the
+  // category bar", built where the requirement actually names, not on
+  // ShopTabRail's page tabs. Structured as the direct twin of that file's
+  // pillX/applyLayout (shop-tabs.tsx), reusing its own `pillMotion` decision
+  // so the two indicators cannot quietly disagree about when to spring vs
+  // snap. What is different here is the ROW ITSELF: unlike three same-shaped
+  // tabs, a category renders as either a squarish photo tile (`RADIUS.inset`)
+  // or a compact text pill (`RADIUS.pill`) -- Task 15's own mixed row -- so
+  // this indicator has to change SHAPE as well as position and width when
+  // the active item changes type. `radius` is measured and carried alongside
+  // x/width for exactly that, and -- like `width` in shop-tabs.tsx's own Fix
+  // 2 -- is set directly as a plain style value, never animated; only the
+  // travel (`indicatorX`) is a Reanimated spring.
+  //
+  // EVERY item -- tile AND pill -- reports its own layout on mount, whether
+  // or not it is currently selected. That is what lets the indicator spring
+  // smoothly FROM a tile's rect the instant a pill next to it is tapped,
+  // rather than flying in from (0, 0) the way pillMotion's own comment warns
+  // against for a first measurement.
+  //
+  // WHY THIS STAYS CORRECT UNDER A PHOTO TILE: the indicator draws an
+  // ink-filled box exactly the size and shape of whichever item is active. A
+  // selected PILL drops its own instant background fill in favour of this
+  // (see CategoryPill below) so the indicator's slide is what a customer
+  // actually sees move. A selected TILE's own photo and gradient scrim are
+  // fully opaque, so the identical ink box sits harmlessly BEHIND it,
+  // invisible -- the tile keeps its own already-tested selected treatment
+  // (the accent-filled label chip) as the visible signal, unchanged. Nothing
+  // here touches that chip, or `onSelect`/`active`, which is what keeps the
+  // filter this band drives byte-identical.
+  const reducedMotion = useReducedMotion();
+  const indicatorX = useSharedValue(0);
+  const [indicatorBox, setIndicatorBox] = useState<{ width: number; radius: number } | null>(null);
+  const itemLayoutsRef = useRef<Partial<Record<string, CategoryLayout>>>({});
+  const hasMeasuredIndicatorRef = useRef(false);
+
+  function applyIndicatorLayout(layout: CategoryLayout) {
+    const motion = pillMotion(reducedMotion, !hasMeasuredIndicatorRef.current);
+    hasMeasuredIndicatorRef.current = true;
+    setIndicatorBox({ width: layout.width, radius: layout.radius });
+    if (motion === 'spring') {
+      indicatorX.value = withSpring(layout.x, { damping: 18, stiffness: 180 });
+    } else {
+      indicatorX.value = layout.x;
+    }
+  }
+
+  function handleItemLayout(name: string, radius: number, event: LayoutChangeEvent) {
+    const { x, width } = event.nativeEvent.layout;
+    itemLayoutsRef.current[name] = { x, width, radius };
+    if (name === active) applyIndicatorLayout({ x, width, radius });
+  }
+
+  // Selection changed -- a tile/pill tapped, or a flyer's `onSelectCategory`
+  // writing the same state from elsewhere on the page -- and the newly
+  // active item's layout may already be cached from its own earlier onLayout
+  // (every visible item lays out once at mount, whether or not it starts
+  // selected).
+  useEffect(() => {
+    const layout = activeCategoryBox(active, itemLayoutsRef.current);
+    if (layout) applyIndicatorLayout(layout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyIndicatorLayout closes over stable refs/shared values
+  }, [active]);
+
+  const indicatorStyle = useAnimatedIndicatorStyle(indicatorX);
 
   // WEB MOUSE, REUSED FROM TASK 14, NOT REIMPLEMENTED. flyer-carousel.tsx
   // hit this exact problem first -- RN-web's horizontal ScrollView answers
@@ -244,6 +342,28 @@ export function CategoryBand({
           onPointerCancel: handlePointerUp,
         } as any) : {})}
       >
+        {/* THE SLIDING FILL. `pointerEvents="none"` so it never steals a tap
+            meant for the tile/pill painted over it; rendered BEHIND them
+            (first in this row -- later siblings paint on top) is what lets
+            it show through a selected PILL's own now-transparent fill, and
+            sit harmlessly hidden under a selected TILE's opaque photo -- see
+            the header comment above for why that split is correct rather
+            than a gap. Withheld entirely until something is selected and its
+            layout measured (`active && indicatorBox`) -- there is nothing to
+            draw a box around yet, the same reasoning that keeps
+            ShopTabRail's own pill from flying in from off-screen on first
+            paint. */}
+        {active && indicatorBox ? (
+          <Animated.View
+            testID="storefront-category-indicator"
+            pointerEvents="none"
+            style={[
+              styles.indicator,
+              { width: indicatorBox.width, borderRadius: indicatorBox.radius, backgroundColor: colors.ink },
+              indicatorStyle,
+            ]}
+          />
+        ) : null}
         {categories.map((category) => {
           const selected = active === category.name;
           const photo = photos.get(category.name);
@@ -258,6 +378,7 @@ export function CategoryBand({
               onHoverIn={() => armHover(category.name)}
               onHoverOut={() => setHoveredCategory(null)}
               onSelect={onSelect}
+              onLayout={(event) => handleItemLayout(category.name, RADIUS.inset, event)}
             />
           ) : (
             <CategoryPill
@@ -266,6 +387,7 @@ export function CategoryBand({
               colors={colors}
               selected={selected}
               onSelect={onSelect}
+              onLayout={(event) => handleItemLayout(category.name, RADIUS.pill, event)}
             />
           );
         })}
@@ -298,7 +420,7 @@ const TILE_HEIGHT = 92;
 // "type over an unknown photo" rather than a second one invented for a
 // smaller box.
 function CategoryTile({
-  category, photoUrl, colors, selected, hovered, onHoverIn, onHoverOut, onSelect,
+  category, photoUrl, colors, selected, hovered, onHoverIn, onHoverOut, onSelect, onLayout,
 }: {
   category: StorefrontCategory;
   photoUrl: string;
@@ -308,6 +430,11 @@ function CategoryTile({
   onHoverIn: () => void;
   onHoverOut: () => void;
   onSelect: (category: string) => void;
+  // Reports this tile's own box to CategoryBand's sliding indicator (see its
+  // header comment) -- fired at mount whether or not this tile starts
+  // selected, the same "every item measures itself" rule ShopTabRail's tabs
+  // already follow.
+  onLayout: (event: LayoutChangeEvent) => void;
 }) {
   // KNOWN, NOT FIXED IN THIS PASS: Task 17's press-feedback audit found that
   // this Pressable's hover lift (`tileHovered`, below) and press-feedback's
@@ -332,6 +459,7 @@ function CategoryTile({
       onPress={() => onSelect(category.name)}
       onHoverIn={onHoverIn}
       onHoverOut={onHoverOut}
+      onLayout={onLayout}
       style={pressable([styles.tile, hovered && styles.tileHovered])}
     >
       <Image source={{ uri: photoUrl }} style={styles.tilePhoto} resizeMode="cover" />
@@ -366,14 +494,19 @@ function CategoryTile({
   );
 }
 
-// THE FALLBACK: the pill this band rendered before this pass, unchanged.
+// THE FALLBACK: the pill this band rendered before this pass. Its shape,
+// text and count are unchanged; its SELECTED fill is not -- see the inline
+// comment on `styles.pill`'s selected branch below.
 function CategoryPill({
-  category, colors, selected, onSelect,
+  category, colors, selected, onSelect, onLayout,
 }: {
   category: StorefrontCategory;
   colors: PaletteColors;
   selected: boolean;
   onSelect: (category: string) => void;
+  // Reports this pill's own box to CategoryBand's sliding indicator -- see
+  // CategoryTile's identical prop and CategoryBand's own header comment.
+  onLayout: (event: LayoutChangeEvent) => void;
 }) {
   return (
     <Pressable
@@ -382,16 +515,26 @@ function CategoryPill({
       accessibilityState={{ selected }}
       accessibilityLabel={`${category.name}, ${category.productCount} products`}
       onPress={() => onSelect(category.name)}
+      onLayout={onLayout}
       // A pill is a CONTROL, and an unselected one is `ground` sitting on
       // `soft` -- 1.04:1 on the ink palette, so it had no boundary at all and
       // read as a word floating on the page. `edge` is the token that clears
-      // 3:1 for exactly this. The selected pill borders in its own fill
-      // rather than dropping the border, so the two states are the same size
-      // and the row does not shift by 2px when one is tapped.
+      // 3:1 for exactly this.
+      //
+      // Selected is TRANSPARENT, not an ink fill of its own -- the sliding
+      // indicator underneath (CategoryBand's `indicatorStyle`) is what a
+      // selected pill's fill IS now, the same substitution ShopTabRail
+      // already made for its own selected tab (see that file's `tabActive`
+      // comment). The border stays ink -- same colour as the indicator's own
+      // fill, so it draws invisibly once the indicator has measured this
+      // pill's box, and is what still outlines the pill correctly on the one
+      // frame before that (a device that never fires a layout event). Pill
+      // width/border stay identical to the unselected state either way, so
+      // the row still never shifts by 2px when one is tapped.
       style={pressable([
         styles.pill,
         selected
-          ? { backgroundColor: colors.ink, borderColor: colors.ink }
+          ? { backgroundColor: 'transparent', borderColor: colors.ink }
           : { backgroundColor: colors.ground, borderColor: colors.edge },
       ])}
     >
@@ -414,7 +557,15 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 11 },
   title: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   count: { fontSize: TYPE.metaSmall, fontWeight: '700' },
-  row: { flexDirection: 'row', gap: 8, paddingRight: SPACE.page },
+  // `position: 'relative'` is what makes the indicator's `position:
+  // 'absolute'` measure against THIS row rather than some further ancestor
+  // -- the identical technique ShopTabRail's own `row` uses for its pill.
+  row: { position: 'relative', flexDirection: 'row', gap: 8, paddingRight: SPACE.page },
+  // `width`/`borderRadius` are set inline at the call site (`indicatorBox`
+  // state, from the active item's measured layout) -- never here, and never
+  // animated. `top: 0, bottom: 0` stretch it to the row's own height,
+  // matching whatever the active item's own height is.
+  indicator: { position: 'absolute', left: 0, top: 0, bottom: 0 },
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 10,
@@ -439,3 +590,13 @@ const styles = StyleSheet.create({
   tileChipText: { fontSize: 12, fontWeight: '800' },
   tileCount: { fontSize: 10.5, fontWeight: '700', ...TABULAR },
 });
+
+// Pulled into its own tiny hook for the identical reason shop-tabs.tsx's own
+// useAnimatedPillStyle is: Reanimated's babel plugin needs to see this as a
+// worklet, and it reads more cleanly next to the one shared value it closes
+// over than inlined in CategoryBand's already-long body.
+function useAnimatedIndicatorStyle(indicatorX: SharedValue<number>) {
+  return useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+  }));
+}
