@@ -88,6 +88,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
+        hideBranding={storefront.hideBranding}
       />
     );
   }

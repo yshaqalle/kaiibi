@@ -100,6 +100,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
+        hideBranding={storefront.hideBranding}
       />
     );
   }

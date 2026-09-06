@@ -1110,7 +1110,7 @@ export function CheckoutScreen({
 // order-placed.tsx's own header comment on what this trade can honestly
 // promise today.
 export function ConfirmationScreen({
-  order, shopName, collectLocation, colors, onDone,
+  order, shopName, collectLocation, colors, onDone, hideBranding,
 }: {
   order: PlacedOrder;
   shopName: string;
@@ -1120,11 +1120,22 @@ export function ConfirmationScreen({
   collectLocation?: string | null;
   colors: PaletteColors;
   onDone: () => void;
+  // Threaded rather than read: OrderPlaced deliberately has no storefront
+  // prop, so this is passed straight through from the caller's own
+  // `storefront.hideBranding`. Optional for the same reason collectLocation
+  // is -- see OrderPlaced's own prop comment on why absence must mean shown.
+  hideBranding?: boolean;
 }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <ScrollView contentContainerStyle={styles.screenBody}>
-        <OrderPlaced order={order} shopName={shopName} collectLocation={collectLocation} colors={colors} />
+        <OrderPlaced
+          order={order}
+          shopName={shopName}
+          collectLocation={collectLocation}
+          colors={colors}
+          hideBranding={hideBranding}
+        />
         <Pressable
           testID="storefront-continue-shopping"
           accessibilityRole="button"
