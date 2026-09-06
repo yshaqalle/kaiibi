@@ -2,7 +2,7 @@ import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
   paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN, CHECKOUT_BLUE, CHECKOUT_INK,
-  KAIIBI_BLUE, KAIIBI_INK, DIRECTORY_STATE_OPEN, DIRECTORY_STATE_SHUT,
+  KAIIBI_BLUE, KAIIBI_INK,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -365,20 +365,19 @@ describe("kaiibi's own blue", () => {
   });
 });
 
-describe("the directory grid card's open/closed dot", () => {
-  // Pinned to the same literal green and grey the featured card's on-photo
-  // pill already carries, so a future edit to either drifts loudly rather
-  // than silently -- the two are meant to agree, not merely to coincide.
-  it('matches the on-photo pill\'s own green and grey', () => {
-    expect(DIRECTORY_STATE_OPEN).toBe('#0b7a44');
-    expect(DIRECTORY_STATE_SHUT).toBe('#5e5d65');
-  });
-
-  it('is a fixed pair on no palette\'s own accent', () => {
-    for (const { key } of PALETTES) {
-      const colors = paletteColors(key);
-      expect(colors.accent).not.toBe(DIRECTORY_STATE_OPEN);
-      expect(colors.accent).not.toBe(DIRECTORY_STATE_SHUT);
-    }
-  });
-});
+// REVIEW FINDING (whole-branch pass, item 9): this describe block used to
+// assert `DIRECTORY_STATE_OPEN === '#0b7a44'` -- a literal compared to a
+// literal written in the same commit, which cannot fail no matter what the
+// GRID CARD actually renders -- and a sibling assertion that the pair sits on
+// no palette's own `accent`, which is the same defect wearing different
+// clothes: a comparison between constants that never touches a render either.
+// The rendered dot's own colour is what actually matters, and it already has
+// real coverage: `storefront-directory.test.tsx`'s "fills the dot green when
+// open and grey when closed" reads the DOT's flattened style off a live
+// render and compares it to these same constants. The featured card's
+// on-photo pill gets the equivalent render-based coverage in the same file
+// ("badges an open/closed shop over its photo" plus the constants import),
+// now that `stateOpen`/`stateShut` (shop-directory-card.tsx) import
+// DIRECTORY_STATE_OPEN/SHUT directly instead of carrying their own hex
+// copies -- so there is nothing left for a description-of-the-code test here
+// to add.

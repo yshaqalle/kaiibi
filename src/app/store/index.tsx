@@ -149,7 +149,7 @@ export default function StoreDirectoryScreen() {
                 here, where the plate is carrying kaiibi's own mark rather
                 than a shop's, and the selected filter chip below, where the
                 same argument applies to a choice the customer just made. */}
-            <View style={[styles.mark, { backgroundColor: KAIIBI_BLUE }]}>
+            <View testID="storefront-directory-mark" style={[styles.mark, { backgroundColor: KAIIBI_BLUE }]}>
               <Image
                 source={require('@/assets/images/kaiibi-mark-white.png')}
                 style={styles.markImage}
@@ -184,7 +184,21 @@ export default function StoreDirectoryScreen() {
             showed. A field over two shops is redundant; a masthead with a
             hole in it is broken, and redundant beats broken. */}
         <View style={[styles.searchRow, { backgroundColor: colors.ground, borderColor: colors.edge }]}>
-          <Text style={[styles.searchIcon, { color: colors.muted }]}>🔍</Text>
+          {/* The shop page's own glyph (`theme-shared.tsx`'s `SearchField`),
+              not a full-colour emoji -- Task 18 stripped this masthead back
+              to a wordmark, a line and a field, so 🔍 was left as the
+              loudest, only full-colour glyph on kaiibi's own front door, on
+              a page whose header comment claims a customer moving into a
+              shop "meets the same surfaces". Hidden from screen readers for
+              the same reason SearchField's own copy is: the TextInput's own
+              accessibilityLabel already says what to search. */}
+          <Text
+            style={[styles.searchIcon, { color: colors.muted }]}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          >
+            ⌕
+          </Text>
           <TextInput
             testID="storefront-directory-search"
             // Names what changed underneath it: the haystack now includes

@@ -1,4 +1,4 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import StoreDirectoryScreen from '@/app/store/index';
@@ -539,6 +539,28 @@ describe('the featured card', () => {
     expect(textOf(tree, STATE)).toBe('Closed now');
   });
 
+  // REVIEW FINDING (item 9, whole-branch pass): the pill's own green/grey
+  // used to be a hex literal copied from DIRECTORY_STATE_OPEN/SHUT
+  // (storefront-catalog.ts) rather than the constants themselves, so the two
+  // could drift and nothing here would notice. Read directly off the
+  // rendered Text's own flattened style, against the named constants -- never
+  // a hex retyped in this test -- so a future edit that reintroduces a
+  // literal, or lets the two drift, fails here.
+  it('colours the open/closed badge from the same fixed constants the grid card\'s dot uses', () => {
+    const allDay = { open: '00:00', close: '23:59' };
+    const openTree = renderFeatured(photoShop({
+      openingHours: { mon: [allDay], tue: [allDay], wed: [allDay], thu: [allDay], fri: [allDay], sat: [allDay], sun: [allDay] },
+    }));
+    const openText = openTree.root.find((n) => n.props?.testID === STATE).findByType(Text);
+    expect(StyleSheet.flatten(openText.props.style).color).toBe(DIRECTORY_STATE_OPEN);
+
+    const shutTree = renderFeatured(photoShop({
+      openingHours: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
+    }));
+    const shutText = shutTree.root.find((n) => n.props?.testID === STATE).findByType(Text);
+    expect(StyleSheet.flatten(shutText.props.style).color).toBe(DIRECTORY_STATE_SHUT);
+  });
+
   // Absent is honest; a badge claiming a state the shop never gave would not
   // be -- the identical rule the grid card's own pill and the shop page's
   // anchor already follow.
@@ -904,14 +926,37 @@ describe('the masthead', () => {
     expect(field.props.accessibilityLabel).toBe('Search 2 shops, or what they sell');
   });
 
+  // REVIEW FINDING (item 10, whole-branch pass): the search glyph used to be
+  // a full-colour 🔍 emoji, the only one on this masthead and, once Task 18
+  // stripped this page back to a wordmark and a line, the loudest glyph on
+  // it. The shop page's own search (`SearchField`, theme-shared.tsx) uses a
+  // plain character and hides it from screen readers -- matched here.
+  it('matches the shop page\'s own search glyph, hidden from screen readers', async () => {
+    mockList.mockResolvedValue([summary()]);
+    const tree = await renderScreen();
+    const glyph = tree.root.findAllByType(Text)
+      .find((t: { props: { children?: unknown } }) => t.props.children === '⌕' || t.props.children === '🔍')!;
+    expect(glyph.props.children).toBe('⌕');
+    expect(glyph.props.accessibilityElementsHidden).toBe(true);
+    expect(glyph.props.importantForAccessibility).toBe('no');
+    expect(textOf(tree, 'storefront-directory')).not.toContain('🔍');
+  });
+
   // EFFECT, not call: the plate must actually RENDER in kaiibi's own blue --
-  // read off the flattened style of the host node the mark's Image sits
-  // inside, compared against the named constant, never a hex literal retyped
-  // here (see KAIIBI_BLUE, storefront-catalog.ts).
+  // read off the flattened style of the mark plate itself, compared against
+  // the named constant, never a hex literal retyped here (see KAIIBI_BLUE,
+  // storefront-catalog.ts).
+  //
+  // REVIEW FINDING (item 11, whole-branch pass): this used to find the plate
+  // via `tree.root.findByType(Image).parent` -- `findByType` throws when more
+  // than one match exists, so this only ever passed because the fixture's
+  // `heroImageUrl` is null and no grid card renders an `Image` of its own.
+  // Targeted by its own testID instead, robust to any future fixture with a
+  // photo.
   it('fills the mark plate in kaiibi\'s own blue, not the directory\'s neutral ink', async () => {
     mockList.mockResolvedValue([summary()]);
     const tree = await renderScreen();
-    const mark = tree.root.findByType(Image).parent;
+    const mark = tree.root.find((n) => n.props?.testID === 'storefront-directory-mark');
     expect(mark).not.toBeNull();
     const flattened = StyleSheet.flatten(mark!.props.style) as { backgroundColor?: string };
     expect(flattened.backgroundColor).toBe(KAIIBI_BLUE);
