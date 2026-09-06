@@ -1109,14 +1109,28 @@ export function goodsScrollHeight(
 }
 
 // THE SAME BOX, THREE ROWS TALL, for a window with the room to spare.
+//
+// `null` UNTIL A REAL MEASUREMENT EXISTS, deliberately NOT falling back to
+// ESTIMATED_ROW_HEIGHT the way goodsScrollHeight (above) does. That
+// constant's own comment says it stands in for "two rows" for the one frame
+// before a measurement arrives -- it never claimed to answer the harder
+// two-vs-three question, but feeding it into this function let it do exactly
+// that: on a tall enough window, `goodsRowBound` picked a THREE-row box built
+// from three ESTIMATED rows before any tile had ever been measured, and the
+// instant the real height arrived, the box visibly snapped to whatever three
+// rows of the ACTUAL tile height came to (804px -> 674px on the window that
+// found this). Returning null here instead means an unmeasured grid can only
+// ever be offered TWO rows -- goodsRowBound's own "holds two rows while the
+// window has not been measured" fallback -- which is one frame of an
+// under-estimate at worst, never an over-estimate that has to visibly
+// shrink.
 export function goodsThreeRowHeight(
   measuredRowHeight: number | null,
   rowGap: number,
   rowCount: number,
 ): number | null {
-  if (rowCount <= 2) return null;
-  const rowHeight = measuredRowHeight ?? ESTIMATED_ROW_HEIGHT;
-  return rowHeight * 3 + rowGap * 2;
+  if (rowCount <= 2 || measuredRowHeight == null) return null;
+  return measuredRowHeight * 3 + rowGap * 2;
 }
 
 // HOW MANY ROWS THE GOODS BOX SHOWS, and the rule is a range rather than a
@@ -1156,6 +1170,14 @@ export function goodsRowBound(
 // flight. Exported so a test can assert against THIS constant rather than a
 // second copy of the number typed into the test file, which is exactly the
 // "asserting a value you typed" failure this pass exists to stop shipping.
+//
+// TWO ROWS ONLY -- `goodsThreeRowHeight` (above) does NOT fall back to this
+// the way `goodsScrollHeight` does, on purpose. This constant only ever
+// stood in for the two-row estimate; feeding it into the three-row function
+// too let it silently decide the two-vs-three question instead, and that
+// decision would then visibly reverse itself the instant a real measurement
+// arrived (see `goodsThreeRowHeight`'s own comment for the 804px -> 674px
+// snap this produced).
 export const ESTIMATED_ROW_HEIGHT = 260;
 
 // HOW MUCH ROOM THE GOODS BOX HAS, which is a different question from how

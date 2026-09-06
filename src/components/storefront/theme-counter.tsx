@@ -137,9 +137,12 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           premise holds for Market and Window (theme-market.tsx,
           theme-window.tsx): both lay ProductTile out in a numColumns grid,
           and both now nest a height-bound FlatList for exactly that grid
-          inside a page-level FlatList (see theme-market.tsx's own comment on
-          why that nesting does not trip RN's "VirtualizedLists should never
-          be nested" warning).
+          inside a page-level, PLAIN SCROLLVIEW -- not a second FlatList, the
+          shape an earlier draft of this pass tried and reverted (see
+          theme-market.tsx's own comment on why nesting a FlatList inside a
+          FlatList silently produces a goods box that cannot scroll on its
+          own, which is the opposite of a "VirtualizedLists should never be
+          nested" warning this shape trips harmlessly instead).
 
           Counter has no grid to bound. `groupByCategory` above renders ONE
           column of price-list rows in ONE ShopCard, and the "row" the brief's

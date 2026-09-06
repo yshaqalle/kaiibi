@@ -129,12 +129,16 @@ describe('the search field survives typing', () => {
     await act(async () => field().props.onChangeText('Solar'));
 
     expect(field().props.value).toBe('Solar');
-    // Task B nests a second, bounded FlatList for the goods inside this one's
-    // own ListHeaderComponent (see theme-market.tsx) -- `findByType` resolves
-    // the OUTER page list (it does not search past its first match), which
-    // carries no product data of its own any more, so the grid itself needs
-    // picking out by testID, same as storefront-flyer-placement.test.tsx's
-    // own `gridNames` helper already does.
+    // The goods FlatList is the ONLY FlatList in this tree (see this
+    // describe block's own header comment, and the "Only one FlatList left"
+    // assertion above) -- it is a plain sibling of the header inside the
+    // page's own ScrollView, never nested inside anything's
+    // ListHeaderComponent. `findAll` still needs the testID filter below
+    // rather than `findAllByType(FlatList)[0]`, though, because the forwardRef
+    // wrapper and host node the composite FlatList renders through would
+    // otherwise surface as separate matches -- the same reason
+    // storefront-flyer-placement.test.tsx's own `gridNames` helper filters on
+    // `data` being an array rather than on type alone.
     const goods = tree.root.findAll(
       (n) => n.props?.testID === 'storefront-goods' && Array.isArray(n.props?.data),
     )[0];

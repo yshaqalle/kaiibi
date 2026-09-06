@@ -192,6 +192,40 @@ describe('goodsRowBound', () => {
   });
 });
 
+// Task 10 (wave-review-fixes.md item 10): ESTIMATED_ROW_HEIGHT's own comment
+// says it stands in for "two rows" for the one frame before a real
+// measurement arrives -- but `goodsThreeRowHeight` fed it the SAME estimate,
+// so on a tall enough window (remainder >= 3 * ESTIMATED_ROW_HEIGHT + 2 *
+// gap) `goodsRowBound` picked three rows before any tile had ever been
+// measured. The instant the real height arrived, three ESTIMATED-sized rows
+// (260 each) became three ACTUAL-sized rows -- 330 each, in the case that
+// prompted this -- and the box visibly snapped from 804px to 674px one frame
+// after mounting. The estimate was answering a question ("two rows or
+// three?") its own comment never claimed it was for.
+describe('goodsThreeRowHeight: the estimate never gets to decide two-vs-three', () => {
+  it('offers no third row at all until a real measurement exists, even with three rows of stock', () => {
+    // rowCount 3 clears the `rowCount <= 2` guard on its own -- this is
+    // asserting the SEPARATE, unmeasured-row guard the fix adds.
+    expect(goodsThreeRowHeight(null, SPACE.cardGap, 3)).toBeNull();
+  });
+
+  it('keeps goodsRowBound at two rows off the estimate, even when the window is tall enough for three', () => {
+    const twoRowHeight = goodsScrollHeight(null, SPACE.cardGap, 3);
+    const threeRowHeight = goodsThreeRowHeight(null, SPACE.cardGap, 3);
+    // A remainder tall enough to hold three rows even at the (larger, if it
+    // answered) three-row estimate -- if `goodsThreeRowHeight` could still
+    // decide the question unmeasured, this would return that non-null value
+    // instead of falling back to `twoRowHeight`.
+    expect(goodsRowBound(twoRowHeight, threeRowHeight, 5000)).toBe(twoRowHeight);
+  });
+
+  it('offers the third row again the moment a real measurement arrives', () => {
+    // The fix narrows WHEN three rows can be offered -- it must not narrow
+    // WHETHER, once there is a real number to answer with.
+    expect(goodsThreeRowHeight(200, SPACE.cardGap, 3)).toBe(200 * 3 + SPACE.cardGap * 2);
+  });
+});
+
 describe.each([
   ['Market', ThemeMarket, 'market' as const],
   ['Window', ThemeWindow, 'window' as const],

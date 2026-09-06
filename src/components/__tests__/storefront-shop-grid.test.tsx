@@ -106,9 +106,13 @@ describe('the grid actually receives the padding', () => {
         />,
       );
     });
-    // Two FlatLists exist now (Task B: the goods scroll independently of the
-    // page) -- `findByType` resolves the OUTER one (it does not search past
-    // its first match), so the grid itself needs picking out by testID, the
+    // The goods FlatList is the ONLY FlatList in this tree -- the page
+    // around it is a plain ScrollView (see theme-market.tsx's own comment on
+    // why), not a second, outer FlatList the goods scroll independently
+    // inside of. `findAllByType(FlatList)` would still resolve it in one
+    // match, but the composite FlatList forwards its own testID down to an
+    // inner host node with no `data` of its own -- picking the match that
+    // actually carries `data` is what the testID search below is for, the
     // same way storefront-flyer-placement.test.tsx's own `gridNames` helper
     // already does.
     const list = tree.root.findAll(
