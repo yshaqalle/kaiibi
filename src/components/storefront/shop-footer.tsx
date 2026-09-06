@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { WhatsAppButton } from '@/components/storefront/theme-shared';
 import { DISPLAY_FONT, LETTER, SPACE, TYPE } from '@/components/storefront/scale';
@@ -56,6 +56,27 @@ export function ShopFooter({
       <Text style={[styles.terms, { color: colors.onDarkMuted }]}>
         Pay on collection · Prices set by the shop
       </Text>
+
+      {/* ATTRIBUTION, not acquisition: a colophon lockup below the terms --
+          the confirmation screen is where the one ask lives. The eyebrow
+          reuses the caps meta treatment the place line above already wears,
+          so the signature belongs to this page's own type system. Drawn from
+          the on-ink ramp + the monochrome mark: recolours with the palette
+          and never outranks the shop's own accent. */}
+      {storefront.hideBranding ? null : (
+        <Pressable
+          testID="storefront-powered-by"
+          accessibilityRole="link"
+          onPress={() => Linking.openURL('https://kaiibi.com')}
+          style={styles.brand}
+        >
+          <Image source={require('@/assets/images/kaiibi-mark-white.png')} style={styles.brandMark} />
+          <View>
+            <Text style={[styles.brandEyebrow, { color: colors.onDarkMuted }]}>Powered by</Text>
+            <Text style={[styles.brandName, { color: colors.ground }]}>kaiibi</Text>
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -74,4 +95,11 @@ const styles = StyleSheet.create({
   place: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase', marginTop: 6 },
   rule: { height: 1, marginTop: 20 },
   terms: { fontSize: TYPE.metaSmall + 1, marginTop: 16 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 19, alignSelf: 'flex-start' },
+  brandMark: { width: 21, height: 21 },
+  brandEyebrow: {
+    fontSize: TYPE.metaSmall - 1, fontWeight: '800',
+    letterSpacing: LETTER.meta, textTransform: 'uppercase',
+  },
+  brandName: { fontSize: 14.5, fontWeight: '800', letterSpacing: LETTER.display, marginTop: 1 },
 });
