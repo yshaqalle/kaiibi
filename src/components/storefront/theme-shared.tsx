@@ -304,30 +304,50 @@ export function ShopAnchor({
         </Animated.View>
       ) : null}
 
-      {/* NO PILL AT ALL when the shop has not set hours -- the same rule
-          HoursCard follows for the identical reason: `isConfigured` false
-          means "never filled in", and a pill claiming a state the shop never
-          gave would be invented, not reported. Word AND fill, never colour
-          alone -- a customer who cannot tell accent from soft still reads
-          "Open now" or "Closed now". */}
-      {hoursConfigured ? (
-        <Animated.View entering={riseIn(2)}>
-          <View
-            testID="storefront-anchor-open-pill"
-            style={[styles.openPill, { backgroundColor: open ? colors.accent : colors.soft }]}
-          >
-            <Text
-              style={[
-                styles.openPillText,
-                { color: open ? colors.ground : colors.muted },
-                onPhoto && styles.onScrimText,
-              ]}
+      {/* THE TRUST FACTS a customer reads without opening Visit -- open state
+          and the collection word. (The third, pay-on-collection, is already
+          unconditional on this page's ShopFooter -- see shop-footer.tsx --
+          so it is not repeated here; the same fact printed twice, once at
+          the top and once at the foot, would be one nagging claim rather
+          than two calm ones.) Both pills rise together as the single unit
+          the mockup's `.pills` row is -- one entering animation, not two out
+          of step with each other.
+
+          NO OPEN PILL AT ALL when the shop has not set hours -- the same
+          rule HoursCard follows for the identical reason: `isConfigured`
+          false means "never filled in", and a pill claiming a state the shop
+          never gave would be invented, not reported. Word AND fill, never
+          colour alone -- a customer who cannot tell accent from soft still
+          reads "Open now" or "Closed now".
+
+          The collection pill has no such gate: collection is this page's one
+          fulfilment method every shop always offers (delivery is the
+          optional add-on -- see CollectingCard's identical assumption for
+          its "Pay: On collection" fact), so it is not new data and it is
+          never conditional. */}
+      <Animated.View entering={riseIn(2)}>
+        <View style={styles.pillRow}>
+          {hoursConfigured ? (
+            <View
+              testID="storefront-anchor-open-pill"
+              style={[styles.openPill, { backgroundColor: open ? colors.accent : colors.soft }]}
             >
-              {open ? 'Open now' : 'Closed now'}
-            </Text>
+              <Text
+                style={[
+                  styles.openPillText,
+                  { color: open ? colors.ground : colors.muted },
+                  onPhoto && styles.onScrimText,
+                ]}
+              >
+                {open ? 'Open now' : 'Closed now'}
+              </Text>
+            </View>
+          ) : null}
+          <View testID="storefront-anchor-collection-pill" style={[styles.ghostPill, { borderColor: muted }]}>
+            <Text style={[styles.ghostPillText, { color: ink }, onPhoto && styles.onScrimText]}>Collection</Text>
           </View>
-        </Animated.View>
-      ) : null}
+        </View>
+      </Animated.View>
 
       {storefront.headline ? (
         <Text
@@ -755,28 +775,52 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
 // below is what Android and web get -- and a filter with no visible way out
 // is the same dead end CategoryFilterBar exists to avoid.
 export function SearchField({
-  colors, value, onChange, count,
+  colors, value, onChange, count, floating,
 }: {
   colors: PaletteColors;
   value: string;
   onChange: (next: string) => void;
   count: number;
+  // Pulls this field up to overlap whatever sits directly above it by the
+  // mockup's own -21px (docs/design/storefront-bold-motion-mockup.html,
+  // .onesearch) instead of sitting in plain flow beneath it. Only
+  // ThemeMarket's narrow layout passes this -- see theme-market.tsx -- because
+  // it is the only placement where "whatever sits above" is ShopAnchor's own
+  // card and not the wide 3-card row, where the same 21px could land on a
+  // real WhatsApp/Cart button rather than a card's own blank padding.
+  floating?: boolean;
 }) {
   return (
-    <View style={styles.searchRow}>
-      <TextInput
-        testID="storefront-search"
-        accessibilityLabel={`Search ${count} items`}
-        placeholder={`Search ${count} items`}
-        placeholderTextColor={colors.muted}
-        value={value}
-        onChangeText={onChange}
-        autoCorrect={false}
-        autoCapitalize="none"
-        returnKeyType="search"
-        clearButtonMode="while-editing"
-        style={[styles.search, { borderColor: colors.edge, color: colors.ink, backgroundColor: colors.ground }]}
-      />
+    <View style={[styles.searchRow, floating ? styles.searchRowFloating : styles.searchRowInline]}>
+      <View
+        style={[styles.searchCard, { backgroundColor: colors.ground, shadowColor: colors.ink }]}
+      >
+        {/* The mockup's own glyph (.onesearch i) -- a plain character rather
+            than an icon font, so the floating card costs nothing new: no
+            dependency, and the same glyph reads on every platform this page
+            ships to. Hidden from screen readers -- the TextInput's own
+            accessibilityLabel already says "Search N items". */}
+        <Text
+          style={[styles.searchGlyph, { color: colors.muted }]}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        >
+          ⌕
+        </Text>
+        <TextInput
+          testID="storefront-search"
+          accessibilityLabel={`Search ${count} items`}
+          placeholder={`Search ${count} items…`}
+          placeholderTextColor={colors.muted}
+          value={value}
+          onChangeText={onChange}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          style={[styles.searchInput, { color: colors.ink }]}
+        />
+      </View>
       {value.length > 0 ? (
         <Pressable
           testID="storefront-search-clear"
@@ -1330,10 +1374,22 @@ const styles = StyleSheet.create({
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta,
     textTransform: 'uppercase', marginTop: 10,
   },
+  // The two trust-fact pills together -- mockup's `.pills` (gap: 6). The
+  // margin that used to sit on `openPill` alone now lives here, since the
+  // row is what rises as one unit and what the open pill can no longer
+  // assume it is rendering solo in.
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, alignSelf: 'flex-start' },
   // Same shape as HoursCard's own `statePill`/`stateText` in visit-panel.tsx
   // -- one state, rendered the same way everywhere this page says it.
-  openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start', marginTop: 12 },
+  openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   openPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
+  // The mockup's `.p.gh` -- a border and no fill, since this pill reports a
+  // fact rather than a state with two outcomes (there is only ever one
+  // "Collection" to say, never a second colour it could have been).
+  ghostPill: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start', borderWidth: 1,
+  },
+  ghostPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
   anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
   anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
   anchorFoot: {
@@ -1385,8 +1441,37 @@ const styles = StyleSheet.create({
   // shop's palette.
   emptyWa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
   emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page, paddingTop: 10 },
-  search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 10, fontSize: TYPE.body },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page },
+  // The two placements this field ships in -- see the `floating` prop above.
+  // Non-floating keeps the small gap this row always had above it
+  // (CategoryBand/CategoryFilterBar, or Window and Counter's own header).
+  // Floating replaces that gap with the mockup's own overlap instead, and
+  // raises the field above whatever it overlaps -- `zIndex` rather than
+  // relying on paint order, since Android's `elevation` on a sibling can
+  // reorder that silently.
+  searchRowInline: { marginTop: 10 },
+  searchRowFloating: { marginTop: -21, zIndex: 1 },
+  searchCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    // "0 8 24 rgba(ink, 0.13)" -- the mockup's own .onesearch shadow --
+    // expressed as RN's shadow* props plus `elevation` for Android, the same
+    // idiom styles.slip below already uses. `colors.ink` rather than a fixed
+    // black: every palette's `ink` already reads as near-black (see the
+    // comment on THE ANCHOR CARD decision above), so this shadow needs no
+    // colour literal of its own.
+    shadowOpacity: 0.13,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  searchGlyph: { fontSize: TYPE.body, opacity: 0.7 },
+  searchInput: { flex: 1, padding: 0, fontSize: TYPE.body },
   searchClear: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8 },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
   cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },

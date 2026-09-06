@@ -109,6 +109,22 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         onOpenCart={() => setCartOpen(true)}
       />
 
+      {/* Floats over the anchor's own bottom edge -- the platform-shot move
+          docs/design/storefront-bold-motion-mockup.html's "The One" section
+          commits to (`.onesearch`, margin -21px). Narrow layout only: in the
+          wide 3-card row (see ShopHeader), ShopAnchor sits BESIDE
+          CollectingCard/StockCard rather than above them, and either one's
+          own button (Cart, WhatsApp) can be the last thing painted at that
+          row's bottom edge -- overlapping a real control there is a worse
+          defect than the 21px of breathing room a wide screen already has to
+          spare. Wide keeps the field in its old, non-overlapping spot below,
+          unchanged. Gated by the same `shouldOfferSearch` either way, so a
+          shop under the threshold gets neither placement and the anchor
+          sits flush with nothing above FlyerCarousel. */}
+      {!wide && shouldOfferSearch(products) ? (
+        <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} floating />
+      ) : null}
+
       {/* Below the shop card, above the goods. A customer arriving on a
           forwarded link needs to know whose page this is before the loudest
           thing on it speaks -- and the poster belongs next to what it points
@@ -127,7 +143,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
           chip belongs next to the grid it is narrowing. */}
       <CategoryBand categories={categories} colors={colors} active={category} onSelect={setCategory} />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
-      {shouldOfferSearch(products) ? (
+      {wide && shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
       ) : null}
       {shown.length > 0 ? (
