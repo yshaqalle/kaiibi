@@ -1,7 +1,7 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { TABULAR, TYPE } from '@/components/storefront/scale';
+import { SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { ProductActions } from '@/components/storefront/theme-shared';
 import { AppModal } from '@/components/ui/app-modal';
 import { formatCents } from '@/lib/currency';
@@ -218,8 +218,26 @@ const styles = StyleSheet.create({
   // `alignItems: 'center'` is the horizontal half of "bound it and centre
   // it" (see `sheetWidthFor`'s own comment) -- `justifyContent: 'flex-end'`
   // stays untouched, because the sheet is still bottom-anchored.
-  overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end', alignItems: 'center' },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%', overflow: 'hidden' },
+  // `alignItems: 'center'` is the horizontal half of "bound it and centre it";
+  // `justifyContent: 'flex-end'` keeps the sheet bottom-anchored, which is
+  // what makes it read as a sheet rather than a dialog.
+  //
+  // THE BOTTOM INSET IS NOT DECORATION. Flush against the window's bottom
+  // edge, the Close button and the Add/Ask row are the first things a browser
+  // download bar, a macOS dock, or a phone's home indicator covers -- and the
+  // customer's report was exactly that, "we don't see the bottom", on a sheet
+  // this file's own tests measured as ending precisely at the viewport edge.
+  // Ending short of that edge costs one gap and means the last row of controls
+  // is always visibly clear of whatever the operating system draws there.
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(11,11,13,0.45)',
+    justifyContent: 'flex-end', alignItems: 'center',
+    padding: SPACE.cardGap,
+  },
+  // Rounded on all four corners now that it floats: two square bottom corners
+  // read as "cut off by the window" -- the very thing the inset above exists
+  // to stop -- rather than as a card that ends.
+  sheet: { borderRadius: 24, maxHeight: '88%', overflow: 'hidden' },
   head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4 },
   grab: { width: 38, height: 4, borderRadius: 999 },
   // `flexShrink: 1`, not `flex: 1` -- this scroller has no reason to GROW
