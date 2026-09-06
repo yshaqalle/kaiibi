@@ -144,6 +144,44 @@ export function ShopCard({
 // genuinely fresh page load is expected to play it again.
 const HERO_RISEN = new Set<string>();
 
+// Read and write ends of HERO_RISEN, named so ShopAnchor's own body never
+// touches the Set directly. That indirection exists for one reason: it gives
+// a test a way in. react-native-reanimated's Jest mock
+// (jest/reanimated-mock.js, wrapping the library's own mock.ts) renders
+// `Animated.View` as a plain `View` and drops the `entering` prop on the
+// floor -- so no test that only renders ShopAnchor can tell a rise that
+// played from one that never did. These two functions, plus
+// resetHeroRisenForTests below, let a test observe and control the cache the
+// same way ShopAnchor's effect does, without mounting anything.
+export function heroHasRisen(slug: string): boolean {
+  return HERO_RISEN.has(slug);
+}
+
+export function markHeroRisen(slug: string): void {
+  HERO_RISEN.add(slug);
+}
+
+// TEST-ONLY SEAM. HERO_RISEN is module-level and, under Jest, lives for the
+// whole of a test file's run -- so one test marking a slug risen would leak
+// into every later test that reuses (or coincidentally picks) that slug. No
+// app code calls this: a real page load gets a fresh module instance for
+// free, which is the property the big comment above HERO_RISEN relies on.
+export function resetHeroRisenForTests(): void {
+  HERO_RISEN.clear();
+}
+
+// THE DECISION, pulled out on its own because nothing about it can be
+// asserted through a render (see the comment on heroHasRisen above) -- it is
+// a function of exactly two facts: is reduced motion on, and has this shop's
+// hero already spent its rise this session. Returns the millisecond delay
+// FadeInDown should carry for line `index`, or `null` when that line must
+// render already in its final position -- reduced motion means no animation
+// at all, never a faster one, and an already-risen shop must not replay it.
+export function heroRiseDelay(reducedMotion: boolean, alreadyRisen: boolean, index: number): number | null {
+  if (reducedMotion || alreadyRisen) return null;
+  return index * 80;
+}
+
 export function ShopAnchor({
   storefront, colors, style, wide, children,
 }: {
@@ -186,24 +224,28 @@ export function ShopAnchor({
   const open = hoursConfigured && isOpenAt(hours, new Date());
 
   // Reduced motion: no rise at all, not a faster one -- the lines render in
-  // their final position on the very first frame.
+  // their final position on the very first frame. `alreadyRisen` is read
+  // once per render, same as `shouldRise` used to be, so every line in this
+  // mount agrees on whether the hero has already spent its rise.
   const reducedMotion = useReducedMotion();
-  const shouldRise = !reducedMotion && !HERO_RISEN.has(storefront.slug);
+  const alreadyRisen = heroHasRisen(storefront.slug);
   // Only marked "spent" when the rise actually played. A visit that opened
   // under reduced motion never showed an animation, so it must not cost the
   // one this slug is owed -- a customer who later turns reduced motion off
   // and returns to this shop still gets to see it rise once. Runs after this
-  // render commits, so `shouldRise` above still reflects whether THIS mount
+  // render commits, so `alreadyRisen` above still reflects whether THIS mount
   // -- the first eligible one for this slug -- gets to animate.
   useEffect(() => {
-    if (!reducedMotion) HERO_RISEN.add(storefront.slug);
+    if (!reducedMotion) markHeroRisen(storefront.slug);
   }, [storefront.slug, reducedMotion]);
 
   // `undefined` under either gate -- Animated.View treats a missing
   // `entering` prop as "already in its final state", which is exactly what a
-  // skipped rise and an already-spent one both mean.
+  // skipped rise and an already-spent one both mean. The decision itself
+  // (heroRiseDelay above) is what a test can actually hold onto.
   function riseIn(index: number) {
-    return shouldRise ? FadeInDown.duration(550).delay(index * 80) : undefined;
+    const delay = heroRiseDelay(reducedMotion, alreadyRisen, index);
+    return delay === null ? undefined : FadeInDown.duration(550).delay(delay);
   }
 
   return (
