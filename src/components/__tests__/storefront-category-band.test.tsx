@@ -1,8 +1,7 @@
 import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
-import { activeCategoryBox, CATEGORY_BAND_MINIMUM, CategoryBand, firstPhotoByCategory } from '@/components/storefront/category-band';
-import { RADIUS } from '@/components/storefront/scale';
+import { CATEGORY_BAND_MINIMUM, CategoryBand, firstPhotoByCategory } from '@/components/storefront/category-band';
 import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -223,23 +222,14 @@ describe('the band drives the existing category filter, unchanged', () => {
   });
 });
 
-// FIX 1: the requirement ("sliding active pill on the category bar") names
-// THIS surface, not ShopTabRail's page tabs -- see shop-tabs.tsx's own
-// pillMotion tests for that surface's twin coverage.
-//
-// The indicator's WIDTH/SHAPE come from plain React state and can be read
-// off a render, same as any other style. Its POSITION cannot: it lives on a
-// Reanimated shared value, and this repo's shared reanimated jest mock backs
-// `useSharedValue` with a bare object rather than a ref, so a mutation to it
-// does not survive a re-render triggered by anything else -- including this
-// band's OWN `indicatorBox` state update, which fires in the very same
-// handler. That is a sharper version of the limitation shop-tabs.tsx's own
-// comment already names ("nothing about a shared value reaching a position
-// can be asserted through a render"), so `activeCategoryBox` -- the pure
-// lookup that decides POSITION -- is what "selecting a different category
-// moves it" is proven against directly, the same way shop-tabs.tsx proves
-// its own spring-vs-snap decision through `pillMotion` rather than a render.
-describe('the sliding indicator (Fix 1: lives on the category bar)', () => {
+// THE SLIDING INDICATOR that used to live here is gone: Task 15 made photo
+// tiles the default, so on any shop with photographed products the
+// ink-filled box painted BEHIND the items was never visible, and in a mixed
+// row it materialised from nowhere the instant selection moved from a tile
+// to a pill. The active category already has a visible signal without it --
+// the tile's own accent-filled chip (proven above) and, restored here, the
+// pill's own ink fill.
+describe('the pill fallback carries its own selected fill, with no indicator behind it', () => {
   function flattenStyle(style: unknown): Record<string, unknown> {
     return [style]
       .flat(Infinity)
@@ -247,136 +237,38 @@ describe('the sliding indicator (Fix 1: lives on the category bar)', () => {
       .reduce((acc, s) => ({ ...(acc as object), ...(s as object) }), {}) as Record<string, unknown>;
   }
 
-  function indicatorOf(tree: ReturnType<typeof create>) {
-    return tree.root.findAll((n) => n.props?.testID === 'storefront-category-indicator')[0];
-  }
-
-  function fireLayout(tree: ReturnType<typeof create>, testID: string, x: number, width: number) {
-    const target = tree.root.findAll(
-      (n) => n.props?.testID === testID && typeof n.props?.onLayout === 'function',
+  // `styles.pill` reaches the Pressable through `pressable()` (press-
+  // feedback.ts), which wraps a base style in a `({ pressed }) => style`
+  // function rather than handing RN a plain array -- the same shape
+  // storefront-product-tile-web.test.tsx's own `styleFn({ pressed: false })`
+  // unwraps for the identical reason.
+  function pillStyleOf(tree: ReturnType<typeof create>, name: string) {
+    const pill = tree.root.findAll(
+      (n) => n.props?.testID === `storefront-category-${name}` && typeof n.props?.onPress === 'function',
     )[0];
-    act(() => {
-      (target.props.onLayout as (e: unknown) => void)({ nativeEvent: { layout: { x, y: 0, width, height: 0 } } });
-    });
+    const styleFn = pill.props.style as (state: { pressed: boolean }) => unknown;
+    return flattenStyle(styleFn({ pressed: false }));
   }
 
-  it('renders no indicator while nothing is selected', () => {
+  it('fills itself with the palette ink when selected -- there is no indicator underneath to supply one', () => {
     const tree = render(
-      <CategoryBand categories={categories} products={productsWithPhoto} colors={colors} active={null} onSelect={jest.fn()} />,
+      <CategoryBand categories={categories} products={products} colors={colors} active="Dry goods" onSelect={jest.fn()} />,
     );
-    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-category-indicator')).toHaveLength(0);
+    expect(pillStyleOf(tree, 'Dry goods').backgroundColor).toBe(colors.ink);
   });
 
-  it('exists and sizes itself to the measured width of the active photo TILE', () => {
+  it('stays unfilled when not selected', () => {
+    const tree = render(
+      <CategoryBand categories={categories} products={products} colors={colors} active={null} onSelect={jest.fn()} />,
+    );
+    expect(pillStyleOf(tree, 'Dry goods').backgroundColor).toBe(colors.ground);
+  });
+
+  it('mounts no sliding indicator node at all, selected or not', () => {
     const tree = render(
       <CategoryBand categories={categories} products={productsWithPhoto} colors={colors} active="Produce" onSelect={jest.fn()} />,
     );
-    fireLayout(tree, 'storefront-category-Produce', 140, 136);
-
-    const flat = flattenStyle(indicatorOf(tree).props.style);
-    expect(flat.width).toBe(136);
-    expect(flat.borderRadius).toBe(RADIUS.inset);
-  });
-
-  it('sizes itself to the measured width of the active text PILL, and reshapes to match', () => {
-    const tree = render(
-      <CategoryBand categories={categories} products={productsWithPhoto} colors={colors} active="Dry goods" onSelect={jest.fn()} />,
-    );
-    fireLayout(tree, 'storefront-category-Dry goods', 8, 92);
-
-    const flat = flattenStyle(indicatorOf(tree).props.style);
-    expect(flat.width).toBe(92);
-    expect(flat.borderRadius).toBe(RADIUS.pill);
-  });
-
-  // The mix Task 15 introduced, and the exact case Fix 1's brief calls out:
-  // one indicator has to track BOTH shapes as selection moves between them,
-  // in the same mounted band (an `.update`, not a fresh `render`) -- a
-  // remount would trivially "pass" by starting the new box from zero. This
-  // is the WIDTH half of "moves" -- a render can show this much; see
-  // `activeCategoryBox`, below, for the POSITION half it cannot.
-  it('reshapes its width when selection moves from a photo tile to a text pill', () => {
-    let tree!: ReturnType<typeof create>;
-    act(() => {
-      tree = create(
-        <CategoryBand categories={categories} products={productsWithPhoto} colors={colors} active="Produce" onSelect={jest.fn()} />,
-      );
-    });
-    fireLayout(tree, 'storefront-category-Produce', 0, 136);
-    fireLayout(tree, 'storefront-category-Dry goods', 144, 92);
-
-    const before = flattenStyle(indicatorOf(tree).props.style);
-    expect(before.width).toBe(136);
-    expect(before.borderRadius).toBe(RADIUS.inset);
-
-    act(() => {
-      tree.update(
-        <CategoryBand categories={categories} products={productsWithPhoto} colors={colors} active="Dry goods" onSelect={jest.fn()} />,
-      );
-    });
-
-    const after = flattenStyle(indicatorOf(tree).props.style);
-    expect(after.width).toBe(92);
-    expect(after.borderRadius).toBe(RADIUS.pill);
-  });
-
-  // The filter this band drives must stay byte-identical -- Fix 1's own
-  // constraint. The indicator is purely decorative: proving the same tap
-  // that now also moves a sliding box still narrows the grid exactly as the
-  // pre-existing "the band drives the existing category filter" suite (just
-  // below) already proves is the real regression guard; this adds only the
-  // missing half, that the indicator itself picks up the RIGHT width for the
-  // tapped item, via the real onPress -> onSelect -> active prop path rather
-  // than a hand-fired layout event standing in for it.
-  it('tracks the tile actually tapped, through the real onSelect callback', () => {
-    let category: string | null = null;
-    const onSelect = jest.fn((next: string) => { category = next; });
-    let tree!: ReturnType<typeof create>;
-    const renderWith = () => (
-      <CategoryBand categories={categories} products={productsWithPhoto} colors={colors} active={category} onSelect={onSelect} />
-    );
-    act(() => { tree = create(renderWith()); });
-    fireLayout(tree, 'storefront-category-Produce', 200, 136);
-
-    const tile = tree.root.findAll(
-      (n) => n.props?.testID === 'storefront-category-Produce' && typeof n.props?.onPress === 'function',
-    )[0];
-    act(() => { tile.props.onPress(); });
-    act(() => { tree.update(renderWith()); });
-
-    expect(onSelect).toHaveBeenCalledWith('Produce');
-    expect(flattenStyle(indicatorOf(tree).props.style).width).toBe(136);
-  });
-});
-
-// THE POSITION HALF of "selecting a different category moves it" --
-// `activeCategoryBox` is the pure lookup CategoryBand's effect calls to
-// decide where the indicator travels to, pulled out for the reason its own
-// header comment gives: a render cannot show a Reanimated shared value's
-// position reliably under this repo's shared jest mock. Two different
-// `active` values against the identical `layouts` map producing two
-// different boxes is the whole of what "moves" means here -- the same shape
-// of proof shop-tabs.tsx's `pillMotion` tests give their own surface.
-describe('activeCategoryBox: which box the indicator targets', () => {
-  const layouts = {
-    Produce: { x: 0, width: 136, radius: RADIUS.inset },
-    'Dry goods': { x: 144, width: 92, radius: RADIUS.pill },
-  };
-
-  it('targets the active category’s own measured box', () => {
-    expect(activeCategoryBox('Produce', layouts)).toEqual({ x: 0, width: 136, radius: RADIUS.inset });
-  });
-
-  it('moves -- a different active category targets a different box entirely', () => {
-    expect(activeCategoryBox('Dry goods', layouts)).toEqual({ x: 144, width: 92, radius: RADIUS.pill });
-  });
-
-  it('targets nothing while no category is selected', () => {
-    expect(activeCategoryBox(null, layouts)).toBeNull();
-  });
-
-  it('targets nothing for a category that has never reported a layout', () => {
-    expect(activeCategoryBox('Unlisted', layouts)).toBeNull();
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-category-indicator')).toHaveLength(0);
   });
 });
 

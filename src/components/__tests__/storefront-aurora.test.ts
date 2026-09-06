@@ -1,33 +1,28 @@
 import { auroraMotion, withAlpha } from '@/components/storefront/aurora';
 
-// THE ONE DECISION THE AURORA MAKES: given a photo/no-photo shop and a
-// reduced-motion flag, does it loop, render static, or not render at all.
-// Pulled out as its own pure function for the same reason heroRiseDelay
-// (theme-shared.tsx) is -- nothing about a 14s `withRepeat` loop can be
-// asserted through a render: the shared reanimated jest mock resolves
-// every animation synchronously and has no notion of "still running".
+// THE ONE DECISION THE AURORA MAKES: given a photo/no-photo shop, does it
+// paint its static wash or nothing at all. Pulled out as its own pure
+// function for the same reason heroRiseDelay (theme-shared.tsx) is one --
+// even though the aurora itself no longer animates, this keeps the "never
+// over a photo" invariant a single, directly testable fact rather than
+// something only provable by rendering ShopAnchor's whole tree.
 describe('auroraMotion', () => {
-  it('never renders over a photo, motion setting aside -- the hero scrim owns that surface', () => {
-    expect(auroraMotion(true, false)).toBe('none');
-    expect(auroraMotion(true, true)).toBe('none');
+  it('never renders over a photo -- the hero scrim owns that surface', () => {
+    expect(auroraMotion(true)).toBe('none');
   });
 
-  it('loops on a photoless shop under ordinary motion', () => {
-    expect(auroraMotion(false, false)).toBe('loop');
-  });
-
-  it('is a single static wash on a photoless shop under reduced motion', () => {
-    expect(auroraMotion(false, true)).toBe('static');
+  it('is the static wash on a photoless shop', () => {
+    expect(auroraMotion(false)).toBe('static');
   });
 });
 
-// THE PALETTE-DERIVED "FAMILY". No radial gradient and no blur are
-// available on this branch (expo-linear-gradient draws linear gradients
-// only; expo-blur is forbidden) -- see aurora.tsx's own header comment on
-// what is actually built instead. `withAlpha` is the one piece of that
-// approximation that is pure arithmetic: it turns the palette's own single
-// accent hex into an rgba() string at a given alpha, so three blobs can
-// share one hue without ever writing a second hex literal at a call site.
+// THE PALETTE-DERIVED WASH. No radial gradient and no blur are available on
+// this branch (expo-linear-gradient draws linear gradients only; expo-blur
+// is forbidden) -- see aurora.tsx's own header comment on what is actually
+// built instead. `withAlpha` is the one piece of that approximation that is
+// pure arithmetic: it turns the palette's own single accent hex into an
+// rgba() string at a given alpha, so the wash needs no second hex literal at
+// its call site.
 describe('withAlpha', () => {
   it('keeps the palette\'s own RGB, changing only the alpha channel', () => {
     expect(withAlpha('#141418', 0.5)).toBe('rgba(20, 20, 24, 0.5)');

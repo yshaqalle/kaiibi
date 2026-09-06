@@ -15,7 +15,7 @@ import {
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  DISPLAY_FONT, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SCRIM_GRADIENT, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE,
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE,
 } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
@@ -280,8 +280,8 @@ export function ShopAnchor({
               photograph under it. */}
           <LinearGradient
             testID="storefront-hero-scrim"
-            colors={SCRIM_GRADIENT.colors}
-            locations={SCRIM_GRADIENT.locations}
+            colors={HERO_SCRIM.colors}
+            locations={HERO_SCRIM.locations}
             style={styles.anchorScrim}
             pointerEvents="none"
           />
@@ -292,8 +292,10 @@ export function ShopAnchor({
         // never both paint (a shop cannot have a photo AND no photo) and
         // never both skip (every card gets exactly one background
         // treatment). See aurora.tsx for what this actually renders, given
-        // no radial gradient and no blur are available on this branch.
-        <Aurora colors={colors} reducedMotion={reducedMotion} />
+        // no radial gradient and no blur are available on this branch. A
+        // static wash, not animated -- see that file's own header comment
+        // for why it no longer takes a `reducedMotion` prop at all.
+        <Aurora colors={colors} />
       )}
 
       <Text style={[styles.eyebrow, { color: muted }]}>The shop</Text>
@@ -322,30 +324,25 @@ export function ShopAnchor({
         </Animated.View>
       ) : null}
 
-      {/* THE TRUST FACTS a customer reads without opening Visit -- open state
-          and the collection word. (The third, pay-on-collection, is already
-          unconditional on this page's ShopFooter -- see shop-footer.tsx --
-          so it is not repeated here; the same fact printed twice, once at
-          the top and once at the foot, would be one nagging claim rather
-          than two calm ones.) Both pills rise together as the single unit
-          the mockup's `.pills` row is -- one entering animation, not two out
-          of step with each other.
+      {/* THE ONE TRUST FACT a customer reads here without opening Visit --
+          whether the shop is open right now. (Collection and
+          pay-on-collection are already said once each, lower down this same
+          page -- CollectingCard's "Delivery / Collection only" and "Pay / On
+          collection" rows, then the footer's unconditional "Pay on
+          collection · Prices set by the shop". A ghost pill repeating just
+          "Collection" up here, a third time in one narrow scroll, said
+          nothing an anchor visitor did not already read twice more below --
+          see this file's git history for the pill this replaced.)
 
-          NO OPEN PILL AT ALL when the shop has not set hours -- the same
-          rule HoursCard follows for the identical reason: `isConfigured`
-          false means "never filled in", and a pill claiming a state the shop
-          never gave would be invented, not reported. Word AND fill, never
-          colour alone -- a customer who cannot tell accent from soft still
-          reads "Open now" or "Closed now".
-
-          The collection pill has no such gate: collection is this page's one
-          fulfilment method every shop always offers (delivery is the
-          optional add-on -- see CollectingCard's identical assumption for
-          its "Pay: On collection" fact), so it is not new data and it is
-          never conditional. */}
-      <Animated.View entering={riseIn(2)}>
-        <View style={styles.pillRow}>
-          {hoursConfigured ? (
+          NO PILL AT ALL when the shop has not set hours -- the same rule
+          HoursCard follows for the identical reason: `isConfigured` false
+          means "never filled in", and a pill claiming a state the shop never
+          gave would be invented, not reported. Word AND fill, never colour
+          alone -- a customer who cannot tell accent from soft still reads
+          "Open now" or "Closed now". */}
+      {hoursConfigured ? (
+        <Animated.View entering={riseIn(2)}>
+          <View style={styles.pillRow}>
             <View
               testID="storefront-anchor-open-pill"
               style={[styles.openPill, { backgroundColor: open ? colors.accent : colors.soft }]}
@@ -360,12 +357,9 @@ export function ShopAnchor({
                 {open ? 'Open now' : 'Closed now'}
               </Text>
             </View>
-          ) : null}
-          <View testID="storefront-anchor-collection-pill" style={[styles.ghostPill, { borderColor: muted }]}>
-            <Text style={[styles.ghostPillText, { color: ink }, onPhoto && styles.onScrimText]}>Collection</Text>
           </View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      ) : null}
 
       {storefront.headline ? (
         <Text
@@ -730,6 +724,19 @@ type ProductActionsProps = {
   // pair would turn every row into a card. `compact` is the same two
   // buttons at row scale, not a different component.
   compact?: boolean;
+  // Defaults to true -- the ordinary grid path (ProductTile, Counter's row)
+  // is unchanged. ProductSheet is the one caller that passes `false`: it
+  // renders this same component inside an AppModal, and on iOS and Android
+  // a Modal is its OWN native window, layered above everything FlyToCartLayer
+  // paints into. The dot would arc across a window nobody watching the sheet
+  // can see, and the slip it is racing toward is sitting behind the sheet
+  // besides -- so the flight is not merely pointless there, it is invisible
+  // by construction, on every platform where a Modal is a real window rather
+  // than a browser-only stacking context. A positive name (can it fly)
+  // rather than a negative one (suppress the fly) so the ordinary case reads
+  // as "yes, of course" rather than as a double negative at every call site
+  // that doesn't opt out.
+  canFlyToCart?: boolean;
 };
 
 // The Add/Ask pair every theme with per-product actions needs. Originally
@@ -744,7 +751,9 @@ type ProductActionsProps = {
 // the button rather than render one that opens a chat with nobody. An earlier
 // version rendered Ask always and made it silently do nothing, which is the
 // worse half of both options -- the customer taps and the app shrugs.
-export function ProductActions({ product, colors, shopName, whatsappE164, onAdd, compact }: ProductActionsProps) {
+export function ProductActions({
+  product, colors, shopName, whatsappE164, onAdd, compact, canFlyToCart = true,
+}: ProductActionsProps) {
   const outOfStock = product.stock <= 0;
 
   function handleAsk() {
@@ -776,6 +785,13 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
           // fire-and-forget: a shop with no dot to show (the slip has never
           // laid out, or reduced motion is on) is still a shop whose cart
           // gets the item, exactly as it did before this pass existed.
+          //
+          // `canFlyToCart` gates only THIS call -- the cart update
+          // (`onAdd?.(product)`, next line) always runs regardless, because
+          // an Add pressed inside ProductSheet's modal must still add to the
+          // cart and still let the sheet's own onAdd close it; only the
+          // dot's flight is skipped, since FlyToCartLayer paints into a
+          // different native window a modal cannot see.
           onPress={(e) => {
             // `e` (and `e.nativeEvent`) is optional here on purpose: dozens
             // of existing tests across this suite call a captured
@@ -784,7 +800,9 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
             // did before this pass -- fireFlyToCart's own `origin` parameter
             // is already nullable for precisely this "no coordinate to
             // give" case.
-            fireFlyToCart(e?.nativeEvent ? { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY } : null);
+            if (canFlyToCart) {
+              fireFlyToCart(e?.nativeEvent ? { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY } : null);
+            }
             onAdd?.(product);
           }}
         >
@@ -1622,22 +1640,16 @@ const styles = StyleSheet.create({
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta,
     textTransform: 'uppercase', marginTop: 10,
   },
-  // The two trust-fact pills together -- mockup's `.pills` (gap: 6). The
-  // margin that used to sit on `openPill` alone now lives here, since the
-  // row is what rises as one unit and what the open pill can no longer
-  // assume it is rendering solo in.
+  // Wraps the single open-state pill -- mockup's `.pills` (gap: 6). Kept as
+  // its own row (rather than folding `openPill`'s own margin back in)
+  // because it is the row that rises as one entering unit; a second pill
+  // used to share it, removed once the collection word it repeated was
+  // already said twice more, lower down this same page.
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, alignSelf: 'flex-start' },
   // Same shape as HoursCard's own `statePill`/`stateText` in visit-panel.tsx
   // -- one state, rendered the same way everywhere this page says it.
   openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   openPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
-  // The mockup's `.p.gh` -- a border and no fill, since this pill reports a
-  // fact rather than a state with two outcomes (there is only ever one
-  // "Collection" to say, never a second colour it could have been).
-  ghostPill: {
-    borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start', borderWidth: 1,
-  },
-  ghostPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
   anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
   anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
   anchorFoot: {

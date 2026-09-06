@@ -220,14 +220,14 @@ describe('the three trust facts, readable on the Shop tab without opening Visit'
     }
   });
 
-  it('collection word: the anchor carries a Collection pill, unconditionally', async () => {
-    const tree = await render(catalogue(3), 'the-one-facts-collection');
-    const pills = tree.root.findAll((n) => n.props?.testID === 'storefront-anchor-collection-pill');
-    expect(pills.length).toBeGreaterThan(0);
-    const texts = tree.root.findAll((n) => Array.isArray(n.children) && n.children.includes('Collection'));
-    expect(texts.length).toBeGreaterThan(0);
-  });
-
+  // THE GHOST COLLECTION PILL THIS ANCHOR USED TO CARRY has been removed --
+  // the collection word was stated three times in this one narrow scroll
+  // (this pill, then CollectingCard's "Delivery / Collection only" and "Pay
+  // / On collection" rows, then the footer's "Pay on collection · Prices
+  // set by the shop"), and it was the anchor's own copy that said the least.
+  // The anchor keeps only the open-state pill below, which is genuinely new
+  // information a customer cannot get anywhere else on this page without
+  // opening Visit.
   it('pay-on-collection: the footer already carries it, on the same Shop tab render', async () => {
     const tree = await render(catalogue(3), 'the-one-facts-pay');
     const texts = tree.root.findAll(

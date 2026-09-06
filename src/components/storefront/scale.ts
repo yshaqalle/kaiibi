@@ -187,17 +187,38 @@ export const TABULAR = { fontVariant: ['tabular-nums' as const] };
 export const ON_SCRIM_INK = '#ffffff';
 export const ON_SCRIM_MUTED = '#e8e6e0';
 
-// THE SCRIM GRADIENT -- one vocabulary for "type over an unknown photo",
-// shared by the shop card's own hero (`storefront-hero-scrim`,
-// theme-shared.tsx) and a category tile's photo (`storefront-category-scrim`,
-// category-band.tsx). Named and moved here after the two call sites drifted
-// apart on BOTH colour (0.82 vs 0.66 alpha) and stop locations ([0.3, 0.92]
-// vs [0.3, 1]) while a comment at the tile's call site claimed they already
-// matched -- two colour literals that were supposed to be one constant. A
-// single shared value is what makes that claim true instead of aspirational,
-// and what stops the two from ever drifting apart silently again: change
-// this, and both surfaces move together.
-export const SCRIM_GRADIENT = {
+// TWO SCRIMS, NOT ONE -- one vocabulary ("type over an unknown photo, faded
+// in from the top") but two strengths, because a small tile and a full-bleed
+// hero are not the same surface. A single shared `SCRIM_GRADIENT` briefly
+// stood in for both, after the two call sites (the shop card's own hero and
+// a category tile's photo) had drifted apart on BOTH colour (0.82 vs 0.66
+// alpha) and stop locations ([0.3, 0.92] vs [0.3, 1]) while a comment at the
+// tile's call site claimed they already matched. But making them literally
+// identical pushed the hero's own 0.82 alpha onto the tile too, and 0.82
+// muddies a 136x92 photograph the tile exists to show: a small tile needs
+// LESS scrim than a full-bleed hero to still read as a photo underneath it,
+// not a photo the tile has darkened on its way to becoming legible. So the
+// vocabulary is shared -- both fade in the same ink-blue from the same
+// [0.3, ...] stop -- but the STRENGTH is two named constants, each owned by
+// the one surface that uses it. Nothing here claims they are, or should be,
+// the same value.
+//
+// THE HERO. The shop card's own hero scrim (`storefront-hero-scrim`,
+// theme-shared.tsx) -- full-bleed, so it can afford to go dark enough to
+// guarantee on-scrim text stays legible over any photo a shop uploads.
+export const HERO_SCRIM = {
   colors: ['transparent', 'rgba(16,22,35,0.82)'] as const,
   locations: [0.3, 0.92] as const,
+};
+
+// THE TILE. A category tile's photo (`storefront-category-scrim`,
+// category-band.tsx) -- a fraction of the hero's size, so the hero's own
+// 0.82 would read as darkening the photo rather than sitting over it.
+// Lighter, and reaching further down the tile ([0.3, 1] rather than
+// [0.3, 0.92]) -- the same value this constant carried before it was folded
+// into the hero's own for one release; splitting it back out is a revert,
+// not a new number.
+export const TILE_SCRIM = {
+  colors: ['transparent', 'rgba(16,22,35,0.66)'] as const,
+  locations: [0.3, 1] as const,
 };
