@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, KAIIBI_MARK_ASPECT, LETTER, RADIUS, SPACE, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import {
   DIRECTORY_GAP, DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard,
   directoryColumnsForWidth, featuredShop,
@@ -617,7 +617,16 @@ const styles = StyleSheet.create({
   // The asset is already white-on-transparent (the same file ShopFooter loads
   // for its own colophon), so the plate's colour is carried entirely by
   // `mark`'s fill -- no tinting here, just sizing it inside the plate.
-  markImage: { width: 22, height: 22, resizeMode: 'contain' },
+  //
+  // HEIGHT AND THE MARK'S OWN RATIO, not a square: the file is 200x212, and a
+  // square box makes the bag 6% too narrow. `contain` alone was hiding that --
+  // it letterboxed the artwork honestly inside a wrong-shaped box, so the mark
+  // was undistorted but sat smaller than the box it was given, which is why it
+  // read as a stamp lost in the middle of the plate.
+  //
+  // 26 of the plate's 44, rather than 22: the mark IS the picture here, and at
+  // half the plate it was drawn as though it were an afterthought inside it.
+  markImage: { width: Math.round(26 * KAIIBI_MARK_ASPECT), height: 26, resizeMode: 'contain' },
   // The wordmark IS the headline now (see the design record above), so it
   // reads at a size that can carry that job alone rather than the old nav's
   // 18px aside-to-a-headline size.

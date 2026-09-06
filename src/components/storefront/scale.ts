@@ -139,6 +139,23 @@ export const SPACE = {
 // floor that would undo the density it exists for.
 export const TOUCH_TARGET = 44;
 
+// THE KAIIBI MARK'S OWN PROPORTIONS, because it is not square and both places
+// that draw it were treating it as though it were.
+//
+// `assets/images/kaiibi-mark-{white,black}.png` are 200x212 -- a shopping bag
+// with a handle, which is naturally taller than it is wide. ShopFooter drew it
+// into a 21x21 box with no `resizeMode` at all, and RN's default is `cover`:
+// the bag was squashed 6% narrow and its handle cropped off the top. It is the
+// company's own mark on every shop's page, so it renders wrong on every shop's
+// page.
+//
+// A call site multiplies its chosen HEIGHT by this to get the width, and sets
+// BOTH -- `aspectRatio` alone does not work here and the browser proved it:
+// an `Image` with a height and an aspectRatio but no width takes its own
+// intrinsic width instead, which drew the footer's 24px-tall mark 200px wide.
+// Two explicit numbers derived from one ratio cannot do that.
+export const KAIIBI_MARK_ASPECT = 200 / 212;
+
 // WHAT ACTUALLY CAUSED THE SCREENSHOT THIS REDESIGN CAME FROM.
 //
 // Nothing in this folder bounded its own width -- `grep -rn maxWidth

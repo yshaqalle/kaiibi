@@ -1919,7 +1919,13 @@ const styles = StyleSheet.create({
   // raises the field above whatever it overlaps -- `zIndex` rather than
   // relying on paint order, since Android's `elevation` on a sibling can
   // reorder that silently.
-  searchRowInline: { marginTop: 10 },
+  // SPACE.cardGap, not the 10 this carried for years. On the wide layout the
+  // field sits BELOW the header cards rather than floating over them, and 10px
+  // under a 270px card read as the two being crowded together -- every other
+  // gap between stacked things on this page is `cardGap`, so a tighter one
+  // here was the odd number out rather than a decision. The narrow layout is
+  // untouched: it overlaps on purpose (`searchRowFloating`).
+  searchRowInline: { marginTop: SPACE.cardGap },
   // The rendered overlap is `SEARCH_FLOAT_OVERLAP`, not this margin's own
   // magnitude -- `headerNarrow`'s `gap` adds back onto it (see
   // SEARCH_FLOAT_OVERLAP's own comment above). A bare `-21` here would be
