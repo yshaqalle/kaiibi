@@ -1,9 +1,10 @@
-import { Image, StyleSheet, Text } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import StoreDirectoryScreen from '@/app/store/index';
+import { ON_SCRIM_INK, ON_SCRIM_MUTED } from '@/components/storefront/scale';
 import {
-  DIRECTORY_MAX_WIDTH, ShopDirectoryCard, directoryColumnsForWidth,
+  DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard, directoryColumnsForWidth,
 } from '@/components/storefront/shop-directory-card';
 import { KAIIBI_BLUE, KAIIBI_INK, paletteColors } from '@/lib/storefront-catalog';
 import type { PublicShopSummary } from '@/types/models';
@@ -142,6 +143,242 @@ describe('the directory card', () => {
       (n) => n.props?.testID === 'storefront-directory-card-dir-alpha' && n.props?.accessibilityLabel,
     );
     expect(node.props.accessibilityLabel).toBe('Alpha Hardware, Hargeisa, 4 items');
+  });
+});
+
+// THE FEATURED CARD -- a photo hero when the pick has one, the original
+// ink-filled block when it does not. Rendered here directly, the same way
+// `ShopDirectoryCard` is above, rather than only through 3+ shops on the
+// full screen: `featuredShop()`'s own gating (FEATURE_MINIMUM, in-stock) is
+// covered by its own tests in shop-directory-card.tsx, and this card's
+// rendering does not need three shops to exercise.
+describe('the featured card', () => {
+  function renderFeatured(
+    shop: PublicShopSummary, wide = true, onPress = jest.fn(), cardColors = colors,
+  ) {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(<FeaturedShopCard shop={shop} colors={cardColors} wide={wide} onPress={onPress} />);
+    });
+    return tree;
+  }
+
+  function photoShop(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary {
+    return summary({
+      slug: 'dir-feat',
+      heroImageUrl: 'https://example.com/feat.jpg',
+      city: 'Hargeisa',
+      categories: ['Menswear'],
+      ...overrides,
+    });
+  }
+
+  const CARD = 'storefront-directory-featured-dir-feat';
+  const PHOTO = 'storefront-directory-featured-photo-dir-feat';
+  const SCRIM = 'storefront-directory-featured-scrim-dir-feat';
+  const NAME = 'storefront-directory-featured-name-dir-feat';
+  const STATE = 'storefront-directory-featured-state-dir-feat';
+  const VISIT = 'storefront-directory-featured-visit-dir-feat';
+
+  it('opens the shop it names', () => {
+    const onPress = jest.fn();
+    const tree = renderFeatured(photoShop(), true, onPress);
+    press(tree, CARD);
+    expect(onPress).toHaveBeenCalledWith('dir-feat');
+  });
+
+  // ADJACENCY, NOT ORDER -- the exact defect class this branch has already
+  // shipped twice (see the brief this task came from). `findAll` returning
+  // the photo before the scrim somewhere in the tree would stay green even
+  // with unrelated content wedged between them; this asks the stronger
+  // question, that the scrim is the photo's very next sibling, which is what
+  // actually guarantees "over" rather than merely "also present".
+  it('paints the scrim as the photo\'s very next sibling', () => {
+    const tree = renderFeatured(photoShop());
+    const root = tree.toJSON() as HostNode;
+    const card = findByTestIdNode(root, CARD);
+    expect(card).not.toBeNull();
+
+    const afterPhoto = nextDirectChildAfter(card as HostNode, PHOTO);
+    expect(afterPhoto).not.toBeNull();
+    expect(typeof afterPhoto === 'string' ? false : subtreeHasTestId(afterPhoto as HostNode, SCRIM))
+      .toBe(true);
+  });
+
+  // The same adjacency question run one layer up: the name has to sit
+  // directly after the scrim (RN paints later siblings over earlier ones),
+  // not merely somewhere later in the card -- otherwise a future edit could
+  // wedge the name behind the scrim instead of on top of it and this would
+  // not notice.
+  it('sits the shop name directly after the scrim, not merely somewhere after it', () => {
+    const tree = renderFeatured(photoShop());
+    const root = tree.toJSON() as HostNode;
+    const card = findByTestIdNode(root, CARD);
+
+    const afterScrim = nextDirectChildAfter(card as HostNode, SCRIM);
+    expect(afterScrim).not.toBeNull();
+    expect(typeof afterScrim === 'string' ? false : subtreeHasTestId(afterScrim as HostNode, NAME))
+      .toBe(true);
+  });
+
+  // THE OTHER DIRECTION, proved by absence rather than by something else
+  // standing in for it: a shop with no photo gets no gradient node at all,
+  // not merely one that's positioned oddly.
+  it('renders no scrim at all when the shop has no photo', () => {
+    const tree = renderFeatured(summary({ slug: 'dir-feat', heroImageUrl: null }));
+    expect(has(tree, SCRIM)).toBe(false);
+    expect(has(tree, PHOTO)).toBe(false);
+  });
+
+  // The chip's count sits in its own JSX expression (`Browse {n} items`), so
+  // it lands in the host node's `children` as a separate NUMBER, not folded
+  // into one string -- `textOf` (this file's helper) only collects strings,
+  // so it is read directly off the Text node's children here instead.
+  it('keeps the ink-filled blurb and the item chip for a shop with no photo', () => {
+    const tree = renderFeatured(summary({ slug: 'dir-feat', heroImageUrl: null, productCount: 7 }));
+    const chip = tree.root.findAllByType(Text).find((t: { props: { children?: unknown } }) => {
+      const kids = [t.props.children].flat(Infinity);
+      return kids.includes(7) && kids.some((k) => typeof k === 'string' && k.includes('Browse'));
+    });
+    expect(chip).toBeTruthy();
+  });
+
+  // The blurb and the item chip are what the hero photo replaces -- a
+  // sentence of prose and a count both fight the name for legibility on a
+  // photograph, and "Visit shop" is the way in instead.
+  it('drops the blurb and the item chip once there is a photo to lead with', () => {
+    const tree = renderFeatured(photoShop({
+      about: 'A very long paragraph about the shop that used to run here in full.',
+      productCount: 7,
+    }));
+    const text = textOf(tree, CARD);
+    expect(text).not.toContain('Browse');
+    expect(text).not.toContain('items');
+  });
+
+  it('still says "Most to browse" over a photo -- the label the plan is built on', () => {
+    expect(textOf(renderFeatured(photoShop()), CARD)).toContain('Most to browse');
+  });
+
+  // On the `ink` palette (this page's own) `ground` happens to be white too,
+  // the same value as ON_SCRIM_INK -- so proving this is the FIXED constant,
+  // not a palette-derived one that would drift on another palette, needs a
+  // palette whose ground actually differs from it.
+  it('sets the shop name in kaiibi\'s fixed on-scrim ink, not the palette\'s', () => {
+    const palm = paletteColors('palm');
+    const tree = renderFeatured(photoShop(), true, jest.fn(), palm);
+    const node = tree.root.find((n) => n.props?.testID === NAME);
+    const flattened = StyleSheet.flatten(node.props.style) as { color?: string };
+    expect(flattened.color).toBe(ON_SCRIM_INK);
+    expect(flattened.color).not.toBe(palm.ground);
+  });
+
+  it('joins the city and the shop\'s first category into one meta line', () => {
+    const tree = renderFeatured(photoShop({ city: 'Hargeisa', categories: ['Menswear', 'Shoes'] }));
+    const text = textOf(tree, CARD);
+    expect(text).toContain('Hargeisa · Menswear');
+    const node = tree.root.find((n) => n.props?.testID === NAME).parent!.findAll(
+      (n) => typeof n.props?.children === 'string' && n.props.children.includes('·'),
+    )[0];
+    expect(StyleSheet.flatten(node.props.style).color).toBe(ON_SCRIM_MUTED);
+  });
+
+  it('degrades to just the city when the shop has listed no category', () => {
+    const text = textOf(renderFeatured(photoShop({ city: 'Hargeisa', categories: [] })), CARD);
+    expect(text).toContain('Hargeisa');
+    expect(text).not.toContain('·');
+  });
+
+  it('degrades to just the category when the shop has no city on file', () => {
+    const text = textOf(renderFeatured(photoShop({ city: null, categories: ['Menswear'] })), CARD);
+    expect(text).toContain('Menswear');
+    expect(text).not.toContain('·');
+  });
+
+  it('shows no meta line at all when neither city nor category is on file', () => {
+    const text = textOf(renderFeatured(photoShop({ city: null, categories: [] })), CARD);
+    expect(text).not.toContain('·');
+  });
+
+  // Word AND fill, never colour alone -- the same rule the shop page's own
+  // anchor and the grid card both already follow.
+  it('badges an open shop over its photo', () => {
+    const allDay = { open: '00:00', close: '23:59' };
+    const tree = renderFeatured(photoShop({
+      openingHours: { mon: [allDay], tue: [allDay], wed: [allDay], thu: [allDay], fri: [allDay], sat: [allDay], sun: [allDay] },
+    }));
+    expect(textOf(tree, STATE)).toBe('Open now');
+  });
+
+  it('badges a closed shop over its photo', () => {
+    const tree = renderFeatured(photoShop({
+      openingHours: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
+    }));
+    expect(textOf(tree, STATE)).toBe('Closed now');
+  });
+
+  // Absent is honest; a badge claiming a state the shop never gave would not
+  // be -- the identical rule the grid card's own pill and the shop page's
+  // anchor already follow.
+  it('shows no open badge at all for a shop that never set hours', () => {
+    const tree = renderFeatured(photoShop({ openingHours: {} }));
+    expect(has(tree, STATE)).toBe(false);
+  });
+
+  // The open state is said in colour and in a pill, neither of which a
+  // screen reader gets -- the same fix the grid card already carries
+  // (shop-directory-card.tsx:38-45), now applied here too.
+  it('carries the open state in the accessibility label, in words', () => {
+    const allDay = { open: '00:00', close: '23:59' };
+    const open = renderFeatured(photoShop({
+      openingHours: { mon: [allDay], tue: [allDay], wed: [allDay], thu: [allDay], fri: [allDay], sat: [allDay], sun: [allDay] },
+    }));
+    const openNode = open.root.find((n) => n.props?.testID === CARD);
+    expect(openNode.props.accessibilityLabel).toContain('open now');
+
+    const shut = renderFeatured(photoShop({
+      openingHours: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
+    }));
+    const shutNode = shut.root.find((n) => n.props?.testID === CARD);
+    expect(shutNode.props.accessibilityLabel).toContain('closed now');
+
+    const unset = renderFeatured(photoShop({ openingHours: {} }));
+    const unsetNode = unset.root.find((n) => n.props?.testID === CARD);
+    expect(unsetNode.props.accessibilityLabel).not.toContain('open now');
+    expect(unsetNode.props.accessibilityLabel).not.toContain('closed now');
+  });
+
+  // EFFECT, not call: the button must actually render filled in kaiibi's own
+  // blue with white ink, read off the composed style rather than retyping
+  // the hex here -- the same discipline the masthead's mark plate and the
+  // selected filter chip are held to (see KAIIBI_BLUE, storefront-catalog.ts).
+  // This is the third and, per the plan, last call site for that colour.
+  it('fills the Visit-shop plate in kaiibi\'s own blue with white ink', () => {
+    const tree = renderFeatured(photoShop());
+    const plate = tree.root.find((n) => n.props?.testID === VISIT);
+    const flattened = StyleSheet.flatten(plate.props.style) as { backgroundColor?: string };
+    expect(flattened.backgroundColor).toBe(KAIIBI_BLUE);
+    expect(flattened.backgroundColor).not.toBe(colors.ink);
+
+    const label = plate.findAllByType(Text).find((t: { props: { children?: unknown } }) => t.props.children === 'Visit shop')!;
+    expect(StyleSheet.flatten(label.props.style).color).toBe(KAIIBI_INK);
+  });
+
+  // TWO OVERLAPPING TARGETS FOR ONE DESTINATION is the defect a real nested
+  // Pressable here would be: the card is already the one press target
+  // (`accessibilityRole="link"` on it names the destination), so the plate
+  // must be a plain View with no press handler of its own for anything to
+  // land on the card underneath it.
+  it('renders the Visit-shop plate as a non-interactive View, not a second Pressable', () => {
+    const tree = renderFeatured(photoShop());
+    const plate = tree.root.find((n) => n.props?.testID === VISIT);
+    expect(plate.type).toBe(View);
+    expect(plate.props.onPress).toBeUndefined();
+  });
+
+  it('renders no Visit-shop plate at all for a shop with no photo', () => {
+    const tree = renderFeatured(summary({ slug: 'dir-feat', heroImageUrl: null }));
+    expect(has(tree, VISIT)).toBe(false);
   });
 });
 

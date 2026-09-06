@@ -200,12 +200,17 @@ export const ON_SCRIM_MUTED = '#e8e6e0';
 // not a photo the tile has darkened on its way to becoming legible. So the
 // vocabulary is shared -- both fade in the same ink-blue from the same
 // [0.3, ...] stop -- but the STRENGTH is two named constants, each owned by
-// the one surface that uses it. Nothing here claims they are, or should be,
-// the same value.
+// the CLASS of surface it fits (full-bleed vs a tile), not by a single call
+// site. Nothing here claims the two classes are, or should be, the same
+// value.
 //
-// THE HERO. The shop card's own hero scrim (`storefront-hero-scrim`,
-// theme-shared.tsx) -- full-bleed, so it can afford to go dark enough to
-// guarantee on-scrim text stays legible over any photo a shop uploads.
+// THE HERO. Full-bleed, so it can afford to go dark enough to guarantee
+// on-scrim text stays legible over any photo a shop uploads. Two call sites
+// share it for exactly that reason, both full-bleed photographs of unknown
+// brightness rather than tiles: the shop page's own hero
+// (`storefront-hero-scrim`, theme-shared.tsx) and the store directory's
+// featured card (`storefront-directory-featured-scrim-<slug>`,
+// shop-directory-card.tsx).
 export const HERO_SCRIM = {
   colors: ['transparent', 'rgba(16,22,35,0.82)'] as const,
   locations: [0.3, 0.92] as const,

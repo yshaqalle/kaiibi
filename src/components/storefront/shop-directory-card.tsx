@@ -1,10 +1,13 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import {
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TABULAR, TYPE,
+} from '@/components/storefront/scale';
 import { isConfigured, isOpenAt } from '@/lib/store-hours';
 import { shopBlurb } from '@/lib/storefront-directory';
-import type { PaletteColors } from '@/lib/storefront-catalog';
+import { KAIIBI_BLUE, KAIIBI_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicShopSummary } from '@/types/models';
 
 // One shop in the directory.
@@ -132,10 +135,41 @@ const styles = StyleSheet.create({
   stateOpen: { color: '#0b7a44' },
   stateShut: { color: '#5e5d65' },
 
+  // Sized here rather than on an inner `Image` now: with a photo, this
+  // `Pressable` IS the photo's own footprint, not a block sitting above one.
   feature: { borderRadius: RADIUS.card, overflow: 'hidden' },
-  featureArt: { width: '100%' },
   featureArtWide: { height: 220 },
   featureArtTall: { aspectRatio: 16 / 10 },
+  // The photo and its scrim share this -- both fill whatever `feature`,
+  // `featureArtWide` or `featureArtTall` above sized the card to.
+  featurePhoto: { ...StyleSheet.absoluteFill },
+  // The hero content, stacked on top of the photo+scrim by being their next
+  // sibling (RN paints later siblings over earlier ones) rather than by any
+  // z-index. `flex: 1` claims the whole card -- the photo and scrim are
+  // absolutely positioned and out of flow, so nothing else competes for the
+  // space -- and `justifyContent: 'flex-end'` is what puts the text at the
+  // bottom of the photo instead of the top.
+  featureScrimContent: { flex: 1, justifyContent: 'flex-end', padding: SPACE.card },
+  featureScrimContentWide: { padding: 28 },
+  featureNameRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 },
+  // `minWidth: 0` is load-bearing: without it a long shop name refuses to
+  // wrap inside a `flex: 1` row and pushes the Visit button off the card
+  // instead of yielding to it.
+  featureNameCol: { flex: 1, minWidth: 0 },
+  // Filled `KAIIBI_BLUE` at the call site (never a hex here) -- this is the
+  // third and, per the plan, last place on this page kaiibi's own blue
+  // appears, after the mark plate and the selected filter chip in
+  // src/app/store/index.tsx.
+  featureVisit: { borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 10 },
+  featureVisitText: { fontSize: 12.5, fontWeight: '800' },
+  // Same fixed plate as `state` above, positioned top-left instead of
+  // top-right -- see the call site's comment for why it needs its own style
+  // rather than overriding `state`'s `right`.
+  featurePill: {
+    position: 'absolute', top: 10, left: 10,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5,
+  },
   featureText: { padding: SPACE.card },
   featureTextWide: { padding: 28 },
   featureTag: {
@@ -229,48 +263,152 @@ export function FeaturedShopCard({
   onPress: (slug: string) => void;
 }) {
   const blurb = shopBlurb(shop);
+  const hoursConfigured = isConfigured(shop.openingHours);
   const open = isOpenAt(shop.openingHours ?? {}, new Date());
+  const hasPhoto = Boolean(shop.heroImageUrl);
+  // The mockup's meta line is place AND trade together ("Main Stree ·
+  // Menswear"). There is no separate "trade" field on a shop -- its first
+  // listed `categories` entry stands in for one -- and either half can be
+  // missing (a shop with no city on file, or one that has not listed
+  // anything yet) without leaving a stray "·" behind.
+  const trade = shop.categories[0];
+  const metaLine = [shop.city, trade].filter(Boolean).join(' · ') || null;
 
   return (
     <Pressable
       testID={`storefront-directory-featured-${shop.slug}`}
       accessibilityRole="link"
-      accessibilityLabel={`Most to browse: ${shop.shopName}, ${shop.productCount} items`}
+      accessibilityLabel={[
+        `Most to browse: ${shop.shopName}`,
+        // Same reasoning the grid card already carries
+        // (shop-directory-card.tsx:38-45): colour and a pill are not
+        // available to a screen reader, so the open state has to be said in
+        // words, not left to a pill sighted users read at a glance.
+        hoursConfigured ? (open ? 'open now' : 'closed now') : null,
+        `${shop.productCount} items`,
+      ].filter(Boolean).join(', ')}
       onPress={() => onPress(shop.slug)}
       // `ink`, like the anchor card on a shop page and the Takings card on
       // Dashboard: one near-black surface is what stops a page of white
-      // rectangles reading as a field of them.
-      style={pressable([styles.feature, { backgroundColor: colors.ink }])}
+      // rectangles reading as a field of them. With a photo, the card's own
+      // height becomes the photo's -- the wide/tall split that used to size
+      // the `Image` now sizes this `Pressable`, because the photo is no
+      // longer a block sitting above the text, it IS the card.
+      style={pressable([
+        styles.feature,
+        hasPhoto && (wide ? styles.featureArtWide : styles.featureArtTall),
+        { backgroundColor: colors.ink },
+      ])}
     >
-      {shop.heroImageUrl ? (
-        <Image
-          source={{ uri: shop.heroImageUrl }}
-          style={[styles.featureArt, wide ? styles.featureArtWide : styles.featureArtTall]}
-          resizeMode="cover"
-        />
-      ) : null}
-      <View style={[styles.featureText, wide && styles.featureTextWide]}>
-        <Text style={[styles.featureTag, { color: colors.onDarkMuted }]}>Most to browse</Text>
-        <Text style={[styles.featureName, { color: colors.ground }]} numberOfLines={2}>{shop.shopName}</Text>
-        {shop.city ? (
-          <Text style={[styles.featureCity, { color: colors.onDarkMuted }]}>{shop.city}</Text>
-        ) : null}
-        {blurb ? (
-          <Text style={[styles.featureBlurb, { color: colors.onDarkMuted }]} numberOfLines={2}>{blurb}</Text>
-        ) : null}
-        <View style={styles.featureFoot}>
-          <View style={[styles.featureChip, { backgroundColor: colors.ground }]}>
-            <Text style={[styles.featureChipText, { color: colors.ink }]}>
-              Browse {shop.productCount} items
-            </Text>
-          </View>
-          {isConfigured(shop.openingHours) ? (
-            <Text style={[styles.featureState, { color: colors.onDarkMuted }]}>
-              {open ? 'Open now' : 'Closed now'}
-            </Text>
+      {hasPhoto ? (
+        <>
+          <Image
+            testID={`storefront-directory-featured-photo-${shop.slug}`}
+            source={{ uri: shop.heroImageUrl! }}
+            style={styles.featurePhoto}
+            resizeMode="cover"
+          />
+          {/* Same treatment and the same constant as the shop page's own
+              hero (`storefront-hero-scrim`, theme-shared.tsx) -- see
+              HERO_SCRIM's own comment in scale.ts, which this card is the
+              reason that comment now says "two surfaces" instead of one.
+              Sibling of the photo, not a child of it, and rendered directly
+              after it: RN paints later siblings on top, so this is what
+              guarantees the scrim is always over the photograph and never
+              floating loose without one -- the `hasPhoto` guard above is the
+              only branch that can ever reach either node. */}
+          <LinearGradient
+            testID={`storefront-directory-featured-scrim-${shop.slug}`}
+            colors={HERO_SCRIM.colors}
+            locations={HERO_SCRIM.locations}
+            style={styles.featurePhoto}
+            pointerEvents="none"
+          />
+          {/* Same fixed near-white plate as the grid card's own `state`
+              style above, and the same reasoning ("fixed, not palette,
+              because the ground underneath is an unknown photograph") --
+              reused rather than a second exception invented for this card.
+              Its own style (`featurePill`) only because the mockup puts
+              this one top-LEFT, not top-right: two absolute offsets on one
+              box would stretch it edge to edge instead of moving it, so the
+              position has to be its own style even though the plate and the
+              text underneath it (`stateText`/`stateOpen`/`stateShut`) are
+              shared as-is. */}
+          {hoursConfigured ? (
+            <View testID={`storefront-directory-featured-state-${shop.slug}`} style={styles.featurePill}>
+              <Text style={[styles.stateText, open ? styles.stateOpen : styles.stateShut]}>
+                {open ? 'Open now' : 'Closed now'}
+              </Text>
+            </View>
           ) : null}
+          <View style={[styles.featureScrimContent, wide && styles.featureScrimContentWide]}>
+            <Text style={[styles.featureTag, { color: ON_SCRIM_MUTED }]}>Most to browse</Text>
+            <View style={styles.featureNameRow}>
+              <View style={styles.featureNameCol}>
+                <Text
+                  testID={`storefront-directory-featured-name-${shop.slug}`}
+                  style={[styles.featureName, { color: ON_SCRIM_INK }]}
+                  numberOfLines={2}
+                >
+                  {shop.shopName}
+                </Text>
+                {metaLine ? (
+                  <Text style={[styles.featureCity, { color: ON_SCRIM_MUTED }]} numberOfLines={1}>
+                    {metaLine}
+                  </Text>
+                ) : null}
+              </View>
+              {/* A `View` styled as a button, not a second `Pressable`. The
+                  whole card is already one press target with one
+                  destination (`accessibilityRole="link"` above); a real
+                  nested Pressable here would put two overlapping targets
+                  over that one destination, and on RN web a press on this
+                  inner one can fire both. The card IS the target -- this is
+                  only what says so, and is hidden from screen readers for
+                  the same reason the search glyph is (theme-shared.tsx):
+                  the card's own accessibilityLabel already names the
+                  destination. */}
+              <View
+                testID={`storefront-directory-featured-visit-${shop.slug}`}
+                style={[styles.featureVisit, { backgroundColor: KAIIBI_BLUE }]}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              >
+                <Text style={[styles.featureVisitText, { color: KAIIBI_INK }]}>Visit shop</Text>
+              </View>
+            </View>
+          </View>
+        </>
+      ) : (
+        // NO PHOTO: the ink-filled treatment this card has always had, kept
+        // exactly as it was -- blurb, "Browse N items" chip and all. Its own
+        // `View`, structurally apart from the photo branch above, so nothing
+        // can ever paint a scrim (or the new hero content, sized for a
+        // photograph that is not there) over a card with no photograph
+        // underneath it.
+        <View style={[styles.featureText, wide && styles.featureTextWide]}>
+          <Text style={[styles.featureTag, { color: colors.onDarkMuted }]}>Most to browse</Text>
+          <Text style={[styles.featureName, { color: colors.ground }]} numberOfLines={2}>{shop.shopName}</Text>
+          {shop.city ? (
+            <Text style={[styles.featureCity, { color: colors.onDarkMuted }]}>{shop.city}</Text>
+          ) : null}
+          {blurb ? (
+            <Text style={[styles.featureBlurb, { color: colors.onDarkMuted }]} numberOfLines={2}>{blurb}</Text>
+          ) : null}
+          <View style={styles.featureFoot}>
+            <View style={[styles.featureChip, { backgroundColor: colors.ground }]}>
+              <Text style={[styles.featureChipText, { color: colors.ink }]}>
+                Browse {shop.productCount} items
+              </Text>
+            </View>
+            {hoursConfigured ? (
+              <Text style={[styles.featureState, { color: colors.onDarkMuted }]}>
+                {open ? 'Open now' : 'Closed now'}
+              </Text>
+            ) : null}
+          </View>
         </View>
-      </View>
+      )}
     </Pressable>
   );
 }
