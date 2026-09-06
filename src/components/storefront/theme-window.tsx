@@ -11,11 +11,11 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth,
-  isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
-import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
+import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -53,7 +53,21 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useEffect(() => setRowHeight(null), [numColumns]);
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
-  const goodsHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
+  const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
+  // See theme-market.tsx's identical block: three more measurements
+  // (page/header/footer) feed goodsFitHeight alongside the two-row cap
+  // above, none of them reset on a column-count change the way `rowHeight`
+  // is -- the header/footer's own content and the page's own height do not
+  // depend on numColumns.
+  const [pageHeight, setPageHeight] = useState<number | null>(null);
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const [footerHeight, setFooterHeight] = useState<number | null>(null);
+  const fitHeight = goodsFitHeight(
+    twoRowHeight, rowHeight, pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
+  );
+  // `?? twoRowHeight`, never `?? null` -- see theme-market.tsx's identical
+  // comment on why the fallback is the estimate, not an unbounded box.
+  const goodsHeight = fitHeight ?? twoRowHeight;
   const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
@@ -98,9 +112,14 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
     );
   }
 
-  // See theme-market.tsx on why this is an element rather than a component.
+  // See theme-market.tsx on why this is an element rather than a component,
+  // and on why it carries `styles.column` (full width now, matching the
+  // grid -- see SHOP_MAX_WIDTH's own comment in scale.ts for the one-release
+  // detour where this row kept the reading-column bound and read as unfinished)
+  // and an `onLayout` of its own -- its measured height is one of the three
+  // goodsFitHeight needs.
   const header = (
-    <View>
+    <View testID="storefront-header-column" style={styles.column} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
       {/* WINDOW'S IDENTITY IS NOW THE SHARED SHOP CARD, and the argument that
           used to live here survives it intact: the name is said once, as the
           wordmark, and never also in a button row. What changed is that the
@@ -178,19 +197,26 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
           in the browser, not merely reasoned from the warning text. */}
       <ScrollView
         testID="storefront-page-scroll"
+        // Full width now -- see `scroller`'s own comment below, and
+        // theme-market.tsx's identical one, for why the reading-column bound
+        // moved onto `column` instead. `onLayout` reports this ScrollView's
+        // own frame, exactly "the space the page has" goodsFitHeight needs.
         style={styles.scroller}
+        onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
         // B6: see theme-market.tsx's identical comment -- the sticky
         // CheckoutBar floats over this content and reserves no space of
         // its own. Unconditional for the same reason: the first Add must
         // not reflow the page under the customer's finger. The footer is now
         // the page's own bottom-most scrolling content (the goods are a
-        // bounded box above it), so the clearance sits here with it.
+        // bounded box above it), so the clearance sits here with it --
+        // goodsFitHeight's own arithmetic subtracts this same clearance.
         contentContainerStyle={[styles.page, styles.pageWithCheckoutBar]}
       >
         {header}
         {/* THE GOODS' OWN SCROLL -- see theme-market.tsx's identical block
-            for the arithmetic (goodsScrollHeight) and the
-            `rowHeight`/`goodsHeight` this style is built from. */}
+            for the two-halved arithmetic (goodsScrollHeight, goodsFitHeight)
+            and the `rowHeight`/`pageHeight`/`headerHeight`/`footerHeight`/
+            `goodsHeight` this style is built from. */}
         <FlatList
           testID="storefront-goods"
           // See padFinalRow: a short final row leaves a gap rather than
@@ -242,8 +268,12 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         />
         {/* See theme-market.tsx: closes the page, scrolling with it -- the
             page's own trailing sibling now, not a nested list's
-            ListFooterComponent. */}
-        <ShopFooter storefront={storefront} colors={colors} />
+            ListFooterComponent. Wrapped in `styles.column` for the same
+            reason the header is, and `onLayout` feeds `footerHeight`,
+            goodsFitHeight's third measurement. */}
+        <View testID="storefront-footer-column" style={styles.column} onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}>
+          <ShopFooter storefront={storefront} colors={colors} />
+        </View>
       </ScrollView>
       </ShopChrome>
 
@@ -281,9 +311,13 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
 }
 
 const styles = StyleSheet.create({
-  // The reading column, now on the PAGE-level ScrollView -- see
-  // theme-market.tsx's identical `scroller`.
-  scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
+  // Full width now, not the reading column -- see theme-market.tsx's
+  // identical `scroller`/`column` split and SHOP_MAX_WIDTH's own comment in
+  // scale.ts for the full account, including the one-release detour where
+  // `column` carried that bound and the header read as unfinished beside a
+  // wider grid.
+  scroller: { flex: 1, width: '100%' },
+  column: { width: '100%' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
     paddingTop: 26, paddingBottom: 10, marginBottom: 4, borderBottomWidth: 1,

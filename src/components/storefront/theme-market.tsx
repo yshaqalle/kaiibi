@@ -11,11 +11,11 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth,
-  isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  goodsFitHeight, goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
-import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
+import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -56,7 +56,26 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useEffect(() => setRowHeight(null), [numColumns]);
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
-  const goodsHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
+  const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
+  // THE PAGE'S OWN FIT -- three more measurements (the page scroller's own
+  // laid-out height, the header, the footer), fed to goodsFitHeight
+  // alongside the two-row cap above. None of these three reset on a
+  // column-count change the way `rowHeight` does: the header and footer's
+  // own content does not depend on numColumns, and the page's own height is
+  // a property of the WINDOW, not the grid inside it -- see
+  // goodsFitHeight's own comment in theme-shared.tsx for the arithmetic.
+  const [pageHeight, setPageHeight] = useState<number | null>(null);
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const [footerHeight, setFooterHeight] = useState<number | null>(null);
+  const fitHeight = goodsFitHeight(
+    twoRowHeight, rowHeight, pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
+  );
+  // `?? twoRowHeight`, never `?? null`: goodsFitHeight returns null whenever
+  // the page/header/footer have not measured yet (or measured as zero -- see
+  // its own comment), and the correct fallback for THAT is the estimate this
+  // page already showed before this pass existed, not an unbounded box that
+  // would flash oversized for one frame and then snap down.
+  const goodsHeight = fitHeight ?? twoRowHeight;
   const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
@@ -156,8 +175,19 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   // An inline `() => <Header/>` is a new component type on every render, which
   // remounts the whole header each keystroke and takes the search field's focus
   // with it. An element reconciles by type and keeps it.
+  //
+  // `styles.column` is full width now, matching the grid below it -- a row
+  // of cards, scanned left to right, has no line length to lose any more
+  // than the grid does. See SHOP_MAX_WIDTH's own comment in scale.ts for the
+  // one-release detour where this row kept that bound and read as a page
+  // that had forgotten to finish resizing itself; the actual PROSE inside
+  // this row (the anchor's headline and `about` paragraph) carries
+  // PROSE_MAX_WIDTH directly now instead. `onLayout` feeds `headerHeight`,
+  // one of the three measurements goodsFitHeight needs to answer "how much
+  // room is actually left for the goods" -- see that function's own comment
+  // in theme-shared.tsx.
   const header = (
-    <View>
+    <View testID="storefront-header-column" style={styles.column} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
       <ShopHeader
         storefront={storefront}
         products={products}
@@ -259,9 +289,14 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
           prints it here either way. */}
       <ScrollView
         testID="storefront-page-scroll"
-        // Centres the whole scroller rather than the content inside it, so the
-        // page tone runs edge to edge behind a bounded reading column.
+        // Full width now -- see `scroller`'s own comment below for why the
+        // reading-column bound moved off this ScrollView and onto `column`
+        // instead. `onLayout` reports this ScrollView's own FRAME (the
+        // viewport RN laid it out at, not its scrollable content height),
+        // which is exactly "the space the page has" goodsFitHeight's own
+        // comment asks for.
         style={styles.scroller}
+        onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
         // B6: the sticky CheckoutBar below is `position: absolute` and so
         // reserves no space of its own -- without this, its last row sits
         // underneath the bar. The goods used to be the page's own
@@ -271,18 +306,21 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         // Unconditional: the first Add must not reflow the page under the
         // customer's finger. The cost is the clearance's worth of quiet
         // space at the bottom of an empty-cart scroll, which nothing sits
-        // under.
+        // under. goodsFitHeight's own arithmetic subtracts this same
+        // clearance for the identical reason -- see its comment.
         contentContainerStyle={[styles.page, styles.pageWithCheckoutBar]}
       >
         {header}
-        {/* THE GOODS' OWN SCROLL, bounded to about two rows -- see
-            goodsScrollHeight in theme-shared.tsx for the arithmetic and
-            `rowHeight`/`goodsHeight` above for where the measurement that
-            feeds it comes from. `goodsStyle` carries no maxHeight at all
-            (and this FlatList is simply its own height, scrolling with the
-            page rather than on its own) once the grid is one row or
+        {/* THE GOODS' OWN SCROLL, bounded to about two rows AND to whatever
+            the window actually leaves over -- see goodsScrollHeight and
+            goodsFitHeight in theme-shared.tsx for the two halves of the
+            arithmetic, and `rowHeight`/`pageHeight`/`headerHeight`/
+            `footerHeight`/`goodsHeight` above for where each measurement
+            that feeds them comes from. `goodsStyle` carries no maxHeight at
+            all (and this FlatList is simply its own height, scrolling with
+            the page rather than on its own) once the grid is one row or
             shorter, or empty -- see goodsScrollHeight's own `rowCount <= 1`
-            branch. */}
+            branch, which goodsFitHeight defers to unchanged. */}
         <FlatList
           testID="storefront-goods"
           // Padded so a short final row leaves a gap rather than
@@ -348,8 +386,15 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
             chrome permanently occupying the bottom of every browsing screen.
             The page's own trailing sibling now, not a nested list's
             ListFooterComponent -- the footer belongs to the page, not
-            inside the bounded goods box. */}
-        <ShopFooter storefront={storefront} colors={colors} />
+            inside the bounded goods box. Wrapped in `styles.column` for the
+            same reason the header is (see that comment) -- full width now,
+            matching the grid above it, so the page reads as one surface
+            edge to edge instead of a footer that stops short of the grid it
+            closes -- and `onLayout` feeds `footerHeight`, goodsFitHeight's
+            third measurement. */}
+        <View testID="storefront-footer-column" style={styles.column} onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}>
+          <ShopFooter storefront={storefront} colors={colors} />
+        </View>
       </ScrollView>
       </ShopChrome>
 
@@ -387,12 +432,23 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
 }
 
 const styles = StyleSheet.create({
-  // The reading column, now on the PAGE-level ScrollView -- `alignSelf`
-  // centres the scroller inside the page, `maxWidth` stops it growing with
-  // the window -- which is the whole of what made a 26px wordmark sit in
-  // 1,472px of empty panel. The goods FlatList below sits inside this bound
-  // rather than carrying its own copy of it.
-  scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
+  // FULL WIDTH, not the reading column any more -- Task C's whole second
+  // half (see SHOP_MAX_WIDTH's own comment in scale.ts). This used to carry
+  // `maxWidth: SHOP_MAX_WIDTH` itself, which is what made a 26px wordmark
+  // sit in 1,472px of empty panel in the first place -- and also what
+  // capped the goods grid at 1320 long after that defect was fixed for
+  // everything else on the page.
+  scroller: { flex: 1, width: '100%' },
+  // `column` USED to be the reading column -- header and footer kept
+  // SHOP_MAX_WIDTH for one release after the grid lost it. That read as a
+  // page that had forgotten to finish resizing itself (a 1620px header
+  // beside a 1900px grid), not as "this part is prose" -- so it is full
+  // width too now, same as `scroller`/`goods`. The name stays: this is still
+  // the wrapper `onLayout` measures for `headerHeight`/`footerHeight`, only
+  // the styling it carries changed. See SHOP_MAX_WIDTH's own comment in
+  // scale.ts for the full account, and `anchorHead`/`anchorAbout` in
+  // theme-shared.tsx for where the actual prose bound went instead.
+  column: { width: '100%' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
     paddingTop: 26, paddingBottom: 10, marginBottom: 4, borderBottomWidth: 1,

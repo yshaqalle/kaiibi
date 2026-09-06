@@ -4,7 +4,9 @@ import { act, create } from 'react-test-renderer';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { ThemeWindow } from '@/components/storefront/theme-window';
 import { SPACE } from '@/components/storefront/scale';
-import { ESTIMATED_ROW_HEIGHT, goodsScrollHeight } from '@/components/storefront/theme-shared';
+import {
+  CHECKOUT_BAR_CLEARANCE, ESTIMATED_ROW_HEIGHT, goodsFitHeight, goodsScrollHeight,
+} from '@/components/storefront/theme-shared';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
@@ -103,6 +105,57 @@ describe('goodsScrollHeight', () => {
   });
 });
 
+// THE PAGE'S OWN FIT -- see goodsFitHeight's own comment in theme-shared.tsx.
+// goodsScrollHeight above answers "how tall CAN two rows be"; this answers
+// "how tall may they actually GET on this window, without the page itself
+// scrolling." Every case named in the brief this file's own task exists for,
+// asserted directly against the pure function -- react-test-renderer never
+// fires `onLayout`, so this is the only place any of this arithmetic can
+// actually be held to a number.
+describe('goodsFitHeight', () => {
+  const rowHeight = 200;
+  const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, 3)!; // 200*2+14 = 414
+  const pagePadding = SPACE.page; // 16
+  const pageGap = SPACE.cardGap; // 14 -- the SAME constant as the grid's own row gap today, but a distinct concept: the gap between the page's stacked header/goods/footer, not between two rows of tiles.
+  const clearance = CHECKOUT_BAR_CLEARANCE; // 76, always reserved -- see pageWithCheckoutBar's own comment.
+
+  it('returns the two-row cap when the window leaves more room than two rows need', () => {
+    // remainder = 1200 - 100 - 100 - 32 - 28 - 76 = 864, comfortably above 414.
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 1200, 100, 100, pagePadding, pageGap, clearance)).toBe(twoRowHeight);
+  });
+
+  it('returns the remainder itself when it lands between one row and two', () => {
+    // remainder = 636 - 100 - 100 - 32 - 28 - 76 = 300, between 200 (one row) and 414 (two).
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 636, 100, 100, pagePadding, pageGap, clearance)).toBe(300);
+  });
+
+  it('floors at one row rather than collapsing further when the window is shorter still', () => {
+    // remainder = 400 - 100 - 100 - 32 - 28 - 76 = 64, below the 200px floor.
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 400, 100, 100, pagePadding, pageGap, clearance)).toBe(rowHeight);
+  });
+
+  it('returns null, never zero, when a measurement has not arrived yet', () => {
+    expect(goodsFitHeight(twoRowHeight, rowHeight, null, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, null, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, 100, null, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(null, rowHeight, 900, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(twoRowHeight, null, 900, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+  });
+
+  // THE ZERO-HEIGHT GUARD -- a header (or footer, or the page itself)
+  // measured before it has painted fires a real onLayout event with height
+  // 0, indistinguishable from "hasn't measured at all" to this arithmetic.
+  // Both are treated identically -- see this function's own comment for why
+  // that is the only reading that cannot turn a race between layout and
+  // paint into a goods box collapsed to a sliver.
+  it('treats a measurement that arrived as exactly zero the same as one that has not arrived at all', () => {
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, 0, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 900, 100, 0, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(twoRowHeight, 0, 900, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+    expect(goodsFitHeight(twoRowHeight, rowHeight, 0, 100, 100, pagePadding, pageGap, clearance)).toBeNull();
+  });
+});
+
 describe.each([
   ['Market', ThemeMarket, 'market' as const],
   ['Window', ThemeWindow, 'window' as const],
@@ -162,6 +215,120 @@ describe.each([
     // act(), for the identical reason renderTheme's own drain exists: so it
     // fires against THIS test rather than logging later against whichever
     // one is running by then.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  });
+
+  // THE OTHER HALF OF THE WIRING: goodsFitHeight's three extra measurements
+  // (the page scroller's own frame, the header, the footer) actually
+  // reaching the region's own style, on top of the row height above. Two
+  // different page heights, on the same render, must produce two different
+  // results -- the identical bar the row-height wiring test above holds
+  // itself to, applied to the new measurements this task added.
+  it('shrinks its own bound to fit a shorter page, and grows again on a taller one', async () => {
+    const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-fit-${theme}`), products(NUM_COLUMNS * 2));
+
+    const cell = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-goods-row' && typeof n.props?.onLayout === 'function',
+    );
+    act(() => cell[0].props.onLayout({ nativeEvent: { layout: { height: 200 } } }));
+
+    const page = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-page-scroll' && typeof n.props?.onLayout === 'function',
+    )[0];
+    const headerCol = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-header-column' && typeof n.props?.onLayout === 'function',
+    )[0];
+    const footerCol = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-footer-column' && typeof n.props?.onLayout === 'function',
+    )[0];
+    expect(page).toBeTruthy();
+    expect(headerCol).toBeTruthy();
+    expect(footerCol).toBeTruthy();
+
+    // A tall window: the remainder comfortably clears two rows (414), so the
+    // box stays at the two-row cap, unclipped.
+    act(() => {
+      page.props.onLayout({ nativeEvent: { layout: { height: 1400 } } });
+      headerCol.props.onLayout({ nativeEvent: { layout: { height: 300 } } });
+      footerCol.props.onLayout({ nativeEvent: { layout: { height: 200 } } });
+    });
+    const tall = flatten(goodsList(tree).props.style).maxHeight;
+    expect(tall).toBe(200 * 2 + SPACE.cardGap);
+
+    // A shorter window, same header/footer: remainder = 1000 - 300 - 200 -
+    // 2*SPACE.page - 2*SPACE.cardGap - CHECKOUT_BAR_CLEARANCE = 364, between
+    // one row (200) and two (414).
+    act(() => {
+      page.props.onLayout({ nativeEvent: { layout: { height: 1000 } } });
+    });
+    const short = flatten(goodsList(tree).props.style).maxHeight;
+
+    expect(short).not.toBe(tall);
+    expect(short).toBe(1000 - 300 - 200 - 2 * SPACE.page - 2 * SPACE.cardGap - CHECKOUT_BAR_CLEARANCE);
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  });
+
+  // THE FAILURE MODE THE BRIEF NAMES BY NAME: a header measured before it has
+  // painted reports height 0, not "no measurement yet" -- and the goods box
+  // must not read that as licence to shrink toward nothing. Falls back to
+  // the two-row cap it already had, exactly as if the header had not
+  // measured at all.
+  it('does not collapse the goods box when the header measures as zero before it has painted', async () => {
+    const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-zero-${theme}`), products(NUM_COLUMNS * 2));
+
+    const cell = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-goods-row' && typeof n.props?.onLayout === 'function',
+    );
+    act(() => cell[0].props.onLayout({ nativeEvent: { layout: { height: 200 } } }));
+
+    const page = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-page-scroll' && typeof n.props?.onLayout === 'function',
+    )[0];
+    const headerCol = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-header-column' && typeof n.props?.onLayout === 'function',
+    )[0];
+    const footerCol = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-footer-column' && typeof n.props?.onLayout === 'function',
+    )[0];
+
+    act(() => {
+      page.props.onLayout({ nativeEvent: { layout: { height: 900 } } });
+      headerCol.props.onLayout({ nativeEvent: { layout: { height: 0 } } });
+      footerCol.props.onLayout({ nativeEvent: { layout: { height: 200 } } });
+    });
+
+    const bound = flatten(goodsList(tree).props.style).maxHeight;
+    expect(bound).toBe(200 * 2 + SPACE.cardGap);
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  });
+
+  // A single row of stock has nothing to scroll TO (goodsScrollHeight's own
+  // rule) -- confirming that stays true even once the page has fully
+  // measured is the guard against the OTHER failure direction: a fit
+  // calculation that starts squeezing a shop with nothing to squeeze.
+  it('stays unbounded on a single row of stock even once the page has measured', async () => {
+    const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-onerow-fit-${theme}`), products(NUM_COLUMNS));
+
+    const page = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-page-scroll' && typeof n.props?.onLayout === 'function',
+    )[0];
+    const headerCol = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-header-column' && typeof n.props?.onLayout === 'function',
+    )[0];
+    const footerCol = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-footer-column' && typeof n.props?.onLayout === 'function',
+    )[0];
+
+    act(() => {
+      page.props.onLayout({ nativeEvent: { layout: { height: 400 } } });
+      headerCol.props.onLayout({ nativeEvent: { layout: { height: 300 } } });
+      footerCol.props.onLayout({ nativeEvent: { layout: { height: 200 } } });
+    });
+
+    expect(flatten(goodsList(tree).props.style).maxHeight).toBeUndefined();
+
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   });
 });

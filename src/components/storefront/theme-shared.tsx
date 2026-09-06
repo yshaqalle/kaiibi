@@ -15,7 +15,8 @@ import {
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE,
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, PROSE_MAX_WIDTH, RADIUS, SHOP_MAX_WIDTH, SPACE,
+  TABULAR, TYPE,
 } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
@@ -979,14 +980,44 @@ export function CategoryFilterBar({
 // margins either side. Breakpoints roughly split phone / tablet / laptop --
 // three columns is not "the" right answer for 768px so much as a deliberate
 // one, same as the rest of the grid a theme renders through.
+//
+// EVERY THRESHOLD HERE IS A MULTIPLE OF 128 (640 = 5x, 1024 = 8x, 1280 =
+// 10x, and every rung Task C added above it) -- not a house style for its
+// own sake, a target: at each boundary the tile a column count draws lands
+// in the same ~240-300px band the grid was designed around (see scale.ts's
+// own SPACE/TYPE comments), whatever the raw window width that crossed it.
+//
+// FIVE USED TO BE THE LAST RUNG, because `width` never climbed past
+// SHOP_MAX_WIDTH (1320) in practice -- the grid used to sit inside the
+// page's own reading-column bound, so nothing wider than that ever reached
+// this function. Task C moved the grid outside that bound (see
+// theme-market.tsx/theme-window.tsx's own `scroller`/`column` styles and
+// SHOP_MAX_WIDTH's comment in scale.ts) specifically so it could keep
+// growing on a wide monitor -- and `width` is `useWindowDimensions()`'s raw
+// figure, so it now genuinely climbs as far as the window does. Stopping at
+// five with nothing above 1280 meant a 2,560px window drew five ~500px
+// posters, which is worse than the fixed-width gutters this whole pass
+// replaced -- five 250px tiles and a lot of empty margin at least still
+// looked like a considered grid.
 export function gridColumnsForWidth(width: number): number {
   if (width < 640) return 2;
   if (width < 1024) return 3;
-  // Five only once the column itself widened (SHOP_MAX_WIDTH 1320): at that
-  // width a four-up tile is ~310px -- wider than a phone's whole two-up --
-  // and five keeps tiles near the ~250px the grid was designed around.
   if (width < 1280) return 4;
-  return 5;
+  if (width < 1536) return 5;
+  if (width < 1792) return 6;
+  if (width < 2048) return 7;
+  if (width < 2304) return 8;
+  if (width < 2560) return 9;
+  // 2,560px is the width named above -- ten columns there is a ~242px tile
+  // (see this file's own test suite for the arithmetic), back in the
+  // intended band. Left open-ended past this rung the same way five used to
+  // be the open-ended rung before it: a single browsing window wider than
+  // 2,560 logical px is not a screen size this page has ever been designed
+  // for or seen in practice (a real 4K/5K display reports a scaled logical
+  // width well under its native pixel count, not the raw figure), and a
+  // somewhat larger tile there is an honest degradation, not a defect worth
+  // chasing with another five thresholds.
+  return 10;
 }
 
 // Where the three shop cards stop stacking and sit in a row. Deliberately its
@@ -1057,6 +1088,65 @@ export function goodsScrollHeight(
 // second copy of the number typed into the test file, which is exactly the
 // "asserting a value you typed" failure this pass exists to stop shipping.
 export const ESTIMATED_ROW_HEIGHT = 260;
+
+// THE PAGE ITSELF MUST NOT SCROLL -- goodsScrollHeight above answers "how
+// tall CAN two rows be"; this answers "how tall may they actually GET, on
+// THIS window, without the page growing past its own height." Both halves of
+// one complaint ("i want the product to be fix to 2 rows and the page needs
+// to be properly designed to fit normally"): the goods keep their two-row
+// cap, and everything around them -- header, goods, footer -- has to resolve
+// to the window's height instead of stacking past it.
+//
+// THE ARITHMETIC: what the page scroller was laid out at (`pageHeight`),
+// less the header and footer's own measured heights, less the page's own
+// padding (top AND bottom -- `pagePadding * 2`), less the two gaps that sit
+// between three stacked children (`pageGap * 2` -- header-to-goods,
+// goods-to-footer), less CHECKOUT_BAR_CLEARANCE (reserved unconditionally --
+// see `pageWithCheckoutBar`'s own comment in theme-market.tsx/theme-window.tsx
+// for why this is subtracted whether or not a cart is open). Whatever is left
+// is what the goods box is allowed to claim.
+//
+// CAPPED AT THE TWO-ROW HEIGHT, never past it -- a generous remainder does
+// not mean the goods get to grow a third row, it means the page has room to
+// spare and can simply not scroll. FLOORED AT ONE ROW, never below it -- a
+// window too short for two full rows still owes a customer SOMETHING to
+// browse; scrolling the goods' own one row a little further is the honest
+// trade, not showing nothing. Below that floor there is nothing left for
+// this function to hand back that helps, and the page scrolls again exactly
+// as it did before this pass existed -- which is correct for a phone in
+// landscape or a short laptop, not a case to paper over with a shorter goods
+// box than the content needs.
+//
+// NULL, NEVER ZERO, whenever a measurement this needs has not arrived --
+// `twoRowHeight` null (goodsScrollHeight's own signal that there is nothing
+// to bound at all: one row of stock or none, see its own comment), or any of
+// rowHeight/pageHeight/headerHeight/footerHeight missing OR REPORTED AS
+// EXACTLY ZERO. The zero case is the one worth naming: a header measured
+// before it has painted fires a real onLayout event with height 0, which
+// this arithmetic cannot tell apart from a header that is genuinely
+// nothing -- treating it as "not measured yet" is the only reading that
+// cannot turn into a goods box collapsed to a sliver from one race between a
+// layout pass and a paint. A caller that gets null back has exactly one
+// correct move -- fall back to the two-row estimate it already had
+// (`goodsFitHeight(...) ?? twoRowHeight`, see theme-market.tsx/
+// theme-window.tsx) -- never to zero, and never to leaving the box
+// unbounded outright, which is what a caller that dropped the `?? ` would
+// wrongly do on every single render before the page/header/footer have laid
+// out even once.
+export function goodsFitHeight(
+  twoRowHeight: number | null,
+  rowHeight: number | null,
+  pageHeight: number | null,
+  headerHeight: number | null,
+  footerHeight: number | null,
+  pagePadding: number,
+  pageGap: number,
+  checkoutClearance: number,
+): number | null {
+  if (twoRowHeight == null || !rowHeight || !pageHeight || !headerHeight || !footerHeight) return null;
+  const remainder = pageHeight - headerHeight - footerHeight - pagePadding * 2 - pageGap * 2 - checkoutClearance;
+  return Math.min(twoRowHeight, Math.max(remainder, rowHeight));
+}
 
 // The cart lives in `storefront-cart.ts`, keyed by shop slug, and every
 // theme needs to read it, add to it, and change a line's quantity the same
@@ -1688,8 +1778,18 @@ const styles = StyleSheet.create({
   // -- one state, rendered the same way everywhere this page says it.
   openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   openPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
-  anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
-  anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
+  // `maxWidth: PROSE_MAX_WIDTH` on both -- the two places on this card that
+  // read as a SENTENCE rather than a name, a fact, or a pill. Bounding the
+  // TEXT here rather than the row ShopHeader sits in (see that row's own
+  // `header` style below, and SHOP_MAX_WIDTH's comment in scale.ts for why
+  // the row itself stopped carrying a width bound) is what lets the row
+  // widen with the grid on a wide monitor while a headline or an about
+  // paragraph inside one of its cards still stops at a comfortable measure
+  // instead of running the width of a 2,560px card.
+  anchorHead: {
+    fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16, maxWidth: PROSE_MAX_WIDTH,
+  },
+  anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7, maxWidth: PROSE_MAX_WIDTH },
   anchorFoot: {
     marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: ON_INK_HAIRLINE,
     flexDirection: 'row', gap: 8, flexWrap: 'wrap',
@@ -1805,10 +1905,16 @@ const styles = StyleSheet.create({
   // The longhand is identical on both.
   buttonCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
   buttonTextCompact: { fontSize: 10.5 },
-  // The slot is what floats; the bar inside it is what the reading column
-  // bounds. Absolute left/right anchor to the theme root, which is the full
-  // window -- the maxWidth is what stops a 2000px screen getting a 1972px
-  // button while the goods sit in SHOP_MAX_WIDTH.
+  // The slot is what floats; the bar inside it carries its own width bound,
+  // independent of whatever the grid or the header are doing (Task C freed
+  // both of them from SHOP_MAX_WIDTH -- see that constant's own comment in
+  // scale.ts -- but a floating action bar is a different question from a
+  // grid or a row of cards: it is one button, and a 2000px-wide "Checkout"
+  // pill is not a bigger button, it is a slip that has stopped reading as a
+  // button at all). Absolute left/right anchor to the theme root, which is
+  // the full window, so the maxWidth below is what stops that -- reusing
+  // SHOP_MAX_WIDTH as a familiar ceiling rather than inventing a second
+  // ad-hoc number for the same "not the whole window" judgment.
   checkoutBarSlot: { position: 'absolute', left: 14, right: 14, bottom: 14, alignItems: 'center' },
   slip: {
     width: '100%', maxWidth: SHOP_MAX_WIDTH - 28,

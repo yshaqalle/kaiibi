@@ -5,7 +5,7 @@ import { ThemeMarket } from '@/components/storefront/theme-market';
 import {
   StockCard, WIDE_SHOP_WIDTH, gridColumnsForWidth, isWideShop, padFinalRow,
 } from '@/components/storefront/theme-shared';
-import { SHOP_MAX_WIDTH } from '@/components/storefront/scale';
+import { PROSE_MAX_WIDTH } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
@@ -37,6 +37,17 @@ const shop: PublicStorefront = {
 
 function product(id: string): StorefrontProduct {
   return { id, name: `Product ${id}`, description: null, category: null, priceCents: 1200, stock: 5, imageUrl: null };
+}
+
+// Style props on these components are arrays -- flatten before reading a key
+// off them, the same shape storefront-goods-scroll.test.tsx's own `flatten`
+// helper follows.
+function flatStyle(style: unknown): { maxWidth?: number; alignSelf?: string; width?: string | number } {
+  return [style]
+    .flat(Infinity)
+    .reduce((a, s) => ({ ...(a as object), ...((s ?? {}) as object) }), {}) as {
+    maxWidth?: number; alignSelf?: string; width?: string | number;
+  };
 }
 
 // THE DEFECT THIS FILE EXISTS FOR.
@@ -115,22 +126,73 @@ describe('the grid actually receives the padding', () => {
 // The other half of the same defect: nothing in this folder bounded its own
 // width, so every value in scale.ts -- tuned at 390px and correct there -- was
 // multiplied by four on a laptop.
-describe('the shop is a bounded column', () => {
-  it('caps the scroller rather than letting it grow with the window', async () => {
+//
+// TASK C MOVED THIS BOUND, TWICE. First pass: the page scroller stopped
+// carrying SHOP_MAX_WIDTH and the goods grid earned its own answer (fills
+// the window, less the page's own padding -- the argument DIRECTORY_MAX_WIDTH
+// already makes for the store directory's grid), while the header and the
+// footer kept the bound for one release. That read as a page that had
+// forgotten to finish resizing itself -- a header stopping at 1620px beside
+// a grid running to 1900px -- so the second pass freed them too. See
+// SHOP_MAX_WIDTH's own comment in scale.ts for the full account of both
+// moves and who reads the constant now (nobody, on this tab). What did NOT
+// move: the actual PROSE inside the header (the anchor's headline and its
+// `about` paragraph) carries PROSE_MAX_WIDTH directly, so a sentence still
+// stops at a comfortable measure even though the row it sits in no longer
+// does.
+describe('the shop page is full width; only its prose keeps a measure', () => {
+  it('bounds nothing -- not the page scroller, not the header, not the footer, not the grid', async () => {
     let tree!: ReturnType<typeof create>;
     await act(async () => {
       tree = create(<ThemeMarket storefront={shop} products={[product('a')]} colors={colors} />);
     });
-    // The reading column now bounds the PAGE (Task B made the goods a
-    // bounded FlatList of their own, nested inside a plain ScrollView --
-    // see theme-market.tsx's own comment) -- `storefront-page-scroll` is
-    // that ScrollView.
     const page = tree.root.find((n) => n.props?.testID === 'storefront-page-scroll');
-    const flat = [page.props.style]
-      .flat(Infinity)
-      .reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as { maxWidth?: number; alignSelf?: string };
-    expect(flat.maxWidth).toBe(SHOP_MAX_WIDTH);
-    expect(flat.alignSelf).toBe('center');
+    const header = tree.root.find((n) => n.props?.testID === 'storefront-header-column');
+    const footer = tree.root.find((n) => n.props?.testID === 'storefront-footer-column');
+    for (const node of [page, header, footer]) {
+      const flat = flatStyle(node.props.style);
+      expect(flat.maxWidth).toBeUndefined();
+    }
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  });
+
+  it('does not bound the goods grid at all -- it fills the window, less the page padding', async () => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={shop}
+          products={[product('a'), product('b'), product('c'), product('d'), product('e')]}
+          colors={colors}
+        />,
+      );
+    });
+    const list = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-goods' && Array.isArray(n.props?.data),
+    )[0];
+    const flat = flatStyle(list.props.style);
+    expect(flat.maxWidth).toBeUndefined();
+    expect(flat.width).toBe('100%');
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  });
+
+  it('still bounds the one sentence in the header -- the headline and the about paragraph', async () => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, headline: 'Fresh produce, every single day of the week', about: 'A market stall that has been trading on this corner for years.' }}
+          products={[product('a')]}
+          colors={colors}
+        />,
+      );
+    });
+    const headline = tree.root.find((n) => n.props?.testID === 'storefront-headline');
+    const about = tree.root.find((n) => n.props?.testID === 'storefront-about');
+    expect(flatStyle(headline.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
+    expect(flatStyle(about.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
 
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   });
@@ -145,6 +207,31 @@ describe('breakpoints', () => {
     expect(gridColumnsForWidth(1279)).toBe(4);
     expect(gridColumnsForWidth(1280)).toBe(5);
     expect(gridColumnsForWidth(1504)).toBe(5);
+  });
+
+  // TASK C: the grid used to stop climbing here, because nothing above
+  // SHOP_MAX_WIDTH (1320) ever reached this function -- the grid itself was
+  // capped there. It fills the window now (see the describe block above),
+  // so a real 2,560px monitor really does hand this function 2,560 -- and
+  // without these rungs it would have drawn five ~500px posters. Every
+  // threshold here is a multiple of 128, and every one lands a tile in the
+  // same ~240-300px band gridColumnsForWidth's own header comment names --
+  // see that comment for the arithmetic each boundary below is chosen from.
+  it('keeps climbing above 1280 instead of capping the tile size on a wide monitor', () => {
+    expect(gridColumnsForWidth(1535)).toBe(5);
+    expect(gridColumnsForWidth(1536)).toBe(6);
+    expect(gridColumnsForWidth(1791)).toBe(6);
+    expect(gridColumnsForWidth(1792)).toBe(7);
+    expect(gridColumnsForWidth(2047)).toBe(7);
+    expect(gridColumnsForWidth(2048)).toBe(8);
+    expect(gridColumnsForWidth(2303)).toBe(8);
+    expect(gridColumnsForWidth(2304)).toBe(9);
+    expect(gridColumnsForWidth(2559)).toBe(9);
+    // The width named in the defect this ramp exists to fix -- see
+    // gridColumnsForWidth's own comment.
+    expect(gridColumnsForWidth(2560)).toBe(10);
+    // Open-ended past the last rung, deliberately -- see that same comment.
+    expect(gridColumnsForWidth(3200)).toBe(10);
   });
 
   // Deliberately not the same threshold as a column gain: the point three shop

@@ -131,16 +131,34 @@ export const SPACE = {
 // five new rungs above 1280 so a tile stays roughly its designed size
 // instead of five of them stretching to fill whatever the monitor allows.
 //
-// What still reads this constant on the shop page: the header (the three
-// shop cards, search, the category band) and the footer -- both blocks of
-// TEXT and short facts, never scanned the way a tile grid is, and the
-// header specifically carries the one real paragraph on this tab (the
-// anchor's own `about` copy) that PROSE_MAX_WIDTH's argument already covers.
-// Keeping them at 1320 rather than letting them widen with the grid is a
-// choice, not an oversight: a shopkeeper's headline and the collect/stock
-// facts beside it were never the thing a wide monitor's empty gutters were
-// about, and widening them today would only be trading one unread margin of
-// whitespace for a name and a phone number spread across a 2,560px card.
+// THE HEADER AND THE FOOTER STOPPED TOO, an hour later, the same day: they
+// kept this bound for one release while the grid lost it, on the theory that
+// three cards of facts and a colophon were closer to prose than to a grid.
+// Wrong call, caught live -- a header stopping at 1620px beside a grid
+// running to 1900px does not read as "this part is prose," it reads as a
+// page that forgot to finish resizing itself, and a footer that stops short
+// of the grid it closes is the same defect at the bottom of the page. The
+// argument this constant is FOR (a reading column) was never about the
+// ROW those three cards sit in -- a row of cards, scanned left to right like
+// the grid below it, has no line length to lose either. It was about the
+// one thing inside that row that actually reads as a sentence: the anchor
+// card's headline and its `about` paragraph. Those two now carry
+// PROSE_MAX_WIDTH directly (`anchorHead`/`anchorAbout`, theme-shared.tsx) --
+// bounding the TEXT rather than the row it sits in, which is what lets the
+// row itself widen with the grid while the sentence inside one of its cards
+// still stops at a comfortable measure.
+//
+// SO WHO STILL READS THIS, on the browsing (Shop) tab of ThemeMarket and
+// ThemeWindow: nobody. `grep -rn SHOP_MAX_WIDTH src/components/storefront`
+// after this change turns up three call sites, and every one of them is
+// OUTSIDE that tab: shop-chrome.tsx's tab rail row and its About/Visit panel
+// scroller (both narrowed further to PROSE_MAX_WIDTH for the prose itself,
+// the identical split just described), and theme-counter.tsx's entire page
+// -- Counter has no grid to free (Task B and Task C both say so explicitly)
+// and still reads this as its one and only width bound, top to bottom. If a
+// fourth call site turns up on the Shop tab in a future change, that is new
+// prose or a new row to make the same choice about, not a reason to assume
+// this constant already covers it.
 export const SHOP_MAX_WIDTH = 1320;
 
 // THE PANEL GETS ITS OWN MEASURE, NARROWER THAN THE GRID -- the same argument
