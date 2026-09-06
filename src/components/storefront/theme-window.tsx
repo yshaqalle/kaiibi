@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import { FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { CategoryBand } from '@/components/storefront/category-band';
@@ -11,8 +11,8 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth, isWideShop,
-  padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth,
+  isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
 import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
@@ -46,6 +46,15 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const inCategory = filterByCategory(products, category);
   const shown = searchProducts(inCategory, query);
   const cells = padFinalRow(shown, numColumns);
+  // See theme-market.tsx's identical block: the measurement the goods
+  // region's own height is built from, reset on every column-count change so
+  // a stale measurement from the OLD breakpoint cannot survive into the new
+  // one.
+  const [rowHeight, setRowHeight] = useState<number | null>(null);
+  useEffect(() => setRowHeight(null), [numColumns]);
+  const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
+  const goodsHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
+  const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -156,53 +165,86 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         tab={activeTab}
         onSelectTab={selectTab}
       >
-      <FlatList
-        testID="storefront-goods"
-        // See padFinalRow: a short final row leaves a gap rather than
-        // inflating its cells to fill the width.
-        data={cells}
-        // See theme-market.tsx's comment on this same pattern.
-        key={numColumns}
-        numColumns={numColumns}
-        keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
-        columnWrapperStyle={styles.row}
-        ListHeaderComponent={header}
-        ListEmptyComponent={
-          query.trim() ? (
-            <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
-          ) : (
-            <EmptyState
-              colors={colors}
-              storefront={storefront}
-              category={category}
-              onClearCategory={() => setCategory(null)}
-            />
-          )
-        }
+      {/* THE PAGE is a plain ScrollView, and the goods below are the ONLY
+          FlatList left in this tree -- see theme-market.tsx's identical
+          block for why the other way round (nest the goods FlatList inside a
+          page FlatList, to dodge RN's nested-list warning by inheriting an
+          ancestor VirtualizedList context) was tried first and is wrong: RN
+          reads that ancestor context as "something above me already owns
+          scrolling" and renders the nested list as a plain, non-scrolling,
+          non-clipping View instead of a ScrollView
+          (`_isNestedWithSameOrientation` in
+          @react-native/virtualized-lists/Lists/VirtualizedList.js) -- proven
+          in the browser, not merely reasoned from the warning text. */}
+      <ScrollView
+        testID="storefront-page-scroll"
         style={styles.scroller}
         // B6: see theme-market.tsx's identical comment -- the sticky
         // CheckoutBar floats over this content and reserves no space of
         // its own. Unconditional for the same reason: the first Add must
-        // not reflow the page under the customer's finger.
-        contentContainerStyle={[styles.grid, styles.gridWithCheckoutBar]}
-        // See theme-market.tsx: closes the page, and scrolls with the goods.
-        ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
-        renderItem={({ item }) => (
-          <View style={styles.cell}>
-            {item ? (
-              <ProductTile
-                product={item}
+        // not reflow the page under the customer's finger. The footer is now
+        // the page's own bottom-most scrolling content (the goods are a
+        // bounded box above it), so the clearance sits here with it.
+        contentContainerStyle={[styles.page, styles.pageWithCheckoutBar]}
+      >
+        {header}
+        {/* THE GOODS' OWN SCROLL -- see theme-market.tsx's identical block
+            for the arithmetic (goodsScrollHeight) and the
+            `rowHeight`/`goodsHeight` this style is built from. */}
+        <FlatList
+          testID="storefront-goods"
+          // See padFinalRow: a short final row leaves a gap rather than
+          // inflating its cells to fill the width.
+          data={cells}
+          // See theme-market.tsx's comment on this same pattern,
+          // including why it is also what clears `rowHeight` above.
+          key={numColumns}
+          numColumns={numColumns}
+          keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
+          columnWrapperStyle={styles.row}
+          ListEmptyComponent={
+            query.trim() ? (
+              <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
+            ) : (
+              <EmptyState
                 colors={colors}
-                shopName={storefront.shopName}
-                whatsappE164={storefront.whatsappE164}
-                onAdd={addProduct}
-                onOpen={setOpenProduct}
-                dense={numColumns <= 2}
+                storefront={storefront}
+                category={category}
+                onClearCategory={() => setCategory(null)}
               />
-            ) : null}
-          </View>
-        )}
-      />
+            )
+          }
+          style={goodsStyle}
+          contentContainerStyle={styles.grid}
+          // See theme-market.tsx's identical comment -- Android-only,
+          // lets the goods claim a vertical drag over the page's own
+          // scroller.
+          nestedScrollEnabled
+          renderItem={({ item, index }) => (
+            <View
+              testID={index === 0 ? 'storefront-goods-row' : undefined}
+              style={styles.cell}
+              onLayout={index === 0 ? (e) => setRowHeight(e.nativeEvent.layout.height) : undefined}
+            >
+              {item ? (
+                <ProductTile
+                  product={item}
+                  colors={colors}
+                  shopName={storefront.shopName}
+                  whatsappE164={storefront.whatsappE164}
+                  onAdd={addProduct}
+                  onOpen={setOpenProduct}
+                  dense={numColumns <= 2}
+                />
+              ) : null}
+            </View>
+          )}
+        />
+        {/* See theme-market.tsx: closes the page, scrolling with it -- the
+            page's own trailing sibling now, not a nested list's
+            ListFooterComponent. */}
+        <ShopFooter storefront={storefront} colors={colors} />
+      </ScrollView>
       </ShopChrome>
 
       <ProductSheet
@@ -239,7 +281,8 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
 }
 
 const styles = StyleSheet.create({
-  // The reading column -- see theme-market.tsx's identical `scroller`.
+  // The reading column, now on the PAGE-level ScrollView -- see
+  // theme-market.tsx's identical `scroller`.
   scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
@@ -247,8 +290,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   sectionCount: { fontSize: TYPE.metaSmall, fontWeight: '700' },
-  grid: { padding: SPACE.page, gap: SPACE.cardGap },
-  gridWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
+  // See theme-market.tsx's identical `page`/`pageWithCheckoutBar`/`goods`/
+  // `grid` -- the page now owns the padding and the checkout-bar clearance;
+  // the nested goods FlatList owns only its own row gap, so its rendered
+  // height is exactly two measured rows plus one gap when bounded.
+  page: { padding: SPACE.page, gap: SPACE.cardGap },
+  pageWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
+  goods: { width: '100%' },
+  grid: { gap: SPACE.cardGap },
   row: { gap: SPACE.cardGap },
   cell: { flex: 1 },
 });

@@ -13,7 +13,11 @@ import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, Storefro
 // WHERE THE TABS LIVE, so that three themes gain them in one line each rather
 // than in three copies of the same branch.
 //
-// Market and Window render a FlatList, Counter renders a ScrollView, and each
+// All three themes render a page-level ScrollView (Market and Window nest a
+// second, bounded FlatList inside it for the goods -- see theme-market.tsx's
+// own comment on why that grid keeps its own real, independently-scrolling
+// FlatList rather than folding into the page's scroll; Counter's price list
+// has no grid to bound and stays one plain scroller top to bottom), and each
 // owns its own browsing layout -- which is the whole point of a theme. What
 // none of them should own is the decision about which tabs exist, what happens
 // when a customer picks one, or where the footer goes. Those are the same on a
