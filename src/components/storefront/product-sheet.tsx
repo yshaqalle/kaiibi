@@ -108,7 +108,7 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
             <View style={[styles.grab, { backgroundColor: colors.soft }]} />
           </View>
 
-          <ScrollView contentContainerStyle={styles.body}>
+          <ScrollView testID="product-sheet-scroll" style={styles.scroll} contentContainerStyle={styles.body}>
             {/* NO placeholder when there is no photo, which is the opposite of
                 what ProductTile does -- and deliberately so.
 
@@ -155,32 +155,48 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
             {product.category ? (
               <Text style={[styles.category, { color: colors.muted }]}>{product.category.toUpperCase()}</Text>
             ) : null}
+          </ScrollView>
 
-            <View style={styles.actions}>
-              <ProductActions
-                product={product}
-                colors={colors}
-                shopName={shopName}
-                whatsappE164={whatsappE164}
-                // This sheet renders inside an AppModal (see this file's own
-                // header comment) -- on iOS and Android a Modal is a
-                // separate native window, so FlyToCartLayer's overlay (mounted
-                // once in ShopChrome, under the grid) is not part of what
-                // that window draws. The dot would arc across a surface
-                // nobody looking at the sheet can see, and the slip it is
-                // racing toward sits behind the sheet besides. The cart
-                // update and the slip's own bump/count-up still happen --
-                // only the dot's flight is skipped.
-                canFlyToCart={false}
-                // Add, then close: leaving the sheet open over a grid whose
-                // cart button has just changed hides the only feedback the
-                // action gives.
-                onAdd={(p) => {
-                  onAdd(p);
-                  onClose();
-                }}
-              />
-            </View>
+          {/* STRUCTURAL FURNITURE, NOT CONTENT -- a sibling of the ScrollView
+              above rather than its last child.
+              `description` (rendered above, inside the scroller) has no
+              clamp, no `numberOfLines`, and no length limit in the schema --
+              a shopkeeper can type as much of it as they like. When Add, Ask
+              and Close lived at the bottom of that same scrolling body, a
+              long-enough description pushed all three below the fold on a
+              short window: the customer opens a product and cannot see the
+              button that buys it without scrolling past their own product's
+              description first. That is the same defect `sheetWidthFor` and
+              `photoHeightCapFor` (above) fixed for the photo, reached instead
+              through text. Pinning this row outside the scroller, at the
+              sheet's own bottom edge, is what makes it structurally
+              impossible for content -- a photo, a paragraph, or whatever the
+              next thing added to the scroller turns out to be -- to cover it
+              again. */}
+          <View style={[styles.footer, { borderTopColor: colors.hairline }]}>
+            <ProductActions
+              product={product}
+              colors={colors}
+              shopName={shopName}
+              whatsappE164={whatsappE164}
+              // This sheet renders inside an AppModal (see this file's own
+              // header comment) -- on iOS and Android a Modal is a
+              // separate native window, so FlyToCartLayer's overlay (mounted
+              // once in ShopChrome, under the grid) is not part of what
+              // that window draws. The dot would arc across a surface
+              // nobody looking at the sheet can see, and the slip it is
+              // racing toward sits behind the sheet besides. The cart
+              // update and the slip's own bump/count-up still happen --
+              // only the dot's flight is skipped.
+              canFlyToCart={false}
+              // Add, then close: leaving the sheet open over a grid whose
+              // cart button has just changed hides the only feedback the
+              // action gives.
+              onAdd={(p) => {
+                onAdd(p);
+                onClose();
+              }}
+            />
 
             <Pressable
               testID="product-sheet-close"
@@ -191,7 +207,7 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
             >
               <Text style={[styles.closeText, { color: colors.ink }]}>Close</Text>
             </Pressable>
-          </ScrollView>
+          </View>
         </View>
       </View>
     </AppModal>
@@ -206,7 +222,16 @@ const styles = StyleSheet.create({
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%', overflow: 'hidden' },
   head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4 },
   grab: { width: 38, height: 4, borderRadius: 999 },
-  body: { paddingHorizontal: 18, paddingBottom: 22, paddingTop: 6 },
+  // `flexShrink: 1`, not `flex: 1` -- this scroller has no reason to GROW
+  // past its own content (a short product with no photo should not stretch
+  // to fill the sheet), only to SHRINK when its content plus the footer
+  // below would otherwise exceed `sheet`'s own `maxHeight: '88%'`. RN's
+  // default `flexShrink` on a View is 0, unlike web's flexbox default of 1 --
+  // leaving this off is exactly how the footer below was reachable through
+  // `overflow: 'hidden'` clipping it off the bottom of the sheet rather than
+  // through the scroller ever getting a chance to scroll past it.
+  scroll: { flexShrink: 1 },
+  body: { paddingHorizontal: 18, paddingBottom: 18, paddingTop: 6 },
   photo: { width: '100%', aspectRatio: 4 / 3, borderRadius: 14, marginBottom: 14 },
   name: { fontSize: TYPE.headline, fontWeight: '800', letterSpacing: -0.4, lineHeight: 27 },
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 9 },
@@ -216,7 +241,12 @@ const styles = StyleSheet.create({
   stockPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.2 },
   description: { fontSize: TYPE.body, lineHeight: 20, marginTop: 12 },
   category: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 1, marginTop: 14 },
-  actions: { marginTop: 16 },
+  // The hairline is the footer's own visual separation from whatever is
+  // scrolled underneath it -- the same device `Fact` (theme-shared.tsx) uses
+  // between bands of the same tone, drawn from `colors.hairline` rather than
+  // a hex literal for the same reason: it is a palette value, not a fixed
+  // one, because this sheet renders on top of one of seven palettes.
+  footer: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18, borderTopWidth: 1 },
   close: { borderRadius: 999, paddingVertical: 12, alignItems: 'center', marginTop: 10 },
   closeText: { fontSize: 13.5, fontWeight: '800' },
 });

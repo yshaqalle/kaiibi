@@ -307,3 +307,96 @@ describe('the sheet fits the window it opens in', () => {
     expect(laptopPhotoStyle.maxHeight).not.toBe(phonePhotoStyle.maxHeight);
   });
 });
+
+// SIBLING-ADJACENCY HELPERS, on the pattern storefront-directory.test.tsx
+// already uses for the same reason: `toJSON()` yields HOST nodes only, so
+// walking them (rather than `tree.root.findAll`, which also returns every
+// composite wrapper in between) is what can tell "B is not a DESCENDANT of
+// A" from "B merely renders somewhere under the same tree as A" -- the
+// weaker check a style-number assertion (or an unscoped `findAll`) would
+// still pass under the exact defect this suite exists to catch. Copied
+// rather than imported -- see that file's own comment on why (no
+// cross-test-file imports).
+type HostNode = { type: string; props: Record<string, unknown>; children: unknown[] | null };
+
+function findByTestIdNode(root: HostNode, testID: string): HostNode | null {
+  if (root.props?.testID === testID) return root;
+  for (const child of root.children ?? []) {
+    if (typeof child === 'string') continue;
+    const found = findByTestIdNode(child as HostNode, testID);
+    if (found) return found;
+  }
+  return null;
+}
+
+function subtreeHasTestId(node: HostNode, testID: string): boolean {
+  if (node.props?.testID === testID) return true;
+  return (node.children ?? []).some(
+    (child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID),
+  );
+}
+
+// The defect this task fixes: `products.description` has no clamp, no
+// `numberOfLines`, no length limit in the schema -- and used to render
+// ABOVE Add/Ask and Close, inside the same ScrollView as both. A long
+// enough paragraph pushed the button that buys the product below the fold
+// on a short window, same failure as the photo the earlier fix (see
+// product-sheet.tsx's own comments on `sheetWidthFor`/`photoHeightCapFor`)
+// addressed -- reached through text instead of a picture. These assert the
+// STRUCTURE that makes the fix real: the action row and Close are outside
+// the scrolling body (`product-sheet-scroll`) and inside the sheet
+// (`product-sheet`), regardless of how tall the description is -- a fact
+// react-test-renderer can check without ever laying out a single pixel.
+describe('the action row cannot scroll out of reach behind a long description', () => {
+  const longDescription = 'Long enough to push a footer off-screen if it still lived in the scroller. '.repeat(60);
+
+  function renderSheet(onAdd = jest.fn(), onClose = jest.fn()) {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <ProductSheet
+          product={{ ...rice, description: longDescription }}
+          colors={colors}
+          shopName={shop.shopName}
+          whatsappE164={shop.whatsappE164}
+          onClose={onClose}
+          onAdd={onAdd}
+        />,
+      );
+    });
+    return tree;
+  }
+
+  it('renders Add/Ask and Close inside the sheet but outside the scrolling body', () => {
+    const tree = renderSheet();
+    const root = tree.toJSON() as HostNode;
+
+    const sheet = findByTestIdNode(root, 'product-sheet');
+    expect(sheet).not.toBeNull();
+    expect(subtreeHasTestId(sheet as HostNode, 'product-tile-add')).toBe(true);
+    expect(subtreeHasTestId(sheet as HostNode, 'product-sheet-close')).toBe(true);
+
+    const scroller = findByTestIdNode(root, 'product-sheet-scroll');
+    expect(scroller).not.toBeNull();
+    // The description that used to sit directly above these two, in the
+    // same scroller, still does -- this is not "the scroller lost its
+    // content," it is "the actions were never content to begin with."
+    expect(subtreeHasTestId(scroller as HostNode, 'product-sheet-description')).toBe(true);
+    expect(subtreeHasTestId(scroller as HostNode, 'product-tile-add')).toBe(false);
+    expect(subtreeHasTestId(scroller as HostNode, 'product-sheet-close')).toBe(false);
+  });
+
+  it('still adds to the cart and closes with a long description in play', () => {
+    const onAdd = jest.fn();
+    const onClose = jest.fn();
+    const tree = renderSheet(onAdd, onClose);
+
+    const add = tree.root.findAll(
+      (n) => n.props?.testID === 'product-tile-add' && typeof n.props?.onPress === 'function',
+    );
+    act(() => add[0].props.onPress());
+
+    expect(onAdd).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+});
