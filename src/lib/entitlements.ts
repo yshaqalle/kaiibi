@@ -31,7 +31,8 @@ export type Module =
   | 'multi_location'
   | 'multi_currency'
   | 'data_export'
-  | 'receipt_branding_removal';
+  | 'receipt_branding_removal'
+  | 'storefront_branding_removal';
 
 export const MODULES: { key: Module; label: string; description: string }[] = [
   { key: 'pos', label: 'Point of sale', description: 'Ring up sales and take payment at the register.' },
@@ -60,6 +61,18 @@ export const MODULES: { key: Module; label: string; description: string }[] = [
     key: 'receipt_branding_removal',
     label: 'Remove Kaiibi branding',
     description: 'Print receipts without the "Powered by Kaiibi" footer.',
+  },
+  // Same shape as receipt_branding_removal, and for the same reason: the
+  // public storefront and order-status page carry the Kaiibi mark by
+  // default, and this module is what a plan grants to take it off. Kept as
+  // its own key rather than reusing receipt_branding_removal -- that module's
+  // grant already means something narrower (receipts only) for every shop
+  // that already holds it, and widening its meaning here would change a
+  // promise made to those shops without them agreeing to it.
+  {
+    key: 'storefront_branding_removal',
+    label: 'Remove storefront branding',
+    description: 'Show the public storefront and order-status page without the "Powered by Kaiibi" footer.',
   },
 ];
 

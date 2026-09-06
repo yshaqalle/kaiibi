@@ -1,20 +1,24 @@
--- The hide-branding flag, computed server-side and joined onto the same
+-- The hide-branding flag, computed server-side and read onto the same
 -- public read every anonymous visitor already calls.
 --
--- Not a client-side `planKey === 'pro'` check: plans get retired and hopped
--- to successors (20260824000100), so a key comparison in code breaks the
--- first time Pro is renamed. Joined through shop_effective_plan(), which
--- already resolves trialing/active/grace and retired-plan hops -- so a shop
--- in grace (fully usable by design, mobile money confirmed by hand) keeps
--- branding hidden through it, and gets it back the moment the plan actually
--- lapses, with no extra code here.
+-- Not a client-side `planKey === 'pro'` check, and not a bespoke column on
+-- plans either: plans get retired and hopped to successors
+-- (20260824000100), so a key comparison in code, or a column that does not
+-- follow the hop, both break the first time Pro is renamed or retired.
+-- `shop_has_module` is the resolved answer -- it already walks
+-- shop_effective_plan() (trialing/active/grace and retired-plan hops), any
+-- per-shop override, and suspension -- so a shop in grace (fully usable by
+-- design, mobile money confirmed by hand) keeps branding hidden through it,
+-- and gets it back the moment the plan actually lapses, with no extra code
+-- here. This function's own WHERE clause already calls it for 'storefront',
+-- so calling it again here for 'storefront_branding_removal' is the
+-- established pattern, not a new one.
 --
 -- Copied forward VERBATIM from 20261025000000_what_a_shop_sells_and_how_to_reach_it.sql,
 -- the latest prior definition -- explicit column list, security definer, its
--- own search_path -- with exactly three additions: one return column
--- (hide_branding), one select expression (the coalesce off `pl`), and one
--- left join lateral (`pl` itself, off shop_effective_plan). Nothing else in
--- this body is this migration's business.
+-- own search_path -- with exactly two additions: one return column
+-- (hide_branding) and one select expression (the shop_has_module call).
+-- Nothing else in this body is this migration's business.
 
 drop function if exists public.get_public_storefront(text);
 
@@ -96,8 +100,9 @@ returns table (
   payment_mode    text,
   flyers          jsonb,
   auto_advance    boolean,
-  -- NEW in this migration. True only when the shop's effective plan buys
-  -- the kaiibi mark off (20261101000100_plans_hide_storefront_branding.sql).
+  -- NEW in this migration. True only when the shop's effective plan grants
+  -- the storefront_branding_removal module
+  -- (20261101000100_pro_grants_storefront_branding_removal.sql).
   -- Computed here, not read off a client's cached plan key, because the
   -- storefront is sessionless -- an anonymous visitor's browser can never
   -- call an authed RPC to ask, so this security definer function is the
@@ -249,14 +254,13 @@ as $$
     -- The shop's request, unfiltered. The device's veto and the "stopped for
     -- this visit" rule are the client's job -- see 20260930000200's header.
     f.auto_advance,
-    -- Joined through the EFFECTIVE plan (pl, the lateral below), not the
-    -- subscription row: shop_effective_plan already resolves trialing,
-    -- active and grace to the paid plan and hops a retired plan to its
-    -- successor, so branding stays hidden through grace and returns the
-    -- moment a shop actually lapses, with no extra logic here. Coalesced to
-    -- false -- the perk is HIDING the mark, so a shop with no resolvable
-    -- plan at all shows it, same as an unknown one would.
-    coalesce(pl.hide_storefront_branding, false) as hide_branding
+    -- shop_has_module already resolves the shop's effective plan (trialing,
+    -- active and grace to the paid plan, a retired plan hopped to its
+    -- successor), per-shop overrides, and suspension -- no join needed here,
+    -- the same way the WHERE clause below already calls it for 'storefront'.
+    -- Returns false, meaning branding SHOWS, for a shop with no such module,
+    -- an unresolvable plan, or no plan at all -- the perk is HIDING the mark.
+    public.shop_has_module(s.id, 'storefront_branding_removal') as hide_branding
   from public.shops s
   join public.storefronts f on f.shop_id = s.id
   left join public.shop_locations sl on sl.shop_id = s.id and sl.is_primary
@@ -271,11 +275,6 @@ as $$
     order by l.is_primary desc, l.created_at asc
     limit 1
   ) pick on true
-  -- The shop's effective plan, for hide_branding alone. LEFT join lateral,
-  -- like `pick` above: a shop with no resolvable plan row still returns its
-  -- page rather than dropping off the storefront, and `on true` because the
-  -- correlation is the function argument, not a join condition.
-  left join lateral public.shop_effective_plan(s.id) pl on true
   where s.slug = lower(p_slug)
     and f.published_at is not null
     and public.shop_has_module(s.id, 'storefront');

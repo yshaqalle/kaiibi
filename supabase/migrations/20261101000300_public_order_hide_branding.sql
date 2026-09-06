@@ -1,5 +1,5 @@
--- The hide-branding flag, joined onto the second anonymous read that carries
--- it -- the same server-resolved plan capability 20261101000200 put on
+-- The hide-branding flag, read onto the second anonymous read that carries
+-- it -- the same server-resolved module 20261101000200 put on
 -- get_public_storefront, now on get_public_order.
 --
 -- `kaiibi.com/o/<code>` is the link a customer saves and reopens to check on
@@ -8,21 +8,23 @@
 -- this payload separately or the order-status page never learns a shop
 -- bought the mark off.
 --
--- Not a client-side `planKey === 'pro'` check, for the same reason
--- 20261101000200 gives: plans get retired and hopped to successors
--- (20260824000100), so a key comparison breaks the first time Pro is
--- renamed. Joined through shop_effective_plan(), which already resolves
--- trialing/active/grace and retired-plan hops.
+-- Not a client-side `planKey === 'pro'` check, and not a bespoke column on
+-- plans either, for the same reason 20261101000200 gives: plans get retired
+-- and hopped to successors (20260824000100), so a key comparison breaks the
+-- first time Pro is renamed, and a column that does not follow the hop hands
+-- the mark back to every paying shop the moment it does. `shop_has_module`
+-- is the resolved answer -- it already walks shop_effective_plan()
+-- (trialing/active/grace and retired-plan hops), any per-shop override, and
+-- suspension, off `o.shop_id` (this body's own orders alias is `o`, and
+-- `orders.shop_id` is a real column, confirmed against \d public.orders on
+-- the local database rather than assumed).
 --
 -- Copied forward VERBATIM from 20261017000000_a_customer_can_read_their_order.sql,
 -- the latest prior definition of get_public_order -- explicit column list
 -- (there is none; this function returns jsonb), security definer, its own
--- search_path -- with exactly three additions: one jsonb key
--- (hide_branding), one select expression feeding it (the coalesce off `pl`),
--- and one left join lateral (`pl` itself, off shop_effective_plan(o.shop_id)
--- -- this body's own orders alias is `o`, and `orders.shop_id` is a real
--- column, confirmed against \d public.orders on the local database rather
--- than assumed). Nothing else in this body is this migration's business.
+-- search_path -- with exactly two additions: one jsonb key (hide_branding)
+-- and one select expression feeding it (the shop_has_module call). Nothing
+-- else in this body is this migration's business.
 --
 -- confirm_public_order is NOT redefined here: it already returns
 -- `public.get_public_order(p_token)` verbatim (20261017000000), so it picks
@@ -86,13 +88,19 @@ as $$
        where a.order_id = o.id
        order by a.amended_at desc, a.id desc
        limit 1),
-    -- NEW in this migration. True only when the shop's effective plan buys
-    -- the kaiibi mark off (20261101000100_plans_hide_storefront_branding.sql).
+    -- NEW in this migration. True only when the shop's effective plan grants
+    -- the storefront_branding_removal module
+    -- (20261101000100_pro_grants_storefront_branding_removal.sql).
     -- Computed here, not read off a client's cached plan key, because this
     -- page is sessionless -- a customer holding a bare link can never call an
     -- authed RPC to ask, so this security definer function is the only place
-    -- left to decide it.
-    'hide_branding', coalesce(pl.hide_storefront_branding, false))
+    -- left to decide it. shop_has_module needs no join: a shop whose plan
+    -- cannot be resolved at all still returns the order rather than dropping
+    -- it -- this is a receipt for a trade that already happened, and
+    -- 20261017000000's own header is explicit that a lapsed or unresolvable
+    -- plan must never take that away, and shop_has_module resolves to false
+    -- (branding shown) rather than failing the read.
+    'hide_branding', public.shop_has_module(o.shop_id, 'storefront_branding_removal'))
   from public.orders o
   join public.shops s on s.id = o.shop_id
   -- LEFT join lateral for the same reason 20261010000100 uses one: a shop
@@ -105,13 +113,6 @@ as $$
      order by l.is_primary desc, l.created_at asc
      limit 1
   ) pick on true
-  -- The shop's effective plan, for hide_branding alone. LEFT join lateral,
-  -- like `pick` above: a shop whose plan cannot be resolved at all must still
-  -- return the order rather than dropping it -- this is a receipt for a trade
-  -- that already happened, and 20261017000000's own header is explicit that
-  -- a lapsed or unresolvable plan must never take that away. `on true`
-  -- because the correlation is the function argument, not a join condition.
-  left join lateral public.shop_effective_plan(o.shop_id) pl on true
   where o.share_token = p_token
     -- btrim'd and non-empty, so a caller sending "" or "   " cannot match a
     -- row whose token was somehow blank.

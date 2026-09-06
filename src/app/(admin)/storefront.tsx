@@ -967,11 +967,11 @@ function StorefrontEditor() {
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,
-    // The editor previews the shop's own content, not its plan -- Tasks 10-11
-    // are what teach the public page to hide the mark, and neither reads this
-    // preview object. False keeps the type satisfied without asserting
-    // anything about this shop's actual plan.
-    hideBranding: false,
+    // ShopFooter (rendered inside this same preview) reads this flag, so the
+    // preview has to answer it for real rather than hardcoding "shown" --
+    // otherwise a Pro shop previewing its own page would see the mark exactly
+    // where its customers will not.
+    hideBranding: hasModule('storefront_branding_removal'),
   };
 
   const contentDrawer = (
