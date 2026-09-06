@@ -229,10 +229,14 @@ const styles = StyleSheet.create({
   // this file's own tests measured as ending precisely at the viewport edge.
   // Ending short of that edge costs one gap and means the last row of controls
   // is always visibly clear of whatever the operating system draws there.
+  // The bottom inset is deliberately larger than the side ones: the sides only
+  // have to clear the window, while the bottom has to clear whatever the
+  // operating system draws over it, and a dock is taller than a gutter.
   overlay: {
     flex: 1, backgroundColor: 'rgba(11,11,13,0.45)',
     justifyContent: 'flex-end', alignItems: 'center',
     padding: SPACE.cardGap,
+    paddingBottom: SPACE.cardGap + SPACE.card,
   },
   // Rounded on all four corners now that it floats: two square bottom corners
   // read as "cut off by the window" -- the very thing the inset above exists
