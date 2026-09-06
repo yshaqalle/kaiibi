@@ -345,3 +345,20 @@ export const CHECKOUT_INK = '#ffffff';
 // make moving one silently move the other.
 export const KAIIBI_BLUE = '#0071e3';
 export const KAIIBI_INK = '#ffffff';
+
+// THE DIRECTORY GRID CARD'S OPEN/CLOSED DOT (`storefront-directory-dot-<slug>`,
+// shop-directory-card.tsx), fixed for the same reason KAIIBI_BLUE is: it has
+// to mean the same thing beside every shop on the page, and the page renders
+// in one neutral palette that has no business supplying it. Never the ONLY
+// signal -- the word beside it ("Open"/"Closed") carries the same meaning in
+// text, for a reader who cannot tell the two colours apart.
+//
+// The SAME green and grey already carrying this meaning on the featured
+// card's on-photo pill (`stateOpen`/`stateShut`, shop-directory-card.tsx) --
+// kept as its own pair rather than an import of those, because that pair
+// colours TEXT on a fixed near-white PLATE over an unknown photograph (a
+// different surface, a different CSS property) and this one fills a small
+// circle on the grid card's own neutral ground. One colour vocabulary, two
+// call sites that never share a style object.
+export const DIRECTORY_STATE_OPEN = '#0b7a44';
+export const DIRECTORY_STATE_SHUT = '#5e5d65';

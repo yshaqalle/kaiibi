@@ -64,6 +64,15 @@ jest.mock('react-native-reanimated', () => {
       duration: jest.fn().mockReturnThis(),
       delay: jest.fn().mockReturnThis(),
     },
+    // Same wrapping, same reason, for ShopDirectoryCard's own entrance
+    // (directoryEntranceDelay, shop-directory-card.tsx) -- a same-file call
+    // into its own component, so `FadeInUp.duration(...).delay(...)` is the
+    // real module seam this file spies on, same as FadeInDown is for
+    // ShopAnchor above.
+    FadeInUp: {
+      duration: jest.fn().mockReturnThis(),
+      delay: jest.fn().mockReturnThis(),
+    },
     // Real `withSpring` behaviour preserved (`callback?.(true); return
     // toValue;`) -- wrapped only so a test can see whether ShopTabRail ever
     // called it at all.
@@ -94,18 +103,19 @@ jest.mock('@/components/storefront/fly-to-cart', () => {
   };
 });
 
-import { FadeInDown, withSpring } from 'react-native-reanimated';
+import { FadeInDown, FadeInUp, withSpring } from 'react-native-reanimated';
 
 import {
   CheckoutBar, ShopAnchor, resetHeroRisenForTests,
 } from '@/components/storefront/theme-shared';
 import { FlyToCartLayer } from '@/components/storefront/fly-to-cart-layer';
+import { ShopDirectoryCard, resetDirectoryEnteredForTests } from '@/components/storefront/shop-directory-card';
 import { ShopTabRail } from '@/components/storefront/shop-tabs';
 import {
   fireFlyToCart, flyToCartMotion, resetFlyToCartForTests, setSlipTarget, slipBumpMotion, countUpDuration,
 } from '@/components/storefront/fly-to-cart';
 import { paletteColors } from '@/lib/storefront-catalog';
-import type { PublicStorefront } from '@/types/models';
+import type { PublicShopSummary, PublicStorefront } from '@/types/models';
 
 const colors = paletteColors('ink');
 
@@ -113,6 +123,7 @@ afterEach(() => {
   jest.clearAllMocks();
   resetFlyToCartForTests();
   resetHeroRisenForTests();
+  resetDirectoryEnteredForTests();
 });
 
 function shop(overrides: Partial<PublicStorefront> = {}): PublicStorefront {
@@ -306,5 +317,60 @@ describe('the sliding tab pill: ShopTabRail wires useReducedMotion() into pillMo
       tree.update(<ShopTabRail colors={colors} tabs={['shop', 'about']} active="about" onSelect={() => {}} />);
     });
     expect(withSpring).toHaveBeenCalledWith(80, expect.objectContaining({ damping: 18, stiffness: 180 }));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE DIRECTORY GRID'S ENTRANCE. directoryEntranceDelay(reducedMotion,
+// alreadyEntered, index) lives in shop-directory-card.tsx beside its only
+// caller (ShopDirectoryCard's own render), so -- like heroRiseDelay above --
+// it cannot be spied on through a module boundary; the same-file call
+// compiles to a direct reference to the local function, never to the
+// module's own `exports.directoryEntranceDelay`. What CAN be observed is
+// ShopDirectoryCard's call into `react-native-reanimated`'s own
+// `FadeInUp.duration(...).delay(...)`, wrapped above for this file only.
+// ─────────────────────────────────────────────────────────────────────────
+describe('the directory grid: ShopDirectoryCard wires useReducedMotion() into directoryEntranceDelay', () => {
+  function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary {
+    return {
+      shopName: 'Reduced Motion Shop', slug: 'reduced-motion-shop', city: 'Hargeisa',
+      headline: null, about: null, heroImageUrl: null, offersDelivery: false,
+      openingHours: {}, categories: [], productCount: 0,
+      ...overrides,
+    };
+  }
+
+  it('never touches FadeInUp when useReducedMotion() answers true, even for the very first card', () => {
+    mockReducedMotion = true;
+    act(() => {
+      create(<ShopDirectoryCard shop={summary()} colors={colors} index={0} onPress={() => {}} />);
+    });
+    expect(FadeInUp.duration).not.toHaveBeenCalled();
+    expect(FadeInUp.delay).not.toHaveBeenCalled();
+  });
+
+  it('carries the per-index delay into FadeInUp for the first card when useReducedMotion() answers false', () => {
+    mockReducedMotion = false;
+    act(() => {
+      create(<ShopDirectoryCard shop={summary()} colors={colors} index={3} onPress={() => {}} />);
+    });
+    expect(FadeInUp.duration).toHaveBeenCalledWith(420);
+    expect(FadeInUp.delay).toHaveBeenCalledWith(120);
+  });
+
+  // THE SESSION FLAG, not just the reduced-motion branch: a card mounted
+  // AFTER one that already entered under normal motion must not replay,
+  // even though useReducedMotion() answers false for it too.
+  it('never touches FadeInUp for a card mounted after the grid has already entered once this session', () => {
+    mockReducedMotion = false;
+    act(() => {
+      create(<ShopDirectoryCard shop={summary({ slug: 'first' })} colors={colors} index={0} onPress={() => {}} />);
+    });
+    jest.clearAllMocks();
+    act(() => {
+      create(<ShopDirectoryCard shop={summary({ slug: 'second' })} colors={colors} index={1} onPress={() => {}} />);
+    });
+    expect(FadeInUp.duration).not.toHaveBeenCalled();
+    expect(FadeInUp.delay).not.toHaveBeenCalled();
   });
 });

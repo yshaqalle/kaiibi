@@ -1,13 +1,20 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle,
+} from 'react-native';
+import Animated, { FadeInUp, useReducedMotion } from 'react-native-reanimated';
 
+import { supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
   DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TABULAR, TYPE,
 } from '@/components/storefront/scale';
-import { isConfigured, isOpenAt } from '@/lib/store-hours';
+import { isConfigured, isOpenAt, nextOpeningLabel } from '@/lib/store-hours';
 import { shopBlurb } from '@/lib/storefront-directory';
-import { KAIIBI_BLUE, KAIIBI_INK, type PaletteColors } from '@/lib/storefront-catalog';
+import {
+  DIRECTORY_STATE_OPEN, DIRECTORY_STATE_SHUT, KAIIBI_BLUE, KAIIBI_INK, type PaletteColors,
+} from '@/lib/storefront-catalog';
 import type { PublicShopSummary } from '@/types/models';
 
 // One shop in the directory.
@@ -19,89 +26,278 @@ import type { PublicShopSummary } from '@/types/models';
 // scanning for a pharmacy would be reading eight designs instead of a list.
 //
 // The photo is the shop's, and it is the only thing on the card that is.
+//
+// ONCE PER SESSION, NOT PER RENDER OR PER CARD -- the SAME shape
+// heroHasRisen/markHeroRisen/resetHeroRisenForTests give ShopAnchor
+// (theme-shared.tsx), built again here rather than imported from there:
+// that module drags checkout-form, storefront-order and @/lib/supabase in
+// behind it, none of which a directory card has anything to do with -- the
+// identical reasoning that split ON_SCRIM_INK/ON_SCRIM_MUTED out of
+// theme-shared and into scale.ts instead of leaving CategoryBand to import
+// them from there.
+//
+// Module-level and UNKEYED, unlike HERO_RISEN's per-slug Set: a shop's hero
+// rises once per VISIT to that shop's own page, but this grid is one page a
+// customer either has or hasn't already watched enter this session --
+// narrowing by city or category re-renders the SAME grid, it does not open a
+// new one, so a card that only now scrolls into view because a filter chip
+// was tapped must not spend a rise the rest of the grid already used.
+let DIRECTORY_ENTERED = false;
+
+export function directoryHasEntered(): boolean {
+  return DIRECTORY_ENTERED;
+}
+
+export function markDirectoryEntered(): void {
+  DIRECTORY_ENTERED = true;
+}
+
+// TEST-ONLY SEAM, the same reason resetHeroRisenForTests exists: this module
+// stays loaded for a whole Jest file's run, so one test's grid entering would
+// otherwise leak into the next test that shares this module.
+export function resetDirectoryEnteredForTests(): void {
+  DIRECTORY_ENTERED = false;
+}
+
+// THE DECISION, pulled out on its own for the identical reason heroRiseDelay
+// is (theme-shared.tsx): nothing about it can be asserted through a render,
+// since jest/reanimated-mock.js renders Animated.View as a plain View and
+// drops `entering` on the floor. Reduced motion means no animation at any
+// index, never a faster one; an already-entered grid never replays.
+export function directoryEntranceDelay(
+  reducedMotion: boolean, alreadyEntered: boolean, index: number
+): number | null {
+  if (reducedMotion || alreadyEntered) return null;
+  // A tighter step than the hero's 80ms (heroRiseDelay, theme-shared.tsx): a
+  // grid can hold dozens of cards where the hero only ever had two or three
+  // lines, and an 80ms step would leave a later row waiting whole seconds
+  // for its turn.
+  return index * 40;
+}
+
+// THE TRANSFORM COLLISION (press-feedback.ts's own header comment), MET HEAD
+// ON RATHER THAN DODGED. ProductTile and CategoryTile's fix for the same
+// problem is to put a hover lift and a press-scale on two DIFFERENT nodes --
+// but this card has no narrower node to hang a press-scale on: the whole
+// card, photo and body together, is one press target, so a mouse hovering it
+// and a thumb pressing it land on the SAME `Pressable`. RN style flattening
+// replaces a whole `transform` ARRAY on a key collision rather than merging
+// it element-by-element, so `[hovered && { transform: [...] }, pressable(...)]`
+// would lose the lift for the entire duration of a press -- the exact defect
+// CategoryTile's own `tileHovered` still carries (category-band.tsx) and
+// this card does not copy. Composed here instead, into ONE array built fresh
+// from whichever of hovered/pressed are actually true, so a lift and a
+// press-scale can both be present in it at once. 0.72/0.97 match
+// press-feedback.ts's own `pressable()` values exactly, so a press here
+// still reads identically to a press anywhere else on this page.
+function cardMotionStyle(base: StyleProp<ViewStyle>, hovered: boolean) {
+  return ({ pressed }: { pressed: boolean }): StyleProp<ViewStyle> => {
+    const transform: Array<{ translateY: number } | { scale: number }> = [];
+    if (hovered) transform.push({ translateY: -2 });
+    if (pressed) transform.push({ scale: 0.97 });
+    return [
+      base,
+      pressed ? { opacity: 0.72 } : null,
+      transform.length > 0 ? { transform } : null,
+    ];
+  };
+}
+
+// Visible sell-tags before the rest fold into one overflow chip -- the
+// mockup's own count (two tags, then "+7").
+const TAG_LIMIT = 2;
+
 export function ShopDirectoryCard({
-  shop, colors, onPress,
+  shop, colors, onPress, index = 0,
 }: {
   shop: PublicShopSummary;
   colors: PaletteColors;
   onPress: (slug: string) => void;
+  // Which cell this card sits at in the grid's own flat data array --
+  // FlatList's renderItem hands its own `index` straight through
+  // (src/app/store/index.tsx) so directoryEntranceDelay above can space
+  // cards out by position instead of every card firing on the same frame.
+  // Defaulted: every other render of this component in this file's own test
+  // suite is a lone card with no grid around it to number it, and 0 -- first
+  // -- is the right answer for that.
+  index?: number;
 }) {
-  const blurb = shopBlurb(shop);
   // The initial, for a shop with no photograph. Not a placeholder image and not
   // an empty grey box: a monogram reads as designed, which is the test every
   // no-photo fallback in this folder has to pass (see ProductTile's plate and
   // CategoryBand's dropped image_url).
   const initial = shop.shopName.trim().charAt(0).toUpperCase() || '?';
-  const open = isOpenAt(shop.openingHours ?? {}, new Date());
+  const hoursConfigured = isConfigured(shop.openingHours);
+  const now = new Date();
+  const open = isOpenAt(shop.openingHours ?? {}, now);
+  // Only asked when the shop is shut -- an open shop has nothing to answer,
+  // and a shop that has never set hours is filtered out by hoursConfigured
+  // before this ever runs.
+  const closedLabel = hoursConfigured && !open ? nextOpeningLabel(shop.openingHours ?? {}, now) : null;
+  const stateWord = hoursConfigured ? (open ? 'Open' : 'Closed') : null;
+  // Open: the city. Closed: WHEN IT REOPENS is the more useful half of the
+  // line -- see nextOpeningLabel's own comment -- so it takes the city's
+  // place there; a closed shop with nothing opening in the coming week (or
+  // no city on file to fall back to) still ends the line cleanly rather than
+  // leaving a trailing " · " with nothing after it.
+  const metaSecondHalf = hoursConfigured ? (open ? shop.city : (closedLabel ?? shop.city)) : shop.city;
+
+  // A shop with nothing in stock has no categories either -- both are
+  // derived from the same listed, in-stock products
+  // (list_public_storefronts) -- so an empty `categories` IS "nothing in
+  // stock", the exact case the old `productCount === 0` copy existed to say
+  // plainly rather than leave the row silently empty.
+  const visibleTags = shop.categories.slice(0, TAG_LIMIT);
+  const overflowCount = shop.categories.length - visibleTags.length;
+  const nothingInStock = shop.categories.length === 0;
+
+  // WEB HOVER-LIFT, NEVER NATIVE -- the same `supportsHover()` gate
+  // CategoryBand and ProductTile arm theirs with, read once at mount rather
+  // than trusted to fall out of "no mouse event fired": `Platform.OS ===
+  // 'web'` alone is true in a phone's browser too, and mobile WebKit/Chrome
+  // synthesise a hover event after a tap that a platform-only gate cannot
+  // tell apart from a real mouse.
+  const [hoverCapable] = useState(supportsHover);
+  const [hovered, setHovered] = useState(false);
+
+  // Reduced motion: no entrance at all, not a faster one -- see
+  // directoryEntranceDelay above. `alreadyEntered` is read once per render so
+  // the delay this card computes and the flag it later sets always agree
+  // about whether THIS mount is the grid's first eligible one.
+  const reducedMotion = useReducedMotion();
+  const alreadyEntered = directoryHasEntered();
+  // Marked spent only when the entrance actually played -- the same rule
+  // ShopAnchor's own effect follows (theme-shared.tsx) and for the same
+  // reason: a mount under reduced motion never showed a rise, so it must not
+  // spend the one the rest of the session is still owed.
+  useEffect(() => {
+    if (!reducedMotion) markDirectoryEntered();
+  }, [reducedMotion]);
+  const enterDelay = directoryEntranceDelay(reducedMotion, alreadyEntered, index);
+  const entering = enterDelay === null ? undefined : FadeInUp.duration(420).delay(enterDelay);
 
   return (
-    <Pressable
-      testID={`storefront-directory-card-${shop.slug}`}
-      accessibilityRole="link"
-    accessibilityLabel={[
-        shop.shopName,
-        shop.city,
-        // Announced in the label rather than left to a coloured pill sighted
-        // users read at a glance.
-        isConfigured(shop.openingHours) ? (open ? 'open now' : 'closed now') : null,
-        `${shop.productCount} items`,
-      ].filter(Boolean).join(', ')}
-      onPress={() => onPress(shop.slug)}
-      style={pressable([styles.card, { backgroundColor: colors.ground }])}
-    >
-      <View style={[styles.photo, { backgroundColor: colors.soft }]}>
-        {shop.heroImageUrl ? (
-          <Image source={{ uri: shop.heroImageUrl }} style={styles.image} resizeMode="cover" />
-        ) : (
-          <Text style={[styles.monogram, { color: colors.muted }]}>{initial}</Text>
-        )}
-        {/* Computed HERE, on the device, and never on the server: the stored
-            times are local wall-clock strings with no timezone, so only the
-            reader's own clock can answer this. No badge at all for a shop that
-            has never set hours -- absent is honest, "Closed" would not be.
-            Sits on a fixed near-white plate rather than the palette's ground
-            because it is over an unknown photograph. */}
-        {isConfigured(shop.openingHours) ? (
-          <View testID={`storefront-directory-state-${shop.slug}`} style={styles.state}>
-            <Text style={[styles.stateText, open ? styles.stateOpen : styles.stateShut]}>
-              {open ? 'Open' : 'Closed'}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+    <Animated.View entering={entering}>
+      <Pressable
+        testID={`storefront-directory-card-${shop.slug}`}
+        accessibilityRole="link"
+        accessibilityLabel={[
+          shop.shopName,
+          shop.city,
+          // Announced in the label rather than left to a dot sighted users
+          // read at a glance.
+          hoursConfigured ? (open ? 'open now' : 'closed now') : null,
+          `${shop.productCount} items`,
+        ].filter(Boolean).join(', ')}
+        onPress={() => onPress(shop.slug)}
+        onHoverIn={() => { if (hoverCapable) setHovered(true); }}
+        onHoverOut={() => setHovered(false)}
+        style={cardMotionStyle([styles.card, { backgroundColor: colors.ground }], hoverCapable && hovered)}
+      >
+        <View style={[styles.photo, { backgroundColor: colors.soft }]}>
+          {shop.heroImageUrl ? (
+            <Image source={{ uri: shop.heroImageUrl }} style={styles.image} resizeMode="cover" />
+          ) : (
+            <Text style={[styles.monogram, { color: colors.muted }]}>{initial}</Text>
+          )}
+        </View>
 
-      <View style={styles.body}>
-        <Text style={[styles.name, { color: colors.ink }]} numberOfLines={1}>{shop.shopName}</Text>
-        {shop.city ? (
-          <Text style={[styles.city, { color: colors.muted }]} numberOfLines={1}>{shop.city}</Text>
-        ) : null}
-        {/* Two lines, clamped. A shop that wrote three paragraphs into `about`
-            gets the first two lines of it here and the rest on its own page --
-            a card that grows with its copy makes a ragged grid. */}
-        {blurb ? (
-          <Text style={[styles.blurb, { color: colors.muted }]} numberOfLines={2}>{blurb}</Text>
-        ) : null}
+        <View style={styles.body}>
+          <Text style={[styles.name, { color: colors.ink }]} numberOfLines={1}>{shop.shopName}</Text>
 
-        <View style={styles.foot}>
-          {/* The count is what is listed AND in stock (see the RPC), so it is a
-              promise about what is behind the card rather than a catalogue
-              size. A shop with nothing in stock says so plainly instead of
-              showing "0 items", which reads as a broken card. */}
-          <View style={[styles.chip, { backgroundColor: colors.soft }]}>
-            <Text style={[styles.chipText, { color: colors.muted }]}>
-              {shop.productCount === 0
-                ? 'Nothing in today'
-                : `${shop.productCount} ${shop.productCount === 1 ? 'item' : 'items'}`}
-            </Text>
-          </View>
-          {shop.offersDelivery ? (
-            <View style={[styles.chip, { backgroundColor: colors.soft }]}>
-              <Text style={[styles.chipText, { color: colors.muted }]}>Delivers</Text>
+          {/* THE STATE MOVES OFF THE PHOTOGRAPH AND INTO THIS LINE. It used
+              to sit on a fixed near-white plate on the photo, because over a
+              photograph of unknown brightness that plate was the only safe
+              surface for it. On the card's own neutral ground that
+              constraint is gone, and a dot beside the word reads as PART OF
+              the card rather than a badge stuck onto it -- the mockup's own
+              `.ct` line. The dot is never the only signal: the word says the
+              same thing in text, for a reader who cannot tell the two dot
+              colours apart. A shop that has never set hours gets neither --
+              absent is honest, "Closed" would not be -- and keeps just the
+              city. */}
+          {stateWord || metaSecondHalf ? (
+            <View testID={`storefront-directory-meta-${shop.slug}`} style={styles.meta}>
+              {stateWord ? (
+                <>
+                  <View
+                    testID={`storefront-directory-dot-${shop.slug}`}
+                    style={[styles.dot, open ? styles.dotOpen : styles.dotShut]}
+                  />
+                  <Text
+                    testID={`storefront-directory-state-${shop.slug}`}
+                    style={[styles.metaText, { color: colors.muted }]}
+                  >
+                    {stateWord}
+                  </Text>
+                </>
+              ) : null}
+              {/* Its OWN Text node rather than folded into either
+                  neighbour's string: this card's own `textOf` test helper
+                  joins every text node it finds with a single space, so a
+                  separator baked into one string (`` · ${city}``) would sit
+                  beside that helper's own space and read as two. Three plain
+                  strings compose cleanly either way a reader gets at them --
+                  through this helper or through a screen reader walking the
+                  row -- and a closed shop with nothing to say after the word
+                  (no reopening estimate, no city) never renders a dangling
+                  separator, because this only appears when BOTH sides of it
+                  do. */}
+              {stateWord && metaSecondHalf ? (
+                <Text style={[styles.metaText, { color: colors.muted }]}>·</Text>
+              ) : null}
+              {metaSecondHalf ? (
+                <Text style={[styles.metaText, { color: colors.muted }]} numberOfLines={1}>
+                  {metaSecondHalf}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* SELL-TAGS, NOT A BLURB. `shop.categories` is what the shop
+              actually has on the shelf today (see the field's own comment,
+              types/models.ts), which says more about what is inside than a
+              sentence of `about` copy does, and cannot go stale the way a
+              paragraph nobody re-reads can. Capped at TAG_LIMIT visible, the
+              remainder folded into one "+N" chip, so the card's height does
+              not depend on whether a shop stocks two categories or twelve. */}
+          {visibleTags.length > 0 ? (
+            <View testID={`storefront-directory-tags-${shop.slug}`} style={styles.tags}>
+              {visibleTags.map((category) => (
+                <View key={category} style={[styles.tag, { backgroundColor: colors.soft }]}>
+                  <Text style={[styles.tagText, { color: colors.muted }]} numberOfLines={1}>{category}</Text>
+                </View>
+              ))}
+              {overflowCount > 0 ? (
+                <View testID={`storefront-directory-tags-overflow-${shop.slug}`} style={[styles.tag, { backgroundColor: colors.soft }]}>
+                  <Text style={[styles.tagText, { color: colors.muted }]}>{`+${overflowCount}`}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {nothingInStock || shop.offersDelivery ? (
+            <View style={styles.foot}>
+              {/* Stands in for the tags row above, which a shop with nothing
+                  in stock cannot have (categories are derived from in-stock
+                  products) -- without this the row would just be silently
+                  empty, which reads as a broken card, exactly what this copy
+                  has always existed to prevent. */}
+              {nothingInStock ? (
+                <View style={[styles.chip, { backgroundColor: colors.soft }]}>
+                  <Text style={[styles.chipText, { color: colors.muted }]}>Nothing in today</Text>
+                </View>
+              ) : null}
+              {shop.offersDelivery ? (
+                <View style={[styles.chip, { backgroundColor: colors.soft }]}>
+                  <Text style={[styles.chipText, { color: colors.muted }]}>Delivers</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -115,11 +311,30 @@ const styles = StyleSheet.create({
   monogram: { fontFamily: DISPLAY_FONT, fontSize: 34, fontWeight: '700', letterSpacing: LETTER.displayLoud },
   body: { paddingHorizontal: 6, paddingTop: 12, paddingBottom: 4 },
   name: { fontSize: 15, fontWeight: '800', letterSpacing: LETTER.display },
-  city: {
-    fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta,
-    textTransform: 'uppercase', marginTop: 5,
-  },
-  blurb: { fontSize: 12.5, lineHeight: 17, marginTop: 8 },
+  // Sentence case, not the uppercase-and-tracked treatment the old lone
+  // `city` style carried -- this line now reads as a short sentence ("Open ·
+  // Hargeisa"), matching the mockup's own `.ct` (font-size 10, no
+  // text-transform), where the old style was tuned for a city standing
+  // completely alone.
+  meta: { flexDirection: 'row', alignItems: 'center', marginTop: 6, flexWrap: 'wrap', gap: 5 },
+  metaText: { fontSize: TYPE.nameSub, fontWeight: '700' },
+  // 6px, matching the mockup's own `.dot3`. Fixed colour, never palette --
+  // see DIRECTORY_STATE_OPEN/SHUT's own comment (storefront-catalog.ts) for
+  // why this needs a pair that means the same thing on every palette, and
+  // why it is not simply `stateOpen`/`stateShut` reused: those colour TEXT
+  // on the featured card's on-photo plate, this fills a shape on the grid
+  // card's own neutral ground.
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  dotOpen: { backgroundColor: DIRECTORY_STATE_OPEN },
+  dotShut: { backgroundColor: DIRECTORY_STATE_SHUT },
+  // THE SELL-TAGS -- quiet on purpose, next to the louder pill chips below
+  // (`chip`/`chipText`): a smaller radius, a smaller size, no letter-spacing.
+  // The mockup's own `.tg` is the source (`border-radius:6px`; picked up here
+  // a touch looser at 8 to sit closer to this file's own RADIUS scale without
+  // inventing a third rounding value for one row).
+  tags: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 10 },
+  tag: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  tagText: { fontSize: 10.5, fontWeight: '700' },
   foot: { flexDirection: 'row', gap: 6, marginTop: 12, flexWrap: 'wrap' },
   chip: { borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 5 },
   chipText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4, ...TABULAR },

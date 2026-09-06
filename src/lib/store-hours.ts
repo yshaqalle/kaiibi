@@ -116,6 +116,58 @@ export function formatDayHours(ranges: TimeRange[]): string {
   return valid.map((range) => `${range.open} – ${range.close}`).join(', ');
 }
 
+// 24-hour minutes-of-day -> a compact 12-hour clock label: minutes only when
+// they are not zero (`8am`, not `8:00am`), and noon/midnight fold to 12 the
+// way a clock face does rather than to 0. Not exported -- nextOpeningLabel
+// below is the only thing that needs it, the same reason minutesOf above has
+// stayed private for the whole life of this file.
+function formatClockTime(minutes: number): string {
+  const hour24 = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const period = hour24 < 12 ? 'am' : 'pm';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const minutePart = minute === 0 ? '' : `:${String(minute).padStart(2, '0')}`;
+  return `${hour12}${minutePart}${period}`;
+}
+
+// "WHEN DOES IT NEXT OPEN", in the customer's sense -- a different job from
+// formatDayHours above, which prints a day's OWN ranges in 24-hour to match
+// storage and is deliberately not this. A card wants a single forward-looking
+// answer: the next moment, strictly after `at`, that some valid range opens.
+//
+// Walks today's remaining ranges first (this also answers the gap between two
+// blocks in a split day -- the block starting at 15:00 has an open time after
+// `at` exactly like any other future range, so no separate case is needed for
+// it), then up to six more days, then gives up. A week with nothing found is
+// reported as null rather than naming a day two Tuesdays from now: a shop
+// that has not scheduled a single opening in the coming week is not usefully
+// described by "opens Monday" when nobody yet knows if that Monday will carry
+// hours either.
+//
+// Deliberately not toLocaleTimeString, same reasoning formatDayHours gives:
+// a locale API would make the label depend on the reader's own machine.
+export function nextOpeningLabel(hours: OpeningHours, at: Date): string | null {
+  const minutesNow = at.getHours() * 60 + at.getMinutes();
+  const todayOpen = rangesFor(hours, weekdayKeyFor(at))
+    .filter(isValidRange)
+    .map((range) => minutesOf(range.open))
+    .filter((open) => open > minutesNow)
+    .sort((a, b) => a - b)[0];
+  if (todayOpen !== undefined) return `opens ${formatClockTime(todayOpen)}`;
+
+  for (let offset = 1; offset <= 6; offset += 1) {
+    const day = new Date(at);
+    day.setDate(at.getDate() + offset);
+    const valid = rangesFor(hours, weekdayKeyFor(day)).filter(isValidRange);
+    if (valid.length === 0) continue;
+    const earliest = Math.min(...valid.map((range) => minutesOf(range.open)));
+    const when = offset === 1 ? 'tomorrow' : DAY_LABELS[weekdayKeyFor(day)];
+    return `opens ${when}, ${formatClockTime(earliest)}`;
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Split days: the rules the editor needs but the readers above don't
 // ---------------------------------------------------------------------------

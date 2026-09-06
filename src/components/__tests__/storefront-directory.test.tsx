@@ -5,8 +5,10 @@ import StoreDirectoryScreen from '@/app/store/index';
 import { ON_SCRIM_INK, ON_SCRIM_MUTED } from '@/components/storefront/scale';
 import {
   DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard, directoryColumnsForWidth,
+  directoryEntranceDelay, directoryHasEntered, markDirectoryEntered, resetDirectoryEnteredForTests,
 } from '@/components/storefront/shop-directory-card';
-import { KAIIBI_BLUE, KAIIBI_INK, paletteColors } from '@/lib/storefront-catalog';
+import { DIRECTORY_STATE_OPEN, DIRECTORY_STATE_SHUT, KAIIBI_BLUE, KAIIBI_INK, paletteColors } from '@/lib/storefront-catalog';
+import { weekdayKeyFor, type OpeningHours } from '@/lib/store-hours';
 import type { PublicShopSummary } from '@/types/models';
 
 const mockPush = jest.fn();
@@ -35,6 +37,15 @@ beforeEach(() => {
   mockPush.mockReset();
   mockList.mockReset();
   mockList.mockResolvedValue([]);
+});
+
+// DIRECTORY_ENTERED (shop-directory-card.tsx) is module-level and outlives a
+// single test, the same reason theme-shared.tsx's HERO_RISEN needs
+// resetHeroRisenForTests -- without this, whichever test in this file
+// happens to render a card first would spend the "first arrival" every
+// later test's own directoryEntranceDelay assertions depend on.
+afterEach(() => {
+  resetDirectoryEnteredForTests();
 });
 
 async function renderScreen() {
@@ -103,46 +114,186 @@ describe('the directory card', () => {
     return tree;
   }
 
+  const CARD = 'storefront-directory-card-dir-alpha';
+  const META = 'storefront-directory-meta-dir-alpha';
+  const DOT = 'storefront-directory-dot-dir-alpha';
+  const STATE = 'storefront-directory-state-dir-alpha';
+  const TAGS = 'storefront-directory-tags-dir-alpha';
+  const OVERFLOW = 'storefront-directory-tags-overflow-dir-alpha';
+
   it('opens the shop it names', () => {
     const onPress = jest.fn();
     const tree = renderCard(summary(), onPress);
-    press(tree, 'storefront-directory-card-dir-alpha');
+    press(tree, CARD);
     expect(onPress).toHaveBeenCalledWith('dir-alpha');
   });
 
-  it('says what is in the shop, not what the catalogue holds', () => {
-    expect(textOf(renderCard(summary({ productCount: 4 })), 'storefront-directory-card-dir-alpha'))
-      .toContain('4 items');
+  // WAS "says what is in the shop [...] toContain('4 items')" -- invalidated
+  // by the redesign: a numeric item count no longer renders on this card at
+  // all (the mockup's own `.dcard` never carried one), replaced by the
+  // sell-tags below. What is in the shop is now said through THOSE.
+  it('says what is in the shop through its sell-tags, not a numeric count', () => {
+    const text = textOf(renderCard(summary({ categories: ['Electronics', 'Phones'] })), CARD);
+    expect(text).toContain('Electronics');
+    expect(text).not.toContain('4 items');
+    expect(text).not.toContain('items');
   });
 
-  // "0 items" reads as a broken card. A shop with nothing in stock has to say
-  // so in words.
-  it('says nothing in today rather than zero items', () => {
-    const text = textOf(renderCard(summary({ productCount: 0 })), 'storefront-directory-card-dir-alpha');
+  // "Nothing in today" reads as a broken card if the row is just silently
+  // empty. A shop with nothing in stock has no categories either -- both are
+  // derived from the same listed, in-stock products -- so this fixture sets
+  // both to match what the RPC would actually hand the card.
+  it('says nothing in today rather than leaving the tags row empty', () => {
+    const text = textOf(renderCard(summary({ productCount: 0, categories: [] })), CARD);
     expect(text).toContain('Nothing in today');
-    expect(text).not.toContain('0 items');
+    expect(has(renderCard(summary({ productCount: 0, categories: [] })), TAGS)).toBe(false);
   });
 
   it('marks a shop that delivers, and leaves the chip off one that does not', () => {
-    expect(textOf(renderCard(summary({ offersDelivery: true })), 'storefront-directory-card-dir-alpha'))
-      .toContain('Delivers');
-    expect(textOf(renderCard(summary({ offersDelivery: false })), 'storefront-directory-card-dir-alpha'))
-      .not.toContain('Delivers');
+    expect(textOf(renderCard(summary({ offersDelivery: true })), CARD)).toContain('Delivers');
+    expect(textOf(renderCard(summary({ offersDelivery: false })), CARD)).not.toContain('Delivers');
   });
 
   // The majority case: a shop that has uploaded no hero image must still read
   // as designed rather than as a missing picture.
   it('falls back to a monogram rather than an empty box', () => {
-    expect(textOf(renderCard(summary({ heroImageUrl: null })), 'storefront-directory-card-dir-alpha'))
-      .toContain('A');
+    expect(textOf(renderCard(summary({ heroImageUrl: null })), CARD)).toContain('A');
   });
 
   it('names the shop and its city to a screen reader in one label', () => {
     const tree = renderCard(summary());
     const node = tree.root.find(
-      (n) => n.props?.testID === 'storefront-directory-card-dir-alpha' && n.props?.accessibilityLabel,
+      (n) => n.props?.testID === CARD && n.props?.accessibilityLabel,
     );
     expect(node.props.accessibilityLabel).toBe('Alpha Hardware, Hargeisa, 4 items');
+  });
+
+  // WAS the on-photo pill's own test -- see "shows no badge at all" and the
+  // two "badges a shop..." tests on the full screen below, which still pass
+  // unchanged because the WORD alone (no dot, no city) still renders under
+  // the same `storefront-directory-state-<slug>` testID. What is new here is
+  // the dot beside it, and that the two are in the SAME row.
+  describe('the meta line: a dot AND a word, never colour alone', () => {
+    const allDay = { open: '00:00', close: '23:59' };
+    const openHours = { mon: [allDay], tue: [allDay], wed: [allDay], thu: [allDay], fri: [allDay], sat: [allDay], sun: [allDay] };
+    const shutHours = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
+
+    it('says Open and the city, dot first, word beside it, in the same row', () => {
+      const tree = renderCard(summary({ openingHours: openHours, city: 'Hargeisa' }));
+      expect(textOf(tree, META)).toBe('Open · Hargeisa');
+
+      // ADJACENCY, NOT MERE PRESENCE -- the exact defect class this branch
+      // has shipped twice before (see the brief this task came from). The
+      // dot's very next sibling inside the meta row has to be the state
+      // word, not merely present somewhere in the card.
+      const root = tree.toJSON() as HostNode;
+      const meta = findByTestIdNode(root, META);
+      expect(meta).not.toBeNull();
+      const afterDot = nextDirectChildAfter(meta as HostNode, DOT);
+      expect(afterDot).not.toBeNull();
+      expect(typeof afterDot === 'string' ? false : subtreeHasTestId(afterDot as HostNode, STATE)).toBe(true);
+    });
+
+    it('fills the dot green when open and grey when closed, from the fixed catalogue pair', () => {
+      const openDot = renderCard(summary({ openingHours: openHours })).root.find((n) => n.props?.testID === DOT);
+      expect(StyleSheet.flatten(openDot.props.style).backgroundColor).toBe(DIRECTORY_STATE_OPEN);
+
+      const shutDot = renderCard(summary({ openingHours: shutHours })).root.find((n) => n.props?.testID === DOT);
+      expect(StyleSheet.flatten(shutDot.props.style).backgroundColor).toBe(DIRECTORY_STATE_SHUT);
+    });
+
+    // The mockup's own copy, verbatim -- see nextOpeningLabel (store-hours.ts).
+    // Built off the REAL clock's own today/tomorrow (weekdayKeyFor), the same
+    // way ShopDirectoryCard itself computes "now" -- rather than a fixed
+    // weekday, which would only happen to say "tomorrow" on five days out of
+    // seven.
+    it('says when a closed shop reopens, in place of the city', () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      const hours: OpeningHours = {
+        [weekdayKeyFor(now)]: [],
+        [weekdayKeyFor(tomorrow)]: [{ open: '08:00', close: '18:00' }],
+      };
+      const tree = renderCard(summary({ openingHours: hours, city: 'Hargeisa' }));
+      expect(textOf(tree, META)).toBe('Closed · opens tomorrow, 8am');
+    });
+
+    // Never colour alone: the word says the same thing colour does, for a
+    // reader who cannot tell the two dot colours apart.
+    it('never shows a dot without the word beside it', () => {
+      const tree = renderCard(summary({ openingHours: openHours }));
+      expect(has(tree, DOT)).toBe(true);
+      expect(textOf(tree, META)).toContain('Open');
+    });
+
+    // ABSENCE, not a guess: a shop that has never set hours gets neither a
+    // dot nor a word -- "Closed" would be a claim nobody made.
+    it('shows no dot and no word at all for a shop that never set hours, keeping just the city', () => {
+      const tree = renderCard(summary({ openingHours: {}, city: 'Hargeisa' }));
+      expect(has(tree, DOT)).toBe(false);
+      expect(has(tree, STATE)).toBe(false);
+      expect(textOf(tree, META)).toBe('Hargeisa');
+    });
+  });
+
+  describe('sell-tags: quiet chips from what the shop actually stocks', () => {
+    it('shows every category up to the cap, with no overflow chip when none is left over', () => {
+      const tree = renderCard(summary({ categories: ['Spice', 'Tea'] }));
+      const text = textOf(tree, TAGS);
+      expect(text).toContain('Spice');
+      expect(text).toContain('Tea');
+      expect(has(tree, OVERFLOW)).toBe(false);
+    });
+
+    // The mockup's own shape: two tags, then a "+N" chip for the rest.
+    it('caps the visible tags and folds the remainder into one overflow chip', () => {
+      const tree = renderCard(summary({
+        categories: ['Serum', 'Cleanser', 'Toner', 'Moisturiser', 'Sunscreen', 'Mask', 'Oil', 'Mist', 'Balm'],
+      }));
+      const tagsText = textOf(tree, TAGS);
+      expect(tagsText).toContain('Serum');
+      expect(tagsText).toContain('Cleanser');
+      expect(tagsText).not.toContain('Toner');
+      expect(textOf(tree, OVERFLOW)).toBe('+7');
+    });
+
+    it('renders no tags row at all for a shop with nothing categorised', () => {
+      expect(has(renderCard(summary({ categories: [] })), TAGS)).toBe(false);
+    });
+  });
+
+  // The blurb used to be a two-line paragraph on this card -- the tags above
+  // are what replaced it, and this is the negative half of that trade.
+  it('no longer carries the two-line blurb this card used to show', () => {
+    const text = textOf(renderCard(summary({ headline: 'A blurb once lived here.' })), CARD);
+    expect(text).not.toContain('A blurb once lived here.');
+  });
+});
+
+describe('directoryEntranceDelay: the pure decision behind the grid entrance', () => {
+  afterEach(() => { resetDirectoryEnteredForTests(); });
+
+  it('never animates under reduced motion, at any index', () => {
+    expect(directoryEntranceDelay(true, false, 0)).toBeNull();
+    expect(directoryEntranceDelay(true, false, 5)).toBeNull();
+  });
+
+  it('staggers a first arrival by index', () => {
+    expect(directoryEntranceDelay(false, false, 0)).toBe(0);
+    expect(directoryEntranceDelay(false, false, 3)).toBe(120);
+  });
+
+  it('never animates a second arrival, regardless of index', () => {
+    expect(directoryEntranceDelay(false, true, 0)).toBeNull();
+  });
+
+  it('tracks entry through markDirectoryEntered, reset for tests through resetDirectoryEnteredForTests', () => {
+    expect(directoryHasEntered()).toBe(false);
+    markDirectoryEntered();
+    expect(directoryHasEntered()).toBe(true);
+    resetDirectoryEnteredForTests();
+    expect(directoryHasEntered()).toBe(false);
   });
 });
 

@@ -2,7 +2,7 @@ import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
   paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN, CHECKOUT_BLUE, CHECKOUT_INK,
-  KAIIBI_BLUE, KAIIBI_INK,
+  KAIIBI_BLUE, KAIIBI_INK, DIRECTORY_STATE_OPEN, DIRECTORY_STATE_SHUT,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -362,5 +362,23 @@ describe("kaiibi's own blue", () => {
   it('coincides with checkout blue today, without being an alias of it', () => {
     expect(KAIIBI_BLUE).toBe(CHECKOUT_BLUE);
     expect(KAIIBI_INK).toBe(CHECKOUT_INK);
+  });
+});
+
+describe("the directory grid card's open/closed dot", () => {
+  // Pinned to the same literal green and grey the featured card's on-photo
+  // pill already carries, so a future edit to either drifts loudly rather
+  // than silently -- the two are meant to agree, not merely to coincide.
+  it('matches the on-photo pill\'s own green and grey', () => {
+    expect(DIRECTORY_STATE_OPEN).toBe('#0b7a44');
+    expect(DIRECTORY_STATE_SHUT).toBe('#5e5d65');
+  });
+
+  it('is a fixed pair on no palette\'s own accent', () => {
+    for (const { key } of PALETTES) {
+      const colors = paletteColors(key);
+      expect(colors.accent).not.toBe(DIRECTORY_STATE_OPEN);
+      expect(colors.accent).not.toBe(DIRECTORY_STATE_SHUT);
+    }
   });
 });

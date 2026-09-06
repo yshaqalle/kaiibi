@@ -7,6 +7,7 @@ import {
   isRangeWithinHours,
   isValidRange,
   isValidTime,
+  nextOpeningLabel,
   normalizeDay,
   normalizeHours,
   rangesFor,
@@ -216,6 +217,65 @@ describe('formatDayHours', () => {
         { open: '20:00', close: '23:00' },
       ])
     ).toBe('08:00 – 12:00, 14:00 – 18:00, 20:00 – 23:00');
+  });
+});
+
+describe('nextOpeningLabel', () => {
+  // The gap between two blocks in a split day is not a special case in the
+  // implementation -- the afternoon block's open time is simply the earliest
+  // one still ahead of `at` -- but it is worth its own test because a naive
+  // "closed now, so just report tomorrow" implementation would miss it.
+  it('finds the later block of a split day when asked from inside the gap between them', () => {
+    const split: OpeningHours = { mon: [{ open: '09:00', close: '13:00' }, { open: '15:00', close: '18:00' }] };
+    expect(nextOpeningLabel(split, at(MONDAY, '14:00'))).toBe('opens 3pm');
+  });
+
+  it('finds a single block still ahead later today', () => {
+    expect(nextOpeningLabel(NINE_TO_SIX, at(MONDAY, '07:00'))).toBe('opens 9am');
+  });
+
+  // 13:00 -> 1pm is the one required mapping none of the other cases below
+  // happen to cover on their own.
+  it('formats a 13:00 opening as 1pm', () => {
+    expect(nextOpeningLabel({ mon: [{ open: '13:00', close: '18:00' }] }, at(MONDAY, '07:00'))).toBe('opens 1pm');
+  });
+
+  it('names tomorrow when nothing is left today but tomorrow has hours', () => {
+    const hours: OpeningHours = { tue: [{ open: '08:00', close: '18:00' }] };
+    expect(nextOpeningLabel(hours, at(MONDAY, '20:00'))).toBe('opens tomorrow, 8am');
+  });
+
+  // 00:00 -> 12am can only ever be reached on a FUTURE day (see
+  // formatClockTime's own reasoning) -- there is no "later today" reading of
+  // midnight once `at` is already past it.
+  it('formats a midnight opening as 12am, on a future day', () => {
+    const hours: OpeningHours = { tue: [{ open: '00:00', close: '23:59' }] };
+    expect(nextOpeningLabel(hours, at(MONDAY, '22:00'))).toBe('opens tomorrow, 12am');
+  });
+
+  // Says which day, not just "later this week" -- and 08:30 -> 8:30am is the
+  // one required mapping this case happens to cover.
+  it('names the day when the next opening is later in the week', () => {
+    const hours: OpeningHours = { thu: [{ open: '08:30', close: '18:00' }] };
+    expect(nextOpeningLabel(hours, at(MONDAY, '20:00'))).toBe('opens Thursday, 8:30am');
+  });
+
+  // Configured, but nothing in the coming week -- not the same as never
+  // configured (isConfigured would say true here), and not usefully described
+  // by naming a day two Tuesdays away.
+  it('returns null when hours are configured but nothing opens within a week', () => {
+    expect(nextOpeningLabel(NINE_TO_SIX, at(MONDAY, '20:00'))).toBeNull();
+  });
+
+  it('returns null for a shop that has never set hours at all', () => {
+    expect(nextOpeningLabel({}, at(MONDAY, '20:00'))).toBeNull();
+  });
+
+  // An invalid block is skipped rather than trusted, the same discipline
+  // isOpenAt applies to the exact same shape of input.
+  it('ignores an invalid range while looking for the next opening', () => {
+    const hours: OpeningHours = { mon: [{ open: '18:00', close: '09:00' }, { open: '15:00', close: '18:00' }] };
+    expect(nextOpeningLabel(hours, at(MONDAY, '10:00'))).toBe('opens 3pm');
   });
 });
 

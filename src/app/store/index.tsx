@@ -341,12 +341,18 @@ export default function StoreDirectoryScreen() {
         ListFooterComponent={shown.length > 0
           ? <DirectoryFooter wideHow={columns > 1} onOpenShop={() => router.push('/signup')} />
           : null}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <View style={styles.cell}>
             {item ? (
               <ShopDirectoryCard
                 shop={item}
                 colors={colors}
+                // FlatList's own flat index across `cells` -- padding cells
+                // included, though they never render a card to receive it --
+                // is what lets directoryEntranceDelay (shop-directory-card.tsx)
+                // stagger the grid by position rather than every card
+                // entering on the same frame.
+                index={index}
                 onPress={(slug) => router.push(`/store/${slug}`)}
               />
             ) : null}
