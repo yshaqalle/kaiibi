@@ -10,7 +10,7 @@ import {
 } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, TILE_SCRIM, SPACE, TABULAR, TYPE,
+  LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, TILE_SCRIM, SPACE, TABULAR, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontCategory, StorefrontProduct } from '@/types/models';
@@ -432,10 +432,17 @@ const styles = StyleSheet.create({
   title: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   count: { fontSize: TYPE.metaSmall, fontWeight: '700' },
   row: { flexDirection: 'row', gap: 8, paddingRight: SPACE.page },
+  // CategoryPill -- the fallback this band renders when a category has no
+  // product photo to make a tile from (see the CategoryTile/CategoryPill
+  // branch above: `photos.get(category.name)` came back empty). No shop's
+  // catalogue is guaranteed to have a photographed leader for every
+  // category, so a real customer reaches this row as often as the tile one --
+  // it takes the same floor. `alignItems: 'center'` already centres the
+  // glyph-and-label row against the taller box.
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 10,
-    borderWidth: 1,
+    borderWidth: 1, minHeight: TOUCH_TARGET,
   },
   name: { fontSize: 12.5, fontWeight: '800' },
   meta: { fontSize: 12.5, fontWeight: '700', ...TABULAR },

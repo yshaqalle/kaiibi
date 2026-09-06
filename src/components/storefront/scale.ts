@@ -106,6 +106,39 @@ export const SPACE = {
   cardGap: 14,
 } as const;
 
+// THE TOUCH-TARGET FLOOR.
+//
+// Live, measured, at 390px: Add and Ask -- the two buttons this entire page
+// exists to offer -- were 26px tall. Cart and the WhatsApp button were 31px.
+// The directory's own CTA was 37-39px. None of those numbers came from a
+// decision; each is a padding value that "looked right" on a design pass that
+// was never checked against a thumb. 44 is not one of those guesses -- it is
+// Apple's HIG minimum comfortable tap target (Material's own floor, 48dp, is
+// higher still), and this page's whole audience is the one HIG wrote that
+// number for: a customer arriving over a forwarded WhatsApp link, on a phone,
+// often outdoors, often on the cheapest Android sold.
+//
+// WHY THIS FOLDER NEEDS ITS OWN CONSTANT rather than every component picking
+// a padding that looks right: that is exactly the failure mode this fixes.
+// Six differently-sized controls did not happen because six people disagreed
+// about touch targets -- it happened because nothing here NAMED the target,
+// so nobody had a number to check against. A single import is what makes
+// "is this control reachable" a fact a call site states rather than a
+// padding it happens to imply.
+//
+// A FLOOR, not a padding bump: `minHeight` only raises a control that is
+// currently under it and changes nothing else about how it looks, where
+// MORE padding would inflate the box of every button on the page, including
+// the ones that were already fine. Icon-only controls also take a matching
+// `minWidth` -- a tap target that is 44 tall and 20 wide is still a target a
+// thumb can miss sideways. Where a control genuinely cannot grow without
+// breaking its own layout, `hitSlop` is the documented way out: it enlarges
+// the area that ANSWERS a tap without moving the pixel the eye sees, which
+// is exactly what a control drawn small on purpose (Counter's dense price
+// row, built to keep a 200-line catalogue scannable) needs instead of a
+// floor that would undo the density it exists for.
+export const TOUCH_TARGET = 44;
+
 // WHAT ACTUALLY CAUSED THE SCREENSHOT THIS REDESIGN CAME FROM.
 //
 // Nothing in this folder bounded its own width -- `grep -rn maxWidth

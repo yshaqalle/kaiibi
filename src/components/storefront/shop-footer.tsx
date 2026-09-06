@@ -2,7 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { WhatsAppButton } from '@/components/storefront/theme-shared';
-import { DISPLAY_FONT, LETTER, SPACE, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, SPACE, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import { openExternalUrl } from '@/lib/external-url';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { PaletteColors } from '@/lib/storefront-catalog';
@@ -97,7 +97,13 @@ const styles = StyleSheet.create({
   place: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase', marginTop: 6 },
   rule: { height: 1, marginTop: 20 },
   terms: { fontSize: TYPE.metaSmall + 1, marginTop: 16 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 19, alignSelf: 'flex-start' },
+  // Measured 29px -- a row's cross axis is vertical, so `alignItems: 'center'`
+  // (already here, for the mark and the two-line lockup) is what centres the
+  // mark and text against the taller box `minHeight` now reserves; no
+  // `justifyContent` change needed the way a single-Text button needs one,
+  // because this row's main axis is horizontal and nothing here should shift
+  // sideways.
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 19, alignSelf: 'flex-start', minHeight: TOUCH_TARGET },
   brandMark: { width: 21, height: 21 },
   brandEyebrow: {
     fontSize: TYPE.metaSmall - 1, fontWeight: '800',

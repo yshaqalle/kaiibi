@@ -16,7 +16,7 @@ import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
   DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, PROSE_MAX_WIDTH, RADIUS, SHOP_MAX_WIDTH, SPACE,
-  TABULAR, TYPE,
+  TABULAR, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
@@ -740,6 +740,27 @@ type ProductActionsProps = {
   canFlyToCart?: boolean;
 };
 
+// WHY `compact` GETS hitSlop RATHER THAN TOUCH_TARGET.
+//
+// `buttonCompact` (below) is `paddingVertical: 3` on a 10.5px label -- roughly
+// 19px measured, in Counter's price-list row, the ONE place this pair renders
+// beside a THIRD thing fighting the same line: `styles.price` sits to the
+// right of this whole row, at Counter's own row scale, and the row's height
+// is what a customer scans 200 times down one shop. Growing the button to 44
+// would nearly triple that row's height on every single line -- undoing
+// exactly the density Counter exists to offer (see theme-counter.tsx's own
+// header comment: "the theme that makes a 200-line pharmacy catalogue
+// readable"). That is the "genuinely cannot grow without breaking the
+// design" case scale.ts's TOUCH_TARGET comment names, and hitSlop is the
+// named alternative: it answers a tap without moving a pixel a customer
+// scanning the list actually sees.
+//
+// The numbers: 19px measured tall, ~30px measured wide (9px horizontal
+// padding either side of a 3-4 letter label at 10.5px bold). Top/bottom
+// pushes the tap area to 19 + 2*13 = 45px; left/right to 30 + 2*8 = 46px --
+// both just over TOUCH_TARGET, not merely "some slop".
+const COMPACT_BUTTON_HIT_SLOP = { top: 13, bottom: 13, left: 8, right: 8 };
+
 // The Add/Ask pair every theme with per-product actions needs. Originally
 // lived only in ProductTile (Market, Window); Counter has its own row layout
 // and so cannot reuse ProductTile itself, only the two rules its actions
@@ -777,7 +798,14 @@ export function ProductActions({
         <Pressable
           testID="product-tile-add"
           accessibilityRole="button"
-          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }])}
+          // TOUCH_TARGET on the ordinary (non-compact) button -- ProductTile's
+          // grid tile, where Add is the reason this page exists and there is
+          // nothing beside it competing for height. `compact` gets the
+          // opposite treatment, `hitSlop` rather than the floor -- see
+          // `COMPACT_BUTTON_HIT_SLOP`'s own comment below for the measurement
+          // that makes minHeight the wrong tool there.
+          style={pressable([styles.button, compact ? styles.buttonCompact : styles.buttonFloor, { backgroundColor: colors.accent }])}
+          hitSlop={compact ? COMPACT_BUTTON_HIT_SLOP : undefined}
           // fireFlyToCart reads the press's own window-space coordinate --
           // pageX/pageY, unaffected by how far this tile's grid has been
           // scrolled -- and hands it to whatever FlyToCartLayer is mounted
@@ -815,7 +843,8 @@ export function ProductActions({
         <Pressable
           testID="product-tile-ask"
           accessibilityRole="button"
-          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }])}
+          style={pressable([styles.button, compact ? styles.buttonCompact : styles.buttonFloor, { backgroundColor: WHATSAPP_BUTTON_GREEN }])}
+          hitSlop={compact ? COMPACT_BUTTON_HIT_SLOP : undefined}
           onPress={handleAsk}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
@@ -1824,7 +1853,19 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 14 },
   dot: { width: 9, height: 9, borderRadius: RADIUS.pill },
   stockLine: { fontSize: 11.5, marginTop: 10 },
-  pill: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 12, alignItems: 'center' },
+  // minHeight on the BASE style, not `tightPill` -- the narrow layout's own
+  // override only touches padding, so the floor set here survives both call
+  // sites (ShopHeader's `wide` branch keeps `pill` bare; the narrow branch
+  // layers `tightPill`'s smaller padding on top, and RN's shallow per-key
+  // merge leaves a key neither object repeats -- `minHeight` -- exactly as
+  // this one set it). storefront-cart-button measured 31px through
+  // `tightPill` before this; ShopPill has no other caller (`grep -rn
+  // ShopPill src` turns up only this file's own definition and the two calls
+  // in ShopHeader below), so there is no second button to check.
+  pill: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 12,
+    alignItems: 'center', justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   pillText: { fontSize: 13, fontWeight: '800' },
   blockPill: { alignSelf: 'stretch' },
   tightPill: { paddingHorizontal: 14, paddingVertical: 8 },
@@ -1843,17 +1884,32 @@ const styles = StyleSheet.create({
   pairCard: { flex: 1 },
 
   // Fixed green in every palette: a recognised affordance, not a brand colour.
-  wa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  // Measured 31px before TOUCH_TARGET -- `paddingVertical: 8` chosen to look
+  // right, the same way Cart's own padding was, never checked against a
+  // thumb until now.
+  wa: {
+    backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   waText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
   emptyBlock: { paddingHorizontal: 24, paddingVertical: 30, alignItems: 'center' },
   emptyHead: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
   emptyBody: { fontSize: 13, lineHeight: 19, marginTop: 7, textAlign: 'center', maxWidth: 320 },
-  emptyAction: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14 },
+  // Shared by `storefront-empty-clear-category` and `storefront-search-empty-clear`
+  // (both call sites pass this same key) -- the "show everything" way out of
+  // an empty grid, one control fixed once for both.
+  emptyAction: {
+    borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   emptyActionText: { fontSize: 12.5, fontWeight: '800' },
   // WhatsApp's own fixed colours, same as WhatsAppButton above -- never the
   // shop's palette.
-  emptyWa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
+  emptyWa: {
+    backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page },
   // The two placements this field ships in -- see the `floating` prop above.
@@ -1890,17 +1946,42 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   searchGlyph: { fontSize: TYPE.body, opacity: 0.7 },
-  searchInput: { flex: 1, padding: 0, fontSize: TYPE.body },
-  searchClear: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8 },
+  // `storefront-search` measured 16px -- the TextInput sizes to its own text
+  // line, nothing else in this card asked it to be taller. minHeight here
+  // (not more paddingVertical on `searchCard`, which would also puff up the
+  // card sitting around every OTHER child) grows the field itself; the card
+  // stays `alignItems: 'center'` so the glyph and Clear stay vertically
+  // centred against the now-taller box rather than pinned to its old height.
+  searchInput: { flex: 1, padding: 0, fontSize: TYPE.body, minHeight: TOUCH_TARGET },
+  searchClear: {
+    borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
-  cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  // `CartButton` below this point in the file has no caller left (`grep -rn
+  // CartButton src/components/storefront` after ShopHeader moved to
+  // `ShopPill` turns up only this definition) -- kept at TOUCH_TARGET anyway
+  // for whichever future caller reaches for the obvious name, not because
+  // anything renders it today. See `pill`'s own comment above for the button
+  // actually on screen.
+  cart: {
+    borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   cartText: { fontSize: 12.5, fontWeight: '800' },
-  filterChip: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14, marginTop: 12 },
+  filterChip: {
+    alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14,
+    marginTop: 12, minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   filterChipText: { fontSize: 12.5, fontWeight: '800' },
   // Full-size default: ProductTile's grid tile, where the pair fills the
   // tile's own width evenly.
   actions: { flexDirection: 'row', gap: 6 },
   button: { flex: 1, borderRadius: 9, paddingVertical: 6, alignItems: 'center' },
+  // The floor, layered on top of `button` only for the non-`compact` call --
+  // see `COMPACT_BUTTON_HIT_SLOP`'s own comment above for why `compact`
+  // reaches for hitSlop instead of this.
+  buttonFloor: { minHeight: TOUCH_TARGET, justifyContent: 'center' },
   buttonText: { fontSize: 12, fontWeight: '800' },
   // Row scale: Counter's dense price list, where the pair sits inline next
   // to the stock label rather than filling a row's width.

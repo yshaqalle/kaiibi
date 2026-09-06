@@ -8,7 +8,7 @@ import Animated, { FadeInUp, useReducedMotion } from 'react-native-reanimated';
 import { supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TYPE,
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import { isConfigured, isOpenAt, nextOpeningLabel } from '@/lib/store-hours';
 import { shopBlurb } from '@/lib/storefront-directory';
@@ -340,7 +340,14 @@ export function ShopDirectoryCard({
 const styles = StyleSheet.create({
   // The entrance wrapper's own flex -- see the comment at its call site above.
   cardShell: { flex: 1 },
-  card: { borderRadius: RADIUS.card, padding: 12, flex: 1, minWidth: 0 },
+  // `minHeight` is belt and braces -- this card always carries a 16:10 photo
+  // (or the monogram plate standing in for one) plus a name and a meta line
+  // below it, comfortably past TOUCH_TARGET at any column width the grid
+  // renders. Stated anyway, the same reasoning `info` carries in
+  // product-tile.tsx: react-test-renderer never lays a card out from its
+  // children's own sizes, so this is what lets the sweep test confirm
+  // "reachable" as a fact rather than assume it from a photo's aspect ratio.
+  card: { borderRadius: RADIUS.card, padding: 12, flex: 1, minWidth: 0, minHeight: TOUCH_TARGET },
   photo: {
     aspectRatio: 16 / 10, borderRadius: RADIUS.inset, overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
@@ -383,7 +390,11 @@ const styles = StyleSheet.create({
 
   // Sized here rather than on an inner `Image` now: with a photo, this
   // `Pressable` IS the photo's own footprint, not a block sitting above one.
-  feature: { borderRadius: RADIUS.card, overflow: 'hidden' },
+  // `minHeight` covers the no-photo branch -- `featureArtWide`/`featureArtTall`
+  // (below) only apply `hasPhoto`, so a shop with none would otherwise reach
+  // this Pressable's own base style alone, which set no height of its own at
+  // all before this.
+  feature: { borderRadius: RADIUS.card, overflow: 'hidden', minHeight: TOUCH_TARGET },
   featureArtWide: { height: 220 },
   featureArtTall: { aspectRatio: 16 / 10 },
   // The photo and its scrim share this -- both fill whatever `feature`,

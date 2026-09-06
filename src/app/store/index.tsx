@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import {
   DIRECTORY_GAP, DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard,
   directoryColumnsForWidth, featuredShop,
@@ -577,8 +577,14 @@ const styles = StyleSheet.create({
     paddingLeft: 18, paddingRight: 6, paddingVertical: 6,
   },
   searchIcon: { fontSize: 15 },
-  search: { flex: 1, paddingVertical: 10, fontSize: TYPE.body + 1.5 },
-  searchClear: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11 },
+  // Measured 38px -- `searchRow` is a row (alignItems: 'center' above), so
+  // growing the input's own minHeight is enough; the row centres it and the
+  // glyph/Clear beside it without either of those needing its own change.
+  search: { flex: 1, paddingVertical: 10, fontSize: TYPE.body + 1.5, minHeight: TOUCH_TARGET },
+  searchClear: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
 
   featureWrap: { paddingBottom: 4 },
@@ -594,7 +600,13 @@ const styles = StyleSheet.create({
   navSpacer: { flex: 1 },
   // Bigger gap than the old nav's `brand` (10 -> 12): the mark plate below is
   // itself bigger, and the two need to keep the same visual ratio.
-  lockup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  //
+  // `minHeight` is belt and braces -- `mark` below is already a fixed 44x44,
+  // which this row's `alignItems: 'center'` already stretches the Pressable
+  // to fit. Stated directly anyway: react-test-renderer never lays out a
+  // parent from its children's own dimensions, so nothing short of this
+  // states "reachable" as a fact the sweep test can check.
+  lockup: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: TOUCH_TARGET },
   // 44px, up from the old ink plate's 32px -- "masthead scale" per the design
   // record above, because this plate is no longer one of two lockups on the
   // page, it is the only one.
@@ -610,7 +622,11 @@ const styles = StyleSheet.create({
   // reads at a size that can carry that job alone rather than the old nav's
   // 18px aside-to-a-headline size.
   wordmark: { fontSize: 26, fontWeight: '800', letterSpacing: LETTER.displayLoud },
-  navCta: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11 },
+  // Measured 37px -- "Open a shop", the directory's own conversion CTA.
+  navCta: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   navCtaText: { fontSize: 13, fontWeight: '800' },
   // One line, directly under the lockup row -- the promise the eyebrow pill,
   // headline and lede used to take three lines and two repetitions of
@@ -621,7 +637,15 @@ const styles = StyleSheet.create({
   },
 
   chips: { flexDirection: 'row', gap: 8, paddingBottom: 6, paddingRight: SPACE.page },
-  chip: { borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1 },
+  // The city/category rows -- CityChip renders both, only the testID prefix
+  // differs (see that component's own comment). Every one of these is a real
+  // filter a thumb has to hit inside a horizontally-scrolling row, not a
+  // static label, so it takes the same floor everything else on this page
+  // just did.
+  chip: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   chipText: { fontSize: 12.5, fontWeight: '800' },
 
   rowHead: {
@@ -657,12 +681,20 @@ const styles = StyleSheet.create({
   footer: { borderRadius: RADIUS.card, padding: SPACE.card, marginTop: 32 },
   footerMark: { fontFamily: DISPLAY_FONT, fontSize: 20, fontWeight: '700', letterSpacing: LETTER.display },
   footerLine: { fontSize: TYPE.metaSmall + 1, marginTop: 8 },
-  footerCta: { borderRadius: RADIUS.pill, paddingHorizontal: 20, paddingVertical: 12, alignSelf: 'flex-start', marginTop: 18 },
+  // Measured 39px -- the last control on the page, and the second ask for
+  // the same conversion `navCta` above already makes once.
+  footerCta: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 20, paddingVertical: 12, alignSelf: 'flex-start', marginTop: 18,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   footerCtaText: { fontSize: 13, fontWeight: '800' },
 
   empty: { borderRadius: RADIUS.card, paddingVertical: 46, paddingHorizontal: 24, alignItems: 'center' },
   emptyTitle: { fontSize: 17, fontWeight: '800', letterSpacing: LETTER.display, textAlign: 'center' },
   emptyBody: { fontSize: TYPE.body, lineHeight: 19, marginTop: 8, textAlign: 'center', maxWidth: 340 },
-  emptyAction: { borderRadius: RADIUS.pill, paddingHorizontal: 20, paddingVertical: 11, marginTop: 18 },
+  emptyAction: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 20, paddingVertical: 11, marginTop: 18,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   emptyActionText: { fontSize: 13, fontWeight: '800' },
 });

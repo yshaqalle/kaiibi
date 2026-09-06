@@ -4,7 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { ProductActions } from '@/components/storefront/theme-shared';
-import { DISPLAY_FONT, LETTER, RADIUS, TABULAR, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, RADIUS, TABULAR, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
@@ -300,7 +300,17 @@ const styles = StyleSheet.create({
   // any pressable inside it. Transform + shadow only, no layout property,
   // so this never displaces a neighbour in the grid it sits in.
   tileHovered: { transform: [{ translateY: -3 }], shadowOpacity: 0.13, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
-  info: {},
+  // `minHeight` here is belt and braces, not the thing doing the work -- the
+  // aspect-ratio-1 photo box below it already guarantees this Pressable is
+  // far past TOUCH_TARGET at any column width this grid renders (390px at
+  // two columns is already a ~165px-tall box). It is stated anyway so "is
+  // Info reachable" is a fact this style asserts rather than one that
+  // happens to be true because of a sibling's own aspect ratio -- the same
+  // "a call site should state it, not imply it" argument TOUCH_TARGET's own
+  // comment (scale.ts) makes, and the only way the sweep test below can see
+  // it at all: react-test-renderer never lays out `aspectRatio`, so nothing
+  // here can confirm the box's real height without this.
+  info: { minHeight: TOUCH_TARGET },
   // Square, not 4:5. A taller box is better for photographs and worse for the
   // plate, and the plate is the majority case -- 4:5 spends the extra height
   // on empty soft.
