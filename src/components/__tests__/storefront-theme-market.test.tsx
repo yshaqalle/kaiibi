@@ -5,7 +5,8 @@ import { ThemeMarket } from '@/components/storefront/theme-market';
 import { SPACE } from '@/components/storefront/scale';
 import { CHECKOUT_BAR_CLEARANCE } from '@/components/storefront/theme-shared';
 import { paletteColors } from '@/lib/storefront-catalog';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import { SEARCH_THRESHOLD } from '@/lib/storefront-search';
+import type { PublicStorefront, StorefrontFlyer, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
@@ -85,7 +86,117 @@ async function renderMarket(slug: string) {
   return tree;
 }
 
+// Task 14's slot: the flyer band belongs directly under the floating
+// search and above the categories. `toJSON()` yields HOST nodes only, in
+// DOCUMENT order -- the same reason storefront-flyer-carousel.test.tsx's own
+// `hostNodes` walker exists, and the property this suite needs: not merely
+// that all three render, but that they render in THIS order. Task 13 shipped
+// a defect (the search's own -21px pull landing on the wrong sibling) that
+// every structural "does it exist" test passed -- this is written the way
+// that task's own retrospective asks for, as a check of who comes before
+// whom, not just who is present.
+type HostNode = { type: string; props: Record<string, unknown>; children: unknown[] | null };
+
+function hostNodes(tree: ReturnType<typeof create>): HostNode[] {
+  const out: HostNode[] = [];
+  const walk = (node: unknown) => {
+    if (!node || typeof node === 'string') return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const host = node as HostNode;
+    out.push(host);
+    (host.children ?? []).forEach(walk);
+  };
+  walk(tree.toJSON() as unknown);
+  return out;
+}
+
+function firstIndexOfTestId(nodes: HostNode[], testID: string): number {
+  return nodes.findIndex((node) => node.props?.testID === testID);
+}
+
+function flyer(id: string): StorefrontFlyer {
+  return {
+    id, imageUrl: null, headline: `Flyer ${id}`, subline: null,
+    linkKind: 'none', linkValue: null, offer: null,
+  };
+}
+
 describe('ThemeMarket', () => {
+  // The regression this pins: FlyerCarousel renders between ShopHeader's
+  // floating search (narrow layout, the default width react-test-renderer
+  // uses -- see storefront-search-float.test.tsx's identical reliance on
+  // that) and CategoryBand, in document order. Two flyers so the multi-slide
+  // band (dots, a real `storefront-flyer-band`) renders rather than the
+  // single-flyer static case; two categories clears CATEGORY_BAND_MINIMUM so
+  // CategoryBand renders at all rather than returning null with nothing to
+  // be a sibling of.
+  it('places the flyer band between the floating search and the category band', async () => {
+    // SEARCH_THRESHOLD products, split across two categories -- enough to
+    // clear both shouldOfferSearch (the floating search) and
+    // CATEGORY_BAND_MINIMUM (the category band), so both of the flyer
+    // band's neighbours actually render rather than the assertion passing
+    // vacuously against two nodes that were never there.
+    const catalogue: StorefrontProduct[] = Array.from({ length: SEARCH_THRESHOLD }, (_, i) => ({
+      id: `sp${i}`,
+      name: `Product ${i}`,
+      description: null,
+      category: i % 2 === 0 ? 'Phone' : 'Cable',
+      priceCents: 1000 + i,
+      stock: 5,
+      imageUrl: null,
+    }));
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, slug: 'xamdi-market-flyer-slot', flyers: [flyer('f1'), flyer('f2')] }}
+          products={catalogue}
+          categories={[
+            { name: 'Phone', imageUrl: null, productCount: catalogue.length / 2 },
+            { name: 'Cable', imageUrl: null, productCount: catalogue.length / 2 },
+          ]}
+          colors={colors}
+        />,
+      );
+    });
+
+    const nodes = hostNodes(tree);
+    const searchIndex = firstIndexOfTestId(nodes, 'storefront-search');
+    const flyerIndex = firstIndexOfTestId(nodes, 'storefront-flyer-band');
+    const categoryIndex = firstIndexOfTestId(nodes, 'storefront-category-band');
+
+    expect(searchIndex).toBeGreaterThan(-1);
+    expect(flyerIndex).toBeGreaterThan(-1);
+    expect(categoryIndex).toBeGreaterThan(-1);
+    expect(searchIndex).toBeLessThan(flyerIndex);
+    expect(flyerIndex).toBeLessThan(categoryIndex);
+  });
+
+  // The requirement most likely to regress silently, per the brief: a shop
+  // with no flyers gets no frame at all, not an empty band sitting between
+  // the search and the categories.
+  it('renders no flyer band at all when the shop has no flyers', async () => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, slug: 'xamdi-market-no-flyers', flyers: [] }}
+          products={products}
+          categories={[]}
+          colors={colors}
+        />,
+      );
+    });
+    const nodes = hostNodes(tree);
+    expect(firstIndexOfTestId(nodes, 'storefront-flyer-band')).toBe(-1);
+    expect(firstIndexOfTestId(nodes, 'storefront-flyer-slide')).toBe(-1);
+  });
+
+
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
   // space of its own. Task 5 made this unconditional -- the first Add must
   // not reflow the page under the customer's finger, so the grid carries
