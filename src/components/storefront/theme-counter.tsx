@@ -164,11 +164,20 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           `storefront-counter-scroll` checkout-bar-clearance test, which
           still asserts this single scroller carries that padding -- proof
           this file's shape is unchanged, not merely unexamined. */}
-      {/* The inset lives HERE, not inside SearchField. Counter is the one
-          theme that renders the field outside its own padded scroller, so
-          Counter is the one that owes it a gutter -- see searchRow's comment
-          in theme-shared.tsx, where that padding used to live and quietly
-          double up on the two themes that pad their own column. */}
+      {/* THE INSET AND THE BOUND both live HERE, not inside SearchField.
+          Counter is the one theme that renders the field outside its own
+          padded scroller, so Counter is the one that owes it a gutter -- see
+          searchRow's comment in theme-shared.tsx, where that padding used to
+          live and quietly double up on the two themes that pad their own
+          column. The gutter alone was correct only below SHOP_MAX_WIDTH: a
+          bare `paddingHorizontal` on a full-width View agrees with `scroll`
+          below it (bounded and centred at 1320) while the window is
+          narrower than that, and stops agreeing the moment it is not -- at
+          1900px the field's own left edge sat at 16 while the price list's
+          sat at 306, centred inside its own 1320 column. `searchInset` now
+          carries the identical `maxWidth`/`alignSelf` pair `scroll` does, so
+          the two are the SAME column rather than two insets that happen to
+          match under one width. */}
       {shouldOfferSearch(products) ? (
         <View style={styles.searchInset}>
           <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
@@ -280,8 +289,14 @@ const styles = StyleSheet.create({
   scrollContent: { padding: SPACE.page, paddingBottom: 24 },
   // The same gutter `scrollContent` gives everything below it, for the field
   // that sits above it -- so the search lines up with the rows it filters
-  // rather than running to the window's edge.
-  searchInset: { paddingHorizontal: SPACE.page },
+  // rather than running to the window's edge. And the same BOUND `scroll`
+  // above carries too, not only its padding: a gutter alone still lets a
+  // full-width View grow past 1320, where `scroll`'s own column has already
+  // stopped and centred. `width`/`maxWidth`/`alignSelf` here are the
+  // identical three values `scroll` carries, so this is the same column,
+  // not a second one tuned to look the same under 1320 and drift apart
+  // above it.
+  searchInset: { width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center', paddingHorizontal: SPACE.page },
   // Less vertical padding than a normal card: the first thing inside is a
   // section eyebrow that brings its own leading, and the rows below it are
   // meant to run close together.

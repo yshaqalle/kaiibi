@@ -195,7 +195,18 @@ describe('a product description reaches the customer', () => {
 // function that is never actually called.
 describe('the sheet fits the window it opens in', () => {
   describe('sheetWidthFor', () => {
-    it('fills a phone window edge to edge, below its own cap', () => {
+    // Renamed from "fills a phone window edge to edge" -- that was a claim
+    // about the RENDERED sheet, and it was false: a fixed pixel `width` of
+    // 390 inside an overlay that ALSO pads itself (`padding: SPACE.cardGap`)
+    // does not shrink for that padding, so the sheet rendered at 390 in a
+    // window that also had to fit 14px of padding on each side of it,
+    // touching both edges. The number this function returns below its own
+    // cap is still exactly the window width -- that arithmetic was never
+    // wrong -- but it is now applied as a `maxWidth` ceiling on a `width:
+    // '100%'` box (see the sheet-fits-the-padding block below), the same
+    // pair CartSheet's own `sheet` style already used, which is what lets
+    // the overlay's padding actually take effect.
+    it('is exactly the window width below its own cap', () => {
       expect(sheetWidthFor(390)).toBe(390);
     });
 
@@ -283,13 +294,19 @@ describe('the sheet fits the window it opens in', () => {
   // number renders identically at both window sizes, which is exactly the
   // defect a value-only assertion (`maxHeight === 280`) cannot catch, and
   // exactly why this test compares the two renders to each other.
-  it('renders a narrower sheet and a shorter photo on a 1512x700 laptop than on a 390x844 phone', async () => {
+  //
+  // `.maxWidth`, not `.width` -- see this file's own comment on
+  // `sheetWidthFor` above. The sheet's own `width` is the static `'100%'`
+  // CartSheet's `sheet` style already carries (checked separately, below);
+  // `sheetWidthFor`'s result is the CEILING layered on top of it, and that
+  // ceiling is what still has to differ between these two windows.
+  it('caps the sheet narrower, and the photo shorter, on a 1512x700 laptop than on a 390x844 phone', async () => {
     await setWindow(1512, 700);
     const laptop = renderSheet();
     const laptopSheetStyle = sheetStyleOf(laptop);
     const laptopPhotoStyle = photoStyleOf(laptop);
 
-    expect(laptopSheetStyle.width).toBe(sheetWidthFor(1512));
+    expect(laptopSheetStyle.maxWidth).toBe(sheetWidthFor(1512));
     expect(laptopPhotoStyle.maxHeight).toBe(photoHeightCapFor(700));
 
     await setWindow(390, 844);
@@ -297,14 +314,31 @@ describe('the sheet fits the window it opens in', () => {
     const phoneSheetStyle = sheetStyleOf(phone);
     const phonePhotoStyle = photoStyleOf(phone);
 
-    expect(phoneSheetStyle.width).toBe(sheetWidthFor(390));
+    expect(phoneSheetStyle.maxWidth).toBe(sheetWidthFor(390));
     expect(phonePhotoStyle.maxHeight).toBe(photoHeightCapFor(844));
 
     // Not just "correct at both sizes" -- actually DIFFERENT, which is what
     // proves the component calls the function on every render and passes
     // its result through, rather than a number hard-coded beside it.
-    expect(laptopSheetStyle.width).not.toBe(phoneSheetStyle.width);
+    expect(laptopSheetStyle.maxWidth).not.toBe(phoneSheetStyle.maxWidth);
     expect(laptopPhotoStyle.maxHeight).not.toBe(phonePhotoStyle.maxHeight);
+  });
+
+  // THE DEFECT ITSELF (wave-review-fixes.md item 5): a fixed pixel `width`
+  // does not shrink for a padded parent -- `overlay`'s own `padding:
+  // SPACE.cardGap` -- the way a relative `width: '100%'` does. At 390px, a
+  // sheet given a literal `width: 390` renders 390 wide inside a
+  // (390 - 2*SPACE.cardGap)-wide padded box, i.e. touching both window edges
+  // exactly where `overlay`'s own comment ("ending short of that edge")
+  // says it must not. `width: '100%'` is what makes the overlay's padding
+  // bind at all; `sheetWidthFor`'s result then caps how wide that 100% is
+  // allowed to grow on a laptop. This is the same `width: '100%', maxWidth`
+  // pair cart-sheet.tsx's own `sheet` style already uses, for the identical
+  // overlay.
+  it('sizes itself with a relative width, not a fixed pixel one, so the overlay padding actually applies', async () => {
+    await setWindow(390, 844);
+    const style = sheetStyleOf(renderSheet());
+    expect(style.width).toBe('100%');
   });
 });
 

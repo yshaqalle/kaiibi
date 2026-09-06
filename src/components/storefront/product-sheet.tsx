@@ -17,6 +17,21 @@ import type { StorefrontProduct } from '@/types/models';
 // callers and tests keep one obvious place to find it.
 export { SHEET_MAX_WIDTH };
 
+// A CEILING APPLIED TO `width: '100%'`, NOT A WIDTH SET DIRECTLY.
+//
+// This used to be handed straight to the sheet's own `width` -- a fixed
+// pixel number that has no idea `overlay` (below) also carries
+// `padding: SPACE.cardGap` on every side. A fixed-width child ignores a
+// parent's padding; only a RELATIVE size (`100%`) shrinks to fit the padded
+// content box a `padding` actually creates. At 390px that meant a 390-wide
+// sheet inside a 390-wide window that ALSO had 14px of padding to fit on
+// each side of it -- the sheet touched both edges, exactly the "ending short
+// of that edge" `overlay`'s own comment (below) says a sheet must not do.
+// `sheetWidth` (the call site, below) is now handed to `maxWidth` instead,
+// capping how wide the sheet's own `width: '100%'` is allowed to grow once
+// the overlay's padding has already been subtracted -- the identical
+// `width: '100%', maxWidth: SHEET_MAX_WIDTH` pair CartSheet's own `sheet`
+// style already uses against this same overlay shape.
 export function sheetWidthFor(windowWidth: number): number {
   return Math.min(windowWidth, SHEET_MAX_WIDTH);
 }
@@ -89,7 +104,7 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
   return (
     <AppModal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View testID="product-sheet" style={[styles.sheet, { backgroundColor: colors.ground, width: sheetWidth }]}>
+        <View testID="product-sheet" style={[styles.sheet, { backgroundColor: colors.ground, maxWidth: sheetWidth }]}>
           <View style={styles.head}>
             {/* The grab handle is decorative -- a drag-to-dismiss a customer
                 has to discover is not an affordance. The two REAL ways out are
@@ -248,7 +263,18 @@ const styles = StyleSheet.create({
   // Rounded on all four corners now that it floats: two square bottom corners
   // read as "cut off by the window" -- the very thing the inset above exists
   // to stop -- rather than as a card that ends.
-  sheet: { borderRadius: 24, maxHeight: '88%', overflow: 'hidden' },
+  //
+  // `width: '100%'`, capped by `maxWidth: sheetWidth` at the call site --
+  // never a fixed `width` computed in JS. `overlay` above pads itself on
+  // every side; only a relative width shrinks to fit the box that padding
+  // leaves behind, which is what lets this sheet actually end short of the
+  // window's edge on a phone rather than filling it corner to corner. The
+  // identical pair CartSheet's own `sheet` style uses against the same
+  // overlay shape (`width: '100%', maxWidth: SHEET_MAX_WIDTH`) -- see
+  // `sheetWidthFor`'s own comment above for why this one is computed rather
+  // than a bare re-export of that constant (the photo's height cap needs the
+  // same window-derived treatment, and the two are documented together).
+  sheet: { width: '100%', borderRadius: 24, maxHeight: '88%', overflow: 'hidden' },
   // Tall enough to hold the dismiss control that floats in it, so the button
   // sits in its own band rather than half over the photograph below.
   head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4, justifyContent: 'center', minHeight: 42 },

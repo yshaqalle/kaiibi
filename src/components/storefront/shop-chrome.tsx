@@ -5,7 +5,7 @@ import { AboutPanel } from '@/components/storefront/about-panel';
 import { FlyToCartLayer } from '@/components/storefront/fly-to-cart-layer';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import { ShopTabRail, availableTabs, type ShopTabKey } from '@/components/storefront/shop-tabs';
-import { PROSE_MAX_WIDTH, SHOP_MAX_WIDTH } from '@/components/storefront/scale';
+import { PROSE_MAX_WIDTH, SPACE } from '@/components/storefront/scale';
 import { VisitPanel } from '@/components/storefront/visit-panel';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
@@ -53,11 +53,23 @@ export function ShopChrome({
     <View style={styles.root}>
       {/* OUTSIDE the scroller, so it does not scroll away. It is the only way
           back to the goods from a panel, and a rail that has to be scrolled up
-          to is a dead end on a long About tab. */}
+          to is a dead end on a long About tab.
+
+          FULL-BLEED, NOT A SHOP_MAX_WIDTH COLUMN -- this used to wrap
+          ShopTabRail in a bounded, centred column, which read fine while
+          the page below it was bounded to the same measure. Once the grid
+          (and then the header and footer) went full-bleed -- see
+          SHOP_MAX_WIDTH's own comment in scale.ts -- a rail still capped at
+          1320 stopped lining up with anything beneath it: at 1900px the
+          first pill sat at x~=306 while the anchor card sat at x=16. A row
+          of tab controls has no reading-column argument of its own (it is
+          not a sentence, the way SHOP_MAX_WIDTH's history explains a header
+          row is not either) -- it takes the page's own SPACE.page inset
+          directly, via `rail`'s own `paddingHorizontal` (shop-tabs.tsx),
+          the same way the goods grid takes its padding from `page` rather
+          than from a second wrapper around it. */}
       <View style={[styles.rail, { backgroundColor: colors.ground }]}>
-        <View style={styles.column}>
-          <ShopTabRail colors={colors} tabs={tabs} active={active} onSelect={onSelectTab} />
-        </View>
+        <ShopTabRail colors={colors} tabs={tabs} active={active} onSelect={onSelectTab} />
       </View>
 
       {active === 'shop' ? (
@@ -66,18 +78,30 @@ export function ShopChrome({
         // The panels bring their own scroller. The themes' own containers are
         // tuned for a grid -- column wrappers, a checkout-bar clearance, a
         // numColumns key -- and none of that applies to a page of prose.
+        //
+        // FULL-BLEED SCROLLER, PADDED BODY -- the same split the Shop tab's
+        // own page ScrollView makes (theme-market.tsx's `scroller`/`page`):
+        // this used to be the one still bounded to SHOP_MAX_WIDTH itself,
+        // which put `ShopFooter` -- rendered as this scroller's own trailing
+        // child, below -- at 1320 on the About/Visit tabs while the Shop
+        // tab's identical footer ran full-bleed. `body`'s own
+        // `paddingHorizontal: SPACE.page` now gives the footer (and the
+        // prose below) the SAME inset the Shop tab's `page.padding` gives
+        // its header/goods/footer, so the one footer component reads as one
+        // width regardless of which tab is open.
         <ScrollView
           testID="storefront-panel-scroll"
           style={styles.scroller}
           contentContainerStyle={styles.body}
         >
-          {/* PROSE_MAX_WIDTH, not the scroller's own SHOP_MAX_WIDTH -- see
-              scale.ts. The grid earned 1320 for a fifth column; a paragraph
-              read at that width is unreadable, and neither panel bounds its
-              own text. The footer below is deliberately OUTSIDE this View: on
-              the Shop tab it renders inside the theme's own SHOP_MAX_WIDTH
-              scroller, so bounding it to the narrower prose measure here would
-              make the same footer two different widths depending on the tab. */}
+          {/* PROSE_MAX_WIDTH, narrower again than the page's own SPACE.page
+              inset above -- see scale.ts. The grid earned 1320 for a fifth
+              column; a paragraph read at that width is unreadable, and
+              neither panel bounds its own text. The footer below is
+              deliberately OUTSIDE this View, at the SAME level as it is on
+              the Shop tab (a plain trailing child of the padded body, not of
+              a narrower prose wrapper) -- see this ScrollView's own comment
+              above for why that is what keeps the one footer one width. */}
           <View style={styles.prose}>
             {active === 'about' ? (
               <AboutPanel
@@ -108,14 +132,26 @@ export function ShopChrome({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  // Full-bleed fill, bounded content -- the same split the themes' own
-  // scrollers make, so the rail's tone runs edge to edge on a laptop while its
-  // pills stay in the reading column with the goods below them.
+  // Full-bleed, top to bottom -- `rail` is just the ground-tone strip
+  // ShopTabRail paints itself into; the pills inside take their own
+  // SPACE.page inset from `rail`'s own paddingHorizontal (shop-tabs.tsx),
+  // not from a bounded column wrapped around them here (see this file's own
+  // comment above, at the call site, for why that wrapper was the defect).
   rail: { width: '100%' },
-  column: { width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
-  scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
-  body: { paddingBottom: 24 },
-  // Centred within the scroller's own SHOP_MAX_WIDTH column, and narrower
-  // than it -- see PROSE_MAX_WIDTH in scale.ts.
+  // FULL-BLEED, the same as the Shop tab's own page scroller
+  // (theme-market.tsx's `scroller`) -- no `maxWidth` here, so `body` below
+  // is what gives the footer (and, one level deeper, the prose) their
+  // inset, exactly the split the Shop tab makes between its own full-bleed
+  // scroller and its padded `page` contentContainerStyle.
+  scroller: { flex: 1, width: '100%' },
+  // SPACE.page, not SHOP_MAX_WIDTH -- see this file's own comment at the
+  // ScrollView above. This is the inset the footer now shares with the Shop
+  // tab's identical footer; `prose` below narrows further, but only for the
+  // panel's own paragraph, never for the footer sitting outside it.
+  body: { paddingHorizontal: SPACE.page, paddingBottom: 24 },
+  // Narrower than `body`'s own inset -- see PROSE_MAX_WIDTH in scale.ts. No
+  // `alignSelf: 'center'` needed beyond `body`'s own padding for this to
+  // read as centred: at any width `body` already leaves the panel, this
+  // bound is the one still doing work.
   prose: { width: '100%', maxWidth: PROSE_MAX_WIDTH, alignSelf: 'center' },
 });

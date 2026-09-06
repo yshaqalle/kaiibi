@@ -427,7 +427,18 @@ function CategoryPill({
 }
 
 const styles = StyleSheet.create({
-  band: { paddingHorizontal: SPACE.page, paddingTop: 18 },
+  // NO HORIZONTAL PADDING OF ITS OWN. This carried `paddingHorizontal:
+  // SPACE.page`, which double-padded the band: it renders inside
+  // theme-market.tsx's `header`, a plain, unpadded View sitting directly in
+  // the page ScrollView's own already-padded `contentContainerStyle`
+  // (`page: { padding: SPACE.page }`) -- the same column the anchor card,
+  // the goods grid and the footer all sit in with no inset of their own.
+  // 16 (page) + 16 (this) put the first tile at 32 against the anchor's 16.
+  // `head` (the "Shop by category" label) and `row` (the tile/pill
+  // scroller's own contentContainerStyle, which already carries its own
+  // `paddingRight` for the trailing gutter) both take their inset from the
+  // page alone now, the same as everything else in this column.
+  band: { paddingTop: 18 },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 11 },
   title: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   count: { fontSize: TYPE.metaSmall, fontWeight: '700' },

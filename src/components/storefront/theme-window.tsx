@@ -47,23 +47,27 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const shown = searchProducts(inCategory, query);
   const cells = padFinalRow(shown, numColumns);
   // See theme-market.tsx's identical block: the measurement the goods
-  // region's own height is built from, reset on every column-count change so
-  // a stale measurement from the OLD breakpoint cannot survive into the new
-  // one.
+  // region's own height is built from. Reset below, together with
+  // page/header/footer, on any width change -- NOT in its own effect keyed
+  // on `[numColumns]` alone, which is what this file (and theme-market.tsx)
+  // used to do: `key={numColumns}` only remounts the FlatList, and so only
+  // re-measures cell 0, when a resize crosses a column breakpoint, so a
+  // resize that stays inside one band (1300 -> 1500, both 5 columns) left a
+  // stale, old-width measurement in place with nothing to overwrite it.
   const [rowHeight, setRowHeight] = useState<number | null>(null);
-  useEffect(() => setRowHeight(null), [numColumns]);
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
   const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
   // See theme-market.tsx's identical block: three more measurements
   // (page/header/footer) feed goodsFitHeight alongside the two-row cap above,
-  // and all of them -- not just `rowHeight` -- are dropped when the window's
-  // width changes, because the header's cards stack and the footer rewraps at
-  // a breakpoint and their old heights would otherwise size the goods box for
-  // a window that no longer exists.
+  // and all four -- `rowHeight` included, below -- are dropped when the
+  // window's width changes, because the header's cards stack and the footer
+  // rewraps at a breakpoint and their old heights would otherwise size the
+  // goods box for a window that no longer exists.
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
   useEffect(() => {
+    setRowHeight(null);
     setPageHeight(null);
     setHeaderHeight(null);
     setFooterHeight(null);
@@ -229,8 +233,9 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
           // See padFinalRow: a short final row leaves a gap rather than
           // inflating its cells to fill the width.
           data={cells}
-          // See theme-market.tsx's comment on this same pattern,
-          // including why it is also what clears `rowHeight` above.
+          // See theme-market.tsx's comment on this same pattern. `rowHeight`
+          // above is cleared by the width effect now, not by this remount --
+          // see that state's own comment for why.
           key={numColumns}
           numColumns={numColumns}
           keyExtractor={(p, i) => p?.id ?? `pad-${i}`}

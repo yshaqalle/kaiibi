@@ -1,4 +1,4 @@
-import { AccessibilityInfo, type EmitterSubscription, FlatList } from 'react-native';
+import { AccessibilityInfo, Dimensions, type EmitterSubscription, FlatList } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { ThemeMarket } from '@/components/storefront/theme-market';
@@ -252,6 +252,67 @@ describe.each([
     // fires against THIS test rather than logging later against whichever
     // one is running by then.
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  });
+
+  // Task 7 (wave-review-fixes.md item 7): the comment above `pageHeight`'s
+  // own reset effect (theme-market.tsx/theme-window.tsx) claims EVERY
+  // measurement -- rowHeight included -- drops on any width change. The code
+  // only ever dropped `rowHeight` on a COLUMN-COUNT change
+  // (`useEffect(() => setRowHeight(null), [numColumns])`), and a resize that
+  // stays inside one breakpoint band -- 1300 -> 1500 are both 5 columns per
+  // gridColumnsForWidth -- changes `width` without changing `numColumns`, so
+  // the row height measured at the OLD width survived exactly the resize
+  // the comment claimed already handled it. `key={numColumns}` also does not
+  // remount the FlatList across such a resize, so nothing re-measures cell 0
+  // on its own either -- this is the "scrolled deep, cell 0 off-screen, no
+  // fresh measurement arrives" case the brief names, reproduced here by
+  // simply never calling `onLayout` a second time.
+  it('drops the measured row height on a width change even when the column count does not move', async () => {
+    await act(async () => {
+      Dimensions.set({
+        window: { width: 1300, height: 900, scale: 1, fontScale: 1 },
+        screen: { width: 1300, height: 900, scale: 1, fontScale: 1 },
+      });
+    });
+
+    try {
+      // 5 columns at both 1300 and 1500 -- three rows of stock, so the
+      // two-row bound actually depends on a real rowHeight rather than the
+      // `rowCount <= 1` short-circuit that would pass regardless of the bug.
+      const tree = await renderTheme(Theme, shopFor(theme, `xamdi-goods-band-${theme}`), products(5 * 3));
+
+      const cell = tree.root.findAll(
+        (n) => n.props?.testID === 'storefront-goods-row' && typeof n.props?.onLayout === 'function',
+      );
+      act(() => cell[0].props.onLayout({ nativeEvent: { layout: { height: 300 } } }));
+      expect(flatten(goodsList(tree).props.style).maxHeight).toBe(300 * 2 + SPACE.cardGap);
+
+      await act(async () => {
+        Dimensions.set({
+          window: { width: 1500, height: 900, scale: 1, fontScale: 1 },
+          screen: { width: 1500, height: 900, scale: 1, fontScale: 1 },
+        });
+      });
+
+      const afterResize = flatten(goodsList(tree).props.style).maxHeight;
+      // NOT the stale, 300-measured bound -- back to the not-yet-measured
+      // estimate, the same branch a genuinely fresh mount starts in (see
+      // ESTIMATED_ROW_HEIGHT's own comment in theme-shared.tsx).
+      expect(afterResize).not.toBe(300 * 2 + SPACE.cardGap);
+      expect(afterResize).toBe(goodsScrollHeight(null, SPACE.cardGap, 3));
+
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    } finally {
+      // `Dimensions` is a process-global -- restore it for every test after
+      // this one, the same obligation storefront-product-sheet.test.tsx's
+      // own `afterEach` documents for the identical reason.
+      await act(async () => {
+        Dimensions.set({
+          window: { width: 750, height: 1334, scale: 1, fontScale: 1 },
+          screen: { width: 750, height: 1334, scale: 1, fontScale: 1 },
+        });
+      });
+    }
   });
 
   // THE OTHER HALF OF THE WIRING: goodsFitHeight's three extra measurements

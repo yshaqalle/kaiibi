@@ -1916,10 +1916,17 @@ const styles = StyleSheet.create({
   // onto an unpadded page. Market and Window now render it inside the page's
   // own padded column, so its 16 landed on top of the column's 16 and the
   // field sat inset 32 against a hero card, a goods grid and a footer all
-  // sitting at 16 -- the one element on the page that did not line up with
-  // the others. Counter still renders it outside its own padded scroller and
-  // supplies the inset there (`searchInset`), which is where the decision
-  // belongs: a container knows its own margins, a shared field cannot.
+  // sitting at 16. NOT "the one element on the page that did not line up
+  // with the others", though an earlier version of this comment claimed
+  // exactly that -- CategoryBand's own `band` style and CategoryFilterBar's
+  // own `filterChip` carried the identical double-padding bug, in the same
+  // already-padded column, at the same time this comment was written, and
+  // neither was touched by this fix. See those two styles' own comments
+  // (category-band.tsx, and `filterChip` below) for the fix that finally
+  // reaches them. Counter still renders this field outside its own padded
+  // scroller and supplies the inset there (`searchInset`), which is where
+  // the decision belongs: a container knows its own margins, a shared field
+  // cannot.
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   // The two placements this field ships in -- see the `floating` prop above.
   // Non-floating keeps the small gap this row always had above it
@@ -1988,8 +1995,15 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
   },
   cartText: { fontSize: 12.5, fontWeight: '800' },
+  // NO HORIZONTAL MARGIN OF ITS OWN. This carried `marginHorizontal: 14` --
+  // Market and Window render it directly inside the page's own already-
+  // padded column (see CategoryBand's `band` style, category-band.tsx, for
+  // the identical bug on its sibling), so 16 (page) + 14 (this) put the chip
+  // at 30 against the anchor card's 16. `alignSelf: 'flex-start'` means only
+  // the LEFT half of that margin ever did anything -- the chip does not
+  // stretch to fill its row, so a right margin here moved nothing.
   filterChip: {
-    alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14,
+    alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7,
     marginTop: 12, minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
   },
   filterChipText: { fontSize: 12.5, fontWeight: '800' },

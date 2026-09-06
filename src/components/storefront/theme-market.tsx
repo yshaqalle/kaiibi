@@ -49,38 +49,55 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   const cells = padFinalRow(shown, numColumns);
   // THE MEASUREMENT the goods region's own height is built from -- see
   // goodsScrollHeight's comment in theme-shared.tsx for why this cannot be a
-  // constant. Reset on every column-count change: `key={numColumns}` below
-  // already remounts the FlatList at that point, and a measurement taken at
-  // the OLD column count (a different tile height) would otherwise survive
-  // into the new one until a fresh layout happened to overwrite it.
+  // constant. Reset below alongside pageHeight/headerHeight/footerHeight, on
+  // ANY width change -- not only a column-count change. An earlier version
+  // reset this one alone, on `[numColumns]`: `key={numColumns}` remounts the
+  // FlatList exactly when the column count crosses a breakpoint, so that
+  // case was covered, but a resize that stays inside one breakpoint band
+  // (1300 -> 1500 are both 5 columns, see gridColumnsForWidth) changes
+  // `width` without changing `numColumns` at all. `onLayout` is wired only
+  // to cell 0 (see `renderItem` below), and a long enough grid can have
+  // scrolled cell 0 out of the virtualized window by the time that resize
+  // happens -- no fresh measurement arrives to overwrite the stale one, and
+  // the box kept a height computed for a tile the new width no longer draws.
+  // Dropping it with the other three re-enters the same "not yet measured"
+  // branch they already handle (see the effect below), rather than trusting
+  // a number that was only ever true for a width the window has left.
   const [rowHeight, setRowHeight] = useState<number | null>(null);
-  useEffect(() => setRowHeight(null), [numColumns]);
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
   const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
   // THE PAGE'S OWN FIT -- three more measurements (the page scroller's own
   // laid-out height, the header, the footer), fed to goodsFitHeight
-  // alongside the two-row cap above. None of these three reset on a
-  // column-count change the way `rowHeight` does: the header and footer's
-  // own content does not depend on numColumns, and the page's own height is
-  // a property of the WINDOW, not the grid inside it -- see
-  // goodsFitHeight's own comment in theme-shared.tsx for the arithmetic.
+  // alongside the two-row cap above. Reset together with `rowHeight`, below,
+  // on any width change: the header and footer's own content does not
+  // depend on numColumns specifically, and the page's own height is a
+  // property of the WINDOW, not the grid inside it -- see goodsFitHeight's
+  // own comment in theme-shared.tsx for the arithmetic.
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
-  // EVERY MEASUREMENT IS DROPPED WHEN THE WINDOW CHANGES WIDTH, not only the
-  // row's. The first version reset `rowHeight` alone, on the reasoning that
-  // the header and footer's own content does not depend on the column count.
-  // That reasoning is about CONTENT and the measurements are about LAYOUT:
-  // the header's three cards stack below `isWideShop` and unstack above it,
-  // and the footer rewraps -- so both really do change height with the width,
-  // and a width change that kept their old numbers left the goods box sized
-  // for a window that no longer exists. That is the "transition between
-  // screen sizes is not working" the customer saw: the numbers were right for
-  // whichever width the page happened to load at, and stale at every width it
-  // was resized to afterwards. Dropping all four to null re-enters the
-  // not-yet-measured branch for one frame, which every consumer already
-  // handles, and the fresh onLayout events land immediately after.
+  // EVERY MEASUREMENT IS DROPPED WHEN THE WINDOW CHANGES WIDTH, ROWHEIGHT
+  // INCLUDED. An earlier version reset `rowHeight` in its own effect, keyed
+  // on `[numColumns]` alone, on the reasoning that the header and footer's
+  // own content does not depend on the column count. That reasoning is about
+  // CONTENT and the measurements are about LAYOUT: the header's three cards
+  // stack below `isWideShop` and unstack above it, and the footer rewraps --
+  // so both really do change height with the width, and a width change that
+  // kept their old numbers left the goods box sized for a window that no
+  // longer exists. That is the "transition between screen sizes is not
+  // working" the customer saw: the numbers were right for whichever width
+  // the page happened to load at, and stale at every width it was resized to
+  // afterwards. `rowHeight` had the identical exposure and a second,
+  // narrower way to actually go stale in practice: `key={numColumns}`
+  // remounts the FlatList (and so re-measures cell 0) only when a resize
+  // crosses a COLUMN breakpoint, so a resize that stays inside one band
+  // (1300 -> 1500, both 5 columns) changed the width under a tile whose
+  // measured height never got a chance to update. Dropping all four to null
+  // re-enters the not-yet-measured branch for one frame, which every
+  // consumer already handles, and the fresh onLayout events land immediately
+  // after.
   useEffect(() => {
+    setRowHeight(null);
     setPageHeight(null);
     setHeaderHeight(null);
     setFooterHeight(null);
@@ -298,12 +315,54 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
           `maxHeight` of its own the moment there is more than one row (see
           goodsScrollHeight, and `goodsStyle` below), so its viewport is
           exactly as well-defined nested as it would be at the top of the
-          tree. And on THIS platform the check is moot regardless --
-          react-native-web's own copy of it
+          tree.
+
+          WHETHER THE CONSOLE THIS TASK'S BRIEF SAYS TO READ ACTUALLY PRINTS
+          DEPENDS ON THE PLATFORM, and an earlier draft of this comment got
+          that wrong in both directions at once by saying "either way." On
+          web it really is moot: react-native-web's own copy of this check
           (react-native-web/dist/.../VirtualizedList/index.js) is commented
-          out pending a ScrollView.Context.Consumer it does not yet
-          implement, so the console this task's brief says to read never
-          prints it here either way. */}
+          out pending a `ScrollView.Context.Consumer` it does not yet
+          implement, so nothing here can trigger it there. On NATIVE it is
+          not moot -- core RN's own `ScrollView`
+          (react-native/Libraries/Components/ScrollView/ScrollView.js:1720-1722)
+          wraps its children in `ScrollViewContext.Provider`, and
+          `VirtualizedList.js`'s own `__DEV__` block
+          (@react-native/virtualized-lists/Lists/VirtualizedList.js:1150-1174)
+          reads exactly that context via `ScrollView.Context.Consumer`: a
+          same-orientation match, no ancestor `VirtualizedListContext`
+          (`this.context == null`, true here -- the page is a plain
+          ScrollView, never a list), and `scrollEnabled !== false` is
+          precisely the shape this file builds. Every Market/Window shop
+          page WILL print this `console.error` once, on a native dev client.
+          That is an accepted, understood LogBox line, not a bug this file
+          failed to notice -- the arithmetic two paragraphs up is the reason
+          it is safe to leave printing -- but "never prints" was never true
+          of both platforms and should not have said so.
+
+          A SEPARATE, UNFIXED RISK LIVES IN THE SAME NESTING: NATIVE iOS MAY
+          TRAP THE SCROLL, and this is not covered by the warning above at
+          all. RN-web's own nested scroll containers chain out of the box
+          (no `overscroll-behavior` needed); Android gets `nestedScrollEnabled`
+          on the goods FlatList (see that prop, below) precisely so a
+          vertical drag that starts inside the bounded goods box can hand off
+          to the page once the box itself is scrolled to either end. iOS
+          native has NEITHER: UIKit does not chain a pan gesture between two
+          nested same-axis `UIScrollView`s the way the web platform and
+          Android's own compat shim do, and RN does not paper over that gap.
+          On a 390x844 phone the two-row goods box is roughly 674px tall --
+          most of the viewport below the header -- so once it fills the
+          screen, most swipes a thumb makes land inside it rather than on the
+          page, and the footer below may become difficult or impossible to
+          reach by scrolling on an iOS device. THIS HAS NEVER BEEN VERIFIED
+          ON iOS -- nothing on this branch has run there -- and this comment
+          exists so the next person to test on a physical iPhone (or ship
+          this to one) meets the risk here rather than discovering it cold.
+          The structural decision above (a real, independently-scrolling
+          FlatList for the goods) is correct and is NOT what this paragraph
+          argues for undoing; if iOS testing confirms the trap, the fix
+          belongs to whoever owns that decision, not to a reflexive redesign
+          of the nesting proven correct above. */}
       <ScrollView
         testID="storefront-page-scroll"
         // Full width now -- see `scroller`'s own comment below for why the
@@ -347,10 +406,11 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
           // FlatList refuses to change numColumns on the fly (RN warns
           // and ignores it) -- `key` forces a fresh mount whenever the
           // column count crosses a breakpoint, which is the pattern RN's
-          // own error message for this points at. The same remount is
-          // what clears `rowHeight` above back to null, so a stale
-          // measurement from the OLD column count can never leak into
-          // the new one.
+          // own error message for this points at. `rowHeight` above is
+          // cleared by the width effect now, not by this remount -- see
+          // that state's own comment for why a column-count-only reset
+          // left a gap this remount alone cannot close (a resize that
+          // never crosses a column breakpoint never remounts anything).
           key={numColumns}
           numColumns={numColumns}
           keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
