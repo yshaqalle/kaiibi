@@ -1,7 +1,9 @@
-import { type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
 
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
@@ -9,6 +11,7 @@ import { pressable } from '@/components/storefront/press-feedback';
 import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
+import { isConfigured, isOpenAt } from '@/lib/store-hours';
 import { waLink } from '@/lib/storefront';
 import {
   addLine, cartItemCount, cartSubtotalCents, loadCart, saveCart, setQuantity, type StorefrontCart,
@@ -122,10 +125,25 @@ export function ShopCard({
 // reach it all move onto one `ink` card, and the page finally has a centre of
 // gravity instead of the 1,472px panel of `soft` that prompted this.
 //
-// The photo branch is Window's old hero, unchanged in substance: the image
-// fills the card, a flat 0.55 scrim goes over it, and the type takes the two
-// fixed on-scrim values above. What changed is only that it is now a card in a
-// row of cards rather than a full-bleed panel of its own.
+// The photo branch is Window's old hero, mostly unchanged in substance: the
+// image fills the card and the type takes the two fixed on-scrim values
+// above. What changed is the scrim itself -- see anchorScrim below -- and
+// that it is now a card in a row of cards rather than a full-bleed panel of
+// its own.
+
+// ONCE PER VISIT, NOT ONCE PER RENDER.
+//
+// A `useRef` inside ShopAnchor would not do it: pressing About or Visit and
+// coming back to Shop is not a re-render, it is a different ROUTE
+// (`[slug]/index.tsx` vs `[slug]/[tab].tsx` -- see StorefrontScreen's own
+// SHOP_CACHE comment on exactly this), and moving between routes unmounts
+// ThemeMarket/Window/Counter -- and so this component -- and mounts a fresh
+// one. A ref dies with the instance; a naive `entering` prop would replay the
+// rise on every single tab press. Module-level and keyed by slug for the same
+// reason SHOP_CACHE is: a shop's rise plays once per visit to its page, and a
+// genuinely fresh page load is expected to play it again.
+const HERO_RISEN = new Set<string>();
+
 export function ShopAnchor({
   storefront, colors, style, wide, children,
 }: {
@@ -152,6 +170,42 @@ export function ShopAnchor({
   const place =
     collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city) ?? storefront.city;
 
+  // `?? {}` for the same reason availableTabs defends the identical read:
+  // getPublicStorefront maps a missing column to {}, but a hand-built fixture
+  // (the editor preview, a dozen tests) is one omission away from handing this
+  // a hole, and isConfigured's Object.keys throws on undefined. Reused rather
+  // than reimplemented -- visit-panel.tsx's HoursCard is the one other place
+  // on this page that answers "is the shop open", and the two must never
+  // disagree about what "configured" or "open" means.
+  const hours = storefront.openingHours ?? {};
+  const hoursConfigured = isConfigured(hours);
+  // `new Date()` at render, deliberately not memoised -- the identical trade
+  // HoursCard makes, and for the identical reason: this page is opened, read
+  // and closed within a minute or two, and a stale "Open now" is worse than
+  // one that re-evaluates on a re-render.
+  const open = hoursConfigured && isOpenAt(hours, new Date());
+
+  // Reduced motion: no rise at all, not a faster one -- the lines render in
+  // their final position on the very first frame.
+  const reducedMotion = useReducedMotion();
+  const shouldRise = !reducedMotion && !HERO_RISEN.has(storefront.slug);
+  // Only marked "spent" when the rise actually played. A visit that opened
+  // under reduced motion never showed an animation, so it must not cost the
+  // one this slug is owed -- a customer who later turns reduced motion off
+  // and returns to this shop still gets to see it rise once. Runs after this
+  // render commits, so `shouldRise` above still reflects whether THIS mount
+  // -- the first eligible one for this slug -- gets to animate.
+  useEffect(() => {
+    if (!reducedMotion) HERO_RISEN.add(storefront.slug);
+  }, [storefront.slug, reducedMotion]);
+
+  // `undefined` under either gate -- Animated.View treats a missing
+  // `entering` prop as "already in its final state", which is exactly what a
+  // skipped rise and an already-spent one both mean.
+  function riseIn(index: number) {
+    return shouldRise ? FadeInDown.duration(550).delay(index * 80) : undefined;
+  }
+
   return (
     <View
       testID="storefront-shop-card"
@@ -160,7 +214,25 @@ export function ShopAnchor({
       {onPhoto ? (
         <>
           <Image source={{ uri: storefront.heroImageUrl! }} style={styles.anchorPhoto} resizeMode="cover" />
-          <View testID="storefront-hero-scrim" style={styles.anchorScrim} pointerEvents="none" />
+          {/* A BOTTOM-WEIGHTED GRADIENT, not the flat scrim this replaces, and
+              ONLY here -- never on the no-photo branch below. That second
+              half is the fix, not the gradient: the flat scrim used to be a
+              sibling of the photo `Image` inside the SAME `onPhoto ? (...)`
+              branch already, so it could never have painted over a photoless
+              card by itself -- but a grey shape was still turning up over the
+              no-photo fallback, which means whatever produced it lived
+              somewhere this component doesn't render from. Anchoring the new
+              gradient to the identical `onPhoto` guard the old scrim used is
+              the belt this fix-class is about: there is now exactly one
+              branch that can ever paint a scrim, and it is the one with a
+              photograph under it. */}
+          <LinearGradient
+            testID="storefront-hero-scrim"
+            colors={['transparent', 'rgba(16,22,35,0.82)']}
+            locations={[0.3, 0.92]}
+            style={styles.anchorScrim}
+            pointerEvents="none"
+          />
         </>
       ) : null}
 
@@ -170,20 +242,49 @@ export function ShopAnchor({
           first question a forwarded link has to answer. adjustsFontSizeToFit
           carries the genuinely long names down rather than letting them wrap
           to three lines -- shop names are not length-limited anywhere. */}
-      <Text
-        testID="storefront-wordmark"
-        style={[styles.wordmark, wide && styles.wordmarkWide, { color: ink }, onPhoto && styles.onScrimText]}
-        numberOfLines={2}
-        adjustsFontSizeToFit
-        minimumFontScale={0.6}
-      >
-        {storefront.shopName}
-      </Text>
+      <Animated.View entering={riseIn(0)}>
+        <Text
+          testID="storefront-wordmark"
+          style={[styles.wordmark, wide && styles.wordmarkWide, { color: ink }, onPhoto && styles.onScrimText]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
+          {storefront.shopName}
+        </Text>
+      </Animated.View>
 
       {place ? (
-        <Text testID="storefront-eyebrow" style={[styles.place, { color: muted }, onPhoto && styles.onScrimText]}>
-          {place}
-        </Text>
+        <Animated.View entering={riseIn(1)}>
+          <Text testID="storefront-eyebrow" style={[styles.place, { color: muted }, onPhoto && styles.onScrimText]}>
+            {place}
+          </Text>
+        </Animated.View>
+      ) : null}
+
+      {/* NO PILL AT ALL when the shop has not set hours -- the same rule
+          HoursCard follows for the identical reason: `isConfigured` false
+          means "never filled in", and a pill claiming a state the shop never
+          gave would be invented, not reported. Word AND fill, never colour
+          alone -- a customer who cannot tell accent from soft still reads
+          "Open now" or "Closed now". */}
+      {hoursConfigured ? (
+        <Animated.View entering={riseIn(2)}>
+          <View
+            testID="storefront-anchor-open-pill"
+            style={[styles.openPill, { backgroundColor: open ? colors.accent : colors.soft }]}
+          >
+            <Text
+              style={[
+                styles.openPillText,
+                { color: open ? colors.ground : colors.muted },
+                onPhoto && styles.onScrimText,
+              ]}
+            >
+              {open ? 'Open now' : 'Closed now'}
+            </Text>
+          </View>
+        </Animated.View>
       ) : null}
 
       {storefront.headline ? (
@@ -1167,12 +1268,13 @@ const styles = StyleSheet.create({
   // radius rather than squaring off its corners.
   anchor: { overflow: 'hidden' },
   anchorPhoto: { ...StyleSheet.absoluteFill },
-  // A FLAT scrim covering the whole card, not a bottom-weighted gradient: the
-  // type flows from the TOP of this card, so the area needing darkening is all
-  // of it. What 0.55 does and does not buy is unchanged from the panel this
-  // replaces -- comfortable against a mid or dark photo, not sufficient against
-  // a near-white one, which is what the text shadow below carries.
-  anchorScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
+  // Positioning only -- the LinearGradient it sizes paints its own colours.
+  // Bottom-weighted (`locations` biased toward the end) rather than the flat
+  // scrim this replaces: the type sits at the BOTTOM of this card, so only the
+  // area behind it needs to go dark, and the top of the photo now shows
+  // through nearly untouched. The text shadow below still carries whatever a
+  // near-white photo leaves the gradient short of.
+  anchorScrim: { ...StyleSheet.absoluteFill },
   onScrimText: { textShadowColor: 'rgba(0,0,0,0.65)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
@@ -1186,6 +1288,10 @@ const styles = StyleSheet.create({
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta,
     textTransform: 'uppercase', marginTop: 10,
   },
+  // Same shape as HoursCard's own `statePill`/`stateText` in visit-panel.tsx
+  // -- one state, rendered the same way everywhere this page says it.
+  openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start', marginTop: 12 },
+  openPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
   anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
   anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
   anchorFoot: {
