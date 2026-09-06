@@ -6,7 +6,7 @@ import {
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -16,7 +16,7 @@ import {
 import { type ShopTabKey } from '@/components/storefront/shop-tabs';
 import { collectLocation } from '@/lib/storefront-collect';
 import { placeOrder, placeOrderViaWhatsApp, type PlacedOrder } from '@/lib/storefront-order';
-import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
+import { CHECKOUT_BLUE, CHECKOUT_INK, WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 // The parts every theme needs. Kept out of any one theme so that Market is a
@@ -84,7 +84,7 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
 //
 // What is NOT taken: BentoGrid, BentoCard, StatTile, Badge. Every one of them
 // pins `Colors.light` (the skill says so in as many words), and this page
-// renders in one of six palettes for a stranger with no account. The system
+// renders in one of seven palettes for a stranger with no account. The system
 // comes across; the app's tokens do not.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -471,9 +471,9 @@ export function EmptyState({
             testID="storefront-empty-clear-category"
             accessibilityRole="button"
             onPress={onClearCategory}
-            style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+            style={pressable([styles.emptyAction, { backgroundColor: colors.accentWash }])}
           >
-            <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+            <Text style={[styles.emptyActionText, { color: colors.accentInk }]}>Show everything</Text>
           </Pressable>
         ) : null}
       </View>
@@ -640,9 +640,9 @@ export function SearchField({
           accessibilityRole="button"
           accessibilityLabel="Clear search"
           onPress={() => onChange('')}
-          style={pressable([styles.searchClear, { backgroundColor: colors.soft }])}
+          style={pressable([styles.searchClear, { backgroundColor: colors.accentWash }])}
         >
-          <Text style={[styles.searchClearText, { color: colors.ink }]}>Clear</Text>
+          <Text style={[styles.searchClearText, { color: colors.accentInk }]}>Clear</Text>
         </Pressable>
       ) : null}
     </View>
@@ -666,9 +666,9 @@ export function NoSearchResults({
         testID="storefront-search-empty-clear"
         accessibilityRole="button"
         onPress={onClear}
-        style={pressable([styles.emptyAction, { backgroundColor: colors.soft }])}
+        style={pressable([styles.emptyAction, { backgroundColor: colors.accentWash }])}
       >
-        <Text style={[styles.emptyActionText, { color: colors.ink }]}>Show everything</Text>
+        <Text style={[styles.emptyActionText, { color: colors.accentInk }]}>Show everything</Text>
       </Pressable>
     </View>
   );
@@ -703,9 +703,9 @@ export function CategoryFilterBar({
       accessibilityRole="button"
       accessibilityLabel={`Showing ${category} only. Show everything`}
       onPress={onClear}
-      style={pressable([styles.filterChip, { backgroundColor: colors.soft }])}
+      style={pressable([styles.filterChip, { backgroundColor: colors.accentWash }])}
     >
-      <Text style={[styles.filterChipText, { color: colors.ink }]}>{category} · Show everything ✕</Text>
+      <Text style={[styles.filterChipText, { color: colors.accentInk }]}>{category} · Show everything ✕</Text>
     </Pressable>
   );
 }
@@ -718,7 +718,11 @@ export function CategoryFilterBar({
 export function gridColumnsForWidth(width: number): number {
   if (width < 640) return 2;
   if (width < 1024) return 3;
-  return 4;
+  // Five only once the column itself widened (SHOP_MAX_WIDTH 1320): at that
+  // width a four-up tile is ~310px -- wider than a phone's whole two-up --
+  // and five keeps tiles near the ~250px the grid was designed around.
+  if (width < 1280) return 4;
+  return 5;
 }
 
 // Where the three shop cards stop stacking and sit in a row. Deliberately its
@@ -813,26 +817,76 @@ export function useStorefrontCart(slug: string) {
 // this much bottom padding of its own, but ONLY while `itemCount > 0` (the
 // same condition CheckoutBar below uses to render at all): an empty cart
 // must not carry dead space at the bottom of a page with no bar to clear.
-// Sized to the bar's own layout -- paddingVertical 14 top and bottom plus a
-// ~17px line of 14px/800-weight text is ~45px, plus the 14px gap the bar
-// itself sits above the screen edge -- rounded up with headroom rather than
-// tuned to the pixel, so a future tweak to the bar's own padding does not
-// also require re-measuring this constant.
+// The slip's height is set by its TALLEST child, and that is `slipGo` (the
+// Checkout pill), not the 30px thumb: paddingVertical 11 around 13.5px text
+// (line-height ~17) is 11 + 17 + 11 = 39px, so the slip is 8 + 39 + 8 = 55px
+// against `slip`'s own paddingVertical 8, sitting 14px off the bottom. 55 +
+// 14 = 69 against a 76 clearance -- about 7px of headroom, not the ~22 a
+// thumb-based count would suggest, plus whatever the `elevation: 6` Android
+// shadow draws outside that box. Re-measure if the slip's vertical paddings
+// or thumb size change.
 export const CHECKOUT_BAR_CLEARANCE = 76;
 
+// Up to three thumbnails, in cart order. A product with no photo degrades to
+// a soft plate -- the same no-photo fallback the tiles use.
+export function cartThumbnails(cart: StorefrontCart, products: StorefrontProduct[]): (string | null)[] {
+  const byId = new Map(products.map((p) => [p.id, p.imageUrl]));
+  return cart.lines.slice(0, 3).map((line) => byId.get(line.productId) ?? null);
+}
+
+// The SLIP. The old bar was the accent as a full-width field with four words
+// on it -- the customer committed on trust, and on desktop the field ran the
+// window rather than the column. Now the container is ground (a surface), the
+// evidence sits on it (thumbnails, total, count, fulfilment), and the accent
+// is a button-sized button again.
 export function CheckoutBar({
-  colors, itemCount, subtotalCents, onPress,
-}: { colors: PaletteColors; itemCount: number; subtotalCents: number; onPress: () => void }) {
+  colors, itemCount, subtotalCents, thumbnails, fulfilment, onPress,
+}: {
+  colors: PaletteColors;
+  itemCount: number;
+  subtotalCents: number;
+  thumbnails: (string | null)[];
+  fulfilment: string | null;
+  onPress: () => void;
+}) {
   if (itemCount === 0) return null;
+  const line = `${itemCount} ${itemCount === 1 ? 'item' : 'items'}${fulfilment ? ` · ${fulfilment}` : ''}`;
   return (
-    <Pressable
-      testID="storefront-checkout-bar"
-      accessibilityRole="button"
-      onPress={onPress}
-      style={pressable([styles.checkoutBar, { backgroundColor: colors.accent }])}
-    >
-      <Text style={[styles.checkoutBarText, { color: colors.ground }]}>Checkout · {formatCents(subtotalCents)}</Text>
-    </Pressable>
+    <View pointerEvents="box-none" style={styles.checkoutBarSlot}>
+      <Pressable
+        testID="storefront-checkout-bar"
+        accessibilityRole="button"
+        onPress={onPress}
+        style={pressable([styles.slip, { backgroundColor: colors.ground, shadowColor: '#000' }])}
+      >
+        <View style={styles.slipEvidence}>
+          <View style={styles.slipThumbs}>
+            {thumbnails.map((uri, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.slipThumb,
+                  i === 0 && styles.slipThumbFirst,
+                  { backgroundColor: colors.soft, borderColor: colors.ground },
+                ]}
+              >
+                {uri ? <Image source={{ uri }} style={styles.slipThumbImage} /> : null}
+              </View>
+            ))}
+          </View>
+          <View>
+            <Text style={[styles.slipTotal, { color: colors.ink }]} numberOfLines={1}>{formatCents(subtotalCents)}</Text>
+            <Text style={[styles.slipLine, { color: colors.muted }]} numberOfLines={1}>{line}</Text>
+          </View>
+        </View>
+        {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on
+            every palette (Step 0). White type, the pair the constant is
+            contrast-tested for; colors.ground would drift per palette. */}
+        <View style={[styles.slipGo, { backgroundColor: CHECKOUT_BLUE }]}>
+          <Text style={[styles.slipGoText, { color: CHECKOUT_INK }]}>Checkout</Text>
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1030,9 +1084,9 @@ export function CheckoutScreen({
             testID="storefront-checkout-edit-cart"
             accessibilityRole="button"
             onPress={onEditCart}
-            style={pressable([styles.editCart, { borderColor: colors.danger }])}
+            style={pressable([styles.editCart, { backgroundColor: colors.accentWash }])}
           >
-            <Text style={[styles.editCartText, { color: colors.danger }]}>Edit cart</Text>
+            <Text style={[styles.editCartText, { color: colors.accentInk }]}>Edit cart</Text>
           </Pressable>
         ) : null}
         <CheckoutForm
@@ -1061,7 +1115,7 @@ export function CheckoutScreen({
 // order-placed.tsx's own header comment on what this trade can honestly
 // promise today.
 export function ConfirmationScreen({
-  order, shopName, collectLocation, colors, onDone,
+  order, shopName, collectLocation, colors, onDone, hideBranding,
 }: {
   order: PlacedOrder;
   shopName: string;
@@ -1071,11 +1125,22 @@ export function ConfirmationScreen({
   collectLocation?: string | null;
   colors: PaletteColors;
   onDone: () => void;
+  // Threaded rather than read: OrderPlaced deliberately has no storefront
+  // prop, so this is passed straight through from the caller's own
+  // `storefront.hideBranding`. Optional for the same reason collectLocation
+  // is -- see OrderPlaced's own prop comment on why absence must mean shown.
+  hideBranding?: boolean;
 }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <ScrollView contentContainerStyle={styles.screenBody}>
-        <OrderPlaced order={order} shopName={shopName} collectLocation={collectLocation} colors={colors} />
+        <OrderPlaced
+          order={order}
+          shopName={shopName}
+          collectLocation={collectLocation}
+          colors={colors}
+          hideBranding={hideBranding}
+        />
         <Pressable
           testID="storefront-continue-shopping"
           accessibilityRole="button"
@@ -1204,22 +1269,35 @@ const styles = StyleSheet.create({
   // The longhand is identical on both.
   buttonCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
   buttonTextCompact: { fontSize: 10.5 },
-  // Floats over the browsing view's own content -- the parent View every
-  // theme renders is flex:1 with no explicit `position`, which React Native
-  // defaults to 'relative', so this anchors to that box rather than the
-  // whole window.
-  checkoutBar: {
-    position: 'absolute', left: 14, right: 14, bottom: 14,
-    borderRadius: 999, paddingVertical: 14, alignItems: 'center',
+  // The slot is what floats; the bar inside it is what the reading column
+  // bounds. Absolute left/right anchor to the theme root, which is the full
+  // window -- the maxWidth is what stops a 2000px screen getting a 1972px
+  // button while the goods sit in SHOP_MAX_WIDTH.
+  checkoutBarSlot: { position: 'absolute', left: 14, right: 14, bottom: 14, alignItems: 'center' },
+  slip: {
+    width: '100%', maxWidth: SHOP_MAX_WIDTH - 28,
+    borderRadius: 999, paddingVertical: 8, paddingLeft: 16, paddingRight: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14,
+    shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
   },
-  checkoutBarText: { fontSize: 14, fontWeight: '800' },
+  slipEvidence: { flexDirection: 'row', alignItems: 'center', gap: 11, flexShrink: 1 },
+  slipThumbs: { flexDirection: 'row' },
+  slipThumb: {
+    width: 30, height: 30, borderRadius: 9, borderWidth: 2, marginLeft: -9, overflow: 'hidden',
+  },
+  slipThumbFirst: { marginLeft: 0 },
+  slipThumbImage: { width: '100%', height: '100%' },
+  slipTotal: { fontSize: 14, fontWeight: '800' },
+  slipLine: { fontSize: 11.5, fontWeight: '600', marginTop: 1 },
+  slipGo: { borderRadius: 999, paddingHorizontal: 20, paddingVertical: 11 },
+  slipGoText: { fontSize: 13.5, fontWeight: '800' },
   screen: { flex: 1 },
   screenNav: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   screenBack: { fontSize: 14, fontWeight: '700' },
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  editCart: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  editCart: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
   editCartText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
   continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },

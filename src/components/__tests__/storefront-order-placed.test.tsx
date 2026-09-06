@@ -36,7 +36,11 @@ const placedOrder: PlacedOrder = {
   items: [{ productId: 'p1', name: 'Soap', unitPriceCents: 500, quantity: 2, lineTotalCents: 1000 }],
 };
 
-function renderPlaced(opts?: { order?: Partial<PlacedOrder>; collectLocation?: string | null }) {
+function renderPlaced(opts?: {
+  order?: Partial<PlacedOrder>;
+  collectLocation?: string | null;
+  hideBranding?: boolean;
+}) {
   let tree!: ReactTestRenderer;
   act(() => {
     tree = create(
@@ -45,10 +49,15 @@ function renderPlaced(opts?: { order?: Partial<PlacedOrder>; collectLocation?: s
         shopName="Hodan Grocery"
         collectLocation={opts?.collectLocation ?? null}
         colors={colors}
+        hideBranding={opts?.hideBranding}
       />,
     );
   });
   return tree;
+}
+
+function hasTestId(tree: ReactTestRenderer, testID: string): boolean {
+  return tree.root.findAll((node) => node.props?.testID === testID).length > 0;
 }
 
 function texts(tree: ReactTestRenderer): string[] {
@@ -126,5 +135,39 @@ describe('OrderPlaced — the order link', () => {
   it('says what the link is for, so it is worth keeping', () => {
     const t = texts(renderPlaced({ order: { shareToken: 'a1b2c3d4e5f6g7h8j9k0mnpqrs' } })).join(' ');
     expect(t).toMatch(/check|track|follow|where/i);
+  });
+});
+
+// ── The one acquisition ask (Task 11) ────────────────────────────────────
+//
+// `@testing-library/react-native` is not installed in this repo -- the
+// brief's `render`/`screen`/`rerender` translate to `create`/`findAll`/
+// `tree.update`, the same substitution storefront-shop-footer.test.tsx (Task
+// 10) uses for the sibling flag on the footer.
+describe('OrderPlaced — the acquisition ask', () => {
+  it('offers the one acquisition ask, and drops it when branding is bought off', () => {
+    const tree = renderPlaced({ hideBranding: false });
+    expect(hasTestId(tree, 'storefront-acquisition')).toBe(true);
+    act(() => {
+      tree.update(
+        <OrderPlaced
+          order={placedOrder}
+          shopName="Hodan Grocery"
+          collectLocation={null}
+          colors={colors}
+          hideBranding
+        />,
+      );
+    });
+    expect(hasTestId(tree, 'storefront-acquisition')).toBe(false);
+  });
+
+  // Safety-critical gate direction: hiding the mark is the paid perk, so an
+  // absent flag -- a caller that predates this prop, or any failure path
+  // upstream that resolved to `undefined` instead of `false` -- must still
+  // show the ask, never hide it.
+  it('shows the ask when hideBranding is not passed at all', () => {
+    const tree = renderPlaced();
+    expect(hasTestId(tree, 'storefront-acquisition')).toBe(true);
   });
 });

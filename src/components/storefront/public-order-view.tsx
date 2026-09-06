@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { formatCents } from '@/lib/currency';
@@ -223,6 +223,22 @@ export function PublicOrderView({
         </Pressable>
         ) : null}
       </View>
+
+      {/* ATTRIBUTION, not acquisition -- the same quiet colophon shop-footer.tsx
+          closes on, but on LIGHT ground rather than `ink`: the black mark and
+          the palette's own `muted` text, inverted for this surface. This is
+          the second RPC the hide-branding flag rides (get_public_order,
+          20261101000300) -- `kaiibi.com/o/<code>` is a link a customer saves
+          and reopens, so a shop that bought the mark off must not have it
+          reappear here just because this page has its own read. */}
+      {order.hideBranding ? null : (
+        <View style={styles.poweredRow} testID="storefront-order-powered-by">
+          <Image source={require('@/assets/images/kaiibi-mark-black.png')} style={styles.poweredMark} />
+          <Text style={[styles.poweredText, { color: colors.muted }]}>
+            Powered by <Text style={{ fontWeight: '800', color: colors.ink }}>kaiibi</Text>
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -252,4 +268,7 @@ const styles = StyleSheet.create({
   secondary: { borderRadius: 14, borderWidth: 1, paddingVertical: 14, alignItems: 'center' },
   secondaryText: { fontSize: 14, fontWeight: '700' },
   disabled: { opacity: 0.45 },
+  poweredRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 18, justifyContent: 'center' },
+  poweredMark: { width: 14, height: 14 },
+  poweredText: { fontSize: 11.5, fontWeight: '600' },
 });

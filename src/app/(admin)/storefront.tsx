@@ -967,6 +967,11 @@ function StorefrontEditor() {
     paymentMode: 'on_collection',
     flyers: previewFlyers,
     autoAdvance: working.autoAdvance,
+    // ShopFooter (rendered inside this same preview) reads this flag, so the
+    // preview has to answer it for real rather than hardcoding "shown" --
+    // otherwise a Pro shop previewing its own page would see the mark exactly
+    // where its customers will not.
+    hideBranding: hasModule('storefront_branding_removal'),
   };
 
   const contentDrawer = (

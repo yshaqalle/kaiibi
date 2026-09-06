@@ -1,6 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents } from '@/lib/currency';
+import { openExternalUrl } from '@/lib/external-url';
 import { orderAddress } from '@/lib/storefront-host';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PlacedOrder } from '@/lib/storefront-order';
@@ -19,6 +20,13 @@ type Props = {
   // which is at least true. Never an empty "Collect from".
   collectLocation?: string | null;
   colors: PaletteColors;
+  // Resolved server-side from the shop's effective plan (storefront-19).
+  // Optional so a caller that predates this still type-checks -- same
+  // precedent as `collectLocation` above -- but the two are NOT symmetric on
+  // absence: `undefined` here must mean the ask is SHOWN, never hidden,
+  // because hiding it is the paid perk and every failure path upstream
+  // already resolves to `false` (show) on purpose.
+  hideBranding?: boolean;
 };
 
 // What a stranger sees the moment their order lands, and everything it
@@ -39,7 +47,7 @@ type Props = {
 // because two surfaces each hand-built one and both were wrong together; the
 // address a customer is given and the route that serves it now come from the
 // same constant.
-export function OrderPlaced({ order, shopName, collectLocation, colors }: Props) {
+export function OrderPlaced({ order, shopName, collectLocation, colors, hideBranding }: Props) {
   const nextStep =
     order.fulfilment === 'deliver'
       ? `${shopName} will call you to arrange delivery${order.deliveryArea ? ` to ${order.deliveryArea}` : ''}.`
@@ -72,11 +80,38 @@ export function OrderPlaced({ order, shopName, collectLocation, colors }: Props)
         </Text>
         <Text style={[styles.payValue, { color: colors.ink }]}>{formatCents(order.totalCents)}</Text>
       </View>
+
+      {hideBranding ? null : (
+        <View style={[styles.acq, { borderTopColor: colors.hairline }]} testID="storefront-acquisition">
+          <View style={styles.acqWho}>
+            <Text style={[styles.acqLead, { color: colors.ink }]}>Run a shop yourself?</Text>
+            <Text style={[styles.acqSub, { color: colors.muted }]}>Take orders like this one on kaiibi.</Text>
+          </View>
+          {/* Outlined, never accent-filled: the accent belongs to the shop
+              and to buying, and this is neither. */}
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => openExternalUrl('https://kaiibi.com')}
+            style={[styles.acqButton, { borderColor: colors.edge }]}
+          >
+            <Text style={[styles.acqButtonText, { color: colors.ink }]}>See how</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  acq: {
+    borderTopWidth: 1, marginTop: 18, paddingTop: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap',
+  },
+  acqWho: { flexShrink: 1 },
+  acqLead: { fontSize: 13.5, fontWeight: '800' },
+  acqSub: { fontSize: 12.5, marginTop: 2 },
+  acqButton: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
+  acqButtonText: { fontSize: 12.5, fontWeight: '800' },
   card: { borderRadius: 18, padding: 20, gap: 4 },
   label: { fontSize: 12.5, fontWeight: '800' },
   linkBlock: { borderTopWidth: 1, marginTop: 14, paddingTop: 12, gap: 3 },

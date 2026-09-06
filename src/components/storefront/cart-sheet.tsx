@@ -5,7 +5,7 @@ import { AppModal } from '@/components/ui/app-modal';
 import { TABULAR } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
-import type { PaletteColors } from '@/lib/storefront-catalog';
+import { CHECKOUT_BLUE, CHECKOUT_INK, type PaletteColors } from '@/lib/storefront-catalog';
 
 type Props = {
   visible: boolean;
@@ -114,9 +114,9 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                 testID="cart-sheet-checkout"
                 accessibilityRole="button"
                 onPress={onCheckout}
-                style={pressable([styles.checkout, { backgroundColor: colors.accent }])}
+                style={pressable([styles.checkout, { backgroundColor: CHECKOUT_BLUE }])}
               >
-                <Text style={[styles.checkoutText, { color: colors.ground }]}>Checkout</Text>
+                <Text style={[styles.checkoutText, { color: CHECKOUT_INK }]}>Checkout</Text>
               </Pressable>
             </>
           )}

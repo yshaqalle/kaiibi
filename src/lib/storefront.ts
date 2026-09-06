@@ -137,6 +137,12 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     // as "do not move on your own" -- the same off-by-default rule the
     // column itself carries -- rather than as a thrown error.
     autoAdvance: Boolean(row.auto_advance),
+    // Boolean(...), same guard offersDelivery and autoAdvance use: a client
+    // shipped ahead of its database calls a get_public_storefront with no
+    // `hide_branding` column at all (20261101000200), and undefined must read
+    // as "show the mark" -- the perk is HIDING it, so over-permitting here
+    // would be the shape a monetization bypass takes.
+    hideBranding: Boolean(row.hide_branding),
     // `?? {}` for the same reason autoAdvance takes Boolean(...) above: a
     // client shipped ahead of its database calls a get_public_storefront with
     // no `opening_hours` column at all (20261020000000), and `undefined` must

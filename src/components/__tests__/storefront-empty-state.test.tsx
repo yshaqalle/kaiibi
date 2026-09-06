@@ -27,6 +27,7 @@ const shop: PublicStorefront = {
   contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 // react-test-renderer unmounts a tree created outside act(), so every render

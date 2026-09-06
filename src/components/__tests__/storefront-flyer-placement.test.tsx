@@ -89,6 +89,7 @@ const shop: PublicStorefront = {
   contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 const products: StorefrontProduct[] = [

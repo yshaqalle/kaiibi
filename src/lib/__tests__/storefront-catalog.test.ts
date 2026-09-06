@@ -1,14 +1,14 @@
 import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
-  paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN,
+  paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN, CHECKOUT_BLUE, CHECKOUT_INK,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
 describe('catalogue shape', () => {
-  it('ships three themes and six palettes', () => {
+  it('ships three themes and seven palettes', () => {
     expect(THEMES.map((t) => t.key)).toEqual(['market', 'counter', 'window']);
-    expect(PALETTES.map((p) => p.key)).toEqual(['ink', 'palm', 'clay', 'sea', 'saffron', 'plum']);
+    expect(PALETTES.map((p) => p.key)).toEqual(['ink', 'palm', 'clay', 'sea', 'saffron', 'plum', 'azure']);
   });
 
   it('defaults to the most forgiving combination', () => {
@@ -259,5 +259,92 @@ describe('palette lookup does not fall through the prototype chain', () => {
 
   it.each(poisoned)('mutedInk(%s) falls back to the ink palette blend', (bad) => {
     expect(mutedInk(bad as StorefrontPalette)).toBe(mutedInk('ink'));
+  });
+});
+
+describe('the tinted action tier', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s keeps accent type readable on its wash', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.accentInk, c.accentWash)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s keeps accent type readable on bare ground too', (key) => {
+    // A tinted pill sits on ground and on soft; the type must survive both,
+    // and ground is the lighter (harder) of the two on every palette.
+    const c = paletteColors(key);
+    expect(contrastRatio(c.accentInk, c.ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // A FLOOR as well as a ceiling. Without one, a wash that had collapsed onto
+  // its own ground -- ratio 1.0, meaning no visible tint at all -- would still
+  // pass: 1.0 clears "< 1.6" as comfortably as any real tint does, so the gate
+  // would not notice the one failure mode that matters most, the wash
+  // disappearing. 1.03 sits meaningfully above 1.0 while every palette's
+  // current derivation still clears it (azure is the tightest here, ~1.18).
+  it.each(keys)('%s keeps the wash a tint, not a second fill, on ground', (key) => {
+    const c = paletteColors(key);
+    const ratio = contrastRatio(c.accentWash, c.ground);
+    expect(ratio).toBeGreaterThan(1.03);
+    expect(ratio).toBeLessThan(1.6);
+  });
+
+  // The gate above tests `ground`, but the four controls wearing this tier --
+  // the empty-state nudge, the search-clear chip, a category filter chip,
+  // "Edit cart" -- all render on the PAGE, and every theme fills the page with
+  // `colors.soft`, not `ground` (theme-market.tsx:153, theme-counter.tsx:111,
+  // theme-window.tsx:148). A wash tested only against a surface it never sits
+  // on is not tested. Same floor, for the same reason: without it a wash that
+  // had collapsed onto `soft` would pass silently (saffron is the tightest
+  // here, ~1.07, still comfortably above the floor).
+  it.each(keys)('%s keeps the wash a tint, not a second fill, on the page it actually sits on', (key) => {
+    const c = paletteColors(key);
+    const ratio = contrastRatio(c.accentWash, c.soft);
+    expect(ratio).toBeGreaterThan(1.03);
+    expect(ratio).toBeLessThan(1.6);
+  });
+});
+
+describe('no accent impersonates the WhatsApp button', () => {
+  const lab = (hex: string): [number, number, number] => {
+    const n = parseInt(hex.slice(1), 16);
+    const lin = (v: number) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(lin);
+    let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+    const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    [x, y, z] = [f(x), f(y), f(z)];
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+  };
+  const deltaE = (a: string, b: string) => {
+    const [l1, a1, b1] = lab(a);
+    const [l2, a2, b2] = lab(b);
+    return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+  };
+
+  it.each(PALETTES.map((p) => p.key) as StorefrontPalette[])(
+    '%s keeps its accent at least deltaE 15 from the WhatsApp green',
+    (key) => {
+      // 15 is the floor theme.ts already applies between two chart marks; two
+      // BUTTONS with different meanings deserve at least what two bars get.
+      expect(deltaE(paletteColors(key).accent, WHATSAPP_BUTTON_GREEN)).toBeGreaterThanOrEqual(15);
+    },
+  );
+});
+
+describe('checkout blue', () => {
+  it('carries white text, which is its whole job', () => {
+    expect(contrastRatio(CHECKOUT_INK, CHECKOUT_BLUE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('is byte-identical to the azure accent, deliberately', () => {
+    // If either value moves without the other, an Azure shop's page and its
+    // checkout affordance drift apart -- pin the relationship.
+    expect(paletteColors('azure').accent).toBe(CHECKOUT_BLUE);
   });
 });

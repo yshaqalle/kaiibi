@@ -11,8 +11,8 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  NoSearchResults, SearchField, ShopHeader, filterByCategory, gridColumnsForWidth, isWideShop, padFinalRow,
-  useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth, isWideShop,
+  padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
 import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
@@ -84,6 +84,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
+        hideBranding={storefront.hideBranding}
       />
     );
   }
@@ -181,8 +182,9 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         style={styles.scroller}
         // B6: see theme-market.tsx's identical comment -- the sticky
         // CheckoutBar floats over this content and reserves no space of
-        // its own.
-        contentContainerStyle={[styles.grid, itemCount > 0 && styles.gridWithCheckoutBar]}
+        // its own. Unconditional for the same reason: the first Add must
+        // not reflow the page under the customer's finger.
+        contentContainerStyle={[styles.grid, styles.gridWithCheckoutBar]}
         // See theme-market.tsx: closes the page, and scrolls with the goods.
         ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
         renderItem={({ item }) => (
@@ -224,7 +226,14 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         }}
       />
 
-      <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
+      <CheckoutBar
+        colors={colors}
+        itemCount={itemCount}
+        subtotalCents={subtotalCents}
+        thumbnails={cartThumbnails(cart, products)}
+        fulfilment={storefront.offersDelivery ? null : 'collection'}
+        onPress={checkout.openCheckout}
+      />
     </View>
   );
 }

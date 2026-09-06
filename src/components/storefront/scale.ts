@@ -114,14 +114,39 @@ export const SPACE = {
 // by four on a 1,504px laptop. The hero panel came out 1,472px wide holding a
 // 26px wordmark.
 //
-// 1080 rather than a percentage: the page is read at arm's length on a phone
-// and across a desk on a laptop, and a measure that grows with the window
-// stops being a measure. Matches the app's own reading column.
-export const SHOP_MAX_WIDTH = 1080;
+// 1080 -> 1320 (2026-09-05): 1080 matched the phone-era reading column and
+// left a 1,600px window mostly gutter. 1320 is the admin shell's own desktop
+// ceiling, so the shop and the app now agree on how wide "wide" is. Still a
+// fixed number rather than a percentage -- a measure that grows with the
+// window stops being a measure.
+export const SHOP_MAX_WIDTH = 1320;
+
+// THE PANEL GETS ITS OWN MEASURE, NARROWER THAN THE GRID -- the same argument
+// shop-directory-card.tsx makes for DIRECTORY_MAX_WIDTH, run the other way.
+//
+// The 1080 -> 1320 move above was reasoned about the GRID: a fifth column of
+// goods, scanned across, which is right to keep growing toward whatever fits
+// one more tile. shop-chrome.tsx bounds the About/Visit panel scroller by
+// that same SHOP_MAX_WIDTH, and neither about-panel.tsx nor visit-panel.tsx
+// bounds its own text (`grep -n maxWidth` on both returns nothing) -- so the
+// widening the grid asked for also widened a page of PROSE that was never
+// part of the argument, from roughly 1040px of measure to 1280px, which on a
+// paragraph is not more room, it is a line nobody's eye can track back to its
+// start.
+//
+// A grid gains a column when it grows; a sentence only gets harder to read.
+// Two different questions, so two constants -- and this one is not a
+// fraction of SHOP_MAX_WIDTH, because a fraction would keep them coupled and
+// they have already needed to move independently once (1080 -> 1320 changed
+// the grid's answer and should have changed nothing about the sentence's).
+//
+// 820 is picked the way a reading column is picked -- a comfortable line
+// length for body text -- not derived from anything else in this file.
+export const PROSE_MAX_WIDTH = 820;
 
 // Bento's radii. `card` is BENTO_RADIUS (theme.ts) by value and by intent --
 // not imported, because that constant lives beside `Colors.light` and this
-// page renders in one of six palettes for a stranger with no account. Copying
+// page renders in one of seven palettes for a stranger with no account. Copying
 // the number keeps the two surfaces looking alike without dragging the app's
 // palette onto the public page.
 export const RADIUS = {

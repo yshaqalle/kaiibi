@@ -1,6 +1,7 @@
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ThemeCounter } from '@/components/storefront/theme-counter';
+import { CHECKOUT_BAR_CLEARANCE } from '@/components/storefront/theme-shared';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -58,6 +59,7 @@ const shop: PublicStorefront = {
   // render exactly as it did before they existed.
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 const products: StorefrontProduct[] = [
@@ -108,26 +110,29 @@ describe('ThemeCounter', () => {
   });
 
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
-  // space of its own -- without this, its last-row content sits underneath
-  // it the moment the cart goes from empty to non-empty.
+  // space of its own. Task 5 made this unconditional -- the first Add must
+  // not reflow the page under the customer's finger, so the scroller
+  // carries the clearance from the very first render, empty cart or not,
+  // and adding to the cart changes nothing about it.
   //
   // storefront-cart.ts's native-platform cache is a module-level Map with no
   // reset hook by design -- a slug this test does not share with any other
   // test in this file (rather than the shared `shop.slug`) keeps this one's
   // cart from leaking into, or being polluted by, another's.
-  it('reserves extra bottom space for the sticky checkout bar once the cart is non-empty', () => {
+  it('reserves the checkout bar clearance from the first render, unchanged by adding to the cart', () => {
     const tree = renderCounter({ ...shop, slug: 'xamdi-counter-b6' });
     const flatStyle = (style: unknown) =>
       [style].flat(Infinity).reduce((acc, s) => ({ ...(acc as object), ...(s as object) }), {}) as { paddingBottom: number };
 
     const scroller = () => tree.root.find((n) => n.props?.testID === 'storefront-counter-scroll');
     const before = flatStyle(scroller().props.contentContainerStyle);
+    expect(before.paddingBottom).toBe(24 + CHECKOUT_BAR_CLEARANCE);
 
     const addButtons = findByTestId(tree, 'product-tile-add');
     act(() => addButtons[0].props.onPress());
 
     const after = flatStyle(scroller().props.contentContainerStyle);
-    expect(after.paddingBottom).toBeGreaterThan(before.paddingBottom);
+    expect(after.paddingBottom).toBe(before.paddingBottom);
   });
 
   it('pressing Add on a row adds that product to the cart', () => {

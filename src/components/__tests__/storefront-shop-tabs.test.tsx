@@ -17,7 +17,7 @@ function shop(overrides: Partial<PublicStorefront> = {}): PublicStorefront {
     heroImageUrl: null, offersDelivery: false, collectAddress: null,
     collectNeighborhood: 'Jigjiga Yar', paymentMode: 'on_collection', openingHours: {},
     tradingSince: null, highlights: [], images: [], contactPhone: null, instagram: null,
-    flyers: [], autoAdvance: false,
+    flyers: [], autoAdvance: false, hideBranding: false,
     ...overrides,
   };
 }

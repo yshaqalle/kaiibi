@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { AboutPanel } from '@/components/storefront/about-panel';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import { ShopTabRail, availableTabs, type ShopTabKey } from '@/components/storefront/shop-tabs';
-import { SHOP_MAX_WIDTH } from '@/components/storefront/scale';
+import { PROSE_MAX_WIDTH, SHOP_MAX_WIDTH } from '@/components/storefront/scale';
 import { VisitPanel } from '@/components/storefront/visit-panel';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
@@ -66,18 +66,27 @@ export function ShopChrome({
           style={styles.scroller}
           contentContainerStyle={styles.body}
         >
-          {active === 'about' ? (
-            <AboutPanel
-              storefront={storefront}
-              products={products}
-              categories={categories}
-              areas={areas}
-              colors={colors}
-              wide={wide}
-            />
-          ) : (
-            <VisitPanel storefront={storefront} areas={areas} colors={colors} wide={wide} />
-          )}
+          {/* PROSE_MAX_WIDTH, not the scroller's own SHOP_MAX_WIDTH -- see
+              scale.ts. The grid earned 1320 for a fifth column; a paragraph
+              read at that width is unreadable, and neither panel bounds its
+              own text. The footer below is deliberately OUTSIDE this View: on
+              the Shop tab it renders inside the theme's own SHOP_MAX_WIDTH
+              scroller, so bounding it to the narrower prose measure here would
+              make the same footer two different widths depending on the tab. */}
+          <View style={styles.prose}>
+            {active === 'about' ? (
+              <AboutPanel
+                storefront={storefront}
+                products={products}
+                categories={categories}
+                areas={areas}
+                colors={colors}
+                wide={wide}
+              />
+            ) : (
+              <VisitPanel storefront={storefront} areas={areas} colors={colors} wide={wide} />
+            )}
+          </View>
           <ShopFooter storefront={storefront} colors={colors} />
         </ScrollView>
       )}
@@ -94,4 +103,7 @@ const styles = StyleSheet.create({
   column: { width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   body: { paddingBottom: 24 },
+  // Centred within the scroller's own SHOP_MAX_WIDTH column, and narrower
+  // than it -- see PROSE_MAX_WIDTH in scale.ts.
+  prose: { width: '100%', maxWidth: PROSE_MAX_WIDTH, alignSelf: 'center' },
 });

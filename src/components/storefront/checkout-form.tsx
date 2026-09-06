@@ -5,7 +5,7 @@ import { pressable } from '@/components/storefront/press-feedback';
 import { formatCents } from '@/lib/currency';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
-import { WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
+import { CHECKOUT_BLUE, CHECKOUT_INK, WHATSAPP_BUTTON_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea } from '@/types/models';
 
 // A public page component: data and callbacks only, the same seam every
@@ -355,14 +355,18 @@ export function CheckoutForm({
           of a pay button -- the same rule CartSheet's caveat follows. */}
       <Text style={[styles.caveat, { color: colors.muted }]}>You pay on collection or delivery.</Text>
 
+      {/* CHECKOUT_BLUE, not colors.accent -- this is the moment of committing
+          an order, the same fixed affordance CheckoutBar's own "Checkout"
+          button carries (theme-shared.tsx, Step 0). Every other control on
+          this form stays palette-drawn; only the actual commit does not. */}
       <Pressable
         testID="checkout-form-submit"
         accessibilityRole="button"
         disabled={submitting}
         onPress={() => handleSubmit('direct')}
-        style={pressable([styles.submit, { backgroundColor: colors.accent }, submitting && styles.submitDisabled])}
+        style={pressable([styles.submit, { backgroundColor: CHECKOUT_BLUE }, submitting && styles.submitDisabled])}
       >
-        <Text style={[styles.submitText, { color: colors.ground }]}>{submitting ? 'Placing order…' : 'Place order'}</Text>
+        <Text style={[styles.submitText, { color: CHECKOUT_INK }]}>{submitting ? 'Placing order…' : 'Place order'}</Text>
       </Pressable>
 
       {/* Task 7's property 2, and the fix for the defect that shipped without

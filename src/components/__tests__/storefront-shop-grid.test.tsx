@@ -32,6 +32,7 @@ const shop: PublicStorefront = {
   contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 function product(id: string): StorefrontProduct {
@@ -127,7 +128,11 @@ describe('breakpoints', () => {
   it('gains columns with width', () => {
     expect(gridColumnsForWidth(390)).toBe(2);
     expect(gridColumnsForWidth(768)).toBe(3);
-    expect(gridColumnsForWidth(1504)).toBe(4);
+    expect(gridColumnsForWidth(1023)).toBe(3);
+    expect(gridColumnsForWidth(1024)).toBe(4);
+    expect(gridColumnsForWidth(1279)).toBe(4);
+    expect(gridColumnsForWidth(1280)).toBe(5);
+    expect(gridColumnsForWidth(1504)).toBe(5);
   });
 
   // Deliberately not the same threshold as a column gain: the point three shop

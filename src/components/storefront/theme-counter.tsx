@@ -7,8 +7,8 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, isWideShop, useCheckoutFlow,
-  useStorefrontCart, type ThemeProps,
+  NoSearchResults, ProductActions, SearchField, ShopCard, ShopHeader, cartThumbnails, isWideShop,
+  useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
 import { LETTER, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
@@ -100,6 +100,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         collectLocation={collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city)}
         colors={colors}
         onDone={checkout.backToBrowse}
+        hideBranding={storefront.hideBranding}
       />
     );
   }
@@ -125,7 +126,8 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           most likely to overflow. */}
       {/* B6: the sticky CheckoutBar below floats over this scroll view and
           reserves no space of its own -- see theme-market.tsx's identical
-          comment. */}
+          comment. Unconditional for the same reason: the first Add must
+          not reflow the page under the customer's finger. */}
       {shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
       ) : null}
@@ -136,7 +138,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         // is now ambiguous for anything wanting THIS one.
         testID="storefront-counter-scroll"
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, itemCount > 0 && styles.scrollContentWithCheckoutBar]}
+        contentContainerStyle={[styles.scrollContent, styles.scrollContentWithCheckoutBar]}
       >
         <ShopHeader
           storefront={storefront}
@@ -217,7 +219,14 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         }}
       />
 
-      <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
+      <CheckoutBar
+        colors={colors}
+        itemCount={itemCount}
+        subtotalCents={subtotalCents}
+        thumbnails={cartThumbnails(cart, products)}
+        fulfilment={storefront.offersDelivery ? null : 'collection'}
+        onPress={checkout.openCheckout}
+      />
     </View>
   );
 }
