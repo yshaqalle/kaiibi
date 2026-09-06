@@ -1,7 +1,8 @@
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { WhatsAppButton } from '@/components/storefront/theme-shared';
 import { DISPLAY_FONT, LETTER, SPACE, TYPE } from '@/components/storefront/scale';
+import { openExternalUrl } from '@/lib/external-url';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront } from '@/types/models';
@@ -67,7 +68,7 @@ export function ShopFooter({
         <Pressable
           testID="storefront-powered-by"
           accessibilityRole="link"
-          onPress={() => Linking.openURL('https://kaiibi.com')}
+          onPress={() => openExternalUrl('https://kaiibi.com')}
           style={styles.brand}
         >
           <Image source={require('@/assets/images/kaiibi-mark-white.png')} style={styles.brandMark} />

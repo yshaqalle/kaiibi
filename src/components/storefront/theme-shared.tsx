@@ -817,9 +817,14 @@ export function useStorefrontCart(slug: string) {
 // this much bottom padding of its own, but ONLY while `itemCount > 0` (the
 // same condition CheckoutBar below uses to render at all): an empty cart
 // must not carry dead space at the bottom of a page with no bar to clear.
-// The slip is 46px tall (8 padding + 30 thumb + 8) sitting 14px off the
-// bottom; 76 clears it with shadow headroom. Re-measure if the slip's
-// vertical paddings or thumb size change.
+// The slip's height is set by its TALLEST child, and that is `slipGo` (the
+// Checkout pill), not the 30px thumb: paddingVertical 11 around 13.5px text
+// (line-height ~17) is 11 + 17 + 11 = 39px, so the slip is 8 + 39 + 8 = 55px
+// against `slip`'s own paddingVertical 8, sitting 14px off the bottom. 55 +
+// 14 = 69 against a 76 clearance -- about 7px of headroom, not the ~22 a
+// thumb-based count would suggest, plus whatever the `elevation: 6` Android
+// shadow draws outside that box. Re-measure if the slip's vertical paddings
+// or thumb size change.
 export const CHECKOUT_BAR_CLEARANCE = 76;
 
 // Up to three thumbnails, in cart order. A product with no photo degrades to
@@ -870,8 +875,8 @@ export function CheckoutBar({
             ))}
           </View>
           <View>
-            <Text style={[styles.slipTotal, { color: colors.ink }]}>{formatCents(subtotalCents)}</Text>
-            <Text style={[styles.slipLine, { color: colors.muted }]}>{line}</Text>
+            <Text style={[styles.slipTotal, { color: colors.ink }]} numberOfLines={1}>{formatCents(subtotalCents)}</Text>
+            <Text style={[styles.slipLine, { color: colors.muted }]} numberOfLines={1}>{line}</Text>
           </View>
         </View>
         {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on

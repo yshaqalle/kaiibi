@@ -277,9 +277,32 @@ describe('the tinted action tier', () => {
     expect(contrastRatio(c.accentInk, c.ground)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(keys)('%s keeps the wash a tint, not a second fill', (key) => {
+  // A FLOOR as well as a ceiling. Without one, a wash that had collapsed onto
+  // its own ground -- ratio 1.0, meaning no visible tint at all -- would still
+  // pass: 1.0 clears "< 1.6" as comfortably as any real tint does, so the gate
+  // would not notice the one failure mode that matters most, the wash
+  // disappearing. 1.03 sits meaningfully above 1.0 while every palette's
+  // current derivation still clears it (azure is the tightest here, ~1.18).
+  it.each(keys)('%s keeps the wash a tint, not a second fill, on ground', (key) => {
     const c = paletteColors(key);
-    expect(contrastRatio(c.accentWash, c.ground)).toBeLessThan(1.6);
+    const ratio = contrastRatio(c.accentWash, c.ground);
+    expect(ratio).toBeGreaterThan(1.03);
+    expect(ratio).toBeLessThan(1.6);
+  });
+
+  // The gate above tests `ground`, but the four controls wearing this tier --
+  // the empty-state nudge, the search-clear chip, a category filter chip,
+  // "Edit cart" -- all render on the PAGE, and every theme fills the page with
+  // `colors.soft`, not `ground` (theme-market.tsx:153, theme-counter.tsx:111,
+  // theme-window.tsx:148). A wash tested only against a surface it never sits
+  // on is not tested. Same floor, for the same reason: without it a wash that
+  // had collapsed onto `soft` would pass silently (saffron is the tightest
+  // here, ~1.07, still comfortably above the floor).
+  it.each(keys)('%s keeps the wash a tint, not a second fill, on the page it actually sits on', (key) => {
+    const c = paletteColors(key);
+    const ratio = contrastRatio(c.accentWash, c.soft);
+    expect(ratio).toBeGreaterThan(1.03);
+    expect(ratio).toBeLessThan(1.6);
   });
 });
 

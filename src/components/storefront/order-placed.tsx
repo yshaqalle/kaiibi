@@ -1,6 +1,7 @@
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents } from '@/lib/currency';
+import { openExternalUrl } from '@/lib/external-url';
 import { orderAddress } from '@/lib/storefront-host';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PlacedOrder } from '@/lib/storefront-order';
@@ -90,7 +91,7 @@ export function OrderPlaced({ order, shopName, collectLocation, colors, hideBran
               and to buying, and this is neither. */}
           <Pressable
             accessibilityRole="link"
-            onPress={() => Linking.openURL('https://kaiibi.com')}
+            onPress={() => openExternalUrl('https://kaiibi.com')}
             style={[styles.acqButton, { borderColor: colors.edge }]}
           >
             <Text style={[styles.acqButtonText, { color: colors.ink }]}>See how</Text>
