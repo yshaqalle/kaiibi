@@ -219,6 +219,21 @@ describe('the directory card', () => {
       expect(textOf(tree, META)).toBe('Closed · opens tomorrow, 8am');
     });
 
+    // REVIEW FINDING (Task 20): the only test that used to touch this state
+    // asserted the DOT's colour and never the rendered text, so a future edit
+    // could print "Closed · " with a dangling separator, or drop the city
+    // entirely, and the suite would stay green. `shutHours` (this block's own
+    // fixture) is closed on every day of the week, so nextOpeningLabel finds
+    // no valid range anywhere it looks and returns null -- REGARDLESS of the
+    // real clock, unlike a fixture keyed to a single weekday -- which is
+    // exactly the `closedLabel ?? shop.city` branch (shop-directory-card.tsx)
+    // this test exists to pin. State word, separator and city, all three, in
+    // the order they actually render.
+    it('reads as the state, the separator and the city -- closed, with nothing reopening this week', () => {
+      const tree = renderCard(summary({ openingHours: shutHours, city: 'Hargeisa' }));
+      expect(textOf(tree, META)).toBe('Closed · Hargeisa');
+    });
+
     // Never colour alone: the word says the same thing colour does, for a
     // reader who cannot tell the two dot colours apart.
     it('never shows a dot without the word beside it', () => {

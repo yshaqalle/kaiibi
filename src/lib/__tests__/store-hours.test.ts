@@ -255,6 +255,24 @@ describe('nextOpeningLabel', () => {
 
   // Says which day, not just "later this week" -- and 08:30 -> 8:30am is the
   // one required mapping this case happens to cover.
+  // The classic 12-hour trap, alongside the 00:00 -> 12am case above: noon
+  // must fold to 12, not to 0, and stay `pm` rather than flipping to `am`.
+  it('formats a midday opening as 12pm', () => {
+    const hours: OpeningHours = { tue: [{ open: '12:00', close: '18:00' }] };
+    expect(nextOpeningLabel(hours, at(MONDAY, '20:00'))).toBe('opens tomorrow, 12pm');
+  });
+
+  // Every case above anchors `at` to a Monday. This one starts on a SUNDAY,
+  // where Date.getDay() wraps back to 0 -- weekdayKeyFor has to carry that
+  // wrap correctly into "the next day is Monday", or this looks up the wrong
+  // key, finds no hours, and returns null instead of naming the shop's own
+  // Monday-morning opening.
+  it('wraps the week correctly from a Sunday evening into a Monday opening', () => {
+    const sunday = '2026-08-09'; // confirmed 'sun' by weekdayKeyFor above.
+    const hours: OpeningHours = { mon: [{ open: '08:00', close: '18:00' }] };
+    expect(nextOpeningLabel(hours, at(sunday, '20:00'))).toBe('opens tomorrow, 8am');
+  });
+
   it('names the day when the next opening is later in the week', () => {
     const hours: OpeningHours = { thu: [{ open: '08:30', close: '18:00' }] };
     expect(nextOpeningLabel(hours, at(MONDAY, '20:00'))).toBe('opens Thursday, 8:30am');
