@@ -141,6 +141,27 @@ export function nearestIndex(offset: number, width: number, count: number): numb
   return Math.max(0, Math.min(count - 1, Math.round(offset / width)));
 }
 
+// Whether this device can genuinely hover a pointer -- the `(hover: hover)`
+// media query, read defensively. `window`/`matchMedia` are web-only globals
+// (a real native device has neither), and even a browser that has them can
+// answer "no" for a touch screen -- which is the whole point: Task 14 gated
+// the arrows' visibility on `Platform.OS === 'web'` alone, and that is TRUE
+// in a phone's browser too, where mobile WebKit/Chrome synthesise a
+// `mouseenter` after a tap ("ghost hover") that the old gate could not tell
+// apart from a real mouse. This is checked once, at mount (see
+// `hoverCapable` below) -- deciding whether hover can be ARMED AT ALL --
+// rather than trusted to fall out of "no mouse event fired", which a ghost
+// hover event defeats by firing anyway.
+function supportsHover(): boolean {
+  if (Platform.OS !== 'web') return false;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  try {
+    return window.matchMedia('(hover: hover)').matches;
+  } catch {
+    return false;
+  }
+}
+
 export function FlyerCarousel({
   flyers, colors, shopName, whatsappE164, onSelectCategory, autoAdvance = false,
 }: Props) {
@@ -182,15 +203,35 @@ export function FlyerCarousel({
   // arrow keeps it shown. Not per-arrow FROM THE START, since an arrow
   // hidden until hovered could never be the thing a pointer arrives on to
   // begin with -- the band-level handler is what reveals it in the first
-  // place. `onMouseEnter`/`onHoverIn` do not fire from a touch: neither
-  // RN-web nor a real device raises a hover event for a finger, so on every
-  // platform without a mouse this stays `false` for the life of the
-  // component and the arrow's own style branch (`Platform.OS === 'web'`)
-  // never even reads it. Named for what it does -- "arm the hover-revealed
-  // arrows" -- not "hovered", since the band already tracks hover for a
-  // different reason (`stoppedForVisit`) and the two must not be confused
-  // for one another.
+  // place. Named for what it does -- "arm the hover-revealed arrows" -- not
+  // "hovered", since the band already tracks hover for a different reason
+  // (`stoppedForVisit`) and the two must not be confused for one another.
+  //
+  // Gated by `hoverCapable` (below), NOT merely by "no mouse event fired":
+  // `onMouseEnter`/`onHoverIn` are exactly the events mobile WebKit and
+  // Chrome SYNTHESISE after a tap ("ghost hover"), so on a phone browser --
+  // this storefront's main audience, arriving from a WhatsApp link -- they
+  // fire anyway. `armHoverOn` below is the only path that ever sets this
+  // `true`, and it is itself a no-op unless the device answered `(hover:
+  // hover)` honestly at mount.
   const [armHover, setArmHover] = useState(false);
+  // Read once, at mount, via `supportsHover` -- the `(hover: hover)` media
+  // query. `useState`'s lazy initializer rather than an effect: this is a
+  // device capability, not something that needs to reach the DOM after
+  // paint, and reading it during render (before anything can call
+  // `armHoverOn`) is what makes the very first ghost-hover event on a touch
+  // device already a no-op rather than racing an effect that has not run
+  // yet.
+  const [hoverCapable] = useState(supportsHover);
+
+  // The only setter that ever ARMS the hover-revealed arrows. Real hover
+  // (`hoverCapable`) is required; every caller below that used to call
+  // `setArmHover(true)` directly calls this instead. Disarming
+  // (`setArmHover(false)`, on `onMouseLeave`/`onHoverOut`) stays
+  // unconditional -- there is no failure mode in hiding an arrow again.
+  function armHoverOn() {
+    if (hoverCapable) setArmHover(true);
+  }
 
   // null = "not answered yet". Treated the same as `true` by `motionActive`
   // below -- see the header comment's "fails safe" note -- so the band
@@ -304,6 +345,57 @@ export function FlyerCarousel({
     }, 140);
   }
 
+  // Attaches the wheel listener NATIVELY and non-passively, bypassing the
+  // declarative `onWheel` JSX prop that used to live on the ScrollView
+  // below -- the actual fix for `preventDefault()` doing nothing. React
+  // attaches its own root-delegated `wheel` listener as `{ passive: true }`
+  // whenever the browser supports it (confirmed in this repo's own
+  // installed react-dom, node_modules/react-dom/cjs/
+  // react-dom-client.development.js's WHEEL_EVENT_IS_PASSIVE handling), and
+  // `preventDefault()` inside a passive listener is a documented no-op
+  // (usually with a console warning) -- so the JSX prop never actually kept
+  // the page from scrolling behind the band; it only looked like it did in
+  // a test that hands the handler a plain object directly rather than
+  // routing a real event through React. `{ passive: false }`, given
+  // straight to `addEventListener` rather than to React, is the one
+  // configuration that makes `preventDefault()` here actually take effect.
+  //
+  // `scroller.current` on web IS the underlying scrollable DOM node, not a
+  // wrapper around one: react-native-web's ScrollView forwards its ref
+  // straight to that node and hangs its own extra methods (`scrollTo`,
+  // already relied on elsewhere in this file) directly off it -- see
+  // `_setScrollNodeRef` in node_modules/react-native-web/dist/exports/
+  // ScrollView/index.js. `addEventListener` is simply already there to
+  // call. On native, `scroller.current` is an RN `ScrollView` component
+  // instance with no such method, and `Platform.OS !== 'web'` never lets
+  // this reach it regardless -- belt and braces against a DOM API native
+  // has no equivalent of at all.
+  //
+  // `handleWheelRef` exists only so the listener -- attached once per
+  // mount of the scrollable node, not on every render -- always calls the
+  // LATEST `handleWheel` closure (closing over the current `width`,
+  // `count`, `offsetXRef`, etc.) instead of the stale one captured back
+  // when the listener was first attached.
+  const handleWheelRef = useRef(handleWheel);
+  useEffect(() => {
+    handleWheelRef.current = handleWheel;
+  });
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const node = scroller.current as unknown as {
+      addEventListener?: (type: 'wheel', cb: (event: WheelEvent) => void, options?: AddEventListenerOptions) => void;
+      removeEventListener?: (type: 'wheel', cb: (event: WheelEvent) => void, options?: AddEventListenerOptions) => void;
+    } | null;
+    if (!node?.addEventListener) return undefined;
+    const listener = (event: WheelEvent) => handleWheelRef.current(event);
+    node.addEventListener('wheel', listener, { passive: false });
+    return () => node.removeEventListener?.('wheel', listener, { passive: false });
+    // Re-runs if the scrollable node itself could have changed -- `count`
+    // is what decides whether a ScrollView renders at all (see the two
+    // early returns below) and so whether `scroller.current` holds one.
+  }, [count]);
+
   // Drag-to-grab. Gated on `pointerType === 'mouse'` so a touch pointer
   // (which already scrolls the band natively, on both native and web) never
   // reaches any of this -- the whole reason the gate exists rather than
@@ -383,7 +475,7 @@ export function FlyerCarousel({
       // the hover-revealed arrows below. It does not touch `stoppedForVisit`;
       // that stays one-way for the whole visit (see the header comment), so
       // the mouse leaving the band must never make it move again.
-      {...{ onMouseEnter: () => { stopForVisit(); setArmHover(true); }, onMouseLeave: () => setArmHover(false) }}
+      {...{ onMouseEnter: () => { stopForVisit(); armHoverOn(); }, onMouseLeave: () => setArmHover(false) }}
       onTouchStart={stopForVisit}
       onFocus={stopForVisit}
     >
@@ -400,7 +492,7 @@ export function FlyerCarousel({
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleMomentumEnd}
         // Web only, spread for the same typing reason `onMouseEnter` above
-        // is: `onScroll` itself is real RN, but `onWheel`/`onPointerDown`/
+        // is: `onScroll` itself is real RN, but `onPointerDown`/
         // `onPointerMove`/`onPointerUp` are DOM pointer events RN's
         // `ScrollViewProps` has never had. Gated on `Platform.OS` rather
         // than always spread (unlike `onMouseEnter`, which is harmless
@@ -409,6 +501,17 @@ export function FlyerCarousel({
         // props entirely is what "genuinely web-only" means for a handler
         // that reaches for `event.currentTarget.setPointerCapture`, an API
         // native has no equivalent of at all.
+        //
+        // `onWheel` deliberately does NOT appear here any more -- see the
+        // `handleWheelRef`/`addEventListener` effect above. A JSX `onWheel`
+        // prop is routed through React's own root-delegated, `{ passive:
+        // true }` listener, which makes `handleWheel`'s `preventDefault()`
+        // a silent no-op and leaves the page free to scroll behind the
+        // band; the effect attaches the exact same `handleWheel` directly
+        // to the DOM node instead, non-passively. Wiring BOTH would double
+        // every wheel tick (each firing `handleWheel` once), not merely
+        // leave the old bug in place, so this had to be a replacement, not
+        // an addition.
         onScroll={Platform.OS === 'web' ? handleScrollSync : undefined}
         scrollEventThrottle={Platform.OS === 'web' ? 16 : undefined}
         // `as any`, not the plain spread `onMouseEnter` above gets away
@@ -418,9 +521,8 @@ export function FlyerCarousel({
         // `NativeSyntheticEvent<NativePointerEvent>` shape. react-native-web
         // does not wrap them that way -- `ScrollViewBase` (node_modules/
         // react-native-web/.../ScrollView/ScrollViewBase.js) forwards
-        // `onWheel` straight through as the raw DOM `WheelEvent`, and
-        // `onPointerDown`/`Move`/`Up`/`Cancel` reach the underlying `View`
-        // as flat React DOM synthetic events (`event.clientX`, not
+        // `onPointerDown`/`Move`/`Up`/`Cancel` to the underlying `View` as
+        // flat React DOM synthetic events (`event.clientX`, not
         // `event.nativeEvent.clientX`) -- so a type that matched what RN
         // declares would be describing a shape the web runtime never
         // actually hands the callback. `any` here says "trust the comment
@@ -428,7 +530,6 @@ export function FlyerCarousel({
         // asks for two layers up, for a prop RN's types get information
         // about but wrong for this platform rather than missing entirely.
         {...(Platform.OS === 'web' ? ({
-          onWheel: handleWheel,
           onPointerDown: handlePointerDown,
           onPointerMove: handlePointerMove,
           onPointerUp: handlePointerUp,
@@ -447,9 +548,14 @@ export function FlyerCarousel({
       </ScrollView>
 
       {/* Hover-only, web + pointer devices -- the `(hover: hover)` media
-          query the mockup gates the same arrows on. `armHover` starts and
-          stays `false` on native (nothing there ever arms it), so
-          `Platform.OS !== 'web'` is what actually keeps a real device's
+          query the mockup gates the same arrows on, and now the actual gate
+          `armHoverOn`/`hoverCapable` enforce (see their own comments above):
+          `armHover` starts `false` everywhere and can only ever become
+          `true` on a device `supportsHover()` said yes to at mount, so a
+          phone's ghost `mouseenter`/`onHoverIn` after a tap no longer arms
+          it. `armHover` also simply never gets touched on native (nothing
+          there calls `armHoverOn`/`setArmHover` at all), so
+          `Platform.OS !== 'web'` is what keeps a real native device's
           arrows exactly as visible as they always were; the `armHover`
           branch only ever executes on web. `pointerEvents="none"` while
           hidden so an invisible arrow cannot steal a tap or a drag start
@@ -459,7 +565,7 @@ export function FlyerCarousel({
         accessibilityRole="button"
         accessibilityLabel="Previous flyer"
         onPress={() => goTo(index - 1)}
-        onHoverIn={() => setArmHover(true)}
+        onHoverIn={armHoverOn}
         onHoverOut={() => setArmHover(false)}
         hitSlop={10}
         pointerEvents={Platform.OS === 'web' && !armHover ? 'none' : 'auto'}
@@ -475,7 +581,7 @@ export function FlyerCarousel({
         accessibilityRole="button"
         accessibilityLabel="Next flyer"
         onPress={() => goTo(index + 1)}
-        onHoverIn={() => setArmHover(true)}
+        onHoverIn={armHoverOn}
         onHoverOut={() => setArmHover(false)}
         hitSlop={10}
         pointerEvents={Platform.OS === 'web' && !armHover ? 'none' : 'auto'}

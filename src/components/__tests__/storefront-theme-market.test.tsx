@@ -117,6 +117,52 @@ function firstIndexOfTestId(nodes: HostNode[], testID: string): number {
   return nodes.findIndex((node) => node.props?.testID === testID);
 }
 
+// Whether `testID` is on `node` itself or on anything under it. Used below
+// to identify WHICH of a parent's direct children a given testID lives
+// inside, without caring how many host layers that child wraps it in --
+// SearchField, for instance, nests `storefront-search` two Views deep
+// (searchRow > searchCard > TextInput), so the relevant "sibling" for an
+// adjacency check is SearchField's own root, not the TextInput itself.
+function subtreeHasTestId(node: HostNode, testID: string): boolean {
+  if (node.props?.testID === testID) return true;
+  return (node.children ?? []).some(
+    (child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID),
+  );
+}
+
+// Depth-first search for the first host node carrying `testID`.
+function findByTestIdNode(root: HostNode, testID: string): HostNode | null {
+  if (root.props?.testID === testID) return root;
+  for (const child of root.children ?? []) {
+    if (typeof child === 'string') continue;
+    const found = findByTestIdNode(child as HostNode, testID);
+    if (found) return found;
+  }
+  return null;
+}
+
+// The actual regression check for Task 14's fix: not merely that the
+// carousel comes SOMEWHERE after the search and before the categories (the
+// pre-fix test above), which stayed green with the whole Collecting/Stock
+// pair wedged in between (`header`'s own direct children were [ShopHeader,
+// FlyerCarousel, CategoryBand, ...] -- ShopHeader and FlyerCarousel were
+// already outer-level siblings even with the pair buried inside
+// ShopHeader's own narrow View), but that the carousel is the floating
+// search's very next sibling INSIDE `storefront-header` itself -- exactly
+// what "directly under the floating search" in the brief means. Anchored on
+// `storefront-header` (ShopHeader's own root, present in both the narrow and
+// wide branch) rather than on some generic lowest-common-ancestor search,
+// because an LCA taken over the whole page trivially resolves to that same
+// misleading outer level: ShopHeader-as-a-whole and FlyerCarousel-as-a-whole
+// really were adjacent siblings under the old code, which is what let the
+// order-only check above pass on the defect in the first place.
+function nextDirectChildAfter(parent: HostNode, testID: string): HostNode | string | null {
+  const children = parent.children ?? [];
+  const idx = children.findIndex((child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID));
+  if (idx === -1) return null;
+  return (children[idx + 1] as HostNode | string | undefined) ?? null;
+}
+
 function flyer(id: string): StorefrontFlyer {
   return {
     id, imageUrl: null, headline: `Flyer ${id}`, subline: null,
@@ -174,6 +220,53 @@ describe('ThemeMarket', () => {
     expect(categoryIndex).toBeGreaterThan(-1);
     expect(searchIndex).toBeLessThan(flyerIndex);
     expect(flyerIndex).toBeLessThan(categoryIndex);
+  });
+
+  // The order check above is necessary but not sufficient -- it stayed
+  // green through the whole "carousel sits after the header, with the
+  // Collecting/Stock pair wedged in between" defect this fix corrects,
+  // because search < flyer < category held true regardless of what else sat
+  // between search and flyer. This is the adjacency check the brief asks
+  // for: the carousel must be the floating search's very next SIBLING, not
+  // merely somewhere after it. Reverting the `narrowFlyerCarousel` slot
+  // (theme-shared.tsx's ShopHeader, theme-market.tsx's `header`) makes this
+  // fail -- the carousel goes back to being a sibling of the whole
+  // `<ShopHeader>`, so the search's next sibling becomes `headerPair`
+  // (Collecting/Stock) instead.
+  it('places the flyer band as the floating search\'s next sibling, directly beneath it', async () => {
+    const catalogue: StorefrontProduct[] = Array.from({ length: SEARCH_THRESHOLD }, (_, i) => ({
+      id: `sp${i}`,
+      name: `Product ${i}`,
+      description: null,
+      category: i % 2 === 0 ? 'Phone' : 'Cable',
+      priceCents: 1000 + i,
+      stock: 5,
+      imageUrl: null,
+    }));
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, slug: 'xamdi-market-flyer-adjacency', flyers: [flyer('f1'), flyer('f2')] }}
+          products={catalogue}
+          categories={[
+            { name: 'Phone', imageUrl: null, productCount: catalogue.length / 2 },
+            { name: 'Cable', imageUrl: null, productCount: catalogue.length / 2 },
+          ]}
+          colors={colors}
+        />,
+      );
+    });
+
+    const root = tree.toJSON() as HostNode;
+    const header = findByTestIdNode(root, 'storefront-header');
+    expect(header).not.toBeNull();
+
+    const sibling = nextDirectChildAfter(header as HostNode, 'storefront-search');
+
+    expect(sibling).not.toBeNull();
+    expect(typeof sibling === 'string' ? false : subtreeHasTestId(sibling as HostNode, 'storefront-flyer-band')).toBe(true);
   });
 
   // The requirement most likely to regress silently, per the brief: a shop

@@ -22,8 +22,19 @@ jest.mock('@/lib/external-url', () => ({ openExternalUrl: jest.fn() }));
 const isReduceMotionEnabled = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled');
 jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
 
+// `supportsHover` (Fix 3, flyer-carousel.tsx) reads `window.matchMedia
+// ('(hover: hover)').matches` once, at mount, to decide whether the
+// hover-revealed arrows can ever be armed at all. Defaults to `true` here --
+// a real mouse -- since this whole file is "web mouse" behaviour; the one
+// test below that needs a device WITHOUT real hover (a phone's browser,
+// where `onMouseEnter`/`onHoverIn` still fire as a "ghost hover" after a
+// tap) overrides it to `false` for just that render.
+const matchMedia = jest.fn().mockReturnValue({ matches: true });
+
 beforeEach(() => {
   isReduceMotionEnabled.mockReset().mockResolvedValue(false);
+  matchMedia.mockReset().mockReturnValue({ matches: true });
+  (window as unknown as { matchMedia: typeof matchMedia }).matchMedia = matchMedia;
 });
 
 const colors = paletteColors('ink');
@@ -110,63 +121,54 @@ function track(tree: ReturnType<typeof create>) {
 describe('FlyerCarousel: web mouse (Task 14)', () => {
   const threeFlyers = () => [flyer({ id: 'f1' }), flyer({ id: 'f2' }), flyer({ id: 'f3' })];
 
-  // The affordances exist as PROPS on the track only on web -- proof this is
-  // "genuinely web-only" rather than something native happens to ignore.
-  it('wires wheel and pointer handlers onto the track', async () => {
+  // The pointer affordances exist as PROPS on the track only on web -- proof
+  // this is "genuinely web-only" rather than something native happens to
+  // ignore. `onWheel` is deliberately NOT asserted here any more (it used
+  // to be, before this fix) -- see the block comment below for why, and
+  // storefront-flyer-carousel.test.tsx's own `wheelPanDelta`/`clampOffset`/
+  // `nextWheelOffset`/`nearestIndex` suites for where the arithmetic that
+  // used to be exercised through it is still covered.
+  it('wires pointer handlers onto the track', async () => {
     const tree = await render(threeFlyers());
     const t = track(tree);
-    expect(typeof t.props.onWheel).toBe('function');
     expect(typeof t.props.onPointerDown).toBe('function');
     expect(typeof t.props.onPointerMove).toBe('function');
     expect(typeof t.props.onPointerUp).toBe('function');
     expect(typeof t.props.onPointerCancel).toBe('function');
   });
 
-  // Wheel-pan: a vertical delta scrolls the band, and the page must not
-  // scroll behind it -- `preventDefault` is the whole of that second half.
-  it('prevents the page from scrolling under a wheel gesture, and settles onto the nearest card', async () => {
-    jest.useFakeTimers();
-    try {
-      const tree = await render(threeFlyers());
-      await layout(tree, 300);
-      expect(selectedIndex(tree)).toBe(0);
-
-      const preventDefault = jest.fn();
-      await act(async () => {
-        (track(tree).props.onWheel as (e: unknown) => void)({ deltaX: 0, deltaY: 260, preventDefault });
-      });
-      expect(preventDefault).toHaveBeenCalled();
-
-      // Settling is debounced -- see `handleWheel`'s own comment -- so the
-      // dot has not moved yet immediately after the tick...
-      expect(selectedIndex(tree)).toBe(0);
-      // ...and has once the wheel has gone quiet.
-      await act(async () => { jest.advanceTimersByTime(200); });
-      expect(selectedIndex(tree)).toBe(1);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  // A single big leftward pan on a wide-enough delta should be able to
-  // clear more than one card's width in one gesture -- proof the offset is
-  // real pixel travel, not a "one wheel tick = one card" shortcut.
-  it('pans by real pixel distance, not by a fixed step', async () => {
-    jest.useFakeTimers();
-    try {
-      const tree = await render(threeFlyers());
-      await layout(tree, 300);
-      await act(async () => {
-        (track(tree).props.onWheel as (e: unknown) => void)({ deltaX: 0, deltaY: 640, preventDefault: jest.fn() });
-      });
-      await act(async () => { jest.advanceTimersByTime(200); });
-      // 640px against 300px-wide cards lands past card 1 -- clamped to the
-      // last card (index 2), not stuck at 1.
-      expect(selectedIndex(tree)).toBe(2);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
+  // FIX (this pass): a JSX `onWheel` prop on <ScrollView> used to be how
+  // `handleWheel` got called, and USED to be the seam these tests drove it
+  // through -- but a plain JSX `onWheel` is exactly the defect: React
+  // routes it through its own root-delegated, `{ passive: true }` listener
+  // (confirmed in this repo's own installed react-dom,
+  // node_modules/react-dom/cjs/react-dom-client.development.js's
+  // WHEEL_EVENT_IS_PASSIVE handling), which makes `event.preventDefault()`
+  // inside it a silent no-op -- so the band panned, but the page behind it
+  // kept scrolling too, exactly what this whole affordance exists to
+  // prevent. The old two tests here proved only that `handleWheel` ran when
+  // handed a plain object directly; they never went through a real,
+  // passively-attached listener, so neither could ever have caught this.
+  //
+  // The fix moves the listener off `onWheel` entirely and onto a real
+  // `addEventListener('wheel', ..., { passive: false })`, attached directly
+  // to the scrollable DOM node (see flyer-carousel.tsx's own comment on the
+  // effect, right above `handlePointerDown`). That is genuinely
+  // untestable here: `scroller.current` under this Jest harness (the
+  // `react-native` package's own jest preset, not react-native-web, even
+  // with `Platform.OS` forced to `'web'` for this file) is a plain RN
+  // `ScrollView` class instance -- confirmed by probing it directly -- with
+  // no `addEventListener` at all, and no `createNodeMock` intervenes,
+  // because a class-component ref never reaches the host-mocking path
+  // `createNodeMock` covers. There is no real DOM node this suite can ever
+  // dispatch a wheel event at or spy an `addEventListener` call on. Per the
+  // brief for this fix: rather than write a test that LOOKS like it covers
+  // the passive-listener defect but cannot actually observe it (exactly the
+  // shape of the two tests this replaces), this is left uncovered by an
+  // integration test and said so plainly here -- the pure arithmetic
+  // (`wheelPanDelta`, `clampOffset`, `nextWheelOffset`, `nearestIndex`) the
+  // removed tests exercised indirectly stays covered directly, in
+  // storefront-flyer-carousel.test.tsx, which this fix did not touch.
 
   // Drag-to-grab is gated on `pointerType === 'mouse'` -- a touch pointer on
   // a touch-web device must fall straight through to the browser's own
@@ -226,7 +228,9 @@ describe('FlyerCarousel: web mouse (Task 14)', () => {
   });
 
   // Hover-only arrows: hidden until the band is hovered, and only on web --
-  // the `(hover: hover)` media query's RN-web equivalent.
+  // the `(hover: hover)` media query's RN-web equivalent. `matchMedia`
+  // reports a real mouse here (the `beforeEach` default), which is what
+  // lets a genuine `onMouseEnter` arm them.
   it('hides the arrows until the band is hovered, then reveals them', async () => {
     const tree = await render(threeFlyers());
     const arrowBefore = withTestId(tree, 'storefront-flyer-prev')[0];
@@ -242,5 +246,36 @@ describe('FlyerCarousel: web mouse (Task 14)', () => {
 
     await act(async () => { (band.props.onMouseLeave as () => void)(); });
     expect(flatten(withTestId(tree, 'storefront-flyer-prev')[0].props.style).opacity).toBe(0);
+  });
+
+  // FIX 3: the regression this whole gate exists for. `Platform.OS ===
+  // 'web'` is true in a phone's browser too -- this storefront's main
+  // audience arrives from a WhatsApp link on one -- and mobile WebKit/
+  // Chrome SYNTHESISE `mouseenter`/`onHoverIn` after a tap ("ghost hover").
+  // Before this fix, the old gate (`Platform.OS === 'web'` plus whichever
+  // mouse event happened to fire) could not tell that ghost event apart
+  // from a real mouse, so the arrows appeared on a touch device -- exactly
+  // what the brief rules out. `matchMedia('(hover: hover)')` reporting
+  // `false` here stands in for a real touch-only browser; the band and
+  // arrows still receive the exact same synthetic hover callbacks a ghost
+  // tap would fire, and must not arm regardless.
+  it('never arms the hover-revealed arrows on a device that cannot actually hover', async () => {
+    matchMedia.mockReturnValue({ matches: false });
+    const tree = await render(threeFlyers());
+
+    const band = withTestId(tree, 'storefront-flyer-band')[0];
+    await act(async () => { (band.props.onMouseEnter as () => void)(); });
+    expect(flatten(withTestId(tree, 'storefront-flyer-prev')[0].props.style).opacity).toBe(0);
+    expect(withTestId(tree, 'storefront-flyer-prev')[0].props.pointerEvents).toBe('none');
+
+    // The arrow's OWN `onHoverIn` (armed once the band-level handler has
+    // already revealed it, per the arrow's own comment) must not arm it
+    // either, on the same device.
+    const prevArrow = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-flyer-prev' && typeof n.props?.onHoverIn === 'function',
+    )[0];
+    await act(async () => { (prevArrow.props.onHoverIn as () => void)(); });
+    expect(flatten(withTestId(tree, 'storefront-flyer-prev')[0].props.style).opacity).toBe(0);
+    expect(withTestId(tree, 'storefront-flyer-prev')[0].props.pointerEvents).toBe('none');
   });
 });

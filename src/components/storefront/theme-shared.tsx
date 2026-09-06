@@ -539,7 +539,7 @@ export function ShopPill({
 // a raw pixel test so the caller decides once, from the same measurement it
 // already takes to pick a column count.
 export function ShopHeader({
-  storefront, products, areas, colors, wide, itemCount, onOpenCart, narrowFloatingSearch,
+  storefront, products, areas, colors, wide, itemCount, onOpenCart, narrowFloatingSearch, narrowFlyerCarousel,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
@@ -556,6 +556,19 @@ export function ShopHeader({
   // anchor's own bottom edge instead of on the Collecting/Stock pair below.
   // Ignored entirely in the wide branch -- see ShopAnchor's placement there.
   narrowFloatingSearch?: ReactNode;
+  // The FlyerCarousel element, same slot mechanism as narrowFloatingSearch
+  // and for the same reason: the mockup (storefront-bold-motion-mockup.html,
+  // .onesearch followed immediately by the flyer band) puts the carousel
+  // directly under the floating search, ABOVE the Collecting/Stock pair --
+  // not after the whole header, where it used to land as ThemeMarket's own
+  // sibling with the pair wedged in between. Rendered here, between
+  // narrowFloatingSearch and headerPair, so the caller keeps owning the
+  // "does this shop even have flyers" question (FlyerCarousel's own
+  // count === 0 guard) while this component owns only where the slot paints.
+  // Ignored entirely in the wide branch, same as narrowFloatingSearch -- wide
+  // keeps rendering the carousel as ThemeMarket's own sibling below the
+  // header, unchanged from before this fix.
+  narrowFlyerCarousel?: ReactNode;
 }) {
   const cartLabel = itemCount > 0 ? `Cart · ${itemCount}` : 'Cart';
   const cartA11y = itemCount > 0 ? `Open cart, ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'Open cart';
@@ -600,6 +613,7 @@ export function ShopHeader({
       </View>
       <ShopAnchor storefront={storefront} colors={colors} />
       {narrowFloatingSearch}
+      {narrowFlyerCarousel}
       <View style={styles.headerPair}>
         <CollectingCard storefront={storefront} areas={areas} colors={colors} style={styles.pairCard} stacked />
         <StockCard products={products} colors={colors} style={styles.pairCard} />

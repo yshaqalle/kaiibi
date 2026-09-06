@@ -119,6 +119,28 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
     <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} floating />
   ) : null;
 
+  // Built once as an element, same reason `header` below is: identity
+  // matters. Which spot actually PAINTS it -- ShopHeader's narrow branch
+  // (via the `narrowFlyerCarousel` slot, right after the floating search)
+  // or here, as ThemeMarket's own sibling below the whole header -- depends
+  // on `wide`, but the element itself, and FlyerCarousel's own "nothing
+  // when the shop has no flyers" guard, is the exact same one either way.
+  // See the ShopHeader render below for why narrow needs the slot at all:
+  // the mockup (storefront-bold-motion-mockup.html, `.onesearch` immediately
+  // followed by the flyer band) puts the carousel directly under the
+  // floating search, ABOVE the Collecting/Stock pair -- and a sibling of
+  // the WHOLE header lands after that pair, not after the search.
+  const flyerCarousel = (
+    <FlyerCarousel
+      flyers={storefront.flyers}
+      colors={colors}
+      shopName={storefront.shopName}
+      whatsappE164={storefront.whatsappE164}
+      onSelectCategory={setCategory}
+      autoAdvance={storefront.autoAdvance}
+    />
+  );
+
   // Built as an ELEMENT, not as a component passed to ListHeaderComponent.
   // An inline `() => <Header/>` is a new component type on every render, which
   // remounts the whole header each keystroke and takes the search field's focus
@@ -134,21 +156,17 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         itemCount={itemCount}
         onOpenCart={() => setCartOpen(true)}
         narrowFloatingSearch={narrowFloatingSearch}
+        narrowFlyerCarousel={flyerCarousel}
       />
 
-      {/* Below the shop card, above the goods. A customer arriving on a
-          forwarded link needs to know whose page this is before the loudest
-          thing on it speaks -- and the poster belongs next to what it points
-          at, not stranded above the header. Renders nothing at all when the
-          shop has no flyers; see FlyerCarousel. */}
-      <FlyerCarousel
-        flyers={storefront.flyers}
-        colors={colors}
-        shopName={storefront.shopName}
-        whatsappE164={storefront.whatsappE164}
-        onSelectCategory={setCategory}
-        autoAdvance={storefront.autoAdvance}
-      />
+      {/* Wide only -- ShopHeader's wide branch ignores narrowFlyerCarousel
+          entirely (ShopAnchor sits beside the cards there, and the search
+          does not float), so wide keeps painting the carousel here, as
+          ThemeMarket's own sibling below the whole header, exactly as it
+          did before this fix. Narrow paints the SAME element inside
+          ShopHeader instead (see narrowFlyerCarousel above) -- never both,
+          so FlyerCarousel mounts exactly once either way. */}
+      {wide ? flyerCarousel : null}
       {/* Above the filter chip, not below: the band is how a customer
           CHOOSES a category and the chip is how they leave one, so the
           chip belongs next to the grid it is narrowing. */}
