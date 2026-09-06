@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useState } from 'react';
+import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { CategoryBand } from '@/components/storefront/category-band';
@@ -11,8 +11,8 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  goodsScrollHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth,
-  isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth, isWideShop,
+  padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
 import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
@@ -47,17 +47,6 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   const inCategory = filterByCategory(products, category);
   const shown = searchProducts(inCategory, query);
   const cells = padFinalRow(shown, numColumns);
-  // THE MEASUREMENT the goods region's own height is built from -- see
-  // goodsScrollHeight's comment in theme-shared.tsx for why this cannot be a
-  // constant. Reset on every column-count change: `key={numColumns}` below
-  // already remounts the FlatList at that point, and a measurement taken at
-  // the OLD column count (a different tile height) would otherwise survive
-  // into the new one until a fresh layout happened to overwrite it.
-  const [rowHeight, setRowHeight] = useState<number | null>(null);
-  useEffect(() => setRowHeight(null), [numColumns]);
-  const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
-  const goodsHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
-  const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -217,140 +206,64 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         tab={activeTab}
         onSelectTab={selectTab}
       >
-      {/* THE PAGE is a plain ScrollView, and the goods below are the ONLY
-          FlatList left in this tree -- which looks like it should be the
-          other way around (nest the goods FlatList inside a page FlatList,
-          so it inherits an ancestor VirtualizedList context and never trips
-          RN's "VirtualizedLists should never be nested inside plain
-          ScrollViews" warning). That was this file's first shape, and it was
-          wrong: proven in the browser, not reasoned from the warning text
-          alone.
-
-          A VirtualizedList that finds a same-orientation VirtualizedList
-          context above it does not merely suppress the warning -- RN reads
-          that context as "an ancestor list already owns scrolling" and
-          renders the nested one as a plain, non-scrolling View instead of a
-          ScrollView (`_isNestedWithSameOrientation` gating
-          `_defaultRenderScrollComponent` in
-          @react-native/virtualized-lists/Lists/VirtualizedList.js). On web
-          that showed up as the goods box having `overflow-y: visible` and no
-          effect from setting `scrollTop` at all -- the exact mechanism
-          SectionList relies on to fold many same-orientation lists into ONE
-          physical scroll, and exactly wrong for a region that has to scroll
-          on its OWN gesture, independently of the page. Nesting FlatList
-          inside FlatList here would have silently shipped a goods box that
-          cannot scroll.
-
-          So: the goods FlatList keeps its own real ScrollView (nothing above
-          it is a VirtualizedList) and the page is what changes shape
-          instead. That does put a VirtualizedList under a plain ScrollView
-          of the same orientation, which is what the warning's TEXT describes
-          -- but the concern the warning exists for (a list that cannot tell
-          it has a bounded viewport, and renders every row at once as a
-          result) does not apply here: the goods FlatList has an explicit
-          `maxHeight` of its own the moment there is more than one row (see
-          goodsScrollHeight, and `goodsStyle` below), so its viewport is
-          exactly as well-defined nested as it would be at the top of the
-          tree. And on THIS platform the check is moot regardless --
-          react-native-web's own copy of it
-          (react-native-web/dist/.../VirtualizedList/index.js) is commented
-          out pending a ScrollView.Context.Consumer it does not yet
-          implement, so the console this task's brief says to read never
-          prints it here either way. */}
-      <ScrollView
-        testID="storefront-page-scroll"
+      <FlatList
+        testID="storefront-goods"
+        // Padded so a short final row leaves a gap rather than inflating its
+        // cells to fill the width -- the defect this whole pass started from.
+        // See padFinalRow.
+        data={cells}
+        // FlatList refuses to change numColumns on the fly (RN warns and
+        // ignores it) -- `key` forces a fresh mount whenever the column
+        // count crosses a breakpoint, which is the pattern RN's own error
+        // message for this points at.
+        key={numColumns}
+        numColumns={numColumns}
+        keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
+        columnWrapperStyle={styles.row}
+        ListHeaderComponent={header}
+        ListEmptyComponent={
+          query.trim() ? (
+            <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
+          ) : (
+            <EmptyState
+              colors={colors}
+              storefront={storefront}
+              category={category}
+              onClearCategory={() => setCategory(null)}
+            />
+          )
+        }
         // Centres the whole scroller rather than the content inside it, so the
         // page tone runs edge to edge behind a bounded reading column.
         style={styles.scroller}
         // B6: the sticky CheckoutBar below is `position: absolute` and so
         // reserves no space of its own -- without this, its last row sits
-        // underneath the bar. The goods used to be the page's own
-        // bottom-most scrolling content and carried this; now the FOOTER is
-        // (the goods are a bounded box above it), so the clearance moves
-        // here with it.
+        // underneath the bar.
         // Unconditional: the first Add must not reflow the page under the
         // customer's finger. The cost is the clearance's worth of quiet
         // space at the bottom of an empty-cart scroll, which nothing sits
         // under.
-        contentContainerStyle={[styles.page, styles.pageWithCheckoutBar]}
-      >
-        {header}
-        {/* THE GOODS' OWN SCROLL, bounded to about two rows -- see
-            goodsScrollHeight in theme-shared.tsx for the arithmetic and
-            `rowHeight`/`goodsHeight` above for where the measurement that
-            feeds it comes from. `goodsStyle` carries no maxHeight at all
-            (and this FlatList is simply its own height, scrolling with the
-            page rather than on its own) once the grid is one row or
-            shorter, or empty -- see goodsScrollHeight's own `rowCount <= 1`
-            branch. */}
-        <FlatList
-          testID="storefront-goods"
-          // Padded so a short final row leaves a gap rather than
-          // inflating its cells to fill the width -- the defect this
-          // whole pass started from. See padFinalRow.
-          data={cells}
-          // FlatList refuses to change numColumns on the fly (RN warns
-          // and ignores it) -- `key` forces a fresh mount whenever the
-          // column count crosses a breakpoint, which is the pattern RN's
-          // own error message for this points at. The same remount is
-          // what clears `rowHeight` above back to null, so a stale
-          // measurement from the OLD column count can never leak into
-          // the new one.
-          key={numColumns}
-          numColumns={numColumns}
-          keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
-          columnWrapperStyle={styles.row}
-          ListEmptyComponent={
-            query.trim() ? (
-              <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
-            ) : (
-              <EmptyState
+        contentContainerStyle={[styles.grid, styles.gridWithCheckoutBar]}
+        // Closes the page. Inside the list rather than below it so it scrolls
+        // with the goods -- a footer pinned under a 200-product grid would be
+        // chrome permanently occupying the bottom of every browsing screen.
+        ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
+        renderItem={({ item }) => (
+          <View style={styles.cell}>
+            {item ? (
+              <ProductTile
+                product={item}
                 colors={colors}
-                storefront={storefront}
-                category={category}
-                onClearCategory={() => setCategory(null)}
+                shopName={storefront.shopName}
+                whatsappE164={storefront.whatsappE164}
+                onAdd={addProduct}
+                onOpen={setOpenProduct}
+                dense={numColumns <= 2}
               />
-            )
-          }
-          style={goodsStyle}
-          contentContainerStyle={styles.grid}
-          // Android only needs this to let the goods claim a vertical drag
-          // over the page's own scroller rather than the page stealing it --
-          // iOS and web coordinate nested scroll views without it.
-          nestedScrollEnabled
-          renderItem={({ item, index }) => (
-            <View
-              // Only the very first cell needs to report its height --
-              // every cell in a row is stretched to match its tallest
-              // sibling (columnWrapperStyle's row is the default
-              // `alignItems: stretch`), so cell 0 already reports the
-              // row's real height once RN finishes that pass.
-              testID={index === 0 ? 'storefront-goods-row' : undefined}
-              style={styles.cell}
-              onLayout={index === 0 ? (e) => setRowHeight(e.nativeEvent.layout.height) : undefined}
-            >
-              {item ? (
-                <ProductTile
-                  product={item}
-                  colors={colors}
-                  shopName={storefront.shopName}
-                  whatsappE164={storefront.whatsappE164}
-                  onAdd={addProduct}
-                  onOpen={setOpenProduct}
-                  dense={numColumns <= 2}
-                />
-              ) : null}
-            </View>
-          )}
-        />
-        {/* Closes the page, scrolling with it rather than sitting pinned
-            beneath -- a footer pinned under a 200-product grid would be
-            chrome permanently occupying the bottom of every browsing screen.
-            The page's own trailing sibling now, not a nested list's
-            ListFooterComponent -- the footer belongs to the page, not
-            inside the bounded goods box. */}
-        <ShopFooter storefront={storefront} colors={colors} />
-      </ScrollView>
+            ) : null}
+          </View>
+        )}
+      />
       </ShopChrome>
 
       <ProductSheet
@@ -387,11 +300,9 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
 }
 
 const styles = StyleSheet.create({
-  // The reading column, now on the PAGE-level ScrollView -- `alignSelf`
-  // centres the scroller inside the page, `maxWidth` stops it growing with
-  // the window -- which is the whole of what made a 26px wordmark sit in
-  // 1,472px of empty panel. The goods FlatList below sits inside this bound
-  // rather than carrying its own copy of it.
+  // The reading column. `alignSelf` centres the scroller inside the page,
+  // `maxWidth` stops it growing with the window -- which is the whole of what
+  // made a 26px wordmark sit in 1,472px of empty panel.
   scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
@@ -399,29 +310,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   sectionCount: { fontSize: TYPE.metaSmall, fontWeight: '700' },
-  // The page's own breathing room -- header, goods box and footer are three
-  // plain children of the same ScrollView now, `gap` standing in for the
-  // space that used to fall out of the single FlatList's own `gap` landing
-  // between ListHeaderComponent, each row, and ListFooterComponent as if
-  // they were all one flat list of items.
-  page: { padding: SPACE.page, gap: SPACE.cardGap },
-  // B6: the sticky CheckoutBar is `position: absolute` and reserves no space
-  // of its own -- without this, the footer (now the page's own bottom-most
-  // scrolling content) sits underneath it.
-  pageWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
-  // The goods FlatList's own base style -- `width: '100%'` rather than
-  // `flex: 1`, since unbounded (one row or shorter) it must be its own
-  // height as a plain child of the page's ScrollView, not stretch to fill
-  // one. `maxHeight` is layered on top of this, never replacing it, exactly
-  // when goodsScrollHeight returns non-null.
-  goods: { width: '100%' },
-  // No padding of its own any more -- that moved to `page` above, which now
-  // wraps the goods box the same way it wraps the header and footer. Left
-  // bare like this, the goods FlatList's own rendered height is EXACTLY two
-  // measured rows plus one gap when bounded, with nothing hidden inside a
-  // padding figure -- which is what makes that height something a browser
-  // can verify against goodsScrollHeight's own arithmetic.
-  grid: { gap: SPACE.cardGap },
+  grid: { padding: SPACE.page, gap: SPACE.cardGap },
+  gridWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
   row: { gap: SPACE.cardGap },
   cell: { flex: 1 },
 });

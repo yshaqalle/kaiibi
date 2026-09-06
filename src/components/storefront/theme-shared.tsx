@@ -1020,44 +1020,6 @@ export function padFinalRow<T>(items: T[], numColumns: number): (T | null)[] {
   return [...items, ...Array<null>(numColumns - remainder).fill(null)];
 }
 
-// THE GOODS GET THEIR OWN SCROLL, TWO ROWS TALL -- and how tall that actually
-// is cannot be a number this file types in. A tile is a photo plus a name
-// slot, a price slot and an actions row, `dense` changes several of those,
-// and the image itself is `aspectRatio: 1` against a column width that moves
-// at every breakpoint gridColumnsForWidth answers for -- so "two rows" is a
-// question about whatever really got laid out, not a constant. Market and
-// Window each measure their own first cell (`onLayout`, held in state) and
-// hand the result here.
-//
-// Never rendered directly -- see ESTIMATED_ROW_HEIGHT below for what a caller
-// shows before that measurement exists.
-//
-// `rowCount <= 1` is the other half of "about two rows": a shop with one
-// row of stock has nothing to scroll TO, and bounding a single row's height
-// to itself would draw a scroll region with dead space beneath it -- the
-// exact defect padFinalRow's own comment names for the column axis, here on
-// the row axis instead. `null` is the signal a caller reads as "let the
-// FlatList be its own height," which is its ordinary unbounded behaviour.
-export function goodsScrollHeight(
-  measuredRowHeight: number | null,
-  rowGap: number,
-  rowCount: number,
-): number | null {
-  if (rowCount <= 1) return null;
-  const rowHeight = measuredRowHeight ?? ESTIMATED_ROW_HEIGHT;
-  return rowHeight * 2 + rowGap;
-}
-
-// What a caller renders for the one frame between "the grid mounted" and
-// "the first row reported its own height" -- not a claim about any real
-// tile's height (that is precisely the number goodsScrollHeight refuses to
-// guess), just tall enough that the region shows something resembling two
-// rows rather than collapsing to a sliver while the real measurement is in
-// flight. Exported so a test can assert against THIS constant rather than a
-// second copy of the number typed into the test file, which is exactly the
-// "asserting a value you typed" failure this pass exists to stop shipping.
-export const ESTIMATED_ROW_HEIGHT = 260;
-
 // The cart lives in `storefront-cart.ts`, keyed by shop slug, and every
 // theme needs to read it, add to it, and change a line's quantity the same
 // way -- so that logic is a hook here rather than copied into Market, Window

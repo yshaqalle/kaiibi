@@ -1,4 +1,4 @@
-import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
+import { AccessibilityInfo, type EmitterSubscription, FlatList } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { ThemeWindow } from '@/components/storefront/theme-window';
@@ -91,22 +91,15 @@ describe('ThemeWindow', () => {
   // not reflow the page under the customer's finger, so the grid carries
   // the clearance from the very first render, empty cart or not, and
   // adding to the cart changes nothing about it.
-  //
-  // Task B moved the goods off the page's own scroller onto a bounded
-  // FlatList of their own (see theme-market.tsx's own comment on the page
-  // now being a plain ScrollView) -- the footer is the page's bottom-most
-  // scrolling content now, not the grid, so the clearance moved with it onto
-  // `storefront-page-scroll`'s own contentContainerStyle.
   it('reserves the checkout bar clearance from the first render, unchanged by adding to the cart', async () => {
     const tree = await renderWindow('xamdi-window-b6-clearance');
-    const pageScroll = () => tree.root.find((n) => n.props?.testID === 'storefront-page-scroll');
-    const before = effectiveBottomPadding(pageScroll().props.contentContainerStyle);
+    const before = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
     expect(before).toBe(SPACE.page + CHECKOUT_BAR_CLEARANCE);
 
     const addButtons = findByTestId(tree, 'product-tile-add');
     await act(async () => addButtons[0].props.onPress());
 
-    const after = effectiveBottomPadding(pageScroll().props.contentContainerStyle);
+    const after = effectiveBottomPadding(tree.root.findByType(FlatList).props.contentContainerStyle);
     expect(after).toBe(before);
 
     // Drains VirtualizedList's own post-update cell-measurement timer before

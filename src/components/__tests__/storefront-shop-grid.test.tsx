@@ -95,14 +95,7 @@ describe('the grid actually receives the padding', () => {
         />,
       );
     });
-    // Two FlatLists exist now (Task B: the goods scroll independently of the
-    // page) -- `findByType` resolves the OUTER one (it does not search past
-    // its first match), so the grid itself needs picking out by testID, the
-    // same way storefront-flyer-placement.test.tsx's own `gridNames` helper
-    // already does.
-    const list = tree.root.findAll(
-      (n) => n.props?.testID === 'storefront-goods' && Array.isArray(n.props?.data),
-    )[0];
+    const list = tree.root.findByType(FlatList);
     const numColumns = list.props.numColumns as number;
     const data = list.props.data as unknown[];
     expect(data.length % numColumns).toBe(0);
@@ -121,12 +114,7 @@ describe('the shop is a bounded column', () => {
     await act(async () => {
       tree = create(<ThemeMarket storefront={shop} products={[product('a')]} colors={colors} />);
     });
-    // The reading column now bounds the PAGE (Task B made the goods a
-    // bounded FlatList of their own, nested inside a plain ScrollView --
-    // see theme-market.tsx's own comment) -- `storefront-page-scroll` is
-    // that ScrollView.
-    const page = tree.root.find((n) => n.props?.testID === 'storefront-page-scroll');
-    const flat = [page.props.style]
+    const flat = [tree.root.findByType(FlatList).props.style]
       .flat(Infinity)
       .reduce((a, s) => ({ ...(a as object), ...(s as object) }), {}) as { maxWidth?: number; alignSelf?: string };
     expect(flat.maxWidth).toBe(SHOP_MAX_WIDTH);
