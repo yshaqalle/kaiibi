@@ -4,6 +4,7 @@ import {
   useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 
+import { clampOffset, nearestIndex, nextWheelOffset, supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { openExternalUrl } from '@/lib/external-url';
 import { offerCopyFor } from '@/lib/poster';
@@ -97,70 +98,13 @@ export const AUTO_ADVANCE_INTERVAL_MS = 6000;
 // paging ScrollView it already had -- see the render for where each is
 // wired in.
 //
-// The three functions below are the DECISIONS, kept pure and exported so a
-// test can hold them directly. The reanimated mock this suite already lives
-// with discards props, and a mouse cannot be driven through
-// react-test-renderer's fake DOM, so "rendered and dispatched a real wheel
-// event" is not a test this harness can make -- but "given these numbers,
-// what offset/index results" is, and is the same arithmetic the real
-// handlers call.
-
-// Which axis a wheel gesture means to pan by. A trackpad's two-finger swipe
-// reports on deltaX directly; a mouse wheel (vertical only) reports on
-// deltaY. Picking whichever axis carries the larger magnitude, rather than
-// always deltaY, means both drive the same "wheel pans it" affordance
-// through the same function.
-export function wheelPanDelta(deltaX: number, deltaY: number): number {
-  return Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
-}
-
-// Keeps a scroll offset inside the band's own travel -- never negative,
-// never past the last card's resting position. Shared by the wheel and the
-// drag paths, which both push a raw pixel delta at the current offset and
-// need the same fence.
-export function clampOffset(offset: number, maxOffset: number): number {
-  return Math.max(0, Math.min(maxOffset, offset));
-}
-
-// The next scroll offset a single wheel tick produces, from the offset
-// scrolled to so far. Pure arithmetic -- pan, then fence -- which is the
-// same shape `handleWheel` below performs against the real ScrollView.
-export function nextWheelOffset(offset: number, deltaX: number, deltaY: number, maxOffset: number): number {
-  return clampOffset(offset + wheelPanDelta(deltaX, deltaY), maxOffset);
-}
-
-// Which card a given scroll offset is closest to. `width` is one slide's
-// width (the band's own measured width, since every slide is full-band) and
-// is assumed positive -- callers that cannot yet promise that (onLayout has
-// not fired) guard before calling in rather than this function guessing.
-// This is the same rounding `handleMomentumEnd` used inline before Task 14 --
-// pulled out here so drag-release and wheel-settle can call the exact same
-// decision touch already relies on, rather than a second copy of it that
-// could drift.
-export function nearestIndex(offset: number, width: number, count: number): number {
-  return Math.max(0, Math.min(count - 1, Math.round(offset / width)));
-}
-
-// Whether this device can genuinely hover a pointer -- the `(hover: hover)`
-// media query, read defensively. `window`/`matchMedia` are web-only globals
-// (a real native device has neither), and even a browser that has them can
-// answer "no" for a touch screen -- which is the whole point: Task 14 gated
-// the arrows' visibility on `Platform.OS === 'web'` alone, and that is TRUE
-// in a phone's browser too, where mobile WebKit/Chrome synthesise a
-// `mouseenter` after a tap ("ghost hover") that the old gate could not tell
-// apart from a real mouse. This is checked once, at mount (see
-// `hoverCapable` below) -- deciding whether hover can be ARMED AT ALL --
-// rather than trusted to fall out of "no mouse event fired", which a ghost
-// hover event defeats by firing anyway.
-function supportsHover(): boolean {
-  if (Platform.OS !== 'web') return false;
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-  try {
-    return window.matchMedia('(hover: hover)').matches;
-  } catch {
-    return false;
-  }
-}
+// The pure decisions this needs -- `wheelPanDelta`, `clampOffset`,
+// `nextWheelOffset`, `nearestIndex`, `supportsHover` -- now live in
+// mouse-pan.ts (Task 15 lifted them there once the category band needed the
+// same wheel/drag/hover affordance and would otherwise have carried a second
+// copy). Re-exported here so nothing importing them from this file
+// (storefront-flyer-carousel.test.tsx) has to change.
+export { clampOffset, nearestIndex, nextWheelOffset, wheelPanDelta } from '@/components/storefront/mouse-pan';
 
 export function FlyerCarousel({
   flyers, colors, shopName, whatsappE164, onSelectCategory, autoAdvance = false,

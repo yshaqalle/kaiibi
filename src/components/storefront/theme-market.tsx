@@ -170,7 +170,7 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
       {/* Above the filter chip, not below: the band is how a customer
           CHOOSES a category and the chip is how they leave one, so the
           chip belongs next to the grid it is narrowing. */}
-      <CategoryBand categories={categories} colors={colors} active={category} onSelect={setCategory} />
+      <CategoryBand categories={categories} products={products} colors={colors} active={category} onSelect={setCategory} />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
       {wide && shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
