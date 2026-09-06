@@ -48,9 +48,9 @@ export const MODULES: { key: Module; label: string; description: string }[] = [
   { key: 'multi_location', label: 'Multiple stores', description: 'Open more than one branch and move stock between them.' },
   { key: 'multi_currency', label: 'Multiple currencies', description: 'Take payment in more than one currency.' },
   { key: 'data_export', label: 'Data export', description: 'Export sales, stock, and reports to CSV or PDF.' },
-  // The one module in this catalog that REMOVES something rather than
-  // unlocking it. Receipts carry the Kaiibi mark by default, and a plan
-  // granting this takes it off.
+  // One of the two modules in this catalog that REMOVE something rather than
+  // unlocking it (the other is storefront_branding_removal below). Receipts
+  // carry the Kaiibi mark by default, and a plan granting this takes it off.
   //
   // Written that way round on purpose: 'default on' then has to be true of
   // every shop that has never been considered -- new shops, trials, lapsed

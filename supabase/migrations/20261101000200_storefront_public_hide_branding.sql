@@ -258,9 +258,15 @@ as $$
     -- active and grace to the paid plan, a retired plan hopped to its
     -- successor), per-shop overrides, and suspension -- no join needed here,
     -- the same way the WHERE clause below already calls it for 'storefront'.
-    -- Returns false, meaning branding SHOWS, for a shop with no such module,
-    -- an unresolvable plan, or no plan at all -- the perk is HIDING the mark.
-    public.shop_has_module(s.id, 'storefront_branding_removal') as hide_branding
+    -- Coalesced because shop_has_module is NOT total: shop_effective_plan
+    -- returns a NULL composite when no plans row matches, `x = any(NULL)` is
+    -- NULL, and `NULL or false` is NULL. That is reachable rather than
+    -- theoretical -- platform_settings.post_trial_plan_key carries no foreign
+    -- key to plans.key on purpose (20260818000000), so a missing plan is a
+    -- state the schema anticipates. NULL here would mean the column's meaning
+    -- rests on a client happening to write Boolean(...); false says it in SQL.
+    -- Every unresolved case therefore SHOWS the mark -- the perk is HIDING it.
+    coalesce(public.shop_has_module(s.id, 'storefront_branding_removal'), false) as hide_branding
   from public.shops s
   join public.storefronts f on f.shop_id = s.id
   left join public.shop_locations sl on sl.shop_id = s.id and sl.is_primary

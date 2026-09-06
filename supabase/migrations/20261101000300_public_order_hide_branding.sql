@@ -98,9 +98,15 @@ as $$
     -- cannot be resolved at all still returns the order rather than dropping
     -- it -- this is a receipt for a trade that already happened, and
     -- 20261017000000's own header is explicit that a lapsed or unresolvable
-    -- plan must never take that away, and shop_has_module resolves to false
-    -- (branding shown) rather than failing the read.
-    'hide_branding', public.shop_has_module(o.shop_id, 'storefront_branding_removal'))
+    -- plan must never take that away.
+    --
+    -- Coalesced because shop_has_module is NOT total: shop_effective_plan
+    -- returns a NULL composite when no plans row matches, and `NULL or false`
+    -- is NULL. Reachable rather than theoretical -- post_trial_plan_key carries
+    -- no foreign key to plans.key on purpose (20260818000000). false rather
+    -- than NULL keeps "branding shows" a promise this SQL makes itself, not
+    -- one borrowed from whichever client happens to read the payload.
+    'hide_branding', coalesce(public.shop_has_module(o.shop_id, 'storefront_branding_removal'), false))
   from public.orders o
   join public.shops s on s.id = o.shop_id
   -- LEFT join lateral for the same reason 20261010000100 uses one: a shop
