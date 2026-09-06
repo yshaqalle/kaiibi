@@ -143,15 +143,43 @@ describe('the directory card', () => {
   // empty. A shop with nothing in stock has no categories either -- both are
   // derived from the same listed, in-stock products -- so this fixture sets
   // both to match what the RPC would actually hand the card.
+  // REVIEW FINDING (whole-branch pass): "Nothing in today" now lives in the
+  // SAME chip row as the sell-tags (`TAGS`, one vocabulary -- see the
+  // component's own comment), not a second row of its own, so this fixture
+  // is what proves the row still renders when it has nothing BUT that chip.
   it('says nothing in today rather than leaving the tags row empty', () => {
-    const text = textOf(renderCard(summary({ productCount: 0, categories: [] })), CARD);
-    expect(text).toContain('Nothing in today');
-    expect(has(renderCard(summary({ productCount: 0, categories: [] })), TAGS)).toBe(false);
+    const tree = renderCard(summary({ productCount: 0, categories: [] }));
+    expect(textOf(tree, CARD)).toContain('Nothing in today');
+    expect(has(tree, TAGS)).toBe(true);
   });
 
   it('marks a shop that delivers, and leaves the chip off one that does not', () => {
     expect(textOf(renderCard(summary({ offersDelivery: true })), CARD)).toContain('Delivers');
     expect(textOf(renderCard(summary({ offersDelivery: false })), CARD)).not.toContain('Delivers');
+  });
+
+  // REVIEW FINDING (whole-branch pass): "Delivers" and the sell-tags used to
+  // be two visually different chip vocabularies (a quiet radius-8 tag here, a
+  // louder radius-999 pill there) co-occurring on every shop that both stocks
+  // something and delivers. One row, one shape now -- pinned two ways: the
+  // structural ADJACENCY (Delivers is the tags row's own last chip, not a
+  // second row bolted under it) and shape EQUALITY (its style is the exact
+  // same computed object as a sell-tag's, not merely similarly sized) --
+  // never a style number typed into the test itself.
+  it('joins Delivers into the same row as the sell-tags, in the same shape, last', () => {
+    const tree = renderCard(summary({ categories: ['Electronics', 'Phones'], offersDelivery: true }));
+    const tagsRow = tree.root.find((n) => n.props?.testID === TAGS);
+    // `findAllByType` is self-inclusive on a `View` instance -- slice(1)
+    // drops the row's own container, leaving only its chip children.
+    const chips = tagsRow.findAllByType(View).slice(1);
+
+    const last = chips[chips.length - 1];
+    expect(last.props.testID).toBe('storefront-directory-delivers-dir-alpha');
+
+    const firstSellTag = chips[0];
+    expect(StyleSheet.flatten(last.props.style)).toEqual(StyleSheet.flatten(firstSellTag.props.style));
+    expect(StyleSheet.flatten(last.findByType(Text).props.style))
+      .toEqual(StyleSheet.flatten(firstSellTag.findByType(Text).props.style));
   });
 
   // The majority case: a shop that has uploaded no hero image must still read
@@ -202,12 +230,17 @@ describe('the directory card', () => {
       expect(StyleSheet.flatten(shutDot.props.style).backgroundColor).toBe(DIRECTORY_STATE_SHUT);
     });
 
-    // The mockup's own copy, verbatim -- see nextOpeningLabel (store-hours.ts).
-    // Built off the REAL clock's own today/tomorrow (weekdayKeyFor), the same
-    // way ShopDirectoryCard itself computes "now" -- rather than a fixed
-    // weekday, which would only happen to say "tomorrow" on five days out of
-    // seven.
-    it('says when a closed shop reopens, in place of the city', () => {
+    // REVIEW FINDING (whole-branch pass): this used to put the reopening
+    // estimate IN PLACE OF the city -- after hours that is every shop with
+    // hours configured, so a grid of twenty cards all read "Closed · opens
+    // tomorrow, 8am" with no city anywhere, on a directory whose primary axis
+    // IS place. The city stays; the estimate is additional, said after it --
+    // the mockup's own copy, verbatim, for the reopening half (see
+    // nextOpeningLabel, store-hours.ts). Built off the REAL clock's own
+    // today/tomorrow (weekdayKeyFor), the same way ShopDirectoryCard itself
+    // computes "now" -- rather than a fixed weekday, which would only happen
+    // to say "tomorrow" on five days out of seven.
+    it('says when a closed shop reopens, WITHOUT losing the city', () => {
       const now = new Date();
       const tomorrow = new Date(now);
       tomorrow.setDate(now.getDate() + 1);
@@ -216,6 +249,21 @@ describe('the directory card', () => {
         [weekdayKeyFor(tomorrow)]: [{ open: '08:00', close: '18:00' }],
       };
       const tree = renderCard(summary({ openingHours: hours, city: 'Hargeisa' }));
+      expect(textOf(tree, META)).toBe('Closed · Hargeisa · opens tomorrow, 8am');
+    });
+
+    // A closed shop with no city on file at all still gets the reopening
+    // estimate -- the two are independent segments now, not one replacing
+    // the other, so the absence of one is not the absence of both.
+    it('says when a closed shop reopens, even with no city on file at all', () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      const hours: OpeningHours = {
+        [weekdayKeyFor(now)]: [],
+        [weekdayKeyFor(tomorrow)]: [{ open: '08:00', close: '18:00' }],
+      };
+      const tree = renderCard(summary({ openingHours: hours, city: null }));
       expect(textOf(tree, META)).toBe('Closed · opens tomorrow, 8am');
     });
 
@@ -273,8 +321,16 @@ describe('the directory card', () => {
       expect(textOf(tree, OVERFLOW)).toBe('+7');
     });
 
-    it('renders no tags row at all for a shop with nothing categorised', () => {
-      expect(has(renderCard(summary({ categories: [] })), TAGS)).toBe(false);
+    // REVIEW FINDING (whole-branch pass): "no tags row at all" used to be
+    // true for `categories: []` because "Nothing in today" rendered in a
+    // SEPARATE, un-tested row -- now that row is gone (one chip vocabulary,
+    // one row -- see the component's own comment), so a shop with nothing
+    // categorised still gets this row, carrying only the stand-in chip.
+    it('shows only the stand-in chip, no sell-tag text, for a shop with nothing categorised', () => {
+      const tree = renderCard(summary({ categories: [], offersDelivery: false }));
+      expect(has(tree, TAGS)).toBe(true);
+      expect(textOf(tree, TAGS)).toBe('Nothing in today');
+      expect(has(tree, OVERFLOW)).toBe(false);
     });
   });
 
@@ -698,7 +754,11 @@ describe('the directory screen', () => {
 
     expect(textOf(tree, 'storefront-directory-empty')).toContain('Nothing matches');
     press(tree, 'storefront-directory-empty-action');
-    expect(has(tree, 'storefront-directory-card-a')).toBe(true);
+    // 'b', not 'a': with six shops on screen, 'a' is `shown[0]` -- the shop
+    // the grid no longer repeats now that it leads as the featured card (see
+    // "does not repeat the featured shop..." below). 'b' is an ordinary grid
+    // card either way, so it is what proves the grid came back.
+    expect(has(tree, 'storefront-directory-card-b')).toBe(true);
   });
 
   // Computed on the DEVICE: the stored times are local wall-clock strings with
@@ -739,6 +799,50 @@ describe('the directory screen', () => {
     mockList.mockResolvedValue([]);
     const tree = await renderScreen();
     expect(textOf(tree, 'storefront-directory-empty')).toContain('No shops are open yet.');
+  });
+
+  // REVIEW FINDING (whole-branch pass): `featuredShop` always takes
+  // `shown[0]`, and the grid used to be built from `shown` unchanged -- so
+  // the lead shop rendered twice, once as the hero and again as the grid's
+  // own first card, same photo and name both times. Three shops is
+  // `FEATURE_MINIMUM`, the smallest directory that can show a lead at all.
+  it('does not repeat the featured shop as the grid\'s own first card', async () => {
+    mockList.mockResolvedValue([
+      summary({ slug: 'lead', shopName: 'Lead Shop', productCount: 20 }),
+      summary({ slug: 'b', shopName: 'Beta Grocers', productCount: 10 }),
+      summary({ slug: 'c', shopName: 'Charlie Store', productCount: 5 }),
+    ]);
+    const tree = await renderScreen();
+    expect(has(tree, 'storefront-directory-featured-lead')).toBe(true);
+    // The lead is named once, as the hero -- not a second time as a plain card.
+    expect(has(tree, 'storefront-directory-card-lead')).toBe(false);
+    // The rest of the grid is untouched.
+    expect(has(tree, 'storefront-directory-card-b')).toBe(true);
+    expect(has(tree, 'storefront-directory-card-c')).toBe(true);
+  });
+
+  // The row header sits directly above the grid -- once the lead is shown
+  // separately above it, the header's own count has to agree with the cards
+  // actually inside the grid, not with the total that includes the hero too.
+  it('counts only the grid\'s own cards in the row header once the lead is shown separately', async () => {
+    mockList.mockResolvedValue([
+      summary({ slug: 'lead', productCount: 20 }),
+      summary({ slug: 'b', productCount: 10 }),
+      summary({ slug: 'c', productCount: 5 }),
+    ]);
+    const tree = await renderScreen();
+    // The count sits in its own JSX expression (`{gridShops.length} {noun}`),
+    // so it lands in the Text node's children as a separate NUMBER, not
+    // folded into one string -- `textOf` only collects strings, so the
+    // number is read directly off the node's children instead (the same
+    // pattern the featured card's "Browse {n} items" chip test above uses).
+    const rowHeadTitle = tree.root.findAllByType(Text).find((t: { props: { children?: unknown } }) => {
+      const kids = [t.props.children].flat(Infinity);
+      return kids.includes('shops') || kids.includes('shop');
+    })!;
+    const kids = [rowHeadTitle.props.children].flat(Infinity);
+    expect(kids).toContain(2);
+    expect(kids).toContain('shops');
   });
 });
 
@@ -815,39 +919,56 @@ describe('the masthead', () => {
   });
 });
 
-// THE SELECTED CHIP -- the mockup's `.dc.on{background:#0071e3}`, and the
-// only other place on this page kaiibi's own blue is allowed to appear.
+// THE SELECTED CHIP -- the mockup's `.dc.on{background:#0071e3}`, reserved
+// for a chip that narrows the list. "All cities"/"Everything" are the
+// DEFAULT, active before anything is tapped -- blue there would mean kaiibi's
+// own colour reads as "no filter applied", so an active one of THOSE wears
+// the same neutral `colors.ink` every selected chip wore before this branch,
+// same as the unselected ones and the nav CTA.
 describe('the selected filter chip', () => {
-  it('fills the selected city chip in kaiibi blue, and leaves the unselected ones in the directory\'s ink', async () => {
+  function chipStyle(tree: ReturnType<typeof create>, label: string) {
+    const node = tree.root.findAllByType(Text)
+      .find((t: { props: { children?: unknown } }) => t.props.children === label)!;
+    return {
+      fill: (StyleSheet.flatten(node.parent!.props.style) as { backgroundColor?: string }).backgroundColor,
+      text: (StyleSheet.flatten(node.props.style) as { color?: string }).color,
+    };
+  }
+
+  it('leaves "All cities" in the neutral ink even while it is selected -- nothing has been tapped yet', async () => {
     mockList.mockResolvedValue([
       summary({ slug: 'a', city: 'Hargeisa' }),
       summary({ slug: 'b', city: 'Borama' }),
     ]);
     const tree = await renderScreen();
 
-    // "All cities" starts selected -- nothing has been tapped yet.
-    const allCities = tree.root.findAllByType(Text)
-      .find((t: { props: { children?: unknown } }) => t.props.children === 'All cities')!;
-    const allCitiesChip = StyleSheet.flatten(allCities.parent!.props.style) as { backgroundColor?: string };
-    expect(allCitiesChip.backgroundColor).toBe(KAIIBI_BLUE);
-    expect(StyleSheet.flatten(allCities.props.style).color).toBe(KAIIBI_INK);
+    const allCities = chipStyle(tree, 'All cities');
+    expect(allCities.fill).toBe(colors.ink);
+    expect(allCities.fill).not.toBe(KAIIBI_BLUE);
+    expect(allCities.text).toBe(colors.ground);
 
-    const boramaLabel = tree.root.findAllByType(Text)
-      .find((t: { props: { children?: unknown } }) => t.props.children === 'Borama')!;
-    const boramaChipUnselected = StyleSheet.flatten(boramaLabel.parent!.props.style) as { backgroundColor?: string };
-    expect(boramaChipUnselected.backgroundColor).not.toBe(KAIIBI_BLUE);
-    expect(boramaChipUnselected.backgroundColor).toBe(colors.ground);
+    const borama = chipStyle(tree, 'Borama');
+    expect(borama.fill).not.toBe(KAIIBI_BLUE);
+    expect(borama.fill).toBe(colors.ground);
+  });
+
+  it('turns a NAMED city blue once it is the stated choice, and drops "All cities" back to unselected', async () => {
+    mockList.mockResolvedValue([
+      summary({ slug: 'a', city: 'Hargeisa' }),
+      summary({ slug: 'b', city: 'Borama' }),
+    ]);
+    const tree = await renderScreen();
 
     press(tree, 'storefront-directory-city-Borama');
 
-    const boramaLabelAfter = tree.root.findAllByType(Text)
-      .find((t: { props: { children?: unknown } }) => t.props.children === 'Borama')!;
-    const boramaChipSelected = StyleSheet.flatten(boramaLabelAfter.parent!.props.style) as { backgroundColor?: string };
-    expect(boramaChipSelected.backgroundColor).toBe(KAIIBI_BLUE);
+    const borama = chipStyle(tree, 'Borama');
+    expect(borama.fill).toBe(KAIIBI_BLUE);
+    expect(borama.text).toBe(KAIIBI_INK);
 
-    const allCitiesAfter = tree.root.findAllByType(Text)
-      .find((t: { props: { children?: unknown } }) => t.props.children === 'All cities')!;
-    const allCitiesChipAfter = StyleSheet.flatten(allCitiesAfter.parent!.props.style) as { backgroundColor?: string };
-    expect(allCitiesChipAfter.backgroundColor).not.toBe(KAIIBI_BLUE);
+    // "All cities" is no longer the stated choice -- it goes back to the
+    // ordinary unselected treatment, not to ink-as-selected.
+    const allCitiesAfter = chipStyle(tree, 'All cities');
+    expect(allCitiesAfter.fill).not.toBe(KAIIBI_BLUE);
+    expect(allCitiesAfter.fill).toBe(colors.ground);
   });
 });

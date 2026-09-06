@@ -86,6 +86,24 @@ jest.mock('react-native-reanimated', () => {
 // EXPO_PUBLIC_SUPABASE_*.
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
+// THE SCREEN'S OWN WIRING (item 6, whole-branch review): every other
+// describe below renders a component directly, with an `index` this file
+// hands it by hand -- none of them can tell whether `src/app/store/index.tsx`
+// itself still passes `index={index}` from FlatList's `renderItem` into
+// `ShopDirectoryCard`. Deleting that one prop would zero every card's
+// stagger and leave the rest of this suite, and storefront-directory.test.tsx,
+// green -- so `StoreDirectoryScreen` is rendered here too, at the same
+// `react-native-reanimated` seam, needing its own `expo-router` and
+// `listPublicShops` unblocking mocks (`mockListPublicShops`, "mock"-prefixed
+// for the same babel-plugin-jest-hoist reason `mockReducedMotion` is).
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
+jest.mock('expo-router/head', () => ({ __esModule: true, default: () => null }));
+const mockListPublicShops = jest.fn();
+jest.mock('@/lib/storefront-directory', () => {
+  const actual = jest.requireActual('@/lib/storefront-directory');
+  return { ...actual, listPublicShops: (...args: unknown[]) => mockListPublicShops(...args) };
+});
+
 // slipBumpMotion, countUpDuration (both consumed by CheckoutBar in
 // theme-shared.tsx) and flyToCartMotion (consumed by FlyToCartLayer) are all
 // defined in THIS module and imported into a different one -- a genuine
@@ -105,6 +123,7 @@ jest.mock('@/components/storefront/fly-to-cart', () => {
 
 import { FadeInDown, FadeInUp, withSpring } from 'react-native-reanimated';
 
+import StoreDirectoryScreen from '@/app/store/index';
 import {
   CheckoutBar, ShopAnchor, resetHeroRisenForTests,
 } from '@/components/storefront/theme-shared';
@@ -372,5 +391,54 @@ describe('the directory grid: ShopDirectoryCard wires useReducedMotion() into di
     });
     expect(FadeInUp.duration).not.toHaveBeenCalled();
     expect(FadeInUp.delay).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE SCREEN'S OWN CALL SITE (item 6, whole-branch review). Every test above
+// renders `ShopDirectoryCard` directly, with an `index` THIS FILE hands it --
+// none of them can tell whether `src/app/store/index.tsx`'s `renderItem`
+// still passes FlatList's own `index` through, or a future edit quietly
+// drops it (`ShopDirectoryCard`'s `index` defaults to 0, so nothing would
+// throw, and every OTHER test in this suite and storefront-directory.test.tsx
+// would stay green -- the exact silent failure item 6 names).
+//
+// Proved at the same seam as the grid's own describe above
+// (FadeInUp.duration/.delay, mocked for this file only): four shops with no
+// stock (`productCount: 0`) never produce a featured card (`featuredShop`
+// requires the lead to have stock), so all four keep their flat index 0-3 in
+// the grid `cells` array unchanged by the dedup fix in item 2. React commits
+// a FlatList's initial batch of items in one render pass before any of their
+// mount effects run, so every card in that batch still reads
+// `directoryHasEntered() === false` during render and gets its OWN per-index
+// delay -- which is what lets a single render prove more than just "the
+// first card animated".
+// ─────────────────────────────────────────────────────────────────────────
+describe("the directory screen: StoreDirectoryScreen threads FlatList's own index into ShopDirectoryCard", () => {
+  function summary(overrides: Partial<PublicShopSummary> = {}): PublicShopSummary {
+    return {
+      shopName: 'Reduced Motion Shop', slug: 'reduced-motion-shop', city: 'Hargeisa',
+      headline: null, about: null, heroImageUrl: null, offersDelivery: false,
+      openingHours: {}, categories: [], productCount: 0,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mockListPublicShops.mockReset();
+    mockListPublicShops.mockResolvedValue([]);
+  });
+
+  it('gives the fourth grid card FadeInUp.delay(120), not the 0 every card would get if `index` were dropped', async () => {
+    mockReducedMotion = false;
+    mockListPublicShops.mockResolvedValue([
+      summary({ slug: 'a' }), summary({ slug: 'b' }), summary({ slug: 'c' }), summary({ slug: 'd' }),
+    ]);
+    await act(async () => { create(<StoreDirectoryScreen />); });
+    expect(FadeInUp.duration).toHaveBeenCalledWith(420);
+    // The seam this test exists for: only a REAL, distinct flat index reaches
+    // this call. A dropped `index` prop defaults every card to 0, so every
+    // call would be `.delay(0)` and this would never fire.
+    expect(FadeInUp.delay).toHaveBeenCalledWith(120);
   });
 });

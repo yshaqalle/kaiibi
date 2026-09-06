@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle,
 } from 'react-native';
@@ -8,7 +8,7 @@ import Animated, { FadeInUp, useReducedMotion } from 'react-native-reanimated';
 import { supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TABULAR, TYPE,
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TYPE,
 } from '@/components/storefront/scale';
 import { isConfigured, isOpenAt, nextOpeningLabel } from '@/lib/store-hours';
 import { shopBlurb } from '@/lib/storefront-directory';
@@ -135,12 +135,16 @@ export function ShopDirectoryCard({
   // before this ever runs.
   const closedLabel = hoursConfigured && !open ? nextOpeningLabel(shop.openingHours ?? {}, now) : null;
   const stateWord = hoursConfigured ? (open ? 'Open' : 'Closed') : null;
-  // Open: the city. Closed: WHEN IT REOPENS is the more useful half of the
-  // line -- see nextOpeningLabel's own comment -- so it takes the city's
-  // place there; a closed shop with nothing opening in the coming week (or
-  // no city on file to fall back to) still ends the line cleanly rather than
-  // leaving a trailing " · " with nothing after it.
-  const metaSecondHalf = hoursConfigured ? (open ? shop.city : (closedLabel ?? shop.city)) : shop.city;
+  // THE CITY NEVER LEAVES THE LINE. This used to swap the city out for
+  // `closedLabel` whenever a shop was closed -- which, after hours, is every
+  // shop with hours configured -- so a grid of twenty cards would all read
+  // "Closed · opens tomorrow, 8am" with no city anywhere, on a directory
+  // whose primary axis IS place, while the accessibilityLabel below still
+  // carried the city, so what the card said and what it announced disagreed.
+  // WHEN it reopens is still useful (nextOpeningLabel's own comment says so),
+  // it just does not get to evict WHERE -- so a closed shop with a reopening
+  // estimate says both, city first.
+  const reopenLabel = hoursConfigured && !open ? closedLabel : null;
 
   // A shop with nothing in stock has no categories either -- both are
   // derived from the same listed, in-stock products
@@ -175,6 +179,44 @@ export function ShopDirectoryCard({
   }, [reducedMotion]);
   const enterDelay = directoryEntranceDelay(reducedMotion, alreadyEntered, index);
   const entering = enterDelay === null ? undefined : FadeInUp.duration(420).delay(enterDelay);
+
+  // THE META ROW'S CHILDREN, built up-front as a flat array rather than
+  // nested ternaries in the JSX below -- state, then city, then (only while
+  // closed) the reopening estimate, each pushed as its own node with a
+  // separator pushed only between two that both exist. Flat, not one View
+  // per part: the dot and the state word have to stay DIRECT siblings inside
+  // `meta` for the adjacency this card's own tests check ("the dot's very
+  // next sibling is the state word"), which a wrapper around each part would
+  // break by putting the dot and the word inside the SAME wrapper instead.
+  const metaChildren: ReactNode[] = [];
+  if (stateWord) {
+    metaChildren.push(
+      <View
+        key="dot"
+        testID={`storefront-directory-dot-${shop.slug}`}
+        style={[styles.dot, open ? styles.dotOpen : styles.dotShut]}
+      />,
+      <Text key="state" testID={`storefront-directory-state-${shop.slug}`} style={[styles.metaText, { color: colors.muted }]}>
+        {stateWord}
+      </Text>,
+    );
+  }
+  if (shop.city) {
+    if (metaChildren.length > 0) {
+      metaChildren.push(<Text key="sep-city" style={[styles.metaText, { color: colors.muted }]}>·</Text>);
+    }
+    metaChildren.push(
+      <Text key="city" style={[styles.metaText, { color: colors.muted }]} numberOfLines={1}>{shop.city}</Text>,
+    );
+  }
+  if (reopenLabel) {
+    if (metaChildren.length > 0) {
+      metaChildren.push(<Text key="sep-reopen" style={[styles.metaText, { color: colors.muted }]}>·</Text>);
+    }
+    metaChildren.push(
+      <Text key="reopen" style={[styles.metaText, { color: colors.muted }]} numberOfLines={1}>{reopenLabel}</Text>,
+    );
+  }
 
   return (
     // `flex: 1`, LOAD-BEARING: `cell` (src/app/store/index.tsx) is `{ flex: 1
@@ -225,53 +267,47 @@ export function ShopDirectoryCard({
               same thing in text, for a reader who cannot tell the two dot
               colours apart. A shop that has never set hours gets neither --
               absent is honest, "Closed" would not be -- and keeps just the
-              city. */}
-          {stateWord || metaSecondHalf ? (
+              city.
+
+              BUILT FROM `metaChildren` (above) rather than two fixed halves
+              either side of one separator: the city is ALWAYS a candidate
+              part now, not something a closed shop's reopening estimate
+              evicts (see `reopenLabel`), so the row can carry two things
+              after the state word, not one. A separator is its own Text
+              node, pushed only BETWEEN two parts that both exist -- never a
+              dangling one before the first or after the last -- and every
+              part is a flat, direct child of this row (never wrapped in a
+              per-part View), which is what keeps the dot's own very next
+              sibling the state word, adjacency this card's own tests pin. */}
+          {metaChildren.length > 0 ? (
             <View testID={`storefront-directory-meta-${shop.slug}`} style={styles.meta}>
-              {stateWord ? (
-                <>
-                  <View
-                    testID={`storefront-directory-dot-${shop.slug}`}
-                    style={[styles.dot, open ? styles.dotOpen : styles.dotShut]}
-                  />
-                  <Text
-                    testID={`storefront-directory-state-${shop.slug}`}
-                    style={[styles.metaText, { color: colors.muted }]}
-                  >
-                    {stateWord}
-                  </Text>
-                </>
-              ) : null}
-              {/* Its OWN Text node rather than folded into either
-                  neighbour's string: this card's own `textOf` test helper
-                  joins every text node it finds with a single space, so a
-                  separator baked into one string (`` · ${city}``) would sit
-                  beside that helper's own space and read as two. Three plain
-                  strings compose cleanly either way a reader gets at them --
-                  through this helper or through a screen reader walking the
-                  row -- and a closed shop with nothing to say after the word
-                  (no reopening estimate, no city) never renders a dangling
-                  separator, because this only appears when BOTH sides of it
-                  do. */}
-              {stateWord && metaSecondHalf ? (
-                <Text style={[styles.metaText, { color: colors.muted }]}>·</Text>
-              ) : null}
-              {metaSecondHalf ? (
-                <Text style={[styles.metaText, { color: colors.muted }]} numberOfLines={1}>
-                  {metaSecondHalf}
-                </Text>
-              ) : null}
+              {metaChildren}
             </View>
           ) : null}
 
-          {/* SELL-TAGS, NOT A BLURB. `shop.categories` is what the shop
-              actually has on the shelf today (see the field's own comment,
+          {/* ONE CHIP ROW, ONE SHAPE. This used to be two: sell-tags here
+              (radius 8, weight 700, no border) and, in a separate row 12px
+              below, "Nothing in today"/"Delivers" in a LOUDER pill (radius
+              999, weight 800, letter-spaced, tabular) -- same fill, same
+              card, same font size, differing only by corner radius and 100
+              units of weight, and co-occurring on every shop that both has
+              stock and delivers. The quiet sell-tag treatment is the one the
+              design calls for, so stock and delivery join it here rather
+              than the reverse.
+
+              SELL-TAGS LEAD: `shop.categories` is what the shop actually has
+              on the shelf today (see the field's own comment,
               types/models.ts), which says more about what is inside than a
               sentence of `about` copy does, and cannot go stale the way a
               paragraph nobody re-reads can. Capped at TAG_LIMIT visible, the
               remainder folded into one "+N" chip, so the card's height does
-              not depend on whether a shop stocks two categories or twelve. */}
-          {visibleTags.length > 0 ? (
+              not depend on whether a shop stocks two categories or twelve.
+              "Nothing in today" stands in for the tags a shop with no stock
+              cannot have (categories are derived from in-stock products) --
+              the only chip in that case, since `nothingInStock` and
+              `visibleTags` can never both be non-empty. "Delivers" always
+              comes last. */}
+          {visibleTags.length > 0 || nothingInStock || shop.offersDelivery ? (
             <View testID={`storefront-directory-tags-${shop.slug}`} style={styles.tags}>
               {visibleTags.map((category) => (
                 <View key={category} style={[styles.tag, { backgroundColor: colors.soft }]}>
@@ -283,24 +319,14 @@ export function ShopDirectoryCard({
                   <Text style={[styles.tagText, { color: colors.muted }]}>{`+${overflowCount}`}</Text>
                 </View>
               ) : null}
-            </View>
-          ) : null}
-
-          {nothingInStock || shop.offersDelivery ? (
-            <View style={styles.foot}>
-              {/* Stands in for the tags row above, which a shop with nothing
-                  in stock cannot have (categories are derived from in-stock
-                  products) -- without this the row would just be silently
-                  empty, which reads as a broken card, exactly what this copy
-                  has always existed to prevent. */}
               {nothingInStock ? (
-                <View style={[styles.chip, { backgroundColor: colors.soft }]}>
-                  <Text style={[styles.chipText, { color: colors.muted }]}>Nothing in today</Text>
+                <View style={[styles.tag, { backgroundColor: colors.soft }]}>
+                  <Text style={[styles.tagText, { color: colors.muted }]}>Nothing in today</Text>
                 </View>
               ) : null}
               {shop.offersDelivery ? (
-                <View style={[styles.chip, { backgroundColor: colors.soft }]}>
-                  <Text style={[styles.chipText, { color: colors.muted }]}>Delivers</Text>
+                <View testID={`storefront-directory-delivers-${shop.slug}`} style={[styles.tag, { backgroundColor: colors.soft }]}>
+                  <Text style={[styles.tagText, { color: colors.muted }]}>Delivers</Text>
                 </View>
               ) : null}
             </View>
@@ -339,28 +365,21 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   dotOpen: { backgroundColor: DIRECTORY_STATE_OPEN },
   dotShut: { backgroundColor: DIRECTORY_STATE_SHUT },
-  // THE SELL-TAGS -- quiet on purpose, next to the louder pill chips below
-  // (`chip`/`chipText`): a smaller radius, a smaller size, no letter-spacing.
-  // The mockup's own `.tg` is the source (`border-radius:6px`; picked up here
-  // a touch looser at 8 to sit closer to this file's own RADIUS scale without
-  // inventing a third rounding value for one row).
+  // THE ONE CHIP SHAPE ON THIS CARD -- sell-tags, "Nothing in today" and
+  // "Delivers" all render with these two styles now (see the call site's own
+  // comment above). The mockup's own `.tg` is the source (`border-radius:
+  // 6px`; picked up here a touch looser at 8 to sit closer to this file's own
+  // RADIUS scale without inventing a third rounding value for one row).
   tags: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 10 },
   tag: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   tagText: { fontSize: 10.5, fontWeight: '700' },
-  foot: { flexDirection: 'row', gap: 6, marginTop: 12, flexWrap: 'wrap' },
-  chip: { borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 5 },
-  chipText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4, ...TABULAR },
+  stateText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   // Fixed values, not palette ones: this sits over a photograph the palette
   // knows nothing about -- the same reasoning ON_SCRIM_INK follows in
-  // theme-shared.tsx.
-  state: {
-    position: 'absolute', top: 10, right: 10,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5,
-  },
-  stateText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
-  stateOpen: { color: '#0b7a44' },
-  stateShut: { color: '#5e5d65' },
+  // theme-shared.tsx. Sourced from the constants (never a hex retyped here)
+  // so this stays the one place either colour is spelled out.
+  stateOpen: { color: DIRECTORY_STATE_OPEN },
+  stateShut: { color: DIRECTORY_STATE_SHUT },
 
   // Sized here rather than on an inner `Image` now: with a photo, this
   // `Pressable` IS the photo's own footprint, not a block sitting above one.
@@ -389,9 +408,14 @@ const styles = StyleSheet.create({
   // src/app/store/index.tsx.
   featureVisit: { borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 10 },
   featureVisitText: { fontSize: 12.5, fontWeight: '800' },
-  // Same fixed plate as `state` above, positioned top-left instead of
-  // top-right -- see the call site's comment for why it needs its own style
-  // rather than overriding `state`'s `right`.
+  // The mockup's own fixed near-white plate, at THIS card's own top-left
+  // rather than the grid card's top-right -- see the call site's comment for
+  // why the position needs its own style. `stateText`/`stateOpen`/
+  // `stateShut` below ARE the same styles the grid card's own on-photo pill
+  // used to carry (that pill is gone -- the grid card's state moved off the
+  // photo entirely, see the meta line's own comment above); only the plate
+  // itself (fill, radius, padding) is this card's own literal, since a
+  // photo-badge plate is unique to the featured card now.
   featurePill: {
     position: 'absolute', top: 10, left: 10,
     backgroundColor: 'rgba(255,255,255,0.94)',
@@ -551,16 +575,16 @@ export function FeaturedShopCard({
             style={styles.featurePhoto}
             pointerEvents="none"
           />
-          {/* Same fixed near-white plate as the grid card's own `state`
-              style above, and the same reasoning ("fixed, not palette,
-              because the ground underneath is an unknown photograph") --
-              reused rather than a second exception invented for this card.
-              Its own style (`featurePill`) only because the mockup puts
-              this one top-LEFT, not top-right: two absolute offsets on one
-              box would stretch it edge to edge instead of moving it, so the
-              position has to be its own style even though the plate and the
-              text underneath it (`stateText`/`stateOpen`/`stateShut`) are
-              shared as-is. */}
+          {/* A fixed near-white plate -- "fixed, not palette, because the
+              ground underneath is an unknown photograph", the same
+              reasoning ON_SCRIM_INK follows -- in `featurePill`'s own style,
+              since a plate positioned top-left has nothing left on this card
+              to share it with (the grid card's own state moved off its
+              photo entirely; see the meta line's own comment above). The
+              TEXT drawn on it (`stateText`/`stateOpen`/`stateShut`) is
+              shared as-is with what that grid card's pill used to use, and
+              still fills from the same catalogued constants
+              (DIRECTORY_STATE_OPEN/SHUT). */}
           {hoursConfigured ? (
             <View testID={`storefront-directory-featured-state-${shop.slug}`} style={styles.featurePill}>
               <Text style={[styles.stateText, open ? styles.stateOpen : styles.stateShut]}>

@@ -92,14 +92,21 @@ export default function StoreDirectoryScreen() {
   // present in the city on screen.
   const categories = categoriesOf(byCity);
   const shown = searchShops(inCategory(byCity, category), query);
-  // Same padding as the product grid, for the same reason: a short final row
-  // must leave a gap rather than inflating its cells to fill the width. See
-  // padFinalRow in theme-shared.tsx.
-  const cells = padFinalRow(shown, columns);
   // Off `shown`, not `shops`: a customer who has filtered to Borama or typed a
   // search should be shown the best of what they are looking at, not the best
   // of a page they are not.
   const featured = featuredShop(shown);
+  // NOT `shown` -- `featuredShop` always picks `shown[0]` (the RPC sorts by
+  // stock, so the lead and the grid's first slot are always the same shop),
+  // and rendering it twice within ~90px said its name and photo twice in a
+  // row, once as the hero and once again as grid card #1 -- a screen reader
+  // gets the name twice back to back. Sliced off the FRONT rather than
+  // filtered by slug: the lead is always position 0 when it exists at all.
+  const gridShops = featured ? shown.slice(1) : shown;
+  // Same padding as the product grid, for the same reason: a short final row
+  // must leave a gap rather than inflating its cells to fill the width. See
+  // padFinalRow in theme-shared.tsx.
+  const cells = padFinalRow(gridShops, columns);
 
   const header = (
     <View>
@@ -218,7 +225,12 @@ export default function StoreDirectoryScreen() {
           everything, which is the rule CategoryBand already applies. */}
       {cities.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          <CityChip label="All cities" active={city === null} onPress={() => { setCity(null); setCategory(null); }} />
+          <CityChip
+            label="All cities"
+            active={city === null}
+            neutralWhenActive
+            onPress={() => { setCity(null); setCategory(null); }}
+          />
           {cities.map((name) => (
             <CityChip
               key={name}
@@ -236,7 +248,7 @@ export default function StoreDirectoryScreen() {
 
       {categories.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          <CityChip label="Everything" active={category === null} onPress={() => setCategory(null)} />
+          <CityChip label="Everything" active={category === null} neutralWhenActive onPress={() => setCategory(null)} />
           {categories.map((name) => (
             <CityChip
               key={name}
@@ -250,11 +262,14 @@ export default function StoreDirectoryScreen() {
       ) : null}
 
       {/* Leads the grid rather than sitting in it: a double-width cell inside a
-          FlatList would have to fight numColumns at every breakpoint, and the
-          featured shop is also the first row of the grid below -- so it is a
-          header, and the grid still contains it. Deliberately NOT removed from
-          the list underneath: a customer scanning alphabetically should still
-          find it where they expect. */}
+          FlatList would have to fight numColumns at every breakpoint, so this
+          renders as a header instead. REMOVED from the grid below (`gridShops`
+          above) rather than left in it -- the RPC sorts by stock and
+          `featuredShop` always takes `shown[0]`, so the lead and the grid's
+          own first card were always the SAME shop: same photo, same name,
+          stated twice within about 90px of scroll, and announced twice back
+          to back to a screen reader. There is no alphabetical scan for the
+          duplicate to serve -- the order here is stock, not the alphabet. */}
       {featured ? (
         <View style={styles.featureWrap}>
           <FeaturedShopCard
@@ -266,11 +281,17 @@ export default function StoreDirectoryScreen() {
         </View>
       ) : null}
 
-      {shown.length > 0 ? (
+      {gridShops.length > 0 ? (
         <View style={[styles.rowHead, { borderBottomColor: colors.hairline }]}>
           <View style={styles.rowHeadLeft}>
+            {/* `gridShops.length`, not `shown.length`: this header sits
+                directly above the grid, so its count has to agree with the
+                cards a customer can actually count below it -- when the lead
+                is showing above, it is one of the two lists on screen, not
+                both, and `shown.length` would over-count by exactly the one
+                shop already named in the hero. */}
             <Text style={[styles.rowHeadTitle, { color: colors.ink }]}>
-              {shown.length} {shown.length === 1 ? 'shop' : 'shops'}
+              {gridShops.length} {gridShops.length === 1 ? 'shop' : 'shops'}
               {city ? ` in ${city}` : ''}{category ? ` · ${category}` : ''}
             </Text>
             <Text style={[styles.rowHeadSub, { color: colors.muted }]}>
@@ -414,8 +435,37 @@ const HOW_IT_WORKS = [
 // only the testID prefix differs, and only so a test can tell which row it is
 // pressing.
 function CityChip({
-  label, active, onPress, testIDPrefix = 'storefront-directory-city',
-}: { label: string; active: boolean; onPress: () => void; testIDPrefix?: string }) {
+  label, active, onPress, testIDPrefix = 'storefront-directory-city', neutralWhenActive = false,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  testIDPrefix?: string;
+  // "All cities" and "Everything" are the DEFAULT state, not a choice --
+  // active from the first paint, before a customer has tapped anything. Blue
+  // there would mean "kaiibi's colour reads as: you did nothing", the exact
+  // inversion of the rule below. Every named chip (a real city, a real trade)
+  // leaves this false, because choosing one of those IS the stated choice
+  // blue exists for.
+  neutralWhenActive?: boolean;
+}) {
+  // Bounded either way, for the reason CategoryBand's pills are: an
+  // unselected chip is `ground` on `soft`, which is 1.04:1 on this palette
+  // and so has no edge at all. The selected chip borders in its own fill so
+  // the row does not shift by 2px when one is tapped.
+  //
+  // KAIIBI_BLUE marks a choice the customer just made -- the other place
+  // this page's own colour belongs (see the mark plate above), and the
+  // mockup fills a selected chip the same way (`.dc.on{background:#0071e3}`).
+  // "All cities"/"Everything" are never that choice: they are what is
+  // already true before anything is tapped, so an active one of THOSE wears
+  // `colors.ink` instead -- the neutral "selected" treatment every chip on
+  // this page wore before KAIIBI_BLUE was introduced for the ones that are a
+  // real, stated narrowing. Every OTHER pill on this page (unselected chips,
+  // the nav CTA) stays in that same neutral `ink` too, because those are not
+  // a stated choice at all, they are chrome.
+  const activeFill = neutralWhenActive ? colors.ink : KAIIBI_BLUE;
+  const activeText = neutralWhenActive ? colors.ground : KAIIBI_INK;
   return (
     <Pressable
       testID={`${testIDPrefix}-${label}`}
@@ -424,24 +474,12 @@ function CityChip({
       onPress={onPress}
       style={pressable([
         styles.chip,
-        // Bounded either way, for the reason CategoryBand's pills are: an
-        // unselected chip is `ground` on `soft`, which is 1.04:1 on this
-        // palette and so has no edge at all. The selected chip borders in its
-        // own fill so the row does not shift by 2px when one is tapped.
-        //
-        // KAIIBI_BLUE, not `colors.ink`: a choice the customer just made on
-        // KAIIBI'S page is the other place this page's own colour belongs
-        // (see the mark plate above) -- the mockup fills the selected chip
-        // the same way (`.dc.on{background:#0071e3}`). Every OTHER pill on
-        // this page (unselected chips, the nav CTA) stays in the directory's
-        // neutral `ink`, because those are not a stated choice, they are
-        // chrome.
         active
-          ? { backgroundColor: KAIIBI_BLUE, borderColor: KAIIBI_BLUE }
+          ? { backgroundColor: activeFill, borderColor: activeFill }
           : { backgroundColor: colors.ground, borderColor: colors.edge },
       ])}
     >
-      <Text style={[styles.chipText, { color: active ? KAIIBI_INK : colors.muted }]}>{label}</Text>
+      <Text style={[styles.chipText, { color: active ? activeText : colors.muted }]}>{label}</Text>
     </Pressable>
   );
 }
