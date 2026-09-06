@@ -109,9 +109,9 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
               accessibilityLabel="Close"
               hitSlop={10}
               onPress={onClose}
-              style={pressable([styles.dismiss, { backgroundColor: colors.soft }])}
+              style={pressable([styles.dismiss, { backgroundColor: colors.ink }])}
             >
-              <Text style={[styles.dismissGlyph, { color: colors.ink }]}>×</Text>
+              <Text style={[styles.dismissGlyph, { color: colors.ground }]}>×</Text>
             </Pressable>
           </View>
 
@@ -249,18 +249,28 @@ const styles = StyleSheet.create({
   // read as "cut off by the window" -- the very thing the inset above exists
   // to stop -- rather than as a card that ends.
   sheet: { borderRadius: 24, maxHeight: '88%', overflow: 'hidden' },
-  head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4, justifyContent: 'center' },
+  // Tall enough to hold the dismiss control that floats in it, so the button
+  // sits in its own band rather than half over the photograph below.
+  head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4, justifyContent: 'center', minHeight: 42 },
   grab: { width: 38, height: 4, borderRadius: 999 },
-  // 32px: the smallest square that still clears the 24px minimum a thumb can
-  // reliably hit, with `hitSlop` taking the real target past 44 either way.
+  // INK, NOT `soft`. The first version of this filled with `soft` on a `ground`
+  // sheet -- two near-whites, 1.05:1 apart -- and the customer's report was
+  // "make the close icon visible", which is the only test that mattered. A
+  // dismiss control is the one thing on a sheet that must be findable in the
+  // first half-second, and it also has to survive sitting over the top of a
+  // photograph whose colours it cannot know.
+  //
+  // 34px square: past the 24px a thumb needs, with `hitSlop` taking the real
+  // target past 44. Inset far enough from the corner that it does not fight
+  // the sheet's own 24px radius.
   dismiss: {
-    position: 'absolute', right: 10, top: 6,
-    width: 32, height: 32, borderRadius: 16,
+    position: 'absolute', right: 12, top: 4,
+    width: 34, height: 34, borderRadius: 17,
     alignItems: 'center', justifyContent: 'center',
   },
   // Line height pinned to the box so the glyph sits optically centred -- '×'
   // carries its own descender-less bearing and drifts high without it.
-  dismissGlyph: { fontSize: 19, fontWeight: '700', lineHeight: 21 },
+  dismissGlyph: { fontSize: 20, fontWeight: '700', lineHeight: 22 },
   // `flexShrink: 1`, not `flex: 1` -- this scroller has no reason to GROW
   // past its own content (a short product with no photo should not stretch
   // to fill the sheet), only to SHRINK when its content plus the footer
