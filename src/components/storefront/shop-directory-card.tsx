@@ -177,7 +177,17 @@ export function ShopDirectoryCard({
   const entering = enterDelay === null ? undefined : FadeInUp.duration(420).delay(enterDelay);
 
   return (
-    <Animated.View entering={entering}>
+    // `flex: 1`, LOAD-BEARING: `cell` (src/app/store/index.tsx) is `{ flex: 1
+    // }` and this Animated.View, not the Pressable below, is its actual JSX
+    // child now that entrance motion wraps the card -- without a flex of its
+    // own here, an unstyled View hugs its content on the vertical axis
+    // (`columnWrapperStyle`'s default `alignItems: 'stretch'` still stretches
+    // CELLS to the tallest row-mate, but stops there) and `card`'s own `flex:
+    // 1` below has nothing left to grow INTO, so three shops with different
+    // chip counts in one row draw three different-height rectangles instead
+    // of one shared height. This is exactly the ragged grid `numberOfLines`
+    // on the blurb used to prevent.
+    <Animated.View entering={entering} style={styles.cardShell}>
       <Pressable
         testID={`storefront-directory-card-${shop.slug}`}
         accessibilityRole="link"
@@ -302,6 +312,8 @@ export function ShopDirectoryCard({
 }
 
 const styles = StyleSheet.create({
+  // The entrance wrapper's own flex -- see the comment at its call site above.
+  cardShell: { flex: 1 },
   card: { borderRadius: RADIUS.card, padding: 12, flex: 1, minWidth: 0 },
   photo: {
     aspectRatio: 16 / 10, borderRadius: RADIUS.inset, overflow: 'hidden',
