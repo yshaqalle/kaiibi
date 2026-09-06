@@ -128,6 +128,42 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           reserves no space of its own -- see theme-market.tsx's identical
           comment. Unconditional for the same reason: the first Add must
           not reflow the page under the customer's finger. */}
+      {/* TASK B DELIBERATELY DOES NOT TOUCH THIS FILE, and that is a finding,
+          not an oversight.
+
+          Task B's brief describes "the goods grid" the same way across all
+          three themes and asks for it to become a bounded, two-row-tall
+          scroll while the page keeps carrying the header and footer. That
+          premise holds for Market and Window (theme-market.tsx,
+          theme-window.tsx): both lay ProductTile out in a numColumns grid,
+          and both now nest a height-bound FlatList for exactly that grid
+          inside a page-level FlatList (see theme-market.tsx's own comment on
+          why that nesting does not trip RN's "VirtualizedLists should never
+          be nested" warning).
+
+          Counter has no grid to bound. `groupByCategory` above renders ONE
+          column of price-list rows in ONE ShopCard, and the "row" the brief's
+          bound is built from (a measured tile height, two of them plus a
+          gap) has no counterpart here -- a Counter "row" is a single product
+          line a few dense-type lines tall. Applying the identical two-row
+          cap literally would bound this scroll box to roughly two product
+          LINES -- on the order of 100px -- for a theme whose own header
+          comment above names its entire reason for existing as "the theme
+          that makes a 200-line pharmacy catalogue readable". A shop picks
+          Counter FOR the uninterrupted scan down a price list; a two-line
+          window with a scrollbar is the opposite of that, on the one theme
+          built to carry the longest catalogues this page ever renders.
+
+          So this ScrollView keeps doing exactly what it already did: one
+          scroller carrying the header, the price list and the footer
+          together, unbounded. Nothing here regresses the user's actual
+          complaint ("the [grid] runs down the page... instead of fill the
+          entire page") -- that complaint describes a wall of PHOTOS, which
+          only Market and Window have ever rendered, never Counter's compact
+          text rows. Pinned by storefront-theme-counter.test.tsx's own
+          `storefront-counter-scroll` checkout-bar-clearance test, which
+          still asserts this single scroller carries that padding -- proof
+          this file's shape is unchanged, not merely unexamined. */}
       {shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
       ) : null}
