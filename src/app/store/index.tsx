@@ -475,9 +475,10 @@ function CityChip({
   // already true before anything is tapped, so an active one of THOSE wears
   // `colors.ink` instead -- the neutral "selected" treatment every chip on
   // this page wore before KAIIBI_BLUE was introduced for the ones that are a
-  // real, stated narrowing. Every OTHER pill on this page (unselected chips,
-  // the nav CTA) stays in that same neutral `ink` too, because those are not
-  // a stated choice at all, they are chrome.
+  // real, stated narrowing. The page's other ink-filled pills -- the masthead
+  // CTA, the search's Clear, the footer's -- stay neutral for the same reason:
+  // they are chrome, not a stated choice. An UNSELECTED chip is neither, and
+  // wears neither: `ground` inside `edge`, as above.
   const activeFill = neutralWhenActive ? colors.ink : KAIIBI_BLUE;
   const activeText = neutralWhenActive ? colors.ground : KAIIBI_INK;
   return (
