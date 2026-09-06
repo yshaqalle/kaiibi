@@ -1928,13 +1928,17 @@ const styles = StyleSheet.create({
   // raises the field above whatever it overlaps -- `zIndex` rather than
   // relying on paint order, since Android's `elevation` on a sibling can
   // reorder that silently.
-  // SPACE.cardGap, not the 10 this carried for years. On the wide layout the
-  // field sits BELOW the header cards rather than floating over them, and 10px
-  // under a 270px card read as the two being crowded together -- every other
-  // gap between stacked things on this page is `cardGap`, so a tighter one
-  // here was the odd number out rather than a decision. The narrow layout is
-  // untouched: it overlaps on purpose (`searchRowFloating`).
-  searchRowInline: { marginTop: SPACE.cardGap },
+  // A SECTION BREAK, not a card gap. This was 10, then briefly cardGap's 14,
+  // and both were still read as crowded against a 270px hero: cardGap is the
+  // space between two cards in the SAME group, and the search is not another
+  // card in the header's group -- it is where the page stops introducing the
+  // shop and starts letting you look through it. 26 is the rhythm this page
+  // already uses for exactly that move (`sectionHead`'s own paddingTop, the
+  // "WHAT'S IN TODAY" rule below), so the field now sits on the same beat as
+  // the other section boundary rather than inventing a third number.
+  // The narrow layout is untouched: it overlaps on purpose
+  // (`searchRowFloating`), which is the mockup's own move.
+  searchRowInline: { marginTop: 26 },
   // The rendered overlap is `SEARCH_FLOAT_OVERLAP`, not this margin's own
   // magnitude -- `headerNarrow`'s `gap` adds back onto it (see
   // SEARCH_FLOAT_OVERLAP's own comment above). A bare `-21` here would be
