@@ -1374,6 +1374,10 @@ export type PublicStorefront = {
   // there is only one flyer, or once the visit has stopped it by hovering,
   // touching or focusing the band.
   autoAdvance: boolean;
+  // True only when the shop's effective plan buys the mark off. Boolean(...)
+  // at the mapping: a client shipped ahead of its database must SHOW branding,
+  // not hide it -- hiding is the perk.
+  hideBranding: boolean;
 };
 
 // A way INTO a catalogue, not a thing you can buy -- which is why it carries a

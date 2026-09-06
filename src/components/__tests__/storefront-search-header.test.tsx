@@ -31,6 +31,7 @@ const shop: PublicStorefront = {
   contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 function catalogue(n: number): StorefrontProduct[] {

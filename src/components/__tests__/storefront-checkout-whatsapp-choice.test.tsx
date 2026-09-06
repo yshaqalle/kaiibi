@@ -98,6 +98,7 @@ const storefront: PublicStorefront = {
   // render exactly as it did before they existed.
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 const products: StorefrontProduct[] = [

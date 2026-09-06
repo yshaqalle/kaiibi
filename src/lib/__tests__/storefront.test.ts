@@ -360,3 +360,40 @@ describe('getPublicDeliveryAreas', () => {
     await expect(getPublicDeliveryAreas('xamdi')).rejects.toThrow('db down');
   });
 });
+
+// Task 9: get_public_storefront gained a `hide_branding` column in
+// 20261101000200 -- true only when the shop's effective plan (Pro, via
+// shop_effective_plan()) has bought the kaiibi mark off. Boolean(...), the
+// same guard offersDelivery and autoAdvance above already use: the perk is
+// HIDING the mark, so a client shipped ahead of its database -- no
+// hide_branding column at all -- must show branding, not hide it.
+describe('getPublicStorefront hideBranding', () => {
+  beforeEach(() => rpc.mockReset());
+
+  const row = {
+    shop_name: 'Xamdi Electronics',
+    city: 'Hargeisa',
+    slug: 'xamdi',
+    whatsapp_e164: '+252634456789',
+    theme: 'market',
+    palette: 'ink',
+    headline: null,
+    about: null,
+    hero_image_url: null,
+    offers_delivery: true,
+    payment_mode: 'on_collection',
+    flyers: [],
+    auto_advance: false,
+  };
+
+  it('maps hide_branding, and a client shipped ahead of its database shows branding', async () => {
+    rpc.mockResolvedValue({ data: [{ ...row, hide_branding: true }], error: null });
+    expect((await getPublicStorefront('xamdi'))?.hideBranding).toBe(true);
+
+    // row WITHOUT the column at all (an older database): undefined must land
+    // as false -- branding SHOWN -- the same fail-open-for-display,
+    // fail-closed-for-perks shape offersDelivery already uses.
+    rpc.mockResolvedValue({ data: [row], error: null });
+    expect((await getPublicStorefront('xamdi'))?.hideBranding).toBe(false);
+  });
+});

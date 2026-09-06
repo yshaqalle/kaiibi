@@ -116,6 +116,7 @@ const baseShop: Omit<PublicStorefront, 'slug' | 'theme'> = {
   contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 // What collectLocation composes from the three fields above. Written out in

@@ -32,6 +32,7 @@ const shop: PublicStorefront = {
   contactPhone: null, instagram: null,
   flyers: [],
   autoAdvance: false,
+  hideBranding: false,
 };
 
 function product(id: string): StorefrontProduct {
