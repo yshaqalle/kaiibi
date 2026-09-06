@@ -1,4 +1,4 @@
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { TABULAR, TYPE } from '@/components/storefront/scale';
@@ -7,6 +7,53 @@ import { AppModal } from '@/components/ui/app-modal';
 import { formatCents } from '@/lib/currency';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
+
+// THE SHEET GETS ITS OWN MEASURE, NARROWER THAN EITHER SHOP_MAX_WIDTH OR
+// PROSE_MAX_WIDTH (scale.ts).
+//
+// This is what actually produced the screenshot the fix came from: the sheet
+// had no width bound at all, so on a 1512px window it spanned the window and
+// a 4:3 photo took 4:3 OF THAT -- over a thousand pixels tall. PROSE_MAX_WIDTH
+// (820) is picked for a page of running prose; a product sheet is one photo
+// and a name and a price and a short paragraph, which is a narrower thing
+// than a page of prose, the same way scale.ts argues PROSE_MAX_WIDTH is
+// narrower than SHOP_MAX_WIDTH. 480 is not derived from either number --
+// it's picked so the sheet reads as a CARD floating over the dimmed grid,
+// which is what makes tapping outside it (or Close) feel like dismissing one
+// thing, not leaving a second page.
+//
+// Math.min, not a fixed width: below 480 the sheet still fills the window
+// edge-to-edge, because a phone is the shape this component was built for
+// first, and a card narrower than the phone that opened it would wrap text
+// for no reason.
+export const SHEET_MAX_WIDTH = 480;
+
+export function sheetWidthFor(windowWidth: number): number {
+  return Math.min(windowWidth, SHEET_MAX_WIDTH);
+}
+
+// THE PHOTO'S CEILING IS THE WINDOW'S OWN HEIGHT, NOT A GUESS.
+//
+// The photo keeps its 4:3 shape (`styles.photo` below) up to this ceiling --
+// it only bites when 4:3 of the sheet's own width would draw a photo taller
+// than the window has room for underneath it.
+//
+// At phone heights this never fires. A 390px-wide sheet has a ~354px-wide
+// photo column (body's 18px padding both sides), which draws a natural 4:3
+// height around 265 -- comfortably under 40% of even the shortest phone this
+// page supports, so the photo stays exactly the shape the rest of this file's
+// comments describe.
+//
+// It fires on a SHORT, WIDE window instead -- the 1512x700 laptop the
+// original screenshot came from. There the sheet is capped to
+// SHEET_MAX_WIDTH (480), and 4:3 of that photo column still draws ~333px --
+// taller than name, price, Add/Ask and Close have left to share in the 88%
+// of 700px (`styles.sheet`'s own `maxHeight`) this sheet is allowed. 40% of
+// 700 is 280: the fifty-some pixels handed back are exactly what put the
+// Close button back on screen.
+export function photoHeightCapFor(windowHeight: number): number {
+  return Math.round(windowHeight * 0.4);
+}
 
 type Props = {
   product: StorefrontProduct | null;
@@ -38,6 +85,14 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
   // Driven by `product` rather than a separate `visible` flag: two sources of
   // truth for "is the sheet open" is how a sheet ends up open with nothing in
   // it after the list refreshes.
+  // Read unconditionally, ahead of the early return below -- a hook cannot
+  // follow one. See this file's own comments on `sheetWidthFor` and
+  // `photoHeightCapFor` (above the `Props` type) for why these are
+  // window-derived rather than fixed numbers.
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const sheetWidth = sheetWidthFor(windowWidth);
+  const photoHeightCap = photoHeightCapFor(windowHeight);
+
   if (!product) return null;
 
   const outOfStock = product.stock <= 0;
@@ -45,7 +100,7 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
   return (
     <AppModal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: colors.ground }]}>
+        <View testID="product-sheet" style={[styles.sheet, { backgroundColor: colors.ground, width: sheetWidth }]}>
           <View style={styles.head}>
             {/* The grab handle is decorative -- the Close button below is the
                 real affordance, because a drag-to-dismiss a customer has to
@@ -68,7 +123,11 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
                 Verified in a browser at 400x880, which is where both of those
                 problems were visible and neither was in jest. */}
             {product.imageUrl ? (
-              <Image source={{ uri: product.imageUrl }} style={styles.photo} resizeMode="cover" />
+              <Image
+                source={{ uri: product.imageUrl }}
+                style={[styles.photo, { maxHeight: photoHeightCap }]}
+                resizeMode="cover"
+              />
             ) : null}
 
             <Text style={[styles.name, { color: colors.ink }]}>{product.name}</Text>
@@ -140,7 +199,10 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
+  // `alignItems: 'center'` is the horizontal half of "bound it and centre
+  // it" (see `sheetWidthFor`'s own comment) -- `justifyContent: 'flex-end'`
+  // stays untouched, because the sheet is still bottom-anchored.
+  overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end', alignItems: 'center' },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%', overflow: 'hidden' },
   head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4 },
   grab: { width: 38, height: 4, borderRadius: 999 },

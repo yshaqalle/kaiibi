@@ -1,8 +1,8 @@
-import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
+import { AccessibilityInfo, Dimensions, StyleSheet, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { registerFlyTrigger, resetFlyToCartForTests, unregisterFlyTrigger } from '@/components/storefront/fly-to-cart';
-import { ProductSheet } from '@/components/storefront/product-sheet';
+import { photoHeightCapFor, ProductSheet, SHEET_MAX_WIDTH, sheetWidthFor } from '@/components/storefront/product-sheet';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
@@ -182,5 +182,128 @@ describe('a product description reaches the customer', () => {
 
     expect(onAdd).toHaveBeenCalledWith(rice);
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// A 1512x~700 laptop window is exactly what produced the screenshot this
+// fix came from: no width bound on the sheet, and a 4:3 photo at that width
+// stood ~1134px tall against a ~616px budget (`maxHeight: '88%'` of 700).
+// See product-sheet.tsx's own comments on `sheetWidthFor` and
+// `photoHeightCapFor` (above its `Props` type) for the reasoning behind the
+// numbers this suite proves -- these tests exist to catch the pattern the
+// module's own file-level brief warns about: a hard-coded number beside a
+// function that is never actually called.
+describe('the sheet fits the window it opens in', () => {
+  describe('sheetWidthFor', () => {
+    it('fills a phone window edge to edge, below its own cap', () => {
+      expect(sheetWidthFor(390)).toBe(390);
+    });
+
+    it('is exactly its own cap at the cap', () => {
+      expect(sheetWidthFor(SHEET_MAX_WIDTH)).toBe(SHEET_MAX_WIDTH);
+    });
+
+    it('never exceeds the cap, one pixel past it', () => {
+      expect(sheetWidthFor(SHEET_MAX_WIDTH + 1)).toBe(SHEET_MAX_WIDTH);
+    });
+
+    it('stays capped on the 1512px laptop the defect was reported on', () => {
+      expect(sheetWidthFor(1512)).toBe(SHEET_MAX_WIDTH);
+    });
+  });
+
+  describe('photoHeightCapFor', () => {
+    it('caps the short 1512x700 laptop window to 280', () => {
+      expect(photoHeightCapFor(700)).toBe(280);
+    });
+
+    it('leaves an 844pt-tall phone window alone -- the photo keeps its natural 4:3 height', () => {
+      expect(photoHeightCapFor(844)).toBe(338);
+    });
+
+    it('shrinks further on a very short window rather than floor at some fixed pixel count', () => {
+      expect(photoHeightCapFor(500)).toBe(200);
+    });
+
+    it('grows on a very tall window rather than ceiling at some fixed pixel count', () => {
+      expect(photoHeightCapFor(1300)).toBe(520);
+    });
+  });
+
+  const riceWithPhoto: StorefrontProduct = { ...rice, imageUrl: 'https://example.test/rice.jpg' };
+
+  function setWindow(width: number, height: number) {
+    return act(async () => {
+      Dimensions.set({
+        window: { width, height, scale: 1, fontScale: 1 },
+        screen: { width, height, scale: 1, fontScale: 1 },
+      });
+    });
+  }
+
+  function renderSheet() {
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <ProductSheet
+          product={riceWithPhoto}
+          colors={colors}
+          shopName={shop.shopName}
+          whatsappE164={shop.whatsappE164}
+          onClose={jest.fn()}
+          onAdd={jest.fn()}
+        />,
+      );
+    });
+    return tree;
+  }
+
+  function sheetStyleOf(tree: ReturnType<typeof create>) {
+    const sheet = tree.root.findAll((n) => n.props?.testID === 'product-sheet')[0];
+    return StyleSheet.flatten(sheet.props.style);
+  }
+
+  function photoStyleOf(tree: ReturnType<typeof create>) {
+    const photo = tree.root.findAll((n) => Boolean(n.props?.source?.uri))[0];
+    return StyleSheet.flatten(photo.props.style);
+  }
+
+  // `Dimensions.set` is a process-global, not scoped to one `it` -- every
+  // other test in this file relies on the ambient jest window (750x1334, the
+  // `@react-native/jest-preset` default). This is the only block that moves
+  // it, so it is also the only block that has to put it back (see
+  // stock-count-modal.test.tsx's own comment on the identical pattern).
+  afterEach(async () => {
+    await setWindow(750, 1334);
+  });
+
+  // MUTATION: hard-code `sheetWidth` and `photoHeightCap` in ProductSheet to
+  // fixed numbers instead of calling `sheetWidthFor`/`photoHeightCapFor`.
+  // Every assertion below still passes EXCEPT the last two -- a hard-coded
+  // number renders identically at both window sizes, which is exactly the
+  // defect a value-only assertion (`maxHeight === 280`) cannot catch, and
+  // exactly why this test compares the two renders to each other.
+  it('renders a narrower sheet and a shorter photo on a 1512x700 laptop than on a 390x844 phone', async () => {
+    await setWindow(1512, 700);
+    const laptop = renderSheet();
+    const laptopSheetStyle = sheetStyleOf(laptop);
+    const laptopPhotoStyle = photoStyleOf(laptop);
+
+    expect(laptopSheetStyle.width).toBe(sheetWidthFor(1512));
+    expect(laptopPhotoStyle.maxHeight).toBe(photoHeightCapFor(700));
+
+    await setWindow(390, 844);
+    const phone = renderSheet();
+    const phoneSheetStyle = sheetStyleOf(phone);
+    const phonePhotoStyle = photoStyleOf(phone);
+
+    expect(phoneSheetStyle.width).toBe(sheetWidthFor(390));
+    expect(phonePhotoStyle.maxHeight).toBe(photoHeightCapFor(844));
+
+    // Not just "correct at both sizes" -- actually DIFFERENT, which is what
+    // proves the component calls the function on every render and passes
+    // its result through, rather than a number hard-coded beside it.
+    expect(laptopSheetStyle.width).not.toBe(phoneSheetStyle.width);
+    expect(laptopPhotoStyle.maxHeight).not.toBe(phonePhotoStyle.maxHeight);
   });
 });
