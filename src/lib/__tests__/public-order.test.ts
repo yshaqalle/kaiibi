@@ -88,6 +88,7 @@ describe('getPublicOrder', () => {
         before: [{ productName: 'Basmati rice', quantity: 5, lineTotalCents: 12500 }],
         after: [{ productName: 'Basmati rice', quantity: 3, lineTotalCents: 7500 }],
       },
+      hideBranding: false,
     });
   });
 
@@ -114,6 +115,25 @@ describe('getPublicOrder', () => {
   it('throws when the request itself fails, so a network drop is not a missing order', async () => {
     fake.rpcResult = { data: null, error: { message: 'Network request failed' } };
     await expect(getPublicOrder('tok')).rejects.toMatchObject({ message: 'Network request failed' });
+  });
+});
+
+// Task 12: get_public_order gained a `hide_branding` column in 20261101000300
+// -- true only when the shop's effective plan (Pro, via shop_effective_plan())
+// has bought the kaiibi mark off. Boolean(...), the same guard Task 9 put on
+// getPublicStorefront's hideBranding: the perk is HIDING the mark, so a
+// client shipped ahead of its database -- no hide_branding column at all --
+// must show branding, not hide it.
+describe('getPublicOrder hideBranding', () => {
+  it('maps hide_branding, and a client shipped ahead of its database shows branding', async () => {
+    fake.rpcResult = { data: { ...PAYLOAD, hide_branding: true }, error: null };
+    expect((await getPublicOrder('tok'))?.hideBranding).toBe(true);
+
+    // row WITHOUT the column at all (an older database): undefined must land
+    // as false -- branding SHOWN -- the same fail-open-for-display,
+    // fail-closed-for-perks shape the rest of this mapping uses.
+    fake.rpcResult = { data: PAYLOAD, error: null };
+    expect((await getPublicOrder('tok'))?.hideBranding).toBe(false);
   });
 });
 

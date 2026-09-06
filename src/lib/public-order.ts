@@ -55,6 +55,15 @@ export type PublicOrder = {
   confirmedAt: string | null;
   /** Null when the order has never been amended. */
   amendment: PublicOrderAmendment | null;
+  /**
+   * True only when the shop's effective plan buys the kaiibi mark off
+   * (20261101000300, joined through shop_effective_plan() server-side --
+   * never a `planKey === 'pro'` comparison, because plans get retired and
+   * hopped to successors). Boolean(...) at the mapping: a client shipped
+   * ahead of its database -- no hide_branding column at all -- must show
+   * branding, not hide it. Hiding is the perk.
+   */
+  hideBranding: boolean;
 };
 
 type LineRow = { product_name: string; quantity: number; line_total_cents: number };
@@ -78,6 +87,7 @@ type OrderRow = {
     before: LineRow[] | null;
     after: LineRow[] | null;
   } | null;
+  hide_branding?: boolean;
 };
 
 const mapLine = (row: LineRow): PublicOrderLine => ({
@@ -109,6 +119,7 @@ function mapOrder(row: OrderRow): PublicOrder {
           after: (row.amendment.after ?? []).map(mapLine),
         }
       : null,
+    hideBranding: Boolean(row.hide_branding),
   };
 }
 

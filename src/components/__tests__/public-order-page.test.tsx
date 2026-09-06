@@ -30,6 +30,7 @@ const ORDINARY: PublicOrder = {
   totalCents: 7500,
   confirmedAt: null,
   amendment: null,
+  hideBranding: false,
 };
 
 const AMENDED: PublicOrder = {
@@ -206,5 +207,27 @@ describe('PublicOrderView — the states that are not an order', () => {
     const missing = texts(render({ order: null, notFound: true }));
     expect(missing).toMatch(/not found|expired/i);
     expect(missing).not.toMatch(/connection/i);
+  });
+});
+
+// ── The mark on the order-status page (Task 12) ──────────────────────────
+//
+// This is the second surface the hide-branding flag rides -- Task 9 put it on
+// get_public_storefront, this one is get_public_order's own column. Same
+// gate direction, same two-case shape as storefront-shop-footer.test.tsx
+// (Task 10) and storefront-order-placed.test.tsx (Task 11): shown when the
+// flag is falsy, hidden only on an explicit `true`.
+describe('PublicOrderView — the mark on the order-status page', () => {
+  const findMark = (tree: ReactTestRenderer) =>
+    tree.root.findAll((n) => n.props?.testID === 'storefront-order-powered-by');
+
+  it('shows the mark on a plan that includes it', () => {
+    const tree = render({ order: { ...ORDINARY, hideBranding: false } });
+    expect(findMark(tree).length).toBeGreaterThan(0);
+  });
+
+  it('hides the mark when the plan buys it off', () => {
+    const tree = render({ order: { ...ORDINARY, hideBranding: true } });
+    expect(findMark(tree)).toHaveLength(0);
   });
 });
