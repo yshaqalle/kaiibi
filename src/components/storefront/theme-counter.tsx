@@ -164,8 +164,15 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           `storefront-counter-scroll` checkout-bar-clearance test, which
           still asserts this single scroller carries that padding -- proof
           this file's shape is unchanged, not merely unexamined. */}
+      {/* The inset lives HERE, not inside SearchField. Counter is the one
+          theme that renders the field outside its own padded scroller, so
+          Counter is the one that owes it a gutter -- see searchRow's comment
+          in theme-shared.tsx, where that padding used to live and quietly
+          double up on the two themes that pad their own column. */}
       {shouldOfferSearch(products) ? (
-        <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
+        <View style={styles.searchInset}>
+          <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
+        </View>
       ) : null}
 
       <ScrollView
@@ -271,6 +278,10 @@ const styles = StyleSheet.create({
   // The reading column -- see theme-market.tsx's identical `scroller`.
   scroll: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   scrollContent: { padding: SPACE.page, paddingBottom: 24 },
+  // The same gutter `scrollContent` gives everything below it, for the field
+  // that sits above it -- so the search lines up with the rows it filters
+  // rather than running to the window's edge.
+  searchInset: { paddingHorizontal: SPACE.page },
   // Less vertical padding than a normal card: the first thing inside is a
   // section eyebrow that brings its own leading, and the rows below it are
   // meant to run close together.

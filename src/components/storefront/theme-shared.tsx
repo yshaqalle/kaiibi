@@ -1911,7 +1911,16 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
   },
   emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page },
+  // NO HORIZONTAL PADDING OF ITS OWN. This carried `paddingHorizontal:
+  // SPACE.page`, which was right when every theme dropped the field straight
+  // onto an unpadded page. Market and Window now render it inside the page's
+  // own padded column, so its 16 landed on top of the column's 16 and the
+  // field sat inset 32 against a hero card, a goods grid and a footer all
+  // sitting at 16 -- the one element on the page that did not line up with
+  // the others. Counter still renders it outside its own padded scroller and
+  // supplies the inset there (`searchInset`), which is where the decision
+  // belongs: a container knows its own margins, a shared field cannot.
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   // The two placements this field ships in -- see the `floating` prop above.
   // Non-floating keeps the small gap this row always had above it
   // (CategoryBand/CategoryFilterBar, or Window and Counter's own header).
