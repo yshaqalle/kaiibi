@@ -191,6 +191,7 @@ export async function getPublicStorefrontProducts(slug: string): Promise<Storefr
     priceCents: row.price_cents as number,
     stock: row.stock as number,
     imageUrl: (row.image_url as string) ?? null,
+    createdAt: (row.created_at as string) ?? null,
   }));
 }
 

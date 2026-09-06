@@ -1400,6 +1400,24 @@ export type StorefrontProduct = {
   priceCents: number;
   stock: number;
   imageUrl: string | null;
+  // When the product was added -- powers the tile's NEW badge (Task 16: see
+  // isProductNew in product-tile.tsx), within 14 days. Comes from
+  // get_public_storefront_products (20261102000000_storefront_products_created_at.sql).
+  //
+  // OPTIONAL, not required, and that is the load-bearing decision here rather
+  // than an oversight: making it required would have forced every one of the
+  // ~18 existing test fixtures across this codebase that build a
+  // StorefrontProduct by hand to grow a field they have no opinion about, and
+  // would have forced getStorefrontPreviewProducts (storefront-admin.ts) --
+  // which reads `products` directly, not through this RPC -- to be edited
+  // just to keep compiling. Optional means both simply omit it, which reads
+  // as `undefined`, which isProductNew treats exactly like `null`: no badge.
+  // That is also the client-newer-than-database case the field exists to
+  // survive -- a client built after this migration talking to a database
+  // before it gets `undefined` back from a server that has never heard of
+  // this column, and must show no badges rather than crash or badge
+  // everything.
+  createdAt?: string | null;
 };
 
 // get_public_delivery_areas' shape -- no id, no sort_order, because the
