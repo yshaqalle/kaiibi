@@ -119,6 +119,28 @@ export const SPACE = {
 // ceiling, so the shop and the app now agree on how wide "wide" is. Still a
 // fixed number rather than a percentage -- a measure that grows with the
 // window stops being a measure.
+//
+// THE GRID STOPPED READING THIS (2026-09-06): the goods grid was the one
+// user this constant never should have had. DIRECTORY_MAX_WIDTH below
+// already makes the argument -- a grid of cards, scanned across, is not a
+// reading column and gains a column when it grows rather than losing one --
+// for the store DIRECTORY's own grid; Task C applies the identical argument
+// here. ThemeMarket and ThemeWindow's goods FlatList no longer sits inside
+// this bound at all: it fills the window, less the page's own padding (see
+// each theme's own `scroller`/`column` split), and gridColumnsForWidth grew
+// five new rungs above 1280 so a tile stays roughly its designed size
+// instead of five of them stretching to fill whatever the monitor allows.
+//
+// What still reads this constant on the shop page: the header (the three
+// shop cards, search, the category band) and the footer -- both blocks of
+// TEXT and short facts, never scanned the way a tile grid is, and the
+// header specifically carries the one real paragraph on this tab (the
+// anchor's own `about` copy) that PROSE_MAX_WIDTH's argument already covers.
+// Keeping them at 1320 rather than letting them widen with the grid is a
+// choice, not an oversight: a shopkeeper's headline and the collect/stock
+// facts beside it were never the thing a wide monitor's empty gutters were
+// about, and widening them today would only be trading one unread margin of
+// whitespace for a name and a phone number spread across a 2,560px card.
 export const SHOP_MAX_WIDTH = 1320;
 
 // THE PANEL GETS ITS OWN MEASURE, NARROWER THAN THE GRID -- the same argument
@@ -143,6 +165,26 @@ export const SHOP_MAX_WIDTH = 1320;
 // 820 is picked the way a reading column is picked -- a comfortable line
 // length for body text -- not derived from anything else in this file.
 export const PROSE_MAX_WIDTH = 820;
+
+// A SHEET GETS ITS OWN MEASURE, NARROWER THAN EITHER OF THE TWO ABOVE.
+//
+// This is the number that produced the defect it exists to fix: the product
+// sheet had no width bound at all, so on a 1512px window it spanned the whole
+// window and a 4:3 photo took 4:3 OF THAT -- over a thousand pixels tall,
+// with the name, the price and the buy button shoved off the bottom.
+//
+// PROSE_MAX_WIDTH (820) is picked for a page of running prose. A sheet is one
+// photo, a name, a price and a short paragraph -- a narrower thing again, the
+// same way prose is narrower than the grid. 480 is not derived from either
+// number: it is picked so the sheet reads as a CARD floating over the dimmed
+// page behind it, which is what makes dismissing it feel like putting one
+// thing down rather than leaving a second page.
+//
+// Shared by ProductSheet and CartSheet, which is why it lives here rather
+// than in either of them: a cart of three lines stretched across a 1,500px
+// window is a receipt printed on a bedsheet, and the two sheets floating at
+// different widths would read as two different surfaces.
+export const SHEET_MAX_WIDTH = 480;
 
 // Bento's radii. `card` is BENTO_RADIUS (theme.ts) by value and by intent --
 // not imported, because that constant lives beside `Colors.light` and this

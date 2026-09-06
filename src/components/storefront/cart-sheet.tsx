@@ -1,8 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { AppModal } from '@/components/ui/app-modal';
-import { TABULAR } from '@/components/storefront/scale';
+import { SHEET_MAX_WIDTH, SPACE, TABULAR } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
 import { CHECKOUT_BLUE, CHECKOUT_INK, type PaletteColors } from '@/lib/storefront-catalog';
@@ -58,6 +58,15 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
             <Text style={[styles.empty, { color: colors.muted }]}>Your cart is empty.</Text>
           ) : (
             <>
+              {/* THE LINES SCROLL; THE MONEY AND THE WAY ONWARD DO NOT.
+                  This sheet had no scroller at all: a cart of a dozen lines
+                  simply grew past `maxHeight` and took Subtotal and Checkout
+                  off the bottom of the screen with it -- the customer with the
+                  fullest basket being the one who could not pay for it. The
+                  same split ProductSheet makes, for the same reason: what you
+                  are reading may be any length, what you are deciding with
+                  must always be on screen. */}
+              <ScrollView testID="cart-sheet-lines" style={styles.lines}>
               {cart.lines.map((line) => (
                 <View key={line.productId} style={[styles.line, { borderBottomColor: colors.hairline }]}>
                   <View style={styles.lineName}>
@@ -94,6 +103,7 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
                   </View>
                 </View>
               ))}
+              </ScrollView>
 
               <View style={styles.subtotalRow}>
                 <Text style={[styles.subtotalLabel, { color: colors.ink }]}>Subtotal</Text>
@@ -127,8 +137,30 @@ export function CartSheet({ visible, onClose, cart, colors, onChangeQuantity, on
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, maxHeight: '85%' },
+  // The same inset ProductSheet's overlay carries, and for the same reason
+  // written out there: flush against the window's bottom edge, Checkout is the
+  // first thing a dock or a download bar covers. The bottom is larger than the
+  // sides because it has more to clear.
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(11,11,13,0.45)',
+    justifyContent: 'flex-end', alignItems: 'center',
+    padding: SPACE.cardGap,
+    paddingBottom: SPACE.cardGap + SPACE.card,
+  },
+  // Bounded and centred like the product sheet: a cart of three lines stretched
+  // across a 1,500px window is a receipt printed on a bedsheet. Four rounded
+  // corners because it now floats clear of the edge rather than growing out of
+  // it.
+  sheet: {
+    borderRadius: 24, padding: 18, maxHeight: '85%',
+    width: '100%', maxWidth: SHEET_MAX_WIDTH,
+  },
+  // `flexShrink: 1`, never `flex: 1` -- the lines list must be free to be
+  // shorter than the sheet (a one-line cart should not stretch), and only
+  // gives way when the sheet's own maxHeight would otherwise be exceeded.
+  // RN Views default to flexShrink 0, so without this the list would push the
+  // subtotal and Checkout out through the bottom instead of scrolling.
+  lines: { flexShrink: 1 },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 },
   title: { fontSize: 19, fontWeight: '800', letterSpacing: -0.4 },
   close: { borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14 },

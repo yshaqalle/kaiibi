@@ -1,32 +1,21 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import { SHEET_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
 import { ProductActions } from '@/components/storefront/theme-shared';
 import { AppModal } from '@/components/ui/app-modal';
 import { formatCents } from '@/lib/currency';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontProduct } from '@/types/models';
 
-// THE SHEET GETS ITS OWN MEASURE, NARROWER THAN EITHER SHOP_MAX_WIDTH OR
-// PROSE_MAX_WIDTH (scale.ts).
-//
-// This is what actually produced the screenshot the fix came from: the sheet
-// had no width bound at all, so on a 1512px window it spanned the window and
-// a 4:3 photo took 4:3 OF THAT -- over a thousand pixels tall. PROSE_MAX_WIDTH
-// (820) is picked for a page of running prose; a product sheet is one photo
-// and a name and a price and a short paragraph, which is a narrower thing
-// than a page of prose, the same way scale.ts argues PROSE_MAX_WIDTH is
-// narrower than SHOP_MAX_WIDTH. 480 is not derived from either number --
-// it's picked so the sheet reads as a CARD floating over the dimmed grid,
-// which is what makes tapping outside it (or Close) feel like dismissing one
-// thing, not leaving a second page.
-//
-// Math.min, not a fixed width: below 480 the sheet still fills the window
-// edge-to-edge, because a phone is the shape this component was built for
-// first, and a card narrower than the phone that opened it would wrap text
-// for no reason.
-export const SHEET_MAX_WIDTH = 480;
+// SHEET_MAX_WIDTH now lives in scale.ts with the other measures, because
+// CartSheet needs it too and importing it FROM here would have dragged this
+// module's own import of theme-shared -- and behind that checkout-form,
+// storefront-order and @/lib/supabase -- into a cart sheet that has no
+// business with any of them. That is the same drag scale.ts was created to
+// end (see ON_SCRIM_INK's comment there). Re-exported so this module's own
+// callers and tests keep one obvious place to find it.
+export { SHEET_MAX_WIDTH };
 
 export function sheetWidthFor(windowWidth: number): number {
   return Math.min(windowWidth, SHEET_MAX_WIDTH);
@@ -102,10 +91,28 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
       <View style={styles.overlay}>
         <View testID="product-sheet" style={[styles.sheet, { backgroundColor: colors.ground, width: sheetWidth }]}>
           <View style={styles.head}>
-            {/* The grab handle is decorative -- the Close button below is the
-                real affordance, because a drag-to-dismiss a customer has to
-                discover is not one. */}
+            {/* The grab handle is decorative -- a drag-to-dismiss a customer
+                has to discover is not an affordance. The two REAL ways out are
+                the dismiss button here and the Close button at the foot. */}
             <View style={[styles.grab, { backgroundColor: colors.soft }]} />
+            {/* A VISIBLE WAY OUT AT THE TOP, not only at the bottom. Escape
+                closes this sheet and nobody knows that; the foot's Close sits
+                below a description that can be several screens long, so on a
+                phone the customer who opened the wrong product had to scroll
+                to leave it. A dismiss control belongs where the eye already is
+                when the sheet appears. Absolutely positioned so it does not
+                shift the handle off centre, and given a solid plate because it
+                sits directly above a photograph whose colours it cannot know. */}
+            <Pressable
+              testID="product-sheet-dismiss"
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={10}
+              onPress={onClose}
+              style={pressable([styles.dismiss, { backgroundColor: colors.soft }])}
+            >
+              <Text style={[styles.dismissGlyph, { color: colors.ink }]}>×</Text>
+            </Pressable>
           </View>
 
           <ScrollView testID="product-sheet-scroll" style={styles.scroll} contentContainerStyle={styles.body}>
@@ -242,8 +249,18 @@ const styles = StyleSheet.create({
   // read as "cut off by the window" -- the very thing the inset above exists
   // to stop -- rather than as a card that ends.
   sheet: { borderRadius: 24, maxHeight: '88%', overflow: 'hidden' },
-  head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4 },
+  head: { alignItems: 'center', paddingTop: 9, paddingBottom: 4, justifyContent: 'center' },
   grab: { width: 38, height: 4, borderRadius: 999 },
+  // 32px: the smallest square that still clears the 24px minimum a thumb can
+  // reliably hit, with `hitSlop` taking the real target past 44 either way.
+  dismiss: {
+    position: 'absolute', right: 10, top: 6,
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // Line height pinned to the box so the glyph sits optically centred -- '×'
+  // carries its own descender-less bearing and drifts high without it.
+  dismissGlyph: { fontSize: 19, fontWeight: '700', lineHeight: 21 },
   // `flexShrink: 1`, not `flex: 1` -- this scroller has no reason to GROW
   // past its own content (a short product with no photo should not stretch
   // to fill the sheet), only to SHRINK when its content plus the footer
