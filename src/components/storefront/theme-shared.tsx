@@ -718,7 +718,11 @@ export function CategoryFilterBar({
 export function gridColumnsForWidth(width: number): number {
   if (width < 640) return 2;
   if (width < 1024) return 3;
-  return 4;
+  // Five only once the column itself widened (SHOP_MAX_WIDTH 1320): at that
+  // width a four-up tile is ~310px -- wider than a phone's whole two-up --
+  // and five keeps tiles near the ~250px the grid was designed around.
+  if (width < 1280) return 4;
+  return 5;
 }
 
 // Where the three shop cards stop stacking and sit in a row. Deliberately its
