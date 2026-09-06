@@ -309,6 +309,20 @@ function CategoryTile({
   onHoverOut: () => void;
   onSelect: (category: string) => void;
 }) {
+  // KNOWN, NOT FIXED IN THIS PASS: Task 17's press-feedback audit found that
+  // this Pressable's hover lift (`tileHovered`, below) and press-feedback's
+  // own press-scale share one `style` array and so are exactly the
+  // transform-array collision the audit warns about (RN style flattening
+  // replaces a whole `transform` array on key collision rather than merging
+  // it element-by-element) -- a mouse hovering this tile and then clicking
+  // it loses the -2px lift for the duration of the press, snapping back on
+  // release. Left as-is rather than restructured here: Task 17's own brief
+  // scopes the fix to hover transforms it ADDS (ProductTile's new one, which
+  // uses the collision-safe outer-View/inner-Pressable split this tile could
+  // also adopt), not to retroactively reworking an already-shipped,
+  // already-tested component whose test suite
+  // (storefront-category-band-web.test.tsx) asserts hover state through
+  // THIS exact node. Worth its own follow-up task.
   return (
     <Pressable
       testID={`storefront-category-${category.name}`}

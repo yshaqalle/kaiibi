@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { AboutPanel } from '@/components/storefront/about-panel';
+import { FlyToCartLayer } from '@/components/storefront/fly-to-cart-layer';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import { ShopTabRail, availableTabs, type ShopTabKey } from '@/components/storefront/shop-tabs';
 import { PROSE_MAX_WIDTH, SHOP_MAX_WIDTH } from '@/components/storefront/scale';
@@ -90,6 +91,13 @@ export function ShopChrome({
           <ShopFooter storefront={storefront} colors={colors} />
         </ScrollView>
       )}
+
+      {/* Mounted once, here, rather than once per theme -- see its own
+          header comment on why a single overlay covering the same box every
+          theme's own outer View fills is enough to carry a dot from any
+          tile in the browsing content to the slip each theme renders as its
+          own sibling just outside this component. */}
+      <FlyToCartLayer colors={colors} />
     </View>
   );
 }

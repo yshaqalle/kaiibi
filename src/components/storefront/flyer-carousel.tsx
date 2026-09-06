@@ -513,10 +513,10 @@ export function FlyerCarousel({
         onHoverOut={() => setArmHover(false)}
         hitSlop={10}
         pointerEvents={Platform.OS === 'web' && !armHover ? 'none' : 'auto'}
-        style={[
+        style={pressable([
           styles.arrow, styles.arrowLeft, { backgroundColor: colors.ground },
           Platform.OS === 'web' && (armHover ? styles.arrowShown : styles.arrowHiddenWeb),
-        ]}
+        ])}
       >
         <Text style={[styles.arrowGlyph, { color: colors.ink }]}>‹</Text>
       </Pressable>
@@ -529,10 +529,10 @@ export function FlyerCarousel({
         onHoverOut={() => setArmHover(false)}
         hitSlop={10}
         pointerEvents={Platform.OS === 'web' && !armHover ? 'none' : 'auto'}
-        style={[
+        style={pressable([
           styles.arrow, styles.arrowRight, { backgroundColor: colors.ground },
           Platform.OS === 'web' && (armHover ? styles.arrowShown : styles.arrowHiddenWeb),
-        ]}
+        ])}
       >
         <Text style={[styles.arrowGlyph, { color: colors.ink }]}>›</Text>
       </Pressable>
@@ -550,7 +550,7 @@ export function FlyerCarousel({
             accessibilityLabel={`Flyer ${i + 1} of ${count}`}
             onPress={() => goTo(i)}
             hitSlop={8}
-            style={[styles.dot, { backgroundColor: i === index ? colors.accent : colors.soft }]}
+            style={pressable([styles.dot, { backgroundColor: i === index ? colors.accent : colors.soft }])}
           />
         ))}
       </View>

@@ -3,9 +3,15 @@ import {
   Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown, runOnJS, useAnimatedReaction, useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withTiming,
+} from 'react-native-reanimated';
 
+import { Aurora } from '@/components/storefront/aurora';
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
+import {
+  countUpDuration, countUpValue, fireFlyToCart, setSlipTarget, slipBumpMotion,
+} from '@/components/storefront/fly-to-cart';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
 import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
@@ -276,7 +282,15 @@ export function ShopAnchor({
             pointerEvents="none"
           />
         </>
-      ) : null}
+      ) : (
+        // THE AURORA -- the photoless anchor's own counterpart to the scrim
+        // above, gated on the identical `onPhoto` boolean so the two can
+        // never both paint (a shop cannot have a photo AND no photo) and
+        // never both skip (every card gets exactly one background
+        // treatment). See aurora.tsx for what this actually renders, given
+        // no radial gradient and no blur are available on this branch.
+        <Aurora colors={colors} reducedMotion={reducedMotion} />
+      )}
 
       <Text style={[styles.eyebrow, { color: muted }]}>The shop</Text>
 
@@ -750,7 +764,25 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
           testID="product-tile-add"
           accessibilityRole="button"
           style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }])}
-          onPress={() => onAdd?.(product)}
+          // fireFlyToCart reads the press's own window-space coordinate --
+          // pageX/pageY, unaffected by how far this tile's grid has been
+          // scrolled -- and hands it to whatever FlyToCartLayer is mounted
+          // for this page (fly-to-cart.ts's own header comment explains why
+          // a registry rather than a threaded prop). It is deliberately
+          // fire-and-forget: a shop with no dot to show (the slip has never
+          // laid out, or reduced motion is on) is still a shop whose cart
+          // gets the item, exactly as it did before this pass existed.
+          onPress={(e) => {
+            // `e` (and `e.nativeEvent`) is optional here on purpose: dozens
+            // of existing tests across this suite call a captured
+            // `.props.onPress()` with no argument at all to simulate a
+            // press, and every one of them must keep passing exactly as it
+            // did before this pass -- fireFlyToCart's own `origin` parameter
+            // is already nullable for precisely this "no coordinate to
+            // give" case.
+            fireFlyToCart(e?.nativeEvent ? { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY } : null);
+            onAdd?.(product);
+          }}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: colors.ground }]}>Add</Text>
         </Pressable>
@@ -1059,43 +1091,200 @@ export function CheckoutBar({
   fulfilment: string | null;
   onPress: () => void;
 }) {
+  // Hooks run on EVERY render, including the itemCount===0 one that returns
+  // null below -- React does not allow a conditional hook, and this
+  // component's own instance is never unmounted just because the cart is
+  // momentarily empty (the parent theme always renders <CheckoutBar/>; only
+  // its OWN return decides whether that renders anything -- see
+  // useStorefrontCart's neighbours in this file for the identical shape).
+  const reducedMotion = useReducedMotion();
+  const slipRef = useRef<View>(null);
+
+  // THE SLIP TARGET -- registered on every layout of this box (mount, and
+  // any resize) rather than read once, so a laptop window resize or a
+  // rotation keeps it honest. Window-space (measureInWindow), the same
+  // space the press event ProductActions hands fireFlyToCart already
+  // carries -- see fly-to-cart.ts's own header comment on why a
+  // module-level value stands in for a ref threaded back up through three
+  // themes. `+ 28, + height / 2` lands the target roughly where the first
+  // thumbnail sits -- the mockup's own `sr.left+28` offset.
+  //
+  // Optional-chained throughout: `measureInWindow` is a real native method
+  // react-test-renderer's host instances do not implement, and every test
+  // that renders CheckoutBar must keep passing without it -- a shop with no
+  // registered target just never gets a dot (ProductActions' own
+  // fireFlyToCart already degrades to that outcome gracefully).
+  function registerSlipTarget() {
+    const node = slipRef.current as unknown as {
+      measureInWindow?: (cb: (x: number, y: number, width: number, height: number) => void) => void;
+    } | null;
+    node?.measureInWindow?.((x, y, width, height) => {
+      setSlipTarget({ x: x + 28, y: y + height / 2 });
+    });
+  }
+
+  // THE BUMP. Two shared values, one per branch of slipBumpMotion, rather
+  // than one animated between two different meanings -- each stays at its
+  // own resting value (1) whichever branch is playing, so switching a
+  // device's reduced-motion setting between two Add presses can never leave
+  // one stuck mid-animation.
+  const bumpScale = useSharedValue(1);
+  const bumpOpacity = useSharedValue(1);
+  const bumpStyle = useAnimatedStyle(() => ({
+    opacity: bumpOpacity.value,
+    transform: [{ scale: bumpScale.value }],
+  }));
+
+  // THE COUNT-UP. `displayCents` is what the slip actually PRINTS;
+  // `subtotalCents` is the prop, the cart's real, already-updated total.
+  // Tracking them separately is what lets the printed figure lag the real
+  // one for exactly `countUpDuration` -- reading straight from the prop
+  // would show the new total the instant the cart changed, with no tween at
+  // all to see.
+  //
+  // DRIVEN OFF A REANIMATED SHARED VALUE, deliberately, rather than a raw
+  // `requestAnimationFrame` loop on the JS thread: an earlier version of
+  // this used one directly, and it left a scheduled frame callback that
+  // could fire AFTER a test's render tree was done with it -- react-test-
+  // renderer never unmounts a tree a test does not explicitly unmount, so
+  // the callback survived into the next test file's module teardown and
+  // threw "trying to import a file after the Jest environment has been torn
+  // down". `progress` below is owned by Reanimated instead, which tears
+  // itself down with the component; only its COMPLETION callback (fired
+  // once, `finished` guaranteed true or false) ever touches React state, via
+  // `runOnJS`, matching the pattern the bump above already uses.
+  const [displayCents, setDisplayCents] = useState(subtotalCents);
+  const previousSubtotal = useRef(subtotalCents);
+  const everMounted = useRef(false);
+  const progress = useSharedValue(0);
+
+  // Read inside the reaction below via `runOnJS`, so the closure it calls
+  // always sees the CURRENT from/to/duration for whichever tween is in
+  // flight, without progress itself needing to carry anything but 0..1.
+  const tweenFrom = useRef(subtotalCents);
+  const tweenTo = useRef(subtotalCents);
+  const tweenDuration = useRef(0);
+
+  function applyProgress(k: number) {
+    setDisplayCents(countUpValue(tweenFrom.current, tweenTo.current, k * tweenDuration.current, tweenDuration.current));
+  }
+
+  // Mirrors `progress` back onto the JS thread as it advances, for a smooth
+  // read on a real device. A no-op under the shared reanimated jest mock
+  // (`useAnimatedReaction: NOOP`) -- see the `withTiming` completion
+  // callback below for how the FINAL value still lands under test, which is
+  // the only part of this tween any test asserts on.
+  useAnimatedReaction(
+    () => progress.value,
+    (current) => runOnJS(applyProgress)(current),
+  );
+
+  useEffect(() => {
+    // First render only: show the real number outright. A cart that
+    // survived from an earlier visit must not count up from zero on
+    // arrival, and there is no CHANGE yet for the slip to acknowledge.
+    if (!everMounted.current) {
+      everMounted.current = true;
+      previousSubtotal.current = subtotalCents;
+      setDisplayCents(subtotalCents);
+      return;
+    }
+    if (subtotalCents === previousSubtotal.current) return;
+    const from = previousSubtotal.current;
+    const to = subtotalCents;
+    previousSubtotal.current = to;
+
+    // Plays regardless of whether a dot ever reached the slip -- see
+    // ProductActions' own comment: a customer on a device with no
+    // registered target, or reduced motion on, is still a customer whose
+    // slip must acknowledge that the total just changed.
+    // Reanimated SharedValue `.value` assignments below -- the library's own
+    // documented mutation API, not a React-owned value the experimental
+    // react-hooks/immutability rule's model applies to.
+    /* eslint-disable react-hooks/immutability */
+    const motion = slipBumpMotion(reducedMotion);
+    if (motion.kind === 'scale') {
+      bumpScale.value = withSequence(withTiming(motion.amount, { duration: 120 }), withTiming(1, { duration: 230 }));
+    } else {
+      bumpOpacity.value = withSequence(withTiming(0.55, { duration: 90 }), withTiming(1, { duration: 180 }));
+    }
+
+    const duration = countUpDuration(reducedMotion);
+    if (duration <= 0) {
+      // Reduced motion: countUpValue would already collapse to `to`
+      // immediately (its own `durationMs <= 0` guard), but setting it here
+      // directly skips starting a Reanimated tween for it entirely.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing displayed state to the cart's own already-updated total, the same shape income-statement-view.tsx's identical suppression covers
+      setDisplayCents(to);
+      return;
+    }
+    tweenFrom.current = from;
+    tweenTo.current = to;
+    tweenDuration.current = duration;
+    progress.value = 0;
+    // `withTiming`'s own completion callback -- fired with `finished: true`
+    // on a real device once the full duration elapses, and SYNCHRONOUSLY
+    // under the shared reanimated mock (react-native-reanimated's own
+    // mock.ts calls `callback?.(true)` immediately) -- is what guarantees
+    // the slip always converges on the exact new total, whether or not
+    // `useAnimatedReaction` above ever fired a single intermediate frame.
+    progress.value = withTiming(1, { duration }, (finished) => {
+      if (finished) runOnJS(setDisplayCents)(to);
+    });
+    /* eslint-enable react-hooks/immutability */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bumpScale/bumpOpacity/progress are stable shared-value refs
+  }, [subtotalCents, reducedMotion]);
+
   if (itemCount === 0) return null;
   const line = `${itemCount} ${itemCount === 1 ? 'item' : 'items'}${fulfilment ? ` · ${fulfilment}` : ''}`;
   return (
     <View pointerEvents="box-none" style={styles.checkoutBarSlot}>
-      <Pressable
-        testID="storefront-checkout-bar"
-        accessibilityRole="button"
-        onPress={onPress}
-        style={pressable([styles.slip, { backgroundColor: colors.ground, shadowColor: '#000' }])}
-      >
-        <View style={styles.slipEvidence}>
-          <View style={styles.slipThumbs}>
-            {thumbnails.map((uri, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.slipThumb,
-                  i === 0 && styles.slipThumbFirst,
-                  { backgroundColor: colors.soft, borderColor: colors.ground },
-                ]}
-              >
-                {uri ? <Image source={{ uri }} style={styles.slipThumbImage} /> : null}
-              </View>
-            ))}
+      {/* THE BUMP lives on this OUTER wrapper, never merged into the
+          Pressable's own style array -- Task 15's collision (RN style
+          flattening replaces a whole `transform` array on key collision,
+          rather than merging it element-by-element) is exactly what would
+          happen if this scale shared the same node press-feedback's own
+          press-scale animates. Two nodes, two transforms, neither can ever
+          wipe the other out. */}
+      <Animated.View style={bumpStyle}>
+        <Pressable
+          ref={slipRef}
+          onLayout={registerSlipTarget}
+          testID="storefront-checkout-bar"
+          accessibilityRole="button"
+          onPress={onPress}
+          style={pressable([styles.slip, { backgroundColor: colors.ground, shadowColor: '#000' }])}
+        >
+          <View style={styles.slipEvidence}>
+            <View style={styles.slipThumbs}>
+              {thumbnails.map((uri, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.slipThumb,
+                    i === 0 && styles.slipThumbFirst,
+                    { backgroundColor: colors.soft, borderColor: colors.ground },
+                  ]}
+                >
+                  {uri ? <Image source={{ uri }} style={styles.slipThumbImage} /> : null}
+                </View>
+              ))}
+            </View>
+            <View>
+              {/* TABULAR (styles.slipTotal), so a figure that gains a digit
+                  mid-count-up does not shift the layout around it. */}
+              <Text style={[styles.slipTotal, { color: colors.ink }]} numberOfLines={1}>{formatCents(displayCents)}</Text>
+              <Text style={[styles.slipLine, { color: colors.muted }]} numberOfLines={1}>{line}</Text>
+            </View>
           </View>
-          <View>
-            <Text style={[styles.slipTotal, { color: colors.ink }]} numberOfLines={1}>{formatCents(subtotalCents)}</Text>
-            <Text style={[styles.slipLine, { color: colors.muted }]} numberOfLines={1}>{line}</Text>
+          {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on
+              every palette (Step 0). White type, the pair the constant is
+              contrast-tested for; colors.ground would drift per palette. */}
+          <View style={[styles.slipGo, { backgroundColor: CHECKOUT_BLUE }]}>
+            <Text style={[styles.slipGoText, { color: CHECKOUT_INK }]}>Checkout</Text>
           </View>
-        </View>
-        {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on
-            every palette (Step 0). White type, the pair the constant is
-            contrast-tested for; colors.ground would drift per palette. */}
-        <View style={[styles.slipGo, { backgroundColor: CHECKOUT_BLUE }]}>
-          <Text style={[styles.slipGoText, { color: CHECKOUT_INK }]}>Checkout</Text>
-        </View>
-      </Pressable>
+        </Pressable>
+      </Animated.View>
     </View>
   );
 }
@@ -1543,7 +1732,10 @@ const styles = StyleSheet.create({
   },
   slipThumbFirst: { marginLeft: 0 },
   slipThumbImage: { width: '100%', height: '100%' },
-  slipTotal: { fontSize: 14, fontWeight: '800' },
+  // TABULAR: the count-up (fly-to-cart.ts's countUpValue) redraws this text
+  // every animation frame, and a proportional face would shuffle digits
+  // sideways as it climbed through $9.99 -> $10.00.
+  slipTotal: { fontSize: 14, fontWeight: '800', ...TABULAR },
   slipLine: { fontSize: 11.5, fontWeight: '600', marginTop: 1 },
   slipGo: { borderRadius: 999, paddingHorizontal: 20, paddingVertical: 11 },
   slipGoText: { fontSize: 13.5, fontWeight: '800' },

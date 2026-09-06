@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { supportsHover } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { ProductActions } from '@/components/storefront/theme-shared';
 import { DISPLAY_FONT, LETTER, RADIUS, TABULAR, TYPE } from '@/components/storefront/scale';
@@ -87,6 +89,41 @@ export function isProductNew(createdAt: string | null | undefined, now: Date): b
 // board carries anyway, it differs between tiles, and it costs no new data:
 // products.category is already fetched and already what Counter groups by.
 export function ProductTile({ product, colors, shopName, whatsappE164, onAdd, onOpen, dense }: Props) {
+  // WEB HOVER-LIFT, NEVER NATIVE. `supportsHover()` (mouse-pan.ts) is the
+  // same `(hover: hover)` gate CategoryBand and FlyerCarousel already arm
+  // their own hover affordances with, checked once at mount rather than
+  // trusted to fall out of "no mouse event fired" -- `Platform.OS==='web'`
+  // alone is TRUE in a phone's browser too, and mobile WebKit/Chrome
+  // synthesise a `mouseenter` after a tap ("ghost hover") that a
+  // platform-only gate cannot tell apart from a real mouse.
+  const [hoverCapable] = useState(supportsHover);
+  const [hovered, setHovered] = useState(false);
+
+  // NO COLLISION WITH PRESS-FEEDBACK, BY CONSTRUCTION rather than by
+  // careful merging -- Task 15's own defect (RN style flattening replaces a
+  // whole `transform` array on key collision, rather than merging it
+  // element-by-element) only happens when two transforms share ONE style
+  // array on ONE node. This hover lift lives on the OUTER `styles.tile`
+  // View below; every pressable inside it (Info, Add, Ask) carries its own
+  // `pressable()` press-scale on ITS OWN node. A mouse hovering the card
+  // and a thumb (or a synthetic click) pressing Add inside it therefore
+  // animate two different views, and neither's `transform` array is ever
+  // the one RN flattens the other into.
+  //
+  // A plain boolean toggle, not a timed animation -- direct manipulation
+  // (the pointer is still there, hovering) rather than unbidden movement,
+  // the same reasoning press-feedback.ts gives for needing no
+  // reduced-motion gate on its own press-scale, and CategoryTile's
+  // identical `tileHovered` already relies on (category-band.tsx).
+  // Cast to `any` at the spread site, the same idiom category-band.tsx's own
+  // web-only pointer props use: RN's `ViewProps` has no `onMouseEnter`/
+  // `onMouseLeave` -- react-native-web forwards them straight to the DOM
+  // node regardless (its own `forwardedProps.mouseProps` list), which RN's
+  // types were never written to describe.
+  const hoverProps = hoverCapable
+    ? ({ onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false) } as any)
+    : {};
+
   const outOfStock = product.stock <= 0;
   const hasPhoto = Boolean(product.imageUrl);
   // Only on a photo, matching the mockup vocabulary this is drawn from: the
@@ -122,7 +159,15 @@ export function ProductTile({ product, colors, shopName, whatsappE164, onAdd, on
     : { style: styles.info };
 
   return (
-    <View style={[styles.tile, { backgroundColor: colors.ground, shadowColor: colors.ink }]}>
+    <View
+      testID="product-tile"
+      style={[
+        styles.tile,
+        { backgroundColor: colors.ground, shadowColor: colors.ink },
+        hovered && styles.tileHovered,
+      ]}
+      {...hoverProps}
+    >
       <Info {...infoProps}>
         <View style={[styles.box, { backgroundColor: colors.soft }]}>
           {product.imageUrl ? (
@@ -249,6 +294,12 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.card, padding: 14,
     shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
+  // Web hover only (`hoverProps` above gates `hovered` itself to
+  // `hoverCapable`) -- the mockup's own `.ktile:hover{transform:
+  // translateY(-3px)}` plus a deeper shadow, on the OUTER card rather than
+  // any pressable inside it. Transform + shadow only, no layout property,
+  // so this never displaces a neighbour in the grid it sits in.
+  tileHovered: { transform: [{ translateY: -3 }], shadowOpacity: 0.13, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
   info: {},
   // Square, not 4:5. A taller box is better for photographs and worse for the
   // plate, and the plate is the majority case -- 4:5 spends the extra height

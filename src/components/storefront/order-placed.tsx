@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { pressable } from '@/components/storefront/press-feedback';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { orderAddress } from '@/lib/storefront-host';
@@ -92,7 +93,7 @@ export function OrderPlaced({ order, shopName, collectLocation, colors, hideBran
           <Pressable
             accessibilityRole="link"
             onPress={() => openExternalUrl('https://kaiibi.com')}
-            style={[styles.acqButton, { borderColor: colors.edge }]}
+            style={pressable([styles.acqButton, { borderColor: colors.edge }])}
           >
             <Text style={[styles.acqButtonText, { color: colors.ink }]}>See how</Text>
           </Pressable>
