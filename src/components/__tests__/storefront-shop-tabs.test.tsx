@@ -3,7 +3,9 @@ import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
 import { pillMotion, ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
+import { TYPE } from '@/components/storefront/scale';
 import { VisitPanel, mapsUrlFor, shareMessage } from '@/components/storefront/visit-panel';
+import { contrastRatio } from '@/lib/contrast';
 import { storefrontAddress } from '@/lib/storefront-host';
 import { PALETTES, paletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
@@ -407,6 +409,21 @@ describe('the Visit panel', () => {
     expect(listed.indexOf('Ahmed Dhagah')).toBeLessThan(listed.indexOf('Koodbuur'));
   });
 
+  // Task 24, decision 2: the fee is the actual answer to the question this
+  // tab exists for -- so it gets set apart from the area name, not merely
+  // present beside it. Asserted on the fee's own RESOLVED style rather than
+  // its mere existence, so a future change that flattens the fee and the name
+  // back into one run of text (same size, same weight) fails here -- the
+  // defect this test exists to catch is exactly that regression, not the
+  // fee's absence.
+  it('sets the fee apart from the area name with weight and size, not just presence', () => {
+    const tree = renderVisit();
+    const fee = tree.root.find((n) => n.props?.testID === 'storefront-visit-area-fee-Jigjiga Yar');
+    const style = StyleSheet.flatten(fee.props.style);
+    expect(style.fontSize).toBe(TYPE.body);
+    expect(style.fontWeight).toBe('800');
+  });
+
   it('names the place on the decision card', () => {
     expect(textOf(renderVisit(), 'storefront-visit-decision')).toContain('Jigjiga Yar, Hargeisa');
   });
@@ -649,12 +666,15 @@ describe('the decision pill, at a fixed instant', () => {
     return render(<VisitPanel storefront={shop({ openingHours: hours })} areas={AREAS} colors={colors} />);
   }
 
-  it('reads "Open · closes <time>" while a range is open', () => {
+  // Task 24, decision 3: the pill no longer names a closing time -- that fact
+  // now lives only in HoursCard's own 24-hour row, not repeated here in a
+  // second notation.
+  it('reads "Open now" while a range is open', () => {
     // 2026-08-03 is the Monday HOURS already keys off (see MONDAY-anchored
     // fixtures elsewhere in this suite); 10:00 sits inside its 08:00-21:00
     // block.
     const tree = renderAt(HOURS, '2026-08-03T10:00:00');
-    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Open · closes 9pm');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Open now');
   });
 
   it('reads "Closed · opens <time>" on a day with nothing left, but hours later this week', () => {
@@ -676,20 +696,35 @@ describe('the decision pill, at a fixed instant', () => {
     expect(has(tree, 'storefront-visit-open-now')).toBe(false);
   });
 
-  // THE PILL MUST HAVE A PLATE, ON EVERY PALETTE, IN BOTH STATES.
+  // THE PILL MUST HAVE A PLATE, ON EVERY PALETTE, IN BOTH STATES, AND OPEN
+  // MUST BE THE LOUDER ONE.
   //
   // This is the one thing about the pill a test in this repo CAN see: not its
   // size or position -- nothing here lays out -- but the colour it resolves
   // to, against the colour of the card it sits on. It is worth pinning because
-  // the defect it catches shipped: the pill kept the `accent` fill it wore on
-  // HoursCard's light header, and on the ink palette `accent` IS `ink`, so a
-  // browser showed the OPEN pill as bare text on the ink card while the CLOSED
-  // one kept its bright `soft` plate. Green suite, inverted emphasis, on the
-  // palette every shop starts on.
+  // TWO defects have shipped here already:
+  //
+  //   1. the pill kept the `accent` fill it wore on HoursCard's light header,
+  //      and on the ink palette `accent` IS `ink`, so a browser showed the
+  //      OPEN pill as bare text on the ink card while the CLOSED one kept its
+  //      bright `soft` plate;
+  //   2. once that was fixed, OPEN wore `onDarkAccent` (walked only to WCAG
+  //      1.4.11's 3:1 non-text FLOOR against `ink`) and CLOSED wore `soft`
+  //      (16.72:1) -- a plate on both states, but the state a shop most wants
+  //      read was the FAINTER of the two by more than four times (Task 24,
+  //      decision 1).
+  //
+  // So this asserts the actual property decision 1 is about -- OPEN'S
+  // CONTRAST AGAINST THE CARD IS STRICTLY GREATER THAN CLOSED'S -- rather
+  // than pinning either fill to a literal hex. A ratio comparison is what
+  // fails if a future token swap re-inverts them; a hex-equality check would
+  // pass again the moment both sides changed to a different but still-wrong
+  // pair. `colors.ground`/`colors.onDarkAccent` are asserted directly too,
+  // since the brief also names those as the exact fills.
   //
   // Asserted across ALL seven palettes rather than the default one, because
   // this is precisely a defect that hides in a single palette: six of them
-  // looked fine.
+  // looked fine both times.
   //
   // The clock is set BEFORE `render`, and the panel is rendered ONCE PER
   // INSTANT inside the loop -- the same shape the four `renderAt` tests above
@@ -703,12 +738,6 @@ describe('the decision pill, at a fixed instant', () => {
   // asserting against the CLOSED pill on every run, where `not.toBe(ink)` is
   // satisfied by `soft` for free and proves nothing about the open state at
   // all.
-  //
-  // The assertion is `toBe` the palette's own fill now, not merely
-  // `not.toBe(ink)`: the old assertion also passes for any OTHER colour in the
-  // palette, including a future mistake that fills the open pill with
-  // something that still happens to differ from ink. Both states are pinned,
-  // not just the one this test names in its title.
   it.each(PALETTES.map((p) => p.key))('gives the open pill a plate distinct from the card on %s', (palette) => {
     const paletted = paletteColors(palette);
     const fillOf = (iso: string) => {
@@ -724,7 +753,12 @@ describe('the decision pill, at a fixed instant', () => {
     // 2026-08-03T10:00:00 is the same Monday-inside-08:00-21:00 instant
     // `renderAt`'s first test above uses -- open. 2026-08-04T10:00:00 is the
     // Tuesday `HOURS.tue: []` closes outright -- closed.
-    expect(fillOf('2026-08-03T10:00:00')).toBe(paletted.onDarkAccent);
-    expect(fillOf('2026-08-04T10:00:00')).toBe(paletted.soft);
+    const openFill = fillOf('2026-08-03T10:00:00');
+    const closedFill = fillOf('2026-08-04T10:00:00');
+    expect(openFill).toBe(paletted.ground);
+    expect(closedFill).toBe(paletted.onDarkAccent);
+    // THE ACTUAL PROPERTY DECISION 1 IS ABOUT: open reads louder than closed
+    // against the card, not merely "some colour or other".
+    expect(contrastRatio(openFill, paletted.ink)).toBeGreaterThan(contrastRatio(closedFill, paletted.ink));
   });
 });

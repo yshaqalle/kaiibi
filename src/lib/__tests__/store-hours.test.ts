@@ -1,5 +1,4 @@
 import {
-  closingLabel,
   findDayProblem,
   formatDayHours,
   gapsBetween,
@@ -295,54 +294,6 @@ describe('nextOpeningLabel', () => {
   it('ignores an invalid range while looking for the next opening', () => {
     const hours: OpeningHours = { mon: [{ open: '18:00', close: '09:00' }, { open: '15:00', close: '18:00' }] };
     expect(nextOpeningLabel(hours, at(MONDAY, '10:00'))).toBe('opens 3pm');
-  });
-});
-
-describe('closingLabel', () => {
-  it('reports the closing time from inside a range', () => {
-    expect(closingLabel(NINE_TO_SIX, at(MONDAY, '12:00'))).toBe('closes 6pm');
-  });
-
-  it('reports the closing time exactly at opening', () => {
-    expect(closingLabel(NINE_TO_SIX, at(MONDAY, '09:00'))).toBe('closes 6pm');
-  });
-
-  // isOpenAt is exclusive of `close` -- this must agree, not report a label
-  // for a shop that isOpenAt already says is shut.
-  it('is null exactly at closing time', () => {
-    expect(closingLabel(NINE_TO_SIX, at(MONDAY, '18:00'))).toBeNull();
-  });
-
-  // In the gap between two split blocks, isOpenAt is false and so must this.
-  it('is null between two split blocks', () => {
-    const split: OpeningHours = { mon: [{ open: '09:00', close: '13:00' }, { open: '15:00', close: '18:00' }] };
-    expect(closingLabel(split, at(MONDAY, '14:00'))).toBeNull();
-  });
-
-  // Inside the FIRST of two blocks, the label is that block's own close, not
-  // the day's last one.
-  it('reports the first block\'s own close when inside it, not the day\'s last one', () => {
-    const split: OpeningHours = { mon: [{ open: '09:00', close: '13:00' }, { open: '15:00', close: '18:00' }] };
-    expect(closingLabel(split, at(MONDAY, '10:00'))).toBe('closes 1pm');
-  });
-
-  // An invalid range is skipped rather than trusted, the same discipline
-  // isOpenAt applies to the identical shape of input.
-  it('ignores an invalid range rather than reporting its close', () => {
-    expect(closingLabel({ mon: [{ open: '18:00', close: '09:00' }] }, at(MONDAY, '12:00'))).toBeNull();
-  });
-
-  // `{ mon: [] }` is the shape the brief actually names -- a day explicitly
-  // configured with no ranges -- not `{}`, the unconfigured shape. Both reach
-  // `rangesFor -> []`, but this pins the case that was requested rather than
-  // its unconfigured near-neighbour.
-  it('is null on a day with no ranges', () => {
-    expect(closingLabel({ mon: [] }, at(MONDAY, '12:00'))).toBeNull();
-  });
-
-  // The classic `% 12` trap: noon must read 12pm, not 0pm.
-  it('formats a noon close as 12pm', () => {
-    expect(closingLabel({ mon: [{ open: '08:00', close: '12:00' }] }, at(MONDAY, '09:00'))).toBe('closes 12pm');
   });
 });
 

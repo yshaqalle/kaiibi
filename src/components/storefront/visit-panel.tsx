@@ -9,7 +9,7 @@ import {
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import {
-  DAY_LABELS, WEEK_ORDER, closingLabel, formatDayHours, isConfigured, isOpenAt, nextOpeningLabel, rangesFor,
+  DAY_LABELS, WEEK_ORDER, formatDayHours, isConfigured, isOpenAt, nextOpeningLabel, rangesFor,
   weekdayKeyFor, type OpeningHours,
 } from '@/lib/store-hours';
 import { collectLocation } from '@/lib/storefront-collect';
@@ -76,26 +76,33 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
           a state for a shop that never set hours would invent a claim it
           never made.
 
-          THE OPEN FILL IS `onDarkAccent`, NOT `accent`, for the same measured
-          reason "Get directions" below it is. This pill moved from HoursCard's
-          light header onto the ink card, and the raw accent it brought with it
-          collapses here: on the ink palette `accent` IS `ink`, so a browser
-          showed the OPEN pill as bare text with no plate (computed background
-          rgb(20,20,24), the card's own) while the CLOSED pill -- filled `soft`
-          -- kept a bright one. The state a shop most wants read was the one
-          that disappeared, and the emphasis was inverted on the palette every
-          shop starts on. `soft` stays right for closed: it is a light plate on
-          a dark card on every palette, which is the property this pill needs
-          and the one the accent silently did not have. */}
+          THE EMPHASIS WAS INVERTED, AND TASK 24 FIXES IT (measured, not
+          assumed). The open pill used to wear `onDarkAccent` and the closed
+          pill `soft`; against this card those measure 3.83:1 and 16.72:1 on
+          the ink palette -- the state a shop most wants read was the FAINTER
+          of the two, by more than four times. It is not only ink, either:
+          every palette's `onDarkAccent` sits between 3.01:1 and 3.85:1 against
+          its own `ink`, because that token is walked to WCAG 1.4.11's 3:1
+          non-text FLOOR (see its own comment in storefront-catalog.ts) -- the
+          minimum for a control's boundary to be perceptible, not what the
+          loudest thing on a card should measure.
+
+          So OPEN now takes `colors.ground` on `colors.ink` -- 18.37:1 on the
+          ink palette, the loudest plate this card has, and the same
+          inverted-surface convention ShopFooter already uses (type in
+          `ground` on an `ink` fill). CLOSED steps DOWN onto `onDarkAccent`
+          instead of `soft`: still legible, correctly the quieter of the two.
+          `onDarkAccent`/`onDarkAccentInk` keep their one job -- the quiet
+          plate on this card -- unchanged. */}
       {pill ? (
         <View
           testID="storefront-visit-open-now"
           style={[
             styles.statePill,
-            open ? { backgroundColor: colors.onDarkAccent } : { backgroundColor: colors.soft },
+            open ? { backgroundColor: colors.ground } : { backgroundColor: colors.onDarkAccent },
           ]}
         >
-          <Text style={[styles.stateText, { color: open ? colors.onDarkAccentInk : colors.muted }]}>{pill}</Text>
+          <Text style={[styles.stateText, { color: open ? colors.ink : colors.onDarkAccentInk }]}>{pill}</Text>
         </View>
       ) : null}
 
@@ -143,21 +150,18 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
 
       {where || storefront.whatsappE164 ? (
         <View style={styles.decisionActions}>
-          {/* THE SHOP'S OWN ACCENT, not CHECKOUT_BLUE and not KAIIBI_BLUE --
-              both of those are fixed colours reserved for a different job
-              (the commit moment; kaiibi's own directory mark), and directions
-              is neither. STEPPED rather than raw, though: this button sits
-              on the page's ONE ink-filled card, and on the ink palette
-              `accent` IS `ink`, byte for byte -- measured in a browser, the
-              raw accent rendered as bare text with no plate at all, computed
-              background rgb(20, 20, 24) identical to the card's. colors.
-              onDarkAccent/onDarkAccentInk (storefront-catalog.ts) are that
-              same accent walked away from `ink` until it clears WCAG
-              1.4.11's 3:1 non-text floor, with a label walked to 4.5:1
-              against THAT fill rather than assumed to be `ground` -- inert
-              on azure, whose accent already cleared the floor unassisted,
-              and a genuine (if smaller) correction on every other palette,
-              ink included. */}
+          {/* `colors.ground` ON `colors.ink`, NOT the shop's own accent and
+              not `onDarkAccent` -- Task 24's same fix as the pill above, for
+              the same measured reason. `onDarkAccent` is walked only to WCAG
+              1.4.11's 3:1 non-text FLOOR against `ink` (3.01:1-3.85:1 across
+              every palette, see that token's own comment in
+              storefront-catalog.ts): the minimum for a control's boundary to
+              be perceptible, not what this card's ONE primary action should
+              measure. `ground` on `ink` clears 18.37:1 -- the loudest plate
+              the card has, the same inverted-surface convention ShopFooter
+              already uses. `onDarkAccent`/`onDarkAccentInk` keep their one
+              remaining job here: the closed pill above, still a quiet plate,
+              nothing louder. */}
           {where ? (
             // NO MAP, and that is deliberate rather than missing. A rendered
             // map needs a tile provider and a key, and the shop has no
@@ -172,9 +176,9 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
               accessibilityRole="link"
               accessibilityLabel={`Open ${where} in Maps`}
               onPress={() => openExternalUrl(mapsUrlFor(where))}
-              style={pressable([styles.directionsButton, styles.decisionAction, { backgroundColor: colors.onDarkAccent }])}
+              style={pressable([styles.directionsButton, styles.decisionAction, { backgroundColor: colors.ground }])}
             >
-              <Text style={[styles.directionsText, { color: colors.onDarkAccentInk }]}>Get directions</Text>
+              <Text style={[styles.directionsText, { color: colors.ink }]}>Get directions</Text>
             </Pressable>
           ) : null}
           {/* WHATSAPP MOVES HERE from the contact card below -- the same
@@ -196,17 +200,21 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
 // is what a reader (and a future change) can reason about without a render.
 //
 // `!hoursConfigured` is the ONLY null case -- once hours exist, there is
-// always something honest to say: open with a closing time, closed with a
-// reopening time, or bare "Closed" when nothing reopens within the week
-// nextOpeningLabel already looked at.
+// always something honest to say: open, closed with a reopening time, or bare
+// "Closed" when nothing reopens within the week nextOpeningLabel already
+// looked at.
+//
+// OPEN NO LONGER NAMES A CLOSING TIME (Task 24, decision 3). It used to read
+// "Open · closes 8pm", about 70px above `HoursCard`'s own "Today: 08:00 –
+// 20:00" -- the same fact, in two notations, close enough on the page to read
+// as two answers rather than one. The hours row keeps its 24-hour form (see
+// its own comment on why a locale API is wrong there), so the fact was only
+// ever going to live in one place, and this pill is the one that gives it up:
+// "Open now" says the thing this pill actually exists for -- can I go right
+// now -- without repeating a number `HoursCard` already prints correctly.
 function decisionPillLabel(hours: OpeningHours, now: Date): string | null {
   if (!isConfigured(hours)) return null;
-  if (isOpenAt(hours, now)) {
-    // Non-null by construction: closingLabel selects its range by the
-    // identical predicate isOpenAt just satisfied (see that function's own
-    // comment), so a `true` here can never meet a `null` there.
-    return `Open · ${closingLabel(hours, now)!}`;
-  }
+  if (isOpenAt(hours, now)) return 'Open now';
   const next = nextOpeningLabel(hours, now);
   return next ? `Closed · ${next}` : 'Closed';
 }
@@ -401,12 +409,30 @@ export function VisitPanel({
                         introduced in about-panel.tsx (itself matching
                         shop-directory-card.tsx's sell tags): a card gets
                         exactly one chip vocabulary, not a second one invented
-                        per surface. */}
+                        per surface -- the CHIP shape stays. Only the fee
+                        inside it changed weight (Task 24, decision 2).
+
+                        THE FEE GETS THE WEIGHT, THE AREA NAME DOES NOT. This
+                        tab exists (its own header comment says so) because
+                        "the question a customer actually has is whether
+                        THEIR neighbourhood is on the list and what it costs
+                        them" -- and the fee, the actual answer, used to be
+                        the smallest type on the whole tab: 10.5px, the same
+                        weight and colour as the neighbourhood name beside it.
+                        The name stays at the chip's own size, in `muted`; the
+                        fee steps up to `TYPE.body` (13.5) in `colors.ink` at
+                        weight 800, so the number a customer scans for is the
+                        thing that actually stands out. Nested `Text`, not a
+                        second sibling, so the chip stays one wrapping unit
+                        -- RN reflows nested Text as one run of words. */}
                     <Text style={[styles.chipText, { color: colors.muted }]}>
-                      {/* A free area says the word rather than "$0.00" -- a
-                          price of zero is a fact about the fee, and "Free" is
-                          the fact about the offer. */}
-                      {area.name} · {area.feeCents === 0 ? 'Free' : formatCents(area.feeCents)}
+                      {area.name} ·{' '}
+                      <Text testID={`storefront-visit-area-fee-${area.name}`} style={[styles.chipFee, { color: colors.ink }]}>
+                        {/* A free area says the word rather than "$0.00" --
+                            a price of zero is a fact about the fee, and
+                            "Free" is the fact about the offer. */}
+                        {area.feeCents === 0 ? 'Free' : formatCents(area.feeCents)}
+                      </Text>
                     </Text>
                   </View>
                 ))}
@@ -570,13 +596,11 @@ const styles = StyleSheet.create({
   directionsText: { fontSize: 12.5, fontWeight: '800' },
 
   // THE OPEN PILL -- lives on the decision card now, the shape HoursCard's
-  // header used to draw. It did NOT survive the move unchanged, and the
-  // comment that used to sit here said it did: "the pill supplies its own
-  // light surface rather than relying on the card's" was true of the `soft`
-  // fill it wears when closed and false of the `accent` it wore when open,
-  // which on the ink palette is `ink` itself. A pill on a light header can
-  // borrow the palette's accent; a pill on an ink card cannot. See the fill's
-  // own comment in DecisionCard for the measurement.
+  // header used to draw. Its fill/label pair is chosen per state in
+  // DecisionCard above, not here (open takes `ground`/`ink`, closed takes
+  // `onDarkAccent`/`onDarkAccentInk` -- Task 24 inverted which state wears
+  // which, see that comment for the measurement); this style block is only
+  // the shape both states share.
   statePill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   stateText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
 
@@ -596,10 +620,17 @@ const styles = StyleSheet.create({
   // THE DELIVERY CHIPS -- the ONE chip shape on this page, matching
   // about-panel.tsx's proof chips (which themselves match
   // shop-directory-card.tsx's sell tags) byte for byte: radius 8, weight 700,
-  // size 10.5, `soft` fill, `muted` text.
+  // size 10.5, `soft` fill, `muted` text. The chip itself is unchanged (Task
+  // 24, decision 2) -- only the fee inside it (chipFee, below) steps up.
   chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 12 },
   chip: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   chipText: { fontSize: 10.5, fontWeight: '700' },
+  // THE FEE, set apart from the chip's own type (Task 24, decision 2): body
+  // size rather than the chip's 10.5, weight 800 rather than 700, and
+  // TABULAR so a column of chips lines its digits up. Colour is set at the
+  // call site (`colors.ink`), not here, matching every other token-coloured
+  // style on this page.
+  chipFee: { fontSize: TYPE.body, fontWeight: '800', ...TABULAR },
 
   // THE CONTACT ICON ROW.
   contactCard: { padding: 12 },
