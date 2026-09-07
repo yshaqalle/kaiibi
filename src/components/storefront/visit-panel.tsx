@@ -107,11 +107,20 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
       ) : null}
 
       {/* THE SUB-LINE, under the place -- what makes the screenshot legible
-          to someone who did not open the page. Only makes sense captioning a
-          place that is actually shown above it. */}
-      {where && (storefront.city || storefront.shopName) ? (
+          to someone who did not open the page. It used to print the city
+          again beside the shop name, but `where` is `collectLocation`'s own
+          output, and that helper's comment says it ALREADY ends on the city
+          -- for the very common shop with only a city set, `where` IS just
+          the city, and the old `[city, shopName]` line read "Hargeisa /
+          HARGEISA · SHOP" one line apart. The shop's name is the part that
+          actually makes a forwarded screenshot legible (the city is already
+          in the serif line above), so that is the whole sub-line now -- which
+          degrades correctly in that same city-only case: the sub-line is the
+          shop name alone, exactly what it should be. Only makes sense
+          captioning a place that is actually shown above it. */}
+      {where && storefront.shopName ? (
         <Text style={[styles.decisionSub, { color: colors.onDarkMuted }]} numberOfLines={1}>
-          {[storefront.city, storefront.shopName].filter(Boolean).join(' · ')}
+          {storefront.shopName}
         </Text>
       ) : null}
 
@@ -119,10 +128,18 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
           counter. Pay when you collect." used to print right here, on the
           old "Find us" card this one replaces. It is deliberately not
           restored: ShopFooter prints "Pay on collection · Prices set by the
-          shop" on every page of this shop already, and the About tab's
-          generated FAQ answers "How do I pay?" with the same fact in full --
-          the fact is not lost from the site, only from a decision card whose
-          entire job is answering ONE question without a paragraph under it. */}
+          shop" on every page of this shop already, which is the payment HALF
+          of the sentence. The HOW -- checkout is where you choose it, the
+          counter is where you collect it -- survives only for a shop that
+          has an About tab at all: `availableTabs` (shop-tabs.tsx) gates that
+          tab on `storefront.about` being non-null, so a shop with priced
+          delivery areas or set hours and no About paragraph gets a Visit tab
+          and no About tab, and for that shop the generated FAQ answering
+          "How do I pay?" is on no page whatsoever -- the footer's line is all
+          that remains. Not restoring the sentence is still the right call (a
+          decision card's whole job is answering ONE question without a
+          paragraph under it); this comment just stops pretending every shop
+          keeps the full fact somewhere. */}
 
       {where || storefront.whatsappE164 ? (
         <View style={styles.decisionActions}>
@@ -302,7 +319,7 @@ function ContactButton({
       style={pressable([styles.contactButton, { backgroundColor: colors.soft }])}
     >
       <Text style={styles.contactGlyph}>{glyph}</Text>
-      <Text style={[styles.contactButtonText, { color: colors.ink }]}>{label}</Text>
+      <Text style={[styles.contactButtonText, { color: colors.ink }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -435,8 +452,16 @@ export function VisitPanel({
                   colors={colors}
                   testID="storefront-visit-instagram"
                   glyph="📷"
-                  label="Instagram"
+                  // "IG", not "Instagram" -- measured at 390px inside this
+                  // card's ~95px-per-button share (see the Share button's own
+                  // comment for the arithmetic), "📷 Instagram" needed ~98px
+                  // and, once `numberOfLines={1}` stopped it wrapping onto a
+                  // second line, ellipsised to "Instag…" instead. "IG" is the
+                  // same abbreviation Instagram's own app uses for itself.
+                  label="IG"
                   // The @ is printed, never stored -- see normalizeInstagram.
+                  // Unaffected by the shorter printed label above: a screen
+                  // reader still hears the full "Instagram: @handle".
                   accessibilityLabel={`Instagram: @${storefront.instagram}`}
                   onPress={() => openExternalUrl(`https://instagram.com/${storefront.instagram}`)}
                 />
@@ -446,8 +471,24 @@ export function VisitPanel({
                 colors={colors}
                 testID="storefront-visit-share"
                 glyph="↗"
-                label="Share shop"
-                accessibilityLabel={`Share ${storefront.shopName}`}
+                // "Share" alone, not "Share shop" -- measured at 390px inside
+                // this card's 286px of usable width (326 - 24 padding - 16 for
+                // two 8px gaps, split three ways: ~95px per button), "Share
+                // shop" needed ~103px and wrapped onto a second line inside
+                // its own pill, same defect WhatsAppButton's own comment
+                // already measured for a different pair of buttons on this
+                // page. `numberOfLines={1}` on the label (below) stops a
+                // future long label from doing the same silently; a shorter
+                // WORD is what actually keeps this one on one line today.
+                label="Share"
+                // The SPOKEN label stays fully descriptive even though the
+                // printed one shrank -- the same rule WhatsAppButton's own
+                // comment sets ("'WhatsApp' alone says what the thing is and
+                // not what pressing it does"). Pressing this opens WhatsApp's
+                // own contact picker (shareOnWhatsApp), not a generic OS share
+                // sheet, so a screen reader is told that rather than left to
+                // guess it from "Share <shop name>" alone.
+                accessibilityLabel={`Share ${storefront.shopName} on WhatsApp`}
                 onPress={() => shareOnWhatsApp(shareMessage(storefront))}
               />
             </View>

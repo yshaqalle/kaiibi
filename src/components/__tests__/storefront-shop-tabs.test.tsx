@@ -411,6 +411,20 @@ describe('the Visit panel', () => {
     expect(textOf(renderVisit(), 'storefront-visit-decision')).toContain('Jigjiga Yar, Hargeisa');
   });
 
+  // Fix 1 (Task 22 whole-branch review): `where` is
+  // `collectLocation(collectAddress, collectNeighborhood, city)`, and that
+  // helper's own comment says it ALREADY ends on the city -- for the very
+  // common shop with only a city set (no address, no neighbourhood), `where`
+  // IS just the city. The sub-line underneath must not print it a second
+  // time. Compared lowercase on the raw string `textOf` returns, because the
+  // sub-line's own `textTransform: 'uppercase'` style never reaches that
+  // string -- only the rendered pixels.
+  it('never prints the city twice on the decision card', () => {
+    const tree = renderVisit({ collectAddress: null, collectNeighborhood: null, city: 'Hargeisa' });
+    const text = textOf(tree, 'storefront-visit-decision').toLowerCase();
+    expect(text.match(/hargeisa/g)?.length ?? 0).toBe(1);
+  });
+
   // Task 22: Share shop has no optional datum to gate on -- forwarding a
   // published shop's own address is always possible -- so the icon-row card
   // is never actually empty any more, even for a shop with no phone, no
@@ -676,18 +690,41 @@ describe('the decision pill, at a fixed instant', () => {
   // Asserted across ALL seven palettes rather than the default one, because
   // this is precisely a defect that hides in a single palette: six of them
   // looked fine.
+  //
+  // The clock is set BEFORE `render`, and the panel is rendered ONCE PER
+  // INSTANT inside the loop -- the same shape the four `renderAt` tests above
+  // this one already use. `jest.setSystemTime` after `create()` does not
+  // trigger a re-render, so a single render reused across both isos (the
+  // earlier shape of this test) inspected the IDENTICAL tree twice: whichever
+  // state that tree happened to be in depended on the real wall clock at the
+  // moment the suite ran, not on either `iso` this test claims to cover. Under
+  // `TZ=Pacific/Kiritimati` the real clock landed on a Tuesday with
+  // `HOURS.tue: []` -- always closed -- so all seven palettes were quietly
+  // asserting against the CLOSED pill on every run, where `not.toBe(ink)` is
+  // satisfied by `soft` for free and proves nothing about the open state at
+  // all.
+  //
+  // The assertion is `toBe` the palette's own fill now, not merely
+  // `not.toBe(ink)`: the old assertion also passes for any OTHER colour in the
+  // palette, including a future mistake that fills the open pill with
+  // something that still happens to differ from ink. Both states are pinned,
+  // not just the one this test names in its title.
   it.each(PALETTES.map((p) => p.key))('gives the open pill a plate distinct from the card on %s', (palette) => {
     const paletted = paletteColors(palette);
-    const tree = render(
-      <VisitPanel storefront={shop({ openingHours: HOURS })} areas={AREAS} colors={paletted} />,
-    );
-    for (const iso of ['2026-08-03T10:00:00', '2026-08-04T10:00:00']) {
+    const fillOf = (iso: string) => {
       jest.useFakeTimers();
       jest.setSystemTime(new Date(iso));
+      const tree = render(
+        <VisitPanel storefront={shop({ openingHours: HOURS })} areas={AREAS} colors={paletted} />,
+      );
       const pill = tree.root.findAll((n) => n.props?.testID === 'storefront-visit-open-now')[0];
-      const fill = StyleSheet.flatten(pill.props.style).backgroundColor;
-      expect(fill).toBeDefined();
-      expect(fill).not.toBe(paletted.ink);
-    }
+      return StyleSheet.flatten(pill.props.style).backgroundColor;
+    };
+
+    // 2026-08-03T10:00:00 is the same Monday-inside-08:00-21:00 instant
+    // `renderAt`'s first test above uses -- open. 2026-08-04T10:00:00 is the
+    // Tuesday `HOURS.tue: []` closes outright -- closed.
+    expect(fillOf('2026-08-03T10:00:00')).toBe(paletted.onDarkAccent);
+    expect(fillOf('2026-08-04T10:00:00')).toBe(paletted.soft);
   });
 });

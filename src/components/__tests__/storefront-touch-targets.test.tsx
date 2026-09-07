@@ -754,10 +754,19 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     // a count nobody was comparing against anything.
     for (const requiredId of [
       'storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram',
-      'storefront-whatsapp-button', 'storefront-visit-share', 'storefront-visit-hours-toggle',
+      'storefront-visit-share', 'storefront-visit-hours-toggle',
     ]) {
       expect(controlIds).toContain(requiredId);
     }
+    // `storefront-whatsapp-button` is on the shared `WhatsAppButton`
+    // (theme-shared.tsx), and a full theme tree carries TWO of them -- the
+    // decision card's and `ShopFooter`'s (theme-market.tsx). A plain
+    // `toContain` above would stay green on the footer's copy alone, so it
+    // would NOT fail by name if the decision card's own button silently
+    // stopped rendering -- exactly the guarantee this loop's comment claims
+    // for every other id in it. Asserting the count is what actually proves
+    // both are present.
+    expect(controlIds.filter((id) => id === 'storefront-whatsapp-button')).toHaveLength(2);
 
     const failing = controls.filter((c) => !meetsTouchTargetRule(c));
     expect(failing.map((c) => c.props?.testID)).toEqual([]);
