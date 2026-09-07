@@ -297,15 +297,29 @@ function HoursCard({ storefront, colors }: { storefront: PublicStorefront; color
   );
 }
 
-// A compact icon-row button -- Call, Instagram or Share shop. Pressable in
+// One button in the contact row -- Call, Instagram or Share shop. Pressable in
 // full rather than the value alone: TOUCH_TARGET is a floor on the control
-// itself, not on the glyph inside it.
+// itself, not on the word inside it.
+//
+// NO GLYPH, AND THAT IS WHAT LETS THE WORDS BE WORDS. Both mockups draw this
+// row as three plain text pills; the emoji were added here and they cost about
+// 21px each (the glyph plus its gap) out of a share that measures ~95px at
+// 390px. That deficit is what forced "Instagram" to "IG" and "Share shop" to
+// "Share" -- two abbreviations bought to pay for two decorations. Dropping the
+// glyphs pays for both words outright, and it also ends a split register the
+// row could not resolve: `phone` and `camera` are colour emoji on every
+// platform while `arrow` is monochrome text on iOS and web and an emoji arrow
+// on some Android font stacks, so one of the three never matched the others.
+//
+// `numberOfLines={1}` stays. It is not what makes today's labels fit -- they
+// fit because they are short enough -- it is what makes a future long one
+// ellipsise visibly instead of silently wrapping to a second line and growing
+// the pill, which is the defect that was actually measured here.
 function ContactButton({
-  colors, testID, glyph, label, accessibilityLabel, onPress,
+  colors, testID, label, accessibilityLabel, onPress,
 }: {
   colors: PaletteColors;
   testID: string;
-  glyph: string;
   label: string;
   accessibilityLabel: string;
   onPress: () => void;
@@ -318,7 +332,6 @@ function ContactButton({
       onPress={onPress}
       style={pressable([styles.contactButton, { backgroundColor: colors.soft }])}
     >
-      <Text style={styles.contactGlyph}>{glyph}</Text>
       <Text style={[styles.contactButtonText, { color: colors.ink }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
@@ -435,7 +448,6 @@ export function VisitPanel({
                 <ContactButton
                   colors={colors}
                   testID="storefront-visit-call"
-                  glyph="📞"
                   label="Call"
                   accessibilityLabel={`Call the shop: ${storefront.contactPhone}`}
                   // `tel:` is the one scheme every platform agrees on, and
@@ -451,17 +463,10 @@ export function VisitPanel({
                 <ContactButton
                   colors={colors}
                   testID="storefront-visit-instagram"
-                  glyph="📷"
-                  // "IG", not "Instagram" -- measured at 390px inside this
-                  // card's ~95px-per-button share (see the Share button's own
-                  // comment for the arithmetic), "📷 Instagram" needed ~98px
-                  // and, once `numberOfLines={1}` stopped it wrapping onto a
-                  // second line, ellipsised to "Instag…" instead. "IG" is the
-                  // same abbreviation Instagram's own app uses for itself.
-                  label="IG"
-                  // The @ is printed, never stored -- see normalizeInstagram.
-                  // Unaffected by the shorter printed label above: a screen
-                  // reader still hears the full "Instagram: @handle".
+                  label="Instagram"
+                  // The @ is printed here, never stored -- see
+                  // normalizeInstagram. The spoken label carries the handle
+                  // itself, which the button has no room to print.
                   accessibilityLabel={`Instagram: @${storefront.instagram}`}
                   onPress={() => openExternalUrl(`https://instagram.com/${storefront.instagram}`)}
                 />
@@ -470,17 +475,7 @@ export function VisitPanel({
               <ContactButton
                 colors={colors}
                 testID="storefront-visit-share"
-                glyph="↗"
-                // "Share" alone, not "Share shop" -- measured at 390px inside
-                // this card's 286px of usable width (326 - 24 padding - 16 for
-                // two 8px gaps, split three ways: ~95px per button), "Share
-                // shop" needed ~103px and wrapped onto a second line inside
-                // its own pill, same defect WhatsAppButton's own comment
-                // already measured for a different pair of buttons on this
-                // page. `numberOfLines={1}` on the label (below) stops a
-                // future long label from doing the same silently; a shorter
-                // WORD is what actually keeps this one on one line today.
-                label="Share"
+                label="Share shop"
                 // The SPOKEN label stays fully descriptive even though the
                 // printed one shrank -- the same rule WhatsAppButton's own
                 // comment sets ("'WhatsApp' alone says what the thing is and
@@ -619,6 +614,5 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     borderRadius: RADIUS.pill, paddingHorizontal: 10, minHeight: TOUCH_TARGET,
   },
-  contactGlyph: { fontSize: 15 },
   contactButtonText: { fontSize: TYPE.metaSmall + 1, fontWeight: '800' },
 });
