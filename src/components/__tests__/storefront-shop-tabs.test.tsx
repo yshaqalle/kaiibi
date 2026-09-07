@@ -406,8 +406,8 @@ describe('the Visit panel', () => {
     expect(listed.indexOf('Ahmed Dhagah')).toBeLessThan(listed.indexOf('Koodbuur'));
   });
 
-  it('names the counter to collect from', () => {
-    expect(textOf(renderVisit(), 'storefront-visit-collect')).toContain('Jigjiga Yar, Hargeisa');
+  it('names the place on the decision card', () => {
+    expect(textOf(renderVisit(), 'storefront-visit-decision')).toContain('Jigjiga Yar, Hargeisa');
   });
 
   // Task 22: Share shop has no optional datum to gate on -- forwarding a
@@ -481,12 +481,22 @@ describe('the Visit panel', () => {
     expect(url).toContain(encodeURIComponent('Jigjiga Yar, Hargeisa'));
   });
 
-  // A collection-only shop reaching this tab through its hours must not be
-  // told what delivery costs.
-  it('does not promise delivery in its heading when there is none', () => {
-    const text = textOf(renderVisit({ openingHours: HOURS }, []), 'storefront-visit-panel');
-    expect(text).toContain('when we are open');
-    expect(text).not.toContain('what it costs to come to you');
+  // Task 22, Fix 6: WhatsApp moved from the contact icon row onto the
+  // decision card (brief item 1d). An ancestor walk from the button up to
+  // the decision card is what actually proves "it is ON this card" -- mere
+  // presence anywhere in the tree would have passed before this task moved
+  // it, and would prove nothing about the move itself.
+  it('places WhatsApp on the decision card, not in the contact icon row', () => {
+    const tree = renderVisit();
+    const button = tree.root.find((n) => n.props?.testID === 'storefront-whatsapp-button');
+    let ancestor = button.parent;
+    let sawDecisionCard = false;
+    while (ancestor) {
+      if (ancestor.props?.testID === 'storefront-visit-decision') sawDecisionCard = true;
+      expect(ancestor.props?.testID).not.toBe('storefront-visit-contact');
+      ancestor = ancestor.parent;
+    }
+    expect(sawDecisionCard).toBe(true);
   });
 
   it('drops the delivery card entirely for a collection-only shop', () => {

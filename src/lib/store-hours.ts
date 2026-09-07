@@ -118,9 +118,9 @@ export function formatDayHours(ranges: TimeRange[]): string {
 
 // 24-hour minutes-of-day -> a compact 12-hour clock label: minutes only when
 // they are not zero (`8am`, not `8:00am`), and noon/midnight fold to 12 the
-// way a clock face does rather than to 0. Not exported -- nextOpeningLabel
-// below is the only thing that needs it, the same reason minutesOf above has
-// stayed private for the whole life of this file.
+// way a clock face does rather than to 0. Not exported -- nextOpeningLabel and
+// closingLabel below are the only things that need it, the same reason
+// minutesOf above has stayed private for the whole life of this file.
 function formatClockTime(minutes: number): string {
   const hour24 = Math.floor(minutes / 60);
   const minute = minutes % 60;

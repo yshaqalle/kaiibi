@@ -754,7 +754,7 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     // a count nobody was comparing against anything.
     for (const requiredId of [
       'storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram',
-      'storefront-visit-share', 'storefront-visit-hours-toggle',
+      'storefront-whatsapp-button', 'storefront-visit-share', 'storefront-visit-hours-toggle',
     ]) {
       expect(controlIds).toContain(requiredId);
     }

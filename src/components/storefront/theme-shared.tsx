@@ -71,7 +71,12 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
   if (!storefront.whatsappE164) return null;
   const href = waLink(storefront.whatsappE164, `Hello ${storefront.shopName}, I have a question.`);
   return (
-    <Pressable style={pressable(styles.wa)} onPress={() => openExternalUrl(href)} accessibilityRole="link">
+    <Pressable
+      testID="storefront-whatsapp-button"
+      style={pressable(styles.wa)}
+      onPress={() => openExternalUrl(href)}
+      accessibilityRole="link"
+    >
       <Text style={styles.waText}>Message on WhatsApp</Text>
     </Pressable>
   );

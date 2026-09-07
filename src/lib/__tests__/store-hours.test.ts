@@ -332,8 +332,12 @@ describe('closingLabel', () => {
     expect(closingLabel({ mon: [{ open: '18:00', close: '09:00' }] }, at(MONDAY, '12:00'))).toBeNull();
   });
 
+  // `{ mon: [] }` is the shape the brief actually names -- a day explicitly
+  // configured with no ranges -- not `{}`, the unconfigured shape. Both reach
+  // `rangesFor -> []`, but this pins the case that was requested rather than
+  // its unconfigured near-neighbour.
   it('is null on a day with no ranges', () => {
-    expect(closingLabel({}, at(MONDAY, '12:00'))).toBeNull();
+    expect(closingLabel({ mon: [] }, at(MONDAY, '12:00'))).toBeNull();
   });
 
   // The classic `% 12` trap: noon must read 12pm, not 0pm.

@@ -69,7 +69,7 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
   const open = hoursConfigured && isOpenAt(hours, now);
 
   return (
-    <View testID="storefront-visit-collect" style={[styles.decisionCard, { backgroundColor: colors.ink }]}>
+    <View testID="storefront-visit-decision" style={[styles.decisionCard, { backgroundColor: colors.ink }]}>
       {/* SHAPE AND WORD CARRY THE STATE, not colour alone -- the rule
           storefront-catalog.ts sets for the stock dots and HoursCard already
           followed. NO PILL AT ALL when hours were never configured: printing
@@ -100,6 +100,15 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
         </Text>
       ) : null}
 
+      {/* "Choose collection at checkout and pick your order up from the
+          counter. Pay when you collect." used to print right here, on the
+          old "Find us" card this one replaces. It is deliberately not
+          restored: ShopFooter prints "Pay on collection · Prices set by the
+          shop" on every page of this shop already, and the About tab's
+          generated FAQ answers "How do I pay?" with the same fact in full --
+          the fact is not lost from the site, only from a decision card whose
+          entire job is answering ONE question without a paragraph under it. */}
+
       {where || storefront.whatsappE164 ? (
         <View style={styles.decisionActions}>
           {/* THE SHOP'S OWN ACCENT, not CHECKOUT_BLUE and not KAIIBI_BLUE --
@@ -107,6 +116,14 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
               (the commit moment; kaiibi's own directory mark), and directions
               is neither. */}
           {where ? (
+            // NO MAP, and that is deliberate rather than missing. A rendered
+            // map needs a tile provider and a key, and the shop has no
+            // coordinates on file -- only a neighbourhood string. Drawing a
+            // decorative grid with a pin on it, as the mockup does on this
+            // very card, would be a picture of a map rather than a map, and a
+            // customer would try to pinch it. This button does the thing the
+            // map was there for: hands the place to whatever maps app they
+            // already use.
             <Pressable
               testID="storefront-visit-directions"
               accessibilityRole="link"
@@ -167,7 +184,8 @@ function HoursCard({ storefront, colors }: { storefront: PublicStorefront; color
   // `new Date()` at render, deliberately not memoised or frozen -- the DEVICE's
   // clock and weekday are used because the times are local wall-clock strings
   // with no timezone (see the column comment), which is right for a customer
-  // standing in the same city as the shop.
+  // standing in the same city as the shop, and wrong for one abroad. That is
+  // the trade the column's own design already made.
   const now = new Date();
   const today = weekdayKeyFor(now);
   const todayRanges = rangesFor(hours, today);
@@ -288,18 +306,6 @@ export function VisitPanel({
 
   return (
     <View style={styles.panel} testID="storefront-visit-panel">
-      <View style={styles.head}>
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Visit &amp; deliver</Text>
-        <Text style={[styles.title, wide && styles.titleWide, { color: colors.ink }]}>
-          {/* Two sentences' worth of promise in one line, and it changes with
-              what the shop actually offers -- a collection-only shop reaching
-              this tab through its hours must not be told what delivery costs. */}
-          {areas.length > 0
-            ? 'Where to find us, and what it costs to come to you'
-            : 'Where to find us, and when we are open'}
-        </Text>
-      </View>
-
       {/* THE DECISION CARD LEADS AT BOTH WIDTHS -- outside the two-column
           split below, so it can never be squeezed into the narrow side
           column the way a card sitting inside `columnSide` would be. */}
@@ -346,6 +352,14 @@ export function VisitPanel({
               </View>
               <Text style={[styles.note, { color: colors.muted }]}>
                 Pay the shop when your order arrives.
+              </Text>
+              {/* Moved here from the old contact card, which is where it sat
+                  above the WhatsApp button before WhatsApp moved to the
+                  decision card (1d in the brief). The nudge is about DELIVERY
+                  AREAS, so its home is this card now, not wherever WhatsApp
+                  itself ended up. */}
+              <Text style={[styles.note, { color: colors.muted }]}>
+                Not sure your area is covered? Ask before you order.
               </Text>
             </ShopCard>
           ) : null}
@@ -419,9 +433,6 @@ export function mapsUrlFor(place: string): string {
 
 const styles = StyleSheet.create({
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
-  head: { gap: 10, marginBottom: 4 },
-  title: { fontSize: 21, lineHeight: 26, fontWeight: '800', letterSpacing: LETTER.displayLoud },
-  titleWide: { fontSize: 27, lineHeight: 32 },
   // One column on a phone; an even two on a laptop (see columnMain/columnSide
   // below for why 1:1 replaced the old 1.15/1 split).
   columns: { gap: SPACE.cardGap },
