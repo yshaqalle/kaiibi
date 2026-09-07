@@ -3,7 +3,7 @@ import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
 import { pillMotion, ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
-import { TYPE } from '@/components/storefront/scale';
+import { PROSE_MAX_WIDTH, TYPE } from '@/components/storefront/scale';
 import { VisitPanel, mapsUrlFor, shareMessage } from '@/components/storefront/visit-panel';
 import { contrastRatio } from '@/lib/contrast';
 import { storefrontAddress } from '@/lib/storefront-host';
@@ -75,6 +75,19 @@ function textOf(tree: ReturnType<typeof create>, testID: string): string {
 
 function has(tree: ReturnType<typeof create>, testID: string): boolean {
   return tree.root.findAll((n) => n.props?.testID === testID).length > 0;
+}
+
+// The HOST node for a given testID -- the same host-vs-composite distinction
+// `textOf` above makes and explains: a `ShopCard`-wrapped testID (the story
+// card below) shows up TWICE under a bare `find`/`findAll`, once on the
+// composite `ShopCard` instance (the JSX call site's own `testID` prop) and
+// once on the host `View` it renders to, and only the host actually carries
+// a resolvable `style`. Used wherever a test needs the RESOLVED style of a
+// testID that might be either shape, rather than merely its presence.
+function hostNode(tree: ReturnType<typeof create>, testID: string) {
+  return tree.root.findAll(
+    (n) => n.props?.testID === testID && typeof n.type === 'string',
+  )[0];
 }
 
 // A TAB HAS TO EARN ITS PLACE by saying something the Shop tab does not. These
@@ -329,6 +342,45 @@ describe('the About panel', () => {
     const tree = renderAbout({ images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }] });
     expect(has(tree, 'storefront-about-gallery')).toBe(true);
     expect(has(tree, 'storefront-about-photo-i1')).toBe(false);
+  });
+
+  // TASK 25: THE PHOTOGRAPHS GET THE PAGE, THE PROSE KEEPS ITS MEASURE.
+  //
+  // Nothing in this repo lays out, so a rendered WIDTH cannot be asserted --
+  // this is the style the components resolve to instead, and it is exactly
+  // what pins the decision: the gallery carries no bound of its own (so it
+  // fills whatever width `body`/`SHOP_MAX_WIDTH` give it in shop-chrome.tsx,
+  // the same width `ShopFooter` renders at), while everything actually READ
+  // -- the proof chips, the merged story card, the FAQ band -- keeps
+  // PROSE_MAX_WIDTH. `PROSE_MAX_WIDTH` is imported rather than hard-coded as
+  // 820, so this test moves with that constant instead of pinning a literal
+  // against itself.
+  //
+  // NOT VACUOUS: confirmed by temporarily giving `styles.gallery` in
+  // about-panel.tsx a `maxWidth: PROSE_MAX_WIDTH` of its own and re-running
+  // this file -- the gallery assertion below failed (`toBeUndefined()` saw
+  // 820), then passed again once the line was reverted. See task-25-report.md
+  // for the exact output.
+  it('gives the gallery the full page width but keeps every read block at PROSE_MAX_WIDTH', () => {
+    const tree = renderAbout({
+      images: [
+        { id: 'i1', url: 'https://cdn.test/a.jpg' },
+        { id: 'i2', url: 'https://cdn.test/b.jpg' },
+      ],
+    });
+
+    const gallery = hostNode(tree, 'storefront-about-gallery');
+    expect(gallery).toBeDefined();
+    expect(StyleSheet.flatten(gallery.props.style).maxWidth).toBeUndefined();
+
+    const storyCard = hostNode(tree, 'storefront-about-story-card');
+    expect(StyleSheet.flatten(storyCard.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
+
+    const proof = hostNode(tree, 'storefront-about-proof');
+    expect(StyleSheet.flatten(proof.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
+
+    const faq = hostNode(tree, 'storefront-about-faq');
+    expect(StyleSheet.flatten(faq.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
   });
 
   // The caption strip is the shop's PLACE, composed with collectLocation --

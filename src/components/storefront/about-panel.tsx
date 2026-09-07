@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  DISPLAY_FONT, LETTER, RADIUS, SPACE, TOUCH_TARGET, TYPE,
+  DISPLAY_FONT, LETTER, PROSE_MAX_WIDTH, RADIUS, SPACE, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import { ShopCard } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
@@ -232,7 +232,16 @@ export function AboutPanel({
             under it, which is what the design draws. A shop with one photo
             gets the cover and no strip; a shop with none renders no cover, no
             caption and no strip at all -- the tab simply starts at the proof
-            chips below. */}
+            chips below.
+
+            NO PROSE BOUND HERE, DELIBERATELY (Task 25). PROSE_MAX_WIDTH exists
+            for a paragraph's line length, and a photograph has no line to keep
+            short -- so, unlike every block below it, this one carries no
+            `maxWidth` at all and simply fills `body` (shop-chrome.tsx), which
+            is the same width `ShopFooter` already renders at. That is also
+            why `SHOP_MAX_WIDTH` is never imported here: a gallery with no
+            bound of its own lands at the footer's width by construction, the
+            two agreeing without a second constant to keep in step. */}
         {shownImages.length > 0 ? (
           <View style={styles.gallery} testID="storefront-about-gallery">
             <View>
@@ -273,9 +282,14 @@ export function AboutPanel({
         {/* THE PROOF CHIPS. Plain View/Text, like the delivery-area rows in
             visit-panel.tsx -- a chip that looks tappable and is not is worse
             than a chip that does not, so none of these carry onPress or a
-            role. Absent entirely when nothing qualifies. */}
+            role. Absent entirely when nothing qualifies.
+
+            `styles.prose` (Task 25): this is READ, not looked at, so it keeps
+            the same PROSE_MAX_WIDTH measure the story card and FAQ below it
+            do -- see this file's own `prose` style and the gallery's comment
+            above it for the block that does NOT carry this. */}
         {proofChips.length > 0 ? (
-          <View style={styles.proof} testID="storefront-about-proof">
+          <View style={[styles.proof, styles.prose]} testID="storefront-about-proof">
             {proofChips.map((chip) => (
               <View
                 key={chip.id}
@@ -294,8 +308,14 @@ export function AboutPanel({
             no second eyebrow: the highlights are the shop's own writing,
             rendered as compact `soft`-filled tiles INSIDE the `ground` card
             rather than cards of their own, absent entirely when the shop has
-            written none. */}
-        <ShopCard colors={colors} style={styles.storyCard} testID="storefront-about-story-card">
+            written none.
+
+            `styles.prose` added last (Task 25) so it wins over `storyCard`'s
+            own `gap` without dropping it -- this card IS the paragraph the
+            whole PROSE_MAX_WIDTH argument was made for (scale.ts), so it
+            keeps that measure now that the gallery above it no longer forces
+            the same bound on every block in this tab. */}
+        <ShopCard colors={colors} style={[styles.storyCard, styles.prose]} testID="storefront-about-story-card">
           <Text style={[styles.eyebrow, { color: colors.muted }]}>About the shop</Text>
           {/* The headline leads here, where it is the subject of the tab,
               rather than competing with the wordmark as it does on the anchor
@@ -335,8 +355,13 @@ export function AboutPanel({
       </View>
 
       {/* THE FAQ, LAST -- unchanged by Task 21. It is the "before you order"
-          checkpoint, and it already worked. */}
-      <View style={[styles.band, styles.gutter, styles.lastBand]}>
+          checkpoint, and it already worked.
+
+          `styles.prose` (Task 25): the FAQ is read, questions and answers,
+          the same as the story card above -- it keeps PROSE_MAX_WIDTH too,
+          `gutter`'s own `paddingHorizontal: SPACE.page` staying underneath it
+          the same way `body` stays underneath the story card's own bound. */}
+      <View style={[styles.band, styles.gutter, styles.lastBand, styles.prose]} testID="storefront-about-faq">
         <Text style={[styles.eyebrow, { color: colors.muted }]}>Before you order</Text>
         <Accordion colors={colors} questions={questions} />
       </View>
@@ -353,6 +378,17 @@ const styles = StyleSheet.create({
   gutter: { paddingHorizontal: SPACE.page },
   band: { gap: 12, paddingTop: SPACE.page, paddingBottom: 4 },
   lastBand: { paddingBottom: SPACE.page },
+  // THE BOUND MOVED HERE FROM shop-chrome.tsx (Task 25). Phase 4 put a
+  // gallery at the top of this tab, and a photograph has no reading measure
+  // to keep -- so the chrome no longer wraps this whole panel in one
+  // PROSE_MAX_WIDTH column (see that file's own comment on why). Every block
+  // that IS read -- the proof chips, the merged story card, the FAQ band --
+  // takes this style directly instead, so each narrows to the same measure
+  // the chrome used to give the panel as a whole. The gallery is the one
+  // block in this file that never takes it (see its own comment above), and
+  // `panel` above stays unbounded so the gallery can fill `body`
+  // (shop-chrome.tsx) right up to the width `ShopFooter` already renders at.
+  prose: { width: '100%', maxWidth: PROSE_MAX_WIDTH, alignSelf: 'center' },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
