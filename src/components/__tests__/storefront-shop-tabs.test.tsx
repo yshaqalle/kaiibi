@@ -209,11 +209,13 @@ describe('the generated FAQ', () => {
 });
 
 describe('the About panel', () => {
-  function renderAbout(overrides: Partial<PublicStorefront> = {}, cats = categories, areas = AREAS) {
+  function renderAbout(
+    overrides: Partial<PublicStorefront> = {}, cats = categories, areas = AREAS, prods = products,
+  ) {
     return render(
       <AboutPanel
         storefront={shop({ about: 'Ten years on the same corner.', ...overrides })}
-        products={products}
+        products={prods}
         categories={cats}
         areas={areas}
         colors={colors}
@@ -230,20 +232,46 @@ describe('the About panel', () => {
     expect(has(renderAbout({ headline: null }), 'storefront-about-headline')).toBe(false);
   });
 
-  it('counts what it shows rather than storing it', () => {
-    const stats = textOf(renderAbout(), 'storefront-about-stats');
-    expect(stats).toContain('items listed');
-    expect(stats).toContain('3');
-    expect(stats).toContain('category');
-    expect(stats).toContain('delivery areas');
+  // Task 21: the stats strip (categories, delivery areas, items listed) is
+  // gone, replaced by proof chips -- three reasons to trust the shop rather
+  // than a dashboard row. `products` (module-level, 3 items, all in stock)
+  // and `shop()`'s own default `whatsappE164` together produce the stock and
+  // WhatsApp chips; `tradingSince` stays unset by default (see `shop()`
+  // above), so that chip is absent here on purpose.
+  it('shows what a customer can verify right now, as proof chips', () => {
+    const proof = textOf(renderAbout(), 'storefront-about-proof');
+    expect(proof).toContain('3 items in today');
+    expect(proof).toContain('Answers on WhatsApp');
   });
 
-  // A shop with no categories should not be told it has zero of them.
-  it('leaves out a figure it would have to report as zero', () => {
-    const stats = textOf(renderAbout({}, [], []), 'storefront-about-stats');
-    expect(stats).not.toContain('categor');
-    expect(stats).not.toContain('delivery area');
-    expect(stats).toContain('items listed');
+  // Counting ALL listed products would claim stock a shop with an empty
+  // shelf does not have -- `stock > 0` is what "in today" actually asks, and
+  // the chip must never print "0 items in today".
+  it('never reads "0 items in today" for a shop with nothing in stock', () => {
+    const emptyStock = products.map((product) => ({ ...product, stock: 0 }));
+    const tree = renderAbout({}, categories, AREAS, emptyStock);
+    expect(has(tree, 'storefront-about-proof-stock')).toBe(false);
+    // The row itself survives on the WhatsApp chip alone -- this fixture's
+    // `whatsappE164` is still set, so "no stock" must not read as "no proof
+    // row at all".
+    expect(has(tree, 'storefront-about-proof')).toBe(true);
+  });
+
+  it('says "1 item in today", not "1 items", for a single item still in stock', () => {
+    const oneInStock = products.map((product, i) => ({ ...product, stock: i === 0 ? 1 : 0 }));
+    const tree = renderAbout({}, categories, AREAS, oneInStock);
+    expect(textOf(tree, 'storefront-about-proof-stock')).toContain('1 item in today');
+  });
+
+  it('offers no WhatsApp proof chip to a shop with no number to message', () => {
+    expect(has(renderAbout({ whatsappE164: null }), 'storefront-about-proof-whatsapp')).toBe(false);
+  });
+
+  // The whole row is absent, not a row of nothing, once every chip drops out.
+  it('renders no proof row at all for a shop with nothing to claim', () => {
+    const emptyStock = products.map((product) => ({ ...product, stock: 0 }));
+    const tree = renderAbout({ whatsappE164: null, tradingSince: null }, categories, AREAS, emptyStock);
+    expect(has(tree, 'storefront-about-proof')).toBe(false);
   });
 
   // Added by 20261021000000. Both are the shop's own writing, both optional,
@@ -299,14 +327,14 @@ describe('the About panel', () => {
     expect(has(tree, 'storefront-about-photo-i1')).toBe(false);
   });
 
-  it('leads the strip with the year the shop opened, when it has one', () => {
-    expect(textOf(renderAbout({ tradingSince: 2014 }), 'storefront-about-stats'))
-      .toContain('trading since');
+  it('leads with a trading-since chip naming the year the shop opened, when it has one', () => {
+    const tree = renderAbout({ tradingSince: 2014 });
+    expect(has(tree, 'storefront-about-proof-trading')).toBe(true);
+    expect(textOf(tree, 'storefront-about-proof-trading')).toContain('Trading since 2014');
   });
 
-  it('says nothing about a year the shop never set', () => {
-    expect(textOf(renderAbout({ tradingSince: null }), 'storefront-about-stats'))
-      .not.toContain('trading since');
+  it('shows no trading-since chip for a shop that never set one', () => {
+    expect(has(renderAbout({ tradingSince: null }), 'storefront-about-proof-trading')).toBe(false);
   });
 
   it('opens the first question and closes it again when pressed', () => {

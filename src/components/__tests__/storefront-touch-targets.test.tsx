@@ -255,7 +255,11 @@ const shop: PublicStorefront = {
   collectNeighborhood: null,
   paymentMode: 'on_collection',
   openingHours: {},
-  tradingSince: null,
+  // Set (Task 21), not null: `null` here kept the trading-since proof chip
+  // (`storefront-about-proof-trading`, about-panel.tsx) out of every tree this
+  // file walks, exactly the way `about: null`/`images: []` kept the tab and
+  // the gallery out before the two fixture fixes above this one.
+  tradingSince: 2016,
   highlights: [
     { id: 'h1', title: 'Same-day delivery', body: 'Ordered before 4pm, on your step by evening.' },
     { id: 'h2', title: 'Genuine parts only', body: 'Every phone accessory here is the real thing.' },
@@ -632,6 +636,43 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-panel').length).toBeGreaterThan(0);
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-gallery').length).toBeGreaterThan(0);
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-highlights').length).toBeGreaterThan(0);
+
+    // THE BLOCKS TASK 21 MOVED TO THE TOP -- the cover, the thumbnail row, the
+    // proof-chip row and the merged story card. Named individually rather than
+    // folded into the assertions above: `tradingSince: 2016` (this fixture's
+    // own comment above) is what makes the trading chip exist in this tree at
+    // all, and a regression back to `null` would otherwise only shrink a
+    // control count nobody was comparing against a specific testID.
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-cover').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-photo-im2').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-proof').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-story-card').length).toBeGreaterThan(0);
+    for (const chipId of [
+      'storefront-about-proof-trading', 'storefront-about-proof-stock', 'storefront-about-proof-whatsapp',
+    ]) {
+      expect(tree.root.findAll((n) => n.props?.testID === chipId).length).toBeGreaterThan(0);
+    }
+
+    // NOT CONTROLS -- the same fact the Visit test below pins for the
+    // delivery-area rows (`expect(typeof rows[0].props?.onPress).not.toBe
+    // ('function')`). A chip or a photograph that merely LOOKS like a
+    // Pressable-shaped box is not one, and this is what would fail the day
+    // someone made one tappable without flooring it.
+    const galleryPhotos = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-about-cover'
+        || (typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-photo-')),
+    );
+    expect(galleryPhotos.length).toBeGreaterThan(0);
+    for (const photo of galleryPhotos) {
+      expect(typeof photo.props?.onPress).not.toBe('function');
+    }
+    const proofChips = tree.root.findAll(
+      (n) => typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-proof-'),
+    );
+    expect(proofChips.length).toBeGreaterThan(0);
+    for (const chip of proofChips) {
+      expect(typeof chip.props?.onPress).not.toBe('function');
+    }
 
     const controls = touchControlsIn(tree);
     const controlIds = controls.map((c) => c.props?.testID);
