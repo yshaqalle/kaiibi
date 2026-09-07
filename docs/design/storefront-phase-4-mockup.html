@@ -239,6 +239,50 @@
     </div>
   </div>
 
+  <div class="eyebrow">Task 23 — added 7 Sep: the mark is the wrong artwork</div>
+  <h2>Keep the blue. Change the logo.</h2>
+  <p class="lede">An artwork swap, not a colour or layout change. The blue plate, the
+  placement and the sizes are settled; the image inside them is not.</p>
+
+  <div class="pair" style="margin-top:16px">
+    <div class="card">
+      <span class="tag left"><i class="dot"></i>Two places draw it</span>
+      <h3 style="margin-top:6px">The directory masthead</h3>
+      <p><code>src/app/store/index.tsx</code> — <code>markImage</code>, 26px tall on a 44px
+      <code>KAIIBI_BLUE</code> plate.</p>
+      <h3 style="margin-top:12px">The colophon</h3>
+      <p><code>shop-footer.tsx</code> — <code>brandMark</code>, 24px tall on <code>ink</code>,
+      on every shop's page that has not bought the mark off.</p>
+    </div>
+    <div class="card">
+      <span class="tag left"><i class="dot"></i>Blocked on one answer</span>
+      <h3 style="margin-top:6px">Which asset is correct?</h3>
+      <p>I already guessed once — <code>kaiibi-mark-white.png</code> on a blue plate,
+      reasoning it matched the app icon — and it is still wrong. Candidates:
+      <code>kaiibi-mark-white/black.png</code> (200×212, the bare bag),
+      <code>kaiibi-logo-transparent.png</code> and <code>kaiibi_log.png</code> (200×298, the
+      bag <em>plus</em> the "ka iibi" wordmark), <code>icon.png</code>,
+      <code>splash-icon.png</code>.</p>
+      <p style="margin-top:8px">If the answer is the full lockup, it already contains the
+      wordmark — so the masthead drops its own <code>Kaiibi</code> text, or the page says the
+      name twice, which is the repetition the masthead was built to remove.</p>
+    </div>
+    <div>
+      <ul class="moves">
+        <li><span class="n">!</span><span><b>Set both width and height</b> from
+          <code>KAIIBI_MARK_ASPECT</code>. An <code>Image</code> with a height and an
+          <code>aspectRatio</code> but no width takes its intrinsic width — that drew the
+          footer's 24px mark 200px wide.</span></li>
+        <li><span class="n">!</span><span><b>Keep <code>resizeMode: "contain"</code>.</b> The
+          footer had none, and RN's default <code>cover</code> squashed a 200×212 bag into a
+          21×21 square and cropped its handle.</span></li>
+        <li><span class="n">✓</span><span>Verify at 390 and 1440 on both surfaces and report
+          the rendered ratio against the asset's own — that is how the squashing was
+          caught.</span></li>
+      </ul>
+    </div>
+  </div>
+
   <div class="eyebrow">Not in Phase 4 — carried, and still yours to decide</div>
   <div class="card">
     <div class="risk"><span class="who">iOS scroll</span><span>The goods grid is a bounded
@@ -269,7 +313,10 @@ out of its fixture the one control the detector would newly catch. Then read
 correction across all three phases.
 
 Then: docs/superpowers/plans/2026-09-05-storefront-master-plan.md for the
-decision ledger and Phase 4's Tasks 21-22. The visual source of truth is the
+decision ledger and Phase 4's Tasks 21-22. The handoff also carries Task 23,
+added after Phase 3 merged: the kaiibi mark is the wrong artwork on the
+directory masthead and the shop footer. Keep KAIIBI_BLUE; swap the image.
+ASK WHICH ASSET IS CORRECT BEFORE WRITING CODE -- the last guess was wrong. The visual source of truth is the
 About/Visit sections of docs/design/storefront-design-patterns-mockup.html,
 and docs/design/storefront-phase-4-mockup.html shows today beside the target.
 The design decisions are settled — do not relitigate them.

@@ -145,6 +145,54 @@ states. That data is QA data and can be changed or removed freely.
 Both panels are bounded by `PROSE_MAX_WIDTH` (820) via `shop-chrome.tsx`, and their
 controls are now swept for the 44px floor — keep both true.
 
+## Task 23 (ADDED 2026-09-07) — the kaiibi mark is still the wrong artwork
+
+The user, looking at the merged result: *"the logo is incorrect for the store and the
+branding, keep the blue color but change the logo"*.
+
+So this is an ARTWORK swap, not a colour or layout change:
+
+- **`KAIIBI_BLUE` stays.** The blue plate on the directory masthead and everything else
+  about the lockup's placement and size is settled and correct.
+- **The mark image is wrong** in both places that draw it:
+  - `src/app/store/index.tsx` — the directory masthead, `markImage`, currently
+    `kaiibi-mark-white.png` at 26px tall on a 44px `KAIIBI_BLUE` plate.
+  - `src/components/storefront/shop-footer.tsx` — the "Powered by kaiibi" colophon,
+    `brandMark`, the same asset at 24px tall on `ink`.
+
+**DO NOT GUESS WHICH ASSET IS RIGHT.** I already guessed once — `kaiibi-mark-white.png`
+on a blue plate, on the reasoning that it matched the app icon — and it is still wrong.
+The candidates in `assets/images/` are:
+
+| file | size | note |
+|---|---|---|
+| `kaiibi-mark-white.png` | 200×212 | white bag mark, currently used in both places |
+| `kaiibi-mark-black.png` | 200×212 | the same mark in black |
+| `kaiibi-logo-transparent.png` | 200×298 | the full lockup — bag **plus** the "ka iibi" wordmark |
+| `kaiibi_log.png` | 200×298 | same dimensions as the lockup; unexamined |
+| `icon.png` | 1024² | the app icon |
+| `android-icon-foreground.png` | 1024² | adaptive-icon foreground |
+| `splash-icon.png` | 400×424 | splash mark |
+
+**Ask the user which file is correct, or have them drop the correct one into
+`assets/images/`, before writing any code.** If the answer is the full lockup
+(`kaiibi-logo-transparent.png`), note that it already contains the wordmark — so the
+masthead would stop rendering its own `Kaiibi` text beside it, or it would say the name
+twice, which is the exact repetition defect Phase 3's masthead was built to remove.
+
+**Whatever asset lands, keep the two rules that already cost a bug each:**
+
+1. **Set BOTH `width` and `height`, derived from `KAIIBI_MARK_ASPECT`** (`scale.ts`). An
+   `Image` with a height and an `aspectRatio` but no width takes its own intrinsic width —
+   that drew the footer's 24px mark 200px wide. If the new asset has different proportions,
+   update that constant and its comment.
+2. **`resizeMode: 'contain'`.** The footer originally had none, and RN's default `cover`
+   squashed a 200×212 bag into a 21×21 square and cropped its handle.
+
+Verify in a browser at 390 and 1440 on `/store` (masthead) and `/store/yusefshop`
+(footer), and report the measured rendered width × height and the ratio against the
+asset's own — that is how the squashing was caught.
+
 ## Open, and genuinely undecided
 
 - **The iOS scroll trap.** The goods grid is a bounded scroller inside the page scroller.
