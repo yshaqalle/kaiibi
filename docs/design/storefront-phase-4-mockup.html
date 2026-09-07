@@ -94,6 +94,18 @@
   smallest of the four: no new features, no migrations, no new data. Tasks 21 and 22 are a
   <em>re-weighting</em> — the same facts, in the order a stranger actually needs them.</p>
 
+  <div class="card" style="margin-top:16px;border-left:3px solid var(--done)">
+    <span class="tag done"><i class="dot"></i>Built — PR #140</span>
+    <p style="margin-top:6px">This page is the <b>brief</b> Phase 4 was built from, kept as it
+    was written. Both panels shipped as drawn; the <em>right-hand</em> phone of each pair is
+    what the app now renders. Two things the mockup could not settle were decided in code and
+    are worth knowing before reading it as a spec: the About cover's caption strip is the
+    shop's composed <b>place</b>, not a description of the photo (<code>storefront_images</code>
+    stores no caption, and naming what is in a picture would invent a claim the shop never
+    made), and "N items in today" counts items with <b>stock &gt; 0</b> rather than everything
+    listed. Task 23 is done and merged separately as PR #139.</p>
+  </div>
+
   <div class="eyebrow">Shipped — phases 1 to 3, all on main</div>
   <div class="grid shipped">
     <div class="card">
@@ -255,17 +267,19 @@
       on every shop's page that has not bought the mark off.</p>
     </div>
     <div class="card">
-      <span class="tag left"><i class="dot"></i>Blocked on one answer</span>
-      <h3 style="margin-top:6px">Which asset is correct?</h3>
-      <p>I already guessed once — <code>kaiibi-mark-white.png</code> on a blue plate,
-      reasoning it matched the app icon — and it is still wrong. Candidates:
-      <code>kaiibi-mark-white/black.png</code> (200×212, the bare bag),
-      <code>kaiibi-logo-transparent.png</code> and <code>kaiibi_log.png</code> (200×298, the
-      bag <em>plus</em> the "ka iibi" wordmark), <code>icon.png</code>,
-      <code>splash-icon.png</code>.</p>
-      <p style="margin-top:8px">If the answer is the full lockup, it already contains the
-      wordmark — so the masthead drops its own <code>Kaiibi</code> text, or the page says the
-      name twice, which is the repetition the masthead was built to remove.</p>
+      <span class="tag done"><i class="dot"></i>Answered — shipped in PR #139</span>
+      <h3 style="margin-top:6px">Which asset was correct?</h3>
+      <p>Neither of the ones already in the repo. The source was
+      <code>assets/images/kaiibi.jpeg</code> — a white mark on a black ground with
+      <em>no alpha</em>, so using it as-is would have painted a black square on the blue
+      plate. The shipped asset, <code>kaiibi-mark-white-v2.png</code>, is that artwork with
+      the ground removed using <b>luminance as the alpha channel</b> (a hard threshold leaves
+      a jagged rim at 24px) and trimmed to the mark itself, which occupied only 530×616 of a
+      1280 square.</p>
+      <p style="margin-top:8px"><b><code>KAIIBI_MARK_ASPECT</code> moved with it,
+      <code>200/212</code> → <code>512/590</code>.</b> A ratio and the file it describes are
+      one fact in two places: swap the asset again and change both, or the mark is squashed by
+      exactly the difference.</p>
     </div>
     <div>
       <ul class="moves">
@@ -313,10 +327,9 @@ out of its fixture the one control the detector would newly catch. Then read
 correction across all three phases.
 
 Then: docs/superpowers/plans/2026-09-05-storefront-master-plan.md for the
-decision ledger and Phase 4's Tasks 21-22. The handoff also carries Task 23,
-added after Phase 3 merged: the kaiibi mark is the wrong artwork on the
-directory masthead and the shop footer. Keep KAIIBI_BLUE; swap the image.
-ASK WHICH ASSET IS CORRECT BEFORE WRITING CODE -- the last guess was wrong. The visual source of truth is the
+decision ledger and Phase 4's Tasks 21-22. Task 23 (the kaiibi mark) is DONE
+and merged as PR #139 -- the asset question above is answered; nothing is
+blocked on it. The visual source of truth is the
 About/Visit sections of docs/design/storefront-design-patterns-mockup.html,
 and docs/design/storefront-phase-4-mockup.html shows today beside the target.
 The design decisions are settled — do not relitigate them.

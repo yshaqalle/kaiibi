@@ -14,7 +14,13 @@
 | **Phase 1** — apple blue, the slip, branding | Merged, PR #135 (`5eb7fe8`) |
 | **Phase 2** — "The One", the shop page | Merged, PR #136 (`815681a`) |
 | **Phase 3** — "The Store", the directory | **Merged, PR #137 (`835fba2`)** |
-| **Phase 4** — About & Visit | **Not started.** Tasks 21–22 in the master plan |
+| **Phase 4** — About & Visit | **Merged, PR #140.** Tasks 21–22, built from this document |
+
+> **Written before Phase 4, kept as written.** Everything below was the state on the morning
+> of 2026-09-07; it is the brief Phase 4 was executed from, not a report on it. The one
+> section that has been revised is this table. What Phase 4 then found — including the fifth
+> instance of the pattern this document exists to warn about — is recorded at the end, under
+> "What Phase 4 actually cost".
 
 `npx jest storefront` → 242 suites / 4451 tests. `npx tsc --noEmit` → clean.
 **All five migrations are applied to production** and verified through the anon endpoint;
@@ -184,3 +190,58 @@ mark is squashed by exactly the difference.
   means a true fit needs a compact header. Deliberately not done.
 - **`ShopTabRail` carries a sliding pill nobody asked for**, kept since Phase 2.
 - The About gallery at 820px is narrower than it was before the branch.
+
+---
+
+## What Phase 4 actually cost (added after PR #140)
+
+**The predicted fifth instance was there.** The touch-target sweep's fixture set
+`openingHours: {}`, so `isConfigured` was false, `HoursCard` returned `null`, and the whole
+hours card — including the `All hours ▾` toggle Task 22 creates — was in no tree the sweep
+walked. The fixture now carries real hours, and the sweep **presses the toggle and re-walks
+the expanded tree**, so a control hidden behind a disclosure fails the test instead of hiding
+from it.
+
+It also appeared twice in shapes this document did not describe, which sharpens the rule:
+
+1. The About caption — the one genuinely **new** rendering branch in Task 21 — shipped with no
+   testID and no test, while every merely-*moved* block got an assertion.
+2. The "photos are not pressable" guard asserted `onPress` on React Native `Image` nodes,
+   which accept none. Green by construction.
+
+So the question to ask is not only "what is missing from the fixture" but **"if the thing this
+assertion names changed tomorrow, would this line fail?"** — and then make it happen once. Every
+detector added in Phase 4 was proven by breaking it and watching it fail.
+
+**A new failure mode worth its own entry: a colour token can be correct on every palette
+except where two tokens happen to be equal — and that palette is the default.** On `ink`,
+`ink` and `accent` are the same hex, so an accent-filled control on the new ink decision card
+had **no plate at all**. Two separate controls shipped that way (the primary action and the
+open pill), and the open pill's own comment asserted the opposite. Six palettes looked fine.
+Fixed by deriving `onDarkAccent`/`onDarkAccentInk` in `storefront-catalog.ts`. Note the
+measurement corrected the brief: only azure cleared 3:1 unassisted; five other palettes sat at
+1.99–2.82, because every `accent` is tuned dark enough to carry white and every `ink` is
+near-black. **The probe that catches this reads the computed background of the control *and of
+its own parent*** — a screenshot of a palette that happens to work proves nothing.
+
+**The whole-branch review earned its place for the fourth phase running, and again on code the
+controller wrote directly.** The regression test written to pin the palette fix set fake timers
+*after* `render`, so it never re-rendered and passed against the *closed* pill whenever the
+shop happened to be shut — roughly half of all runs. The controller's own mutation check had
+"confirmed" it, only because it ran while the shop was open. The reviewer disproved it by
+changing timezone. **Run clock-dependent suites under a second `TZ`.**
+
+**Four defects were found only by looking**, all behind a fully green suite: a lone gallery
+thumbnail drawing 788×788 (taller than its own cover, pushing the proof chips off the first
+screen) because `flexGrow` gave it the column and `aspectRatio: 1` gave it that height; the
+two decision-card actions stacking at 390px while correct at 1440; and the two palette
+collapses above.
+
+**The environment trap that cost the last two phases has a cheap answer.** The stale Chrome
+holding the shared `playwright-mcp` profile was still there. It was not killed — it may belong
+to a concurrent session — and the **Python Playwright already installed globally** was used
+instead, which brings its own browser and profile and touches nothing the MCP server owns.
+
+**Still unanswered, and still cheap to answer:** the iOS scroll trap. One swipe over the
+product grid on a real iPhone. Phase 4 verified rendering on an iPhone but this machine still
+has no tap injection.
