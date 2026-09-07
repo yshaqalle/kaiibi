@@ -10,7 +10,7 @@ import {
 } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, TILE_SCRIM, SPACE, TABULAR, TYPE,
+  LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, TILE_SCRIM, SPACE, TABULAR, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontCategory, StorefrontProduct } from '@/types/models';
@@ -427,15 +427,33 @@ function CategoryPill({
 }
 
 const styles = StyleSheet.create({
-  band: { paddingHorizontal: SPACE.page, paddingTop: 18 },
+  // NO HORIZONTAL PADDING OF ITS OWN. This carried `paddingHorizontal:
+  // SPACE.page`, which double-padded the band: it renders inside
+  // theme-market.tsx's `header`, a plain, unpadded View sitting directly in
+  // the page ScrollView's own already-padded `contentContainerStyle`
+  // (`page: { padding: SPACE.page }`) -- the same column the anchor card,
+  // the goods grid and the footer all sit in with no inset of their own.
+  // 16 (page) + 16 (this) put the first tile at 32 against the anchor's 16.
+  // `head` (the "Shop by category" label) and `row` (the tile/pill
+  // scroller's own contentContainerStyle, which already carries its own
+  // `paddingRight` for the trailing gutter) both take their inset from the
+  // page alone now, the same as everything else in this column.
+  band: { paddingTop: 18 },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 11 },
   title: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   count: { fontSize: TYPE.metaSmall, fontWeight: '700' },
   row: { flexDirection: 'row', gap: 8, paddingRight: SPACE.page },
+  // CategoryPill -- the fallback this band renders when a category has no
+  // product photo to make a tile from (see the CategoryTile/CategoryPill
+  // branch above: `photos.get(category.name)` came back empty). No shop's
+  // catalogue is guaranteed to have a photographed leader for every
+  // category, so a real customer reaches this row as often as the tile one --
+  // it takes the same floor. `alignItems: 'center'` already centres the
+  // glyph-and-label row against the taller box.
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderRadius: RADIUS.pill, paddingHorizontal: 16, paddingVertical: 10,
-    borderWidth: 1,
+    borderWidth: 1, minHeight: TOUCH_TARGET,
   },
   name: { fontSize: 12.5, fontWeight: '800' },
   meta: { fontSize: 12.5, fontWeight: '700', ...TABULAR },

@@ -105,12 +105,19 @@ export function shopBlurb(shop: PublicShopSummary): string | null {
 // search over 100 rows would be a round trip and a spinner to do what a
 // `filter` does in a frame.
 //
-// Matches the shop's NAME, its CITY and its BLURB, because a customer types
-// what they want ("solar", "pharmacy") as readily as who they want. It does not
-// match product names: the directory read carries no products, and pretending
-// otherwise would silently return nothing for the most obvious query of all.
-// That is the honest limit of this control until there is a search RPC behind
-// it -- see the placeholder copy, which says "shops" and not "items".
+// Matches the shop's NAME, its CITY, its BLURB and its CATEGORIES -- the
+// trades a shop is actually in, aggregated by `list_public_storefronts` from
+// `products.category` on its listed, in-stock products (see
+// 20261025000000_what_a_shop_sells_and_how_to_reach_it.sql). That is what
+// makes this the directory's killer feature rather than a name lookup: a
+// customer who types "shirts" finds every shop with shirts on the shelf, not
+// only one whose name or blurb happens to mention them.
+//
+// It still does not match individual PRODUCT names: the directory read never
+// carries products, only the categories the RPC rolls them up into, so "blue
+// polo" narrows no further than "shirts" would. That is the honest limit of
+// this control until there is a search RPC behind it -- see the placeholder
+// copy, which names what a shop sells and not what is on its shelf.
 export function searchShops(shops: PublicShopSummary[], query: string): PublicShopSummary[] {
   const wanted = query.trim().toLowerCase();
   if (!wanted) return shops;
@@ -120,7 +127,8 @@ export function searchShops(shops: PublicShopSummary[], query: string): PublicSh
   // things they know about a shop.
   const words = wanted.split(/\s+/);
   return shops.filter((shop) => {
-    const haystack = [shop.shopName, shop.city ?? '', shopBlurb(shop) ?? ''].join(' ').toLowerCase();
+    const haystack = [shop.shopName, shop.city ?? '', shopBlurb(shop) ?? '', ...shop.categories]
+      .join(' ').toLowerCase();
     return words.every((word) => haystack.includes(word));
   });
 }

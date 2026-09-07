@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { CategoryBand } from '@/components/storefront/category-band';
@@ -11,11 +11,11 @@ import { useShopTab } from '@/components/storefront/shop-tabs';
 import { ShopFooter } from '@/components/storefront/shop-footer';
 import {
   CategoryFilterBar, CHECKOUT_BAR_CLEARANCE, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState,
-  NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory, gridColumnsForWidth, isWideShop,
-  padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
+  goodsFitHeight, goodsRowBound, goodsScrollHeight, goodsThreeRowHeight, NoSearchResults, SearchField, ShopHeader, cartThumbnails, filterByCategory,
+  gridColumnsForWidth, isWideShop, padFinalRow, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { searchProducts, shouldOfferSearch } from '@/lib/storefront-search';
-import { LETTER, SHOP_MAX_WIDTH, SPACE, TYPE } from '@/components/storefront/scale';
+import { LETTER, SPACE, TYPE } from '@/components/storefront/scale';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -46,6 +46,39 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const inCategory = filterByCategory(products, category);
   const shown = searchProducts(inCategory, query);
   const cells = padFinalRow(shown, numColumns);
+  // See theme-market.tsx's identical block: the measurement the goods
+  // region's own height is built from. NOT reset on a width change -- see
+  // theme-market.tsx's own fuller comment (from "EVERY MEASUREMENT IS
+  // DROPPED" through "AND THEN IT WAS DELETED") for why an earlier version
+  // reset this on every resize, keyed on `[numColumns]` alone (`key=
+  // {numColumns}` only remounts the FlatList, and so only re-measures cell
+  // 0, when a resize crosses a column breakpoint -- a resize that stays
+  // inside one band, like 1300 -> 1500, both 5 columns, left a stale,
+  // old-width measurement with nothing to overwrite it), and why the reset
+  // itself was removed once a wider one made a window drag strobe instead.
+  const [rowHeight, setRowHeight] = useState<number | null>(null);
+  const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
+  const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
+  // See theme-market.tsx's identical block: three more measurements
+  // (page/header/footer) feed goodsFitHeight alongside the two-row cap
+  // above. None of the four -- `rowHeight` included -- is reset when the
+  // window's width changes; each simply re-measures on its own via
+  // `onLayout` one frame after a resize settles.
+  const [pageHeight, setPageHeight] = useState<number | null>(null);
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const [footerHeight, setFooterHeight] = useState<number | null>(null);
+  // No width-keyed reset -- see theme-market.tsx's comment where this one used
+  // to be. Dropping the four measurements on every resize event made a DRAG
+  // strobe between the estimate and the measured height; every one of them
+  // re-measures on its own one frame later.
+  const threeRowHeight = goodsThreeRowHeight(rowHeight, SPACE.cardGap, rowCount);
+  const remainder = goodsFitHeight(
+    pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
+  );
+  // See theme-market.tsx and goodsRowBound: always two rows, three when the
+  // window has room for them.
+  const goodsHeight = goodsRowBound(twoRowHeight, threeRowHeight, remainder);
+  const goodsStyle = goodsHeight != null ? [styles.goods, { maxHeight: goodsHeight }] : styles.goods;
   const checkout = useCheckoutFlow({
     slug: storefront.slug,
     shopName: storefront.shopName,
@@ -89,9 +122,14 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
     );
   }
 
-  // See theme-market.tsx on why this is an element rather than a component.
+  // See theme-market.tsx on why this is an element rather than a component,
+  // and on why it carries `styles.column` (full width now, matching the
+  // grid -- see SHOP_MAX_WIDTH's own comment in scale.ts for the one-release
+  // detour where this row kept the reading-column bound and read as unfinished)
+  // and an `onLayout` of its own -- its measured height is one of the three
+  // goodsFitHeight needs.
   const header = (
-    <View>
+    <View testID="storefront-header-column" style={styles.column} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
       {/* WINDOW'S IDENTITY IS NOW THE SHARED SHOP CARD, and the argument that
           used to live here survives it intact: the name is said once, as the
           wordmark, and never also in a button row. What changed is that the
@@ -156,53 +194,98 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         tab={activeTab}
         onSelectTab={selectTab}
       >
-      <FlatList
-        testID="storefront-goods"
-        // See padFinalRow: a short final row leaves a gap rather than
-        // inflating its cells to fill the width.
-        data={cells}
-        // See theme-market.tsx's comment on this same pattern.
-        key={numColumns}
-        numColumns={numColumns}
-        keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
-        columnWrapperStyle={styles.row}
-        ListHeaderComponent={header}
-        ListEmptyComponent={
-          query.trim() ? (
-            <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
-          ) : (
-            <EmptyState
-              colors={colors}
-              storefront={storefront}
-              category={category}
-              onClearCategory={() => setCategory(null)}
-            />
-          )
-        }
+      {/* THE PAGE is a plain ScrollView, and the goods below are the ONLY
+          FlatList left in this tree -- see theme-market.tsx's identical
+          block for why the other way round (nest the goods FlatList inside a
+          page FlatList, to dodge RN's nested-list warning by inheriting an
+          ancestor VirtualizedList context) was tried first and is wrong: RN
+          reads that ancestor context as "something above me already owns
+          scrolling" and renders the nested list as a plain, non-scrolling,
+          non-clipping View instead of a ScrollView
+          (`_isNestedWithSameOrientation` in
+          @react-native/virtualized-lists/Lists/VirtualizedList.js) -- proven
+          in the browser, not merely reasoned from the warning text. */}
+      <ScrollView
+        testID="storefront-page-scroll"
+        // Full width now -- see `scroller`'s own comment below, and
+        // theme-market.tsx's identical one, for why the reading-column bound
+        // moved onto `column` instead. `onLayout` reports this ScrollView's
+        // own frame, exactly "the space the page has" goodsFitHeight needs.
         style={styles.scroller}
+        onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
         // B6: see theme-market.tsx's identical comment -- the sticky
         // CheckoutBar floats over this content and reserves no space of
         // its own. Unconditional for the same reason: the first Add must
-        // not reflow the page under the customer's finger.
-        contentContainerStyle={[styles.grid, styles.gridWithCheckoutBar]}
-        // See theme-market.tsx: closes the page, and scrolls with the goods.
-        ListFooterComponent={<ShopFooter storefront={storefront} colors={colors} />}
-        renderItem={({ item }) => (
-          <View style={styles.cell}>
-            {item ? (
-              <ProductTile
-                product={item}
+        // not reflow the page under the customer's finger. The footer is now
+        // the page's own bottom-most scrolling content (the goods are a
+        // bounded box above it), so the clearance sits here with it --
+        // goodsFitHeight's own arithmetic subtracts this same clearance.
+        contentContainerStyle={[styles.page, styles.pageWithCheckoutBar]}
+      >
+        {header}
+        {/* THE GOODS' OWN SCROLL -- see theme-market.tsx's identical block
+            for the two-halved arithmetic (goodsScrollHeight, goodsFitHeight)
+            and the `rowHeight`/`pageHeight`/`headerHeight`/`footerHeight`/
+            `goodsHeight` this style is built from. */}
+        <FlatList
+          testID="storefront-goods"
+          // See padFinalRow: a short final row leaves a gap rather than
+          // inflating its cells to fill the width.
+          data={cells}
+          // See theme-market.tsx's comment on this same pattern. `rowHeight`
+          // above is not cleared by anything on a resize any more, this
+          // remount included -- see that state's own comment for why.
+          key={numColumns}
+          numColumns={numColumns}
+          keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
+          columnWrapperStyle={styles.row}
+          ListEmptyComponent={
+            query.trim() ? (
+              <NoSearchResults colors={colors} query={query.trim()} onClear={() => setQuery('')} />
+            ) : (
+              <EmptyState
                 colors={colors}
-                shopName={storefront.shopName}
-                whatsappE164={storefront.whatsappE164}
-                onAdd={addProduct}
-                onOpen={setOpenProduct}
-                dense={numColumns <= 2}
+                storefront={storefront}
+                category={category}
+                onClearCategory={() => setCategory(null)}
               />
-            ) : null}
-          </View>
-        )}
-      />
+            )
+          }
+          style={goodsStyle}
+          contentContainerStyle={styles.grid}
+          // See theme-market.tsx's identical comment -- Android-only,
+          // lets the goods claim a vertical drag over the page's own
+          // scroller.
+          nestedScrollEnabled
+          renderItem={({ item, index }) => (
+            <View
+              testID={index === 0 ? 'storefront-goods-row' : undefined}
+              style={styles.cell}
+              onLayout={index === 0 ? (e) => setRowHeight(e.nativeEvent.layout.height) : undefined}
+            >
+              {item ? (
+                <ProductTile
+                  product={item}
+                  colors={colors}
+                  shopName={storefront.shopName}
+                  whatsappE164={storefront.whatsappE164}
+                  onAdd={addProduct}
+                  onOpen={setOpenProduct}
+                  dense={numColumns <= 2}
+                />
+              ) : null}
+            </View>
+          )}
+        />
+        {/* See theme-market.tsx: closes the page, scrolling with it -- the
+            page's own trailing sibling now, not a nested list's
+            ListFooterComponent. Wrapped in `styles.column` for the same
+            reason the header is, and `onLayout` feeds `footerHeight`,
+            goodsFitHeight's third measurement. */}
+        <View testID="storefront-footer-column" style={styles.column} onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}>
+          <ShopFooter storefront={storefront} colors={colors} />
+        </View>
+      </ScrollView>
       </ShopChrome>
 
       <ProductSheet
@@ -239,16 +322,27 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
 }
 
 const styles = StyleSheet.create({
-  // The reading column -- see theme-market.tsx's identical `scroller`.
-  scroller: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
+  // Full width now, not the reading column -- see theme-market.tsx's
+  // identical `scroller`/`column` split and SHOP_MAX_WIDTH's own comment in
+  // scale.ts for the full account, including the one-release detour where
+  // `column` carried that bound and the header read as unfinished beside a
+  // wider grid.
+  scroller: { flex: 1, width: '100%' },
+  column: { width: '100%' },
   sectionHead: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
     paddingTop: 26, paddingBottom: 10, marginBottom: 4, borderBottomWidth: 1,
   },
   sectionTitle: { fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase' },
   sectionCount: { fontSize: TYPE.metaSmall, fontWeight: '700' },
-  grid: { padding: SPACE.page, gap: SPACE.cardGap },
-  gridWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
+  // See theme-market.tsx's identical `page`/`pageWithCheckoutBar`/`goods`/
+  // `grid` -- the page now owns the padding and the checkout-bar clearance;
+  // the nested goods FlatList owns only its own row gap, so its rendered
+  // height is exactly two measured rows plus one gap when bounded.
+  page: { padding: SPACE.page, gap: SPACE.cardGap },
+  pageWithCheckoutBar: { paddingBottom: SPACE.page + CHECKOUT_BAR_CLEARANCE },
+  goods: { width: '100%' },
+  grid: { gap: SPACE.cardGap },
   row: { gap: SPACE.cardGap },
   cell: { flex: 1 },
 });

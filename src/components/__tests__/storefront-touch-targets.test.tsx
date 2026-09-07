@@ -1,0 +1,679 @@
+import { AccessibilityInfo, StyleSheet, TextInput, type EmitterSubscription } from 'react-native';
+import { act, create } from 'react-test-renderer';
+
+import { ThemeCounter } from '@/components/storefront/theme-counter';
+import { ThemeMarket } from '@/components/storefront/theme-market';
+import { ThemeWindow } from '@/components/storefront/theme-window';
+import { TOUCH_TARGET } from '@/components/storefront/scale';
+import type { ShopTabKey } from '@/components/storefront/shop-tabs';
+import { paletteColors } from '@/lib/storefront-catalog';
+import type {
+  PublicDeliveryArea, PublicShopSummary, PublicStorefront, StorefrontCategory, StorefrontFlyer,
+  StorefrontProduct,
+} from '@/types/models';
+
+import StoreDirectoryScreen from '@/app/store/index';
+
+const mockListPublicShops = jest.fn();
+// The RPC boundary -- see the "checkout and confirmation" describe block
+// below, the one place this file drives a real submit through the real
+// useCheckoutFlow/placeOrder (theme-shared.tsx, storefront-order.ts) rather
+// than mocking either of those away, the same choice
+// storefront-checkout-whatsapp-choice.test.tsx makes and for the same
+// reason: CheckoutForm's onSubmit -> useCheckoutFlow.submit -> placeOrder is
+// wiring worth exercising for real, not just trusting each link in isolation.
+const mockRpc = jest.fn();
+
+jest.mock('@/lib/supabase', () => ({ supabase: { rpc: (...args: unknown[]) => mockRpc(...args) } }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
+jest.mock('expo-router/head', () => ({ __esModule: true, default: () => null }));
+jest.mock('@/lib/storefront-directory', () => {
+  const actual = jest.requireActual('@/lib/storefront-directory');
+  return { ...actual, listPublicShops: (...args: unknown[]) => mockListPublicShops(...args) };
+});
+
+jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+jest.spyOn(AccessibilityInfo, 'addEventListener').mockReturnValue({ remove: jest.fn() } as unknown as EmitterSubscription);
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE RULE, asked of every public surface: a control a customer can actually
+// tap -- a Pressable wearing accessibilityRole 'button' or 'link' (a `tab`,
+// like the shop's own tab rail, is excluded on purpose -- Task D's brief
+// verifies with a browser query that only ever selects
+// `[role="button"], [role="link"], input`, and this test mirrors that
+// exactly rather than inventing a stricter net the live check does not
+// share) or a bare TextInput -- must carry EITHER the TOUCH_TARGET floor (a
+// `minHeight`/`height` in its own resolved style) OR a `hitSlop` that
+// actually reaches TOUCH_TARGET once added to whatever literal size the
+// style already states -- see `meetsTouchTargetRule`'s own comment for why
+// that arithmetic only runs where a literal number exists to run it on.
+//
+// Why this single rule catches what a per-button assertion cannot: nothing
+// stops the NEXT control from being sized by "looked right", the way Add sat
+// at 26px for as long as it did with a full green test suite around it. A
+// rule about the whole tree is what a new, small control trips on the day it
+// is added, not the day someone happens to remember to test it.
+//
+// WHICH ROUTE COVERS WHICH STATE. The four `describe('every public-surface
+// control...')` cases below render each theme (and the directory) at its
+// OWN default, zero-cart, nothing-open state -- which is exactly the state
+// in which `ProductSheet` returns null, `CartSheet` renders `AppModal
+// visible={false}` (RN's own `Modal` renders null while closed), and
+// `CheckoutBar` returns null at `itemCount === 0`. None of those three ever
+// entered this sweep from that render alone, which is precisely how the
+// three controls in the second describe block below went unfloored under a
+// fully green suite. That block drives ONE theme (Market) through the
+// states the zero-cart render cannot reach -- an item added, the cart sheet
+// opened, a product sheet opened -- and is the only place those three
+// components are swept. It does not re-drive Window and Counter through the
+// same sequence: `CartSheet`, `ProductSheet` and `CheckoutBar` are the exact
+// same components, imported unchanged, in every theme that renders them
+// (theme-market.tsx, theme-window.tsx, theme-counter.tsx all pass the same
+// props through to the same three functions) -- there is no theme-specific
+// branch inside any of them left for a second render to catch that the
+// first did not.
+// ─────────────────────────────────────────────────────────────────────────
+
+// `Pressable`'s own style is a FUNCTION once `pressable()` (press-feedback.ts)
+// wraps it -- RN calls it with `{ pressed }` mid-touch. Reading `.props.style`
+// directly, the way an earlier draft of this sweep did, hands back the
+// function itself, `StyleSheet.flatten` on a function returns `undefined`,
+// and every control in the tree silently "passes" a floor check that never
+// ran. Calling it with `{ pressed: false }` first is what makes the walk see
+// the same style RN would paint at rest.
+function resolvedStyle(node: { props?: { style?: unknown } }): Record<string, unknown> {
+  const raw = node.props?.style;
+  const style = typeof raw === 'function' ? raw({ pressed: false }) : raw;
+  return (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
+}
+
+// `hitSlop` is either a bare number (all four sides) or a partial
+// `{top,bottom,left,right}` object -- normalised here once so the arithmetic
+// below never has to branch on which shape it got.
+function normalizedHitSlop(hitSlop: unknown): { top: number; bottom: number; left: number; right: number } | null {
+  if (hitSlop == null) return null;
+  if (typeof hitSlop === 'number') return { top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop };
+  const h = hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
+  return { top: h.top ?? 0, bottom: h.bottom ?? 0, left: h.left ?? 0, right: h.right ?? 0 };
+}
+
+// THE TWO CONTROLS ALLOWED TO SKIP THE ARITHMETIC -- because they are the two
+// places it has actually been done, by hand, in a comment: `product-tile-add`
+// and `product-tile-ask`, compact only (theme-shared.tsx:808, :847), whose
+// 45/46px working sits at theme-shared.tsx:759-762 (`COMPACT_BUTTON_HIT_SLOP`).
+//
+// This list is what replaced an unconditional `return true` below. That
+// branch -- "no literal width/height in the resolved style, so trust the
+// hitSlop at face value" -- is not a rare shape: Back (17px), Place order
+// (41px), cart-sheet Close (29px), product-sheet Close (40px), the checkout
+// inputs (39px) and the fulfilment segment (35px) are ALL text-and-padding
+// boxes with no literal size, which is exactly what floored them under a
+// fully green suite before each was measured and given a real `minHeight`.
+// Reverting any one of them back to a bare `hitSlop={8}` with no floor used
+// to still pass this file, because the branch that was supposed to check the
+// arithmetic instead skipped it for every control shaped like theirs -- the
+// same "the detector cannot see the thing it exists to catch" defect the
+// flyer dots are this task's other instance of. A control that reaches this
+// branch now has to be added to this list to pass, which means it has to be
+// measured first.
+const HAND_VERIFIED_HIT_SLOP_TESTIDS: readonly string[] = ['product-tile-add', 'product-tile-ask'];
+
+function meetsTouchTargetRule(node: { props?: { style?: unknown; hitSlop?: unknown; testID?: unknown } }): boolean {
+  const flat = resolvedStyle(node);
+  // `minHeight` is the floor everywhere a control's size comes from its own
+  // padding (Add, Cart, the search field...). A fixed `height` counts too --
+  // CategoryTile draws a 92px photo tile with `height: TILE_HEIGHT`, not
+  // `minHeight`, because that box is a hard-coded shape, not a floor under
+  // otherwise-organic content -- and either one, set to at least
+  // TOUCH_TARGET, is the same fact stated two different ways.
+  const floored = [flat.minHeight, flat.height].some((v) => typeof v === 'number' && v >= TOUCH_TARGET);
+  if (floored) return true;
+
+  const slop = normalizedHitSlop(node.props?.hitSlop);
+  if (!slop) return false;
+
+  // A BARE `hitSlop` USED TO BE THE WHOLE CHECK -- `hitSlop={1}` passed,
+  // and the cart stepper (26px box + hitSlop 6 = 38, still short of 44)
+  // sailed through with it. `COMPACT_BUTTON_HIT_SLOP` (theme-shared.tsx)
+  // already does this arithmetic BY HAND in its own comment -- own box size
+  // plus its own slop, checked against 44 -- because that pair's box has no
+  // literal width/height in its style (it is sized by padding around text,
+  // which this harness cannot lay out). Where a literal `width`/`height` (or
+  // `minWidth`/`minHeight`) DOES sit in the resolved style -- the cart
+  // stepper's `width: 26, height: 26` is exactly this case -- the same
+  // arithmetic is checkable in code instead of by hand, so it is required:
+  // whichever axis carries a literal number must clear TOUCH_TARGET once its
+  // own hitSlop is added.
+  const baseHeight = [flat.height, flat.minHeight].find((v) => typeof v === 'number') as number | undefined;
+  const baseWidth = [flat.width, flat.minWidth].find((v) => typeof v === 'number') as number | undefined;
+  if (baseHeight == null && baseWidth == null) {
+    // Nothing literal to check an axis against -- a control sized by its own
+    // text and padding, the COMPACT_BUTTON_HIT_SLOP case above. This USED TO
+    // be trusted at face value, unconditionally, which is exactly the branch
+    // Back, Place order and five others sat under the floor behind -- see
+    // HAND_VERIFIED_HIT_SLOP_TESTIDS' own comment. Now it is an allowlist: a
+    // control lands here honestly only if someone did the arithmetic by hand
+    // and said so above.
+    return HAND_VERIFIED_HIT_SLOP_TESTIDS.includes(node.props?.testID as string);
+  }
+  if (baseHeight != null && baseHeight + slop.top + slop.bottom < TOUCH_TARGET) return false;
+  if (baseWidth != null && baseWidth + slop.left + slop.right < TOUCH_TARGET) return false;
+  return true;
+}
+
+// Pressable is composite and forwards `onPress`/`accessibilityRole` down
+// through a forwardRef View to its own host node (the identical comment
+// storefront-theme-counter.test.tsx and storefront-theme-market.test.tsx
+// both carry) -- filtering on `onPress` being a function gives exactly one
+// match per on-screen button rather than three. TextInput has no `onPress`
+// at all, so it is gathered separately by its component type.
+function touchControlsIn(tree: ReturnType<typeof create>) {
+  const pressables = tree.root.findAll(
+    (n) => typeof n.props?.onPress === 'function'
+      && (n.props?.accessibilityRole === 'button' || n.props?.accessibilityRole === 'link'),
+  );
+  const inputs = tree.root.findAll((n) => n.type === TextInput);
+  return [...pressables, ...inputs];
+}
+
+const colors = paletteColors('ink');
+
+// 25 products (SEARCH_THRESHOLD, storefront-search.ts) so SearchField
+// actually renders -- a sweep that never triggers the search field would
+// never see `storefront-search`, one of the two controls this whole task
+// started from. Two categories, one WITH a photographed product (so
+// CategoryBand renders a CategoryTile) and one WITHOUT (so it renders the
+// CategoryPill fallback instead) -- the fallback is the one this task also
+// found under the floor (category-band.tsx's own `pill` style), and a sweep
+// that only ever sees the photo tile would never exercise it. A mix of
+// in-stock and out-of-stock products exercises both the Add+Ask and the
+// Ask-only branch of ProductActions.
+function makeProducts(): StorefrontProduct[] {
+  return Array.from({ length: 25 }, (_, i) => {
+    const inPhoneCategory = i % 2 === 0;
+    return {
+      id: `p${i}`,
+      name: `Product ${i}`,
+      description: null,
+      category: inPhoneCategory ? 'Phone' : 'Snacks',
+      priceCents: 1000 + i * 37,
+      stock: i % 5 === 0 ? 0 : 4,
+      // Only the Phone products carry a photo -- Snacks' category tile has
+      // no photo to draw from, which is exactly the CategoryPill case.
+      imageUrl: inPhoneCategory ? 'https://cdn.example/shop/phone.jpg' : null,
+    };
+  });
+}
+
+const categories: StorefrontCategory[] = [
+  { name: 'Phone', imageUrl: null, productCount: 13 },
+  { name: 'Snacks', imageUrl: null, productCount: 12 },
+];
+
+// TWO flyers, not zero -- an empty `flyers: []` is what let the dots' 23px
+// tap target (7px dot + hitSlop 8 = 23, flyer-carousel.tsx) sit unswept
+// through two prior commits: `count === 0` makes FlyerCarousel return null
+// before any Pressable exists for the sweep to find, so the ONE control this
+// page's whole phone audience uses to change flyers (the arrows sit at
+// `opacity: 0` with `pointerEvents: 'none'` whenever `hoverCapable` is false
+// -- see flyer-carousel.tsx's own comment) was never in a tree this file
+// walked. Two is the minimum that turns the dots AND the arrows on at all
+// (`count === 1` renders a hero with neither -- property 2, flyer-carousel.tsx).
+// Market and Window both render this list (ThemeMarket/ThemeWindow pass
+// `storefront.flyers` straight through); Counter deliberately never reads it
+// (theme-counter.tsx's own header comment), so this fixture change reaches
+// exactly the two themes the defect could ever have hidden in.
+const flyers: StorefrontFlyer[] = [
+  {
+    id: 'fly1', imageUrl: 'https://cdn.example/shop/eid.jpg', headline: 'Eid stock has landed',
+    subline: 'New lanterns and kettles in store now.', linkKind: 'none', linkValue: null, offer: null,
+  },
+  {
+    id: 'fly2', imageUrl: null, headline: 'Second poster', subline: null,
+    linkKind: 'none', linkValue: null, offer: null,
+  },
+];
+
+const shop: PublicStorefront = {
+  shopName: 'Xamdi Electronics',
+  city: 'Hargeisa',
+  slug: 'xamdi-touch',
+  whatsappE164: '+252634456789',
+  theme: 'market',
+  palette: 'ink',
+  headline: 'Everything for the house and the phone.',
+  // Non-null, along with contactPhone/instagram/highlights/images below --
+  // see the "About and Visit tabs" describe block near the end of this file
+  // for why: `availableTabs` (shop-tabs.tsx) gates the About tab on exactly
+  // this field, so a null `about` here would keep the tab itself out of every
+  // tree this file walks, the same way `flyers: []` kept the carousel dots out
+  // before the fix above this one.
+  about: 'Family-run since the old covered market, now stocking phones and pantry staples side by side.',
+  heroImageUrl: null,
+  offersDelivery: true,
+  collectAddress: null,
+  collectNeighborhood: null,
+  paymentMode: 'on_collection',
+  openingHours: {},
+  tradingSince: null,
+  highlights: [
+    { id: 'h1', title: 'Same-day delivery', body: 'Ordered before 4pm, on your step by evening.' },
+    { id: 'h2', title: 'Genuine parts only', body: 'Every phone accessory here is the real thing.' },
+  ],
+  images: [
+    { id: 'im1', url: 'https://cdn.example/shop/gallery-1.jpg' },
+    { id: 'im2', url: 'https://cdn.example/shop/gallery-2.jpg' },
+  ],
+  contactPhone: '+252634000111',
+  instagram: 'xamditouch',
+  flyers,
+  autoAdvance: false,
+  hideBranding: false,
+};
+
+// THIS FIXTURE USED TO HIDE A SECOND GAP, found while fixing the flyers one
+// above and left as a finding rather than scope creep: `about: null` and
+// `contactPhone`/`instagram: null` meant `availableTabs` (shop-tabs.tsx) never
+// added 'about' to the rail, and even driving a theme onto 'visit' would have
+// shown `visit-panel.tsx`'s `ContactRow`s rendering nothing at all -- a
+// Pressable that never mounts is invisible to a sweep in exactly the way a
+// Pressable sized wrong is not. Both are filled in above now, and the "About
+// and Visit tabs" describe block near the end of this file is what actually
+// walks the trees that unlocks -- see its own comment for which controls that
+// closes the gap on and how it reaches a tab no describe block above ever
+// selects.
+
+async function renderTheme(
+  Theme: typeof ThemeMarket | typeof ThemeWindow | typeof ThemeCounter,
+  // Defaults to none, same as ThemeProps' own default (theme-shared.tsx) --
+  // only the checkout/confirmation describe block below, and the About/Visit
+  // one near the end of this file, pass a real one.
+  areas: PublicDeliveryArea[] = [],
+  // Undefined leaves the tab UNCONTROLLED -- `useShopTab` (shop-tabs.tsx)
+  // keeps its own state, starting on 'shop' -- which is exactly what every
+  // describe block above the About/Visit one at the end of this file relies
+  // on to stay on the Shop tab without asking for it explicitly. Passing one
+  // drives `ThemeProps`' own `tab` prop directly, the same address-bar wiring
+  // StorefrontView uses in the browser, rather than pressing a tab Pressable
+  // to get there.
+  tab?: ShopTabKey,
+) {
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(
+      <Theme
+        storefront={shop} products={makeProducts()} colors={colors} categories={categories} areas={areas}
+        {...(tab ? { tab, onSelectTab: () => {} } : {})}
+      />,
+    );
+  });
+  return tree;
+}
+
+// Pressable forwards `onPress`/`onChangeText` down through a forwardRef View
+// to its own host node (the same fact `touchControlsIn` above relies on) --
+// filtering on the callback being a function is what keeps either helper to
+// exactly one match. Synchronous `act`, not the async form: `onPress` here
+// can itself be async (`checkout-form-submit` triggers the real
+// useCheckoutFlow.submit, unawaited by CheckoutForm's own handler) and
+// `flush` below is what lets that settle, the same two-step
+// press-then-flush storefront-checkout-whatsapp-choice.test.tsx already
+// proves is enough for this exact RPC chain.
+function press(tree: ReturnType<typeof create>, testID: string) {
+  const [node] = tree.root.findAll((n) => n.props?.testID === testID && typeof n.props?.onPress === 'function');
+  act(() => node.props.onPress());
+}
+
+function setText(tree: ReturnType<typeof create>, testID: string, value: string) {
+  const [node] = tree.root.findAll((n) => n.props?.testID === testID && typeof n.props?.onChangeText === 'function');
+  act(() => node.props.onChangeText(value));
+}
+
+async function flush() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+describe('every public-surface control meets the touch-target rule', () => {
+  it('Market: every tappable control carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket);
+    const controls = touchControlsIn(tree);
+
+    // Guards the guard: if this ever comes back empty (the exact silent
+    // failure the pressable()-is-a-function trap above produces), the
+    // assertions below would pass vacuously and the sweep would test
+    // nothing. See this file's own header comment.
+    expect(controls.length).toBeGreaterThan(0);
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+
+  it('Window: every tappable control carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeWindow);
+    const controls = touchControlsIn(tree);
+    expect(controls.length).toBeGreaterThan(0);
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+
+  it('Counter: every tappable control carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeCounter);
+    const controls = touchControlsIn(tree);
+    expect(controls.length).toBeGreaterThan(0);
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+
+  it('the directory (/store): every tappable control carries the floor or a hitSlop', async () => {
+    const shops: PublicShopSummary[] = [
+      {
+        shopName: 'Alpha Hardware', slug: 'dir-alpha', city: 'Hargeisa',
+        headline: 'Everything that plugs in.', about: null, heroImageUrl: 'https://cdn.example/shop/alpha.jpg',
+        offersDelivery: true, openingHours: {}, categories: ['Electronics'], productCount: 40,
+      },
+      {
+        shopName: 'Borama Snacks', slug: 'dir-borama', city: 'Borama',
+        headline: 'Sweets and soda.', about: null, heroImageUrl: null,
+        offersDelivery: false, openingHours: {}, categories: ['Snacks'], productCount: 12,
+      },
+    ];
+    mockListPublicShops.mockResolvedValue(shops);
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(<StoreDirectoryScreen />);
+    });
+    // Lets listPublicShops's resolved promise settle -- the same
+    // async-act-then-plain-act shape storefront-directory.test.tsx's own
+    // renderScreen() uses, one tick after the state update `.then()`
+    // schedules.
+    await act(async () => {});
+
+    const controls = touchControlsIn(tree);
+    expect(controls.length).toBeGreaterThan(0);
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});
+
+// THE STATES THE FOUR TESTS ABOVE CANNOT REACH -- see this file's own header
+// comment ("WHICH ROUTE COVERS WHICH STATE") for why one theme, driven
+// through these three transitions, is proof for all of them: CartSheet,
+// ProductSheet and CheckoutBar are the same components under Market, Window
+// and Counter alike.
+describe('the states a zero-cart, nothing-open render never reaches', () => {
+  it('cart sheet open with lines, product sheet open, checkout bar with an item: every control still carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket);
+
+    // AN ITEM IN THE CART -- the one thing that turns CheckoutBar from null
+    // into a real Pressable, and CartSheet's empty-cart text into a
+    // scrolling list of lines with their own steppers and Close.
+    const add = tree.root.findAll(
+      (n) => n.props?.testID === 'product-tile-add' && typeof n.props?.onPress === 'function',
+    );
+    expect(add.length).toBeGreaterThan(0);
+    await act(async () => add[0].props.onPress());
+
+    // THE CART SHEET, OPEN -- AppModal renders null while `visible={false}`;
+    // this is the only way its own Close and stepper Pressables ever mount.
+    const cartButton = tree.root.findAll((n) => n.props?.testID === 'storefront-cart-button')[0];
+    await act(async () => cartButton.props.onPress());
+
+    // A PRODUCT SHEET, OPEN -- `ProductSheet` returns null with no product;
+    // this is the only way its own dismiss/Close mount.
+    const openTile = tree.root.findAll(
+      (n) => n.props?.testID === 'product-tile-open' && typeof n.props?.onPress === 'function',
+    );
+    expect(openTile.length).toBeGreaterThan(0);
+    await act(async () => openTile[0].props.onPress());
+
+    const controls = touchControlsIn(tree);
+    // GUARDS THE GUARD BY NAME, not by count. `toBeGreaterThan(10)` used to
+    // stand in here -- commented as existing specifically to reach
+    // `cart-sheet-close`, `product-sheet-close` and the steppers -- but the
+    // zero-cart Market render already clears 10 on its own (25 products x
+    // add/ask, the tiles, the search field, the cart button are ~45 controls
+    // before either modal mounts), so a count this low was satisfied four
+    // times over by controls it was not written to test. If `AppModal` ever
+    // stopped rendering its children, this sweep would fall back to that
+    // same ~45-control zero-cart tree, comfortably clear 10, and stay green
+    // while testing none of the three controls it exists for -- the exact
+    // silent failure this file's header comment says the whole rule was
+    // written to end. Naming the testIDs is what makes their absence an
+    // assertion failure instead of a number that happens not to have moved
+    // yet. `p1` is the first IN-STOCK product `makeProducts` yields (`p0`'s
+    // `i % 5 === 0` makes it the first with `stock: 0`, so it has no
+    // `product-tile-add` at all -- see ProductActions) and so the one
+    // `add[0]` above actually adds.
+    const controlIds = controls.map((c) => c.props?.testID);
+    for (const requiredId of [
+      'cart-sheet-close', 'product-sheet-close', 'cart-line-decrease-p1', 'cart-line-increase-p1',
+    ]) {
+      expect(controlIds).toContain(requiredId);
+    }
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});
+
+// The RPC's own RETURNING shape (snake_case) -- see mapOrder in
+// storefront-order.ts. Reused for both the rejected and the accepted call
+// below; only `error`/`data` differ.
+const confirmedOrderRow = {
+  number: 91,
+  status: 'placed',
+  payment_mode: 'on_collection',
+  fulfilment: 'deliver',
+  delivery_area: 'Hodan',
+  customer_phone: '+252634456789',
+  subtotal_cents: 1000,
+  delivery_fee_cents: 500,
+  total_cents: 1500,
+  items: [{ product_id: 'p0', name: 'Product 0', unit_price_cents: 1000, quantity: 1, line_total_cents: 1000 }],
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE CHECKOUT AND CONFIRMATION SCREENS -- the defect this whole file's
+// extension exists to catch. `checkout.stage` (useCheckoutFlow,
+// theme-shared.tsx) swaps the ENTIRE theme tree for `CheckoutScreen` then
+// `ConfirmationScreen`; none of the describe blocks above ever moves it past
+// 'browse', so neither screen had ever been swept. That is exactly how Back
+// (17px), the form's name/phone/landmark/note fields (39px), the fulfilment
+// toggle (35px) and "Place order" (41px) all sat under the floor -- on the
+// one screen a customer actually commits an order from -- behind a fully
+// green suite, live in a browser at 390px, not in this file. See
+// checkout-form.tsx, theme-shared.tsx and order-placed.tsx's own comments on
+// the fix each control needed.
+//
+// COVERAGE: both stages are reached by rendering ThemeMarket and driving the
+// REAL useCheckoutFlow (theme-shared.tsx) through them -- 'checkout' via
+// pressing `storefront-checkout-bar`, 'confirmation' via a submit that
+// actually calls placeOrder (storefront-order.ts) against a mocked
+// `supabase.rpc` -- rather than mounting `CheckoutScreen`/`ConfirmationScreen`
+// directly. Both stages ARE reachable that way, so doing it through the
+// theme is proof the WIRING (CheckoutBar's onPress -> openCheckout,
+// CheckoutForm's onSubmit -> useCheckoutFlow.submit -> placeOrder) actually
+// puts a customer on the same tree this sweep inspects -- the identical
+// choice storefront-checkout-whatsapp-choice.test.tsx already made for the
+// same reason. If a future stage genuinely cannot be reached this way, render
+// that screen component directly instead -- but say so here, so the boundary
+// is a stated fact rather than an assumption the next reader has to rediscover.
+//
+// Market only, for the same reason the cart/product-sheet describe block
+// above is Market-only: CheckoutScreen and ConfirmationScreen are the exact
+// same components under Market, Window and Counter -- all three themes pass
+// identical props to the same two functions, with no theme-specific branch
+// inside either for a second render to catch that this one does not.
+describe('the checkout and confirmation screens the states above never reach', () => {
+  const deliveryAreas: PublicDeliveryArea[] = [{ name: 'Hodan', feeCents: 500 }];
+
+  beforeEach(() => {
+    mockRpc.mockReset();
+  });
+
+  it('checkout (delivery selected, a rejected submit) and confirmation: every control still carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket, deliveryAreas);
+
+    // AN ITEM, THEN THE CHECKOUT BAR -- the one path from 'browse' to
+    // `checkout.stage === 'checkout'`.
+    press(tree, 'product-tile-add');
+    press(tree, 'storefront-checkout-bar');
+
+    // DELIVER, NOT COLLECT -- `shop.offersDelivery` is true and this render
+    // passed an area, so `canDeliver` (checkout-form.tsx) is true and the
+    // "Deliver" segment, its area rows and the landmark field all mount.
+    // Staying on "Store pick-up" would leave three of the controls this task
+    // floored (`checkout-form-fulfilment-deliver`, `checkout-form-area-Hodan`,
+    // `checkout-form-landmark-input`) unswept -- the exact gap a zero-cart
+    // render leaves for CartSheet and ProductSheet in the block above.
+    press(tree, 'checkout-form-fulfilment-deliver');
+    setText(tree, 'checkout-form-name-input', 'Amina Warsame');
+    setText(tree, 'checkout-form-phone-input', '0634456789');
+    press(tree, 'checkout-form-area-Hodan');
+    setText(tree, 'checkout-form-landmark-input', 'Blue gate, behind the mosque');
+
+    // A REJECTED SUBMIT -- the one client error (`unavailable_item`) that
+    // renders a FOURTH control this screen only shows in this state:
+    // `storefront-checkout-edit-cart` (theme-shared.tsx).
+    mockRpc.mockRejectedValueOnce({ message: 'unavailable_item' });
+    press(tree, 'checkout-form-submit');
+    await flush();
+
+    const checkoutControls = touchControlsIn(tree);
+    // Guards the guard: Back, name, phone, both fulfilment segments, the one
+    // area row, landmark, note, submit, submit-whatsapp and edit-cart is ten
+    // -- the exact number matters less than a floor high enough that a
+    // control silently missing from this render would shrink the count back
+    // toward what the zero-cart sweep already reaches.
+    expect(checkoutControls.length).toBeGreaterThan(9);
+    const checkoutFailing = checkoutControls.filter((c) => !meetsTouchTargetRule(c));
+    expect(checkoutFailing.map((c) => c.props?.testID)).toEqual([]);
+
+    // NOW A SUCCESSFUL SUBMIT -- the only way `checkout.stage` reaches
+    // 'confirmation'.
+    mockRpc.mockResolvedValueOnce({ data: confirmedOrderRow, error: null });
+    press(tree, 'checkout-form-submit');
+    await flush();
+
+    const confirmationControls = touchControlsIn(tree);
+    // "Continue shopping" (ConfirmationScreen) and, since this fixture's
+    // `hideBranding` is false, OrderPlaced's own "See how" -- two controls
+    // that would otherwise be the exact regression this task fixed.
+    //
+    // `toBeGreaterThan(1)` used to be the only check that `checkout.stage`
+    // actually reached 'confirmation' at all. It is not one: if the submit
+    // above silently failed to advance the stage, the tree would still be
+    // `CheckoutScreen` -- Back, both fields, both fulfilment segments, the
+    // area row, landmark, note and submit is nine controls on its own,
+    // already past 1, and this assertion would pass having tested a screen
+    // that was never reached. `storefront-continue-shopping` only exists on
+    // ConfirmationScreen (theme-shared.tsx), so its presence is what proves
+    // the stage actually advanced, not merely that SOME screen with more
+    // than one control rendered.
+    expect(confirmationControls.map((c) => c.props?.testID)).toContain('storefront-continue-shopping');
+    const confirmationFailing = confirmationControls.filter((c) => !meetsTouchTargetRule(c));
+    expect(confirmationFailing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE ABOUT AND VISIT TABS -- the fourth instance of this file's own defect,
+// and the one none of the four describe blocks above, nor either of the two
+// below them, ever touched. `renderTheme`'s default fixture used to carry
+// `about: null`, `contactPhone: null`, `instagram: null`, `areas: []`,
+// `images: []` and `highlights: []` (see the fixture's own comment above),
+// which meant `availableTabs` (shop-tabs.tsx) never returned more than
+// `['shop']` and `ShopTabRail` rendered nothing at all -- there was no
+// Pressable to press to reach either tab, even before asking whether its
+// controls were sized right. That is exactly how `storefront-visit-directions`
+// (37px, `visit-panel.tsx`'s "Open in Maps") sat under the floor: live in a
+// browser, behind a fully green suite that had never once rendered the row it
+// sits in.
+//
+// COVERAGE: Market only, driven straight to each tab via `ThemeProps`' own
+// `tab`/`onSelectTab` (`renderTheme`'s third argument, above) rather than by
+// pressing `storefront-tab-about`/`storefront-tab-visit` -- `ShopTabRail`'s
+// own Pressables carry `accessibilityRole="tab"`, which `touchControlsIn`
+// deliberately excludes (see this file's own header comment), so pressing one
+// would prove nothing about the floor and would only add a second act() this
+// sweep does not need. `ShopChrome` -- the component that owns the tab rail
+// and decides which panel mounts (shop-chrome.tsx) -- is imported unchanged by
+// theme-market.tsx, theme-window.tsx and theme-counter.tsx alike, all three
+// passing it the identical props; that is the same fact the cart/product-sheet
+// and checkout blocks above already lean on for their own Market-only
+// coverage, and it holds here for the same reason: there is no theme-specific
+// branch inside ShopChrome, AboutPanel or VisitPanel left for a second render
+// under Window or Counter to catch that this one does not.
+// ─────────────────────────────────────────────────────────────────────────
+describe('the About and Visit tabs no describe block above ever selects', () => {
+  // Two areas, priced differently (one free), so VisitPanel's own delivery
+  // card renders a real list rather than a single row -- the same reason the
+  // checkout block above passes a real `deliveryAreas` rather than `[]`. Names
+  // distinct from that block's own 'Hodan' only so a failure in either test's
+  // output is never ambiguous about which fixture produced it.
+  const visitAreas: PublicDeliveryArea[] = [
+    { name: 'QA Hodan', feeCents: 0 },
+    { name: 'QA Bakaaro', feeCents: 15000 },
+  ];
+
+  it('About: the FAQ toggles, gallery and highlights all carry the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket, visitAreas, 'about');
+
+    // Guards the guard: if `about` ever stopped reaching this tree (the
+    // fixture regressing to null, or `active` falling back to 'shop' the way
+    // `ShopChrome` does for a tab that no longer exists), this would be the
+    // first thing to notice, before any control count could paper over it.
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-panel').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-gallery').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-highlights').length).toBeGreaterThan(0);
+
+    const controls = touchControlsIn(tree);
+    const controlIds = controls.map((c) => c.props?.testID);
+    // The FAQ is generated (shopQuestions, about-panel.tsx) rather than fixed
+    // in count -- this fixture's `offersDelivery`, `areas` and `whatsappE164`
+    // together produce all four -- so naming each toggle is what makes a
+    // dropped question an assertion failure rather than a smaller number
+    // nobody compared against anything.
+    for (const requiredId of [
+      'storefront-faq-pay', 'storefront-faq-delivery', 'storefront-faq-collect', 'storefront-faq-stock',
+    ]) {
+      expect(controlIds).toContain(requiredId);
+    }
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+
+  it('Visit: directions, call, Instagram and WhatsApp all carry the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket, visitAreas, 'visit');
+
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-visit-panel').length).toBeGreaterThan(0);
+    // Both area rows render (proof the delivery-areas card itself mounted),
+    // but neither is a control: they are plain Views with no `onPress` and no
+    // `accessibilityRole`, so `touchControlsIn` never picks them up, and a
+    // floor on a row nobody can tap would be a number this rule has no
+    // argument for. Asserted here as a fact about the tree, not folded into
+    // the touch-target loop below where its absence would look like the same
+    // kind of finding as a control that actually failed.
+    for (const areaName of ['QA Hodan', 'QA Bakaaro']) {
+      const rows = tree.root.findAll((n) => n.props?.testID === `storefront-visit-area-${areaName}`);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(typeof rows[0].props?.onPress).not.toBe('function');
+    }
+
+    const controls = touchControlsIn(tree);
+    const controlIds = controls.map((c) => c.props?.testID);
+    for (const requiredId of ['storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram']) {
+      expect(controlIds).toContain(requiredId);
+    }
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});

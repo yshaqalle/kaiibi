@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
+import { TOUCH_TARGET } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { cartSubtotalCents, type StorefrontCart } from '@/lib/storefront-cart';
@@ -394,6 +395,17 @@ export function CheckoutForm({
   );
 }
 
+// THE ONES THIS FORM SHIPPED UNDER THE FLOOR -- measured live, at 390px:
+// name/phone/landmark/note (`input`, 39px), the fulfilment toggle (`segment`,
+// 35px) and "Place order" itself (`submit`, 41px). Every one is a control
+// sized by its own padding, the exact failure mode TOUCH_TARGET's own comment
+// (scale.ts) names -- and every one is on the screen a customer commits an
+// order from, which storefront-touch-targets.test.tsx's sweep never rendered
+// until it was extended to reach checkout.stage === 'checkout' (see that
+// file's own "the checkout and confirmation screens" describe block). A
+// `minHeight` on each is the floor, not a padding bump: the segmented toggle
+// and the area rows keep their own width layout (flex: 1 / space-between)
+// untouched, only growing taller where they were short.
 const styles = StyleSheet.create({
   form: { gap: 4 },
   label: { fontSize: 12.5, fontWeight: '800' },
@@ -405,12 +417,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
+    minHeight: TOUCH_TARGET,
   },
   error: { fontSize: 12, marginTop: 6, fontWeight: '600' },
   hint: { fontSize: 12, marginTop: 8, lineHeight: 16 },
   collectLocation: { fontSize: 13, marginTop: 8, lineHeight: 18 },
   segmented: { flexDirection: 'row', gap: 8, marginTop: 6 },
-  segment: { flex: 1, borderWidth: 1, borderRadius: 999, paddingVertical: 9, alignItems: 'center' },
+  segment: {
+    flex: 1, borderWidth: 1, borderRadius: 999, paddingVertical: 9, alignItems: 'center',
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   segmentText: { fontSize: 13, fontWeight: '800' },
   areas: { marginTop: 10, gap: 8 },
   areaRow: {
@@ -421,6 +437,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    minHeight: TOUCH_TARGET,
   },
   areaName: { fontSize: 13.5, fontWeight: '700' },
   areaFee: { fontSize: 12.5, fontWeight: '600' },
@@ -431,11 +448,17 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 14, fontWeight: '800' },
   totalValue: { fontSize: 16, fontWeight: '800' },
   caveat: { fontSize: 12, marginTop: 10, lineHeight: 16 },
-  submit: { marginTop: 14, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
+  submit: {
+    marginTop: 14, borderRadius: 999, paddingVertical: 12, alignItems: 'center',
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   submitDisabled: { opacity: 0.6 },
   submitText: { fontSize: 14, fontWeight: '800' },
   // WhatsApp's own fixed brand colours -- never the shop's palette, the same
   // rule ProductActions' Ask button and WhatsAppButton follow (theme-shared.tsx).
-  submitWhatsapp: { marginTop: 10, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
+  submitWhatsapp: {
+    marginTop: 10, borderRadius: 999, paddingVertical: 12, alignItems: 'center',
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   submitWhatsappText: { fontSize: 14, fontWeight: '800' },
 });

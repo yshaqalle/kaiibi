@@ -118,6 +118,14 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         wide={wide}
         tab={activeTab}
         onSelectTab={selectTab}
+        // Counter's own page (`scroll` below) never went full-bleed and
+        // stays bounded to SHOP_MAX_WIDTH, centred -- see this file's own
+        // `scroll` comment. ShopChrome defaults to full-bleed (Market and
+        // Window's shape); this is what tells it to match Counter's instead,
+        // so the rail's pills and the About/Visit panel's footer line up
+        // with the price list under them rather than running to the
+        // window's own edge. See shop-chrome.tsx's own comment on `bounded`.
+        bounded
       >
       {/* A plain View never scrolls on native, and Expo Router's web reset sets
           `body { overflow: hidden }` -- either way, a catalogue longer than one
@@ -128,8 +136,63 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
           reserves no space of its own -- see theme-market.tsx's identical
           comment. Unconditional for the same reason: the first Add must
           not reflow the page under the customer's finger. */}
+      {/* TASK B DELIBERATELY DOES NOT TOUCH THIS FILE, and that is a finding,
+          not an oversight.
+
+          Task B's brief describes "the goods grid" the same way across all
+          three themes and asks for it to become a bounded, two-row-tall
+          scroll while the page keeps carrying the header and footer. That
+          premise holds for Market and Window (theme-market.tsx,
+          theme-window.tsx): both lay ProductTile out in a numColumns grid,
+          and both now nest a height-bound FlatList for exactly that grid
+          inside a page-level, PLAIN SCROLLVIEW -- not a second FlatList, the
+          shape an earlier draft of this pass tried and reverted (see
+          theme-market.tsx's own comment on why nesting a FlatList inside a
+          FlatList silently produces a goods box that cannot scroll on its
+          own, which is the opposite of a "VirtualizedLists should never be
+          nested" warning this shape trips harmlessly instead).
+
+          Counter has no grid to bound. `groupByCategory` above renders ONE
+          column of price-list rows in ONE ShopCard, and the "row" the brief's
+          bound is built from (a measured tile height, two of them plus a
+          gap) has no counterpart here -- a Counter "row" is a single product
+          line a few dense-type lines tall. Applying the identical two-row
+          cap literally would bound this scroll box to roughly two product
+          LINES -- on the order of 100px -- for a theme whose own header
+          comment above names its entire reason for existing as "the theme
+          that makes a 200-line pharmacy catalogue readable". A shop picks
+          Counter FOR the uninterrupted scan down a price list; a two-line
+          window with a scrollbar is the opposite of that, on the one theme
+          built to carry the longest catalogues this page ever renders.
+
+          So this ScrollView keeps doing exactly what it already did: one
+          scroller carrying the header, the price list and the footer
+          together, unbounded. Nothing here regresses the user's actual
+          complaint ("the [grid] runs down the page... instead of fill the
+          entire page") -- that complaint describes a wall of PHOTOS, which
+          only Market and Window have ever rendered, never Counter's compact
+          text rows. Pinned by storefront-theme-counter.test.tsx's own
+          `storefront-counter-scroll` checkout-bar-clearance test, which
+          still asserts this single scroller carries that padding -- proof
+          this file's shape is unchanged, not merely unexamined. */}
+      {/* THE INSET AND THE BOUND both live HERE, not inside SearchField.
+          Counter is the one theme that renders the field outside its own
+          padded scroller, so Counter is the one that owes it a gutter -- see
+          searchRow's comment in theme-shared.tsx, where that padding used to
+          live and quietly double up on the two themes that pad their own
+          column. The gutter alone was correct only below SHOP_MAX_WIDTH: a
+          bare `paddingHorizontal` on a full-width View agrees with `scroll`
+          below it (bounded and centred at 1320) while the window is
+          narrower than that, and stops agreeing the moment it is not -- at
+          1900px the field's own left edge sat at 16 while the price list's
+          sat at 306, centred inside its own 1320 column. `searchInset` now
+          carries the identical `maxWidth`/`alignSelf` pair `scroll` does, so
+          the two are the SAME column rather than two insets that happen to
+          match under one width. */}
       {shouldOfferSearch(products) ? (
-        <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
+        <View style={styles.searchInset}>
+          <SearchField colors={colors} value={query} onChange={setQuery} count={products.length} />
+        </View>
       ) : null}
 
       <ScrollView
@@ -235,6 +298,16 @@ const styles = StyleSheet.create({
   // The reading column -- see theme-market.tsx's identical `scroller`.
   scroll: { flex: 1, width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   scrollContent: { padding: SPACE.page, paddingBottom: 24 },
+  // The same gutter `scrollContent` gives everything below it, for the field
+  // that sits above it -- so the search lines up with the rows it filters
+  // rather than running to the window's edge. And the same BOUND `scroll`
+  // above carries too, not only its padding: a gutter alone still lets a
+  // full-width View grow past 1320, where `scroll`'s own column has already
+  // stopped and centred. `width`/`maxWidth`/`alignSelf` here are the
+  // identical three values `scroll` carries, so this is the same column,
+  // not a second one tuned to look the same under 1320 and drift apart
+  // above it.
+  searchInset: { width: '100%', maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center', paddingHorizontal: SPACE.page },
   // Less vertical padding than a normal card: the first thing inside is a
   // section eyebrow that brings its own leading, and the rows below it are
   // meant to run close together.

@@ -106,6 +106,56 @@ export const SPACE = {
   cardGap: 14,
 } as const;
 
+// THE TOUCH-TARGET FLOOR.
+//
+// Live, measured, at 390px: Add and Ask -- the two buttons this entire page
+// exists to offer -- were 26px tall. Cart and the WhatsApp button were 31px.
+// The directory's own CTA was 37-39px. None of those numbers came from a
+// decision; each is a padding value that "looked right" on a design pass that
+// was never checked against a thumb. 44 is not one of those guesses -- it is
+// Apple's HIG minimum comfortable tap target (Material's own floor, 48dp, is
+// higher still), and this page's whole audience is the one HIG wrote that
+// number for: a customer arriving over a forwarded WhatsApp link, on a phone,
+// often outdoors, often on the cheapest Android sold.
+//
+// WHY THIS FOLDER NEEDS ITS OWN CONSTANT rather than every component picking
+// a padding that looks right: that is exactly the failure mode this fixes.
+// Six differently-sized controls did not happen because six people disagreed
+// about touch targets -- it happened because nothing here NAMED the target,
+// so nobody had a number to check against. A single import is what makes
+// "is this control reachable" a fact a call site states rather than a
+// padding it happens to imply.
+//
+// A FLOOR, not a padding bump: `minHeight` only raises a control that is
+// currently under it and changes nothing else about how it looks, where
+// MORE padding would inflate the box of every button on the page, including
+// the ones that were already fine. Icon-only controls also take a matching
+// `minWidth` -- a tap target that is 44 tall and 20 wide is still a target a
+// thumb can miss sideways. Where a control genuinely cannot grow without
+// breaking its own layout, `hitSlop` is the documented way out: it enlarges
+// the area that ANSWERS a tap without moving the pixel the eye sees, which
+// is exactly what a control drawn small on purpose (Counter's dense price
+// row, built to keep a 200-line catalogue scannable) needs instead of a
+// floor that would undo the density it exists for.
+export const TOUCH_TARGET = 44;
+
+// THE KAIIBI MARK'S OWN PROPORTIONS, because it is not square and both places
+// that draw it were treating it as though it were.
+//
+// `assets/images/kaiibi-mark-{white,black}.png` are 200x212 -- a shopping bag
+// with a handle, which is naturally taller than it is wide. ShopFooter drew it
+// into a 21x21 box with no `resizeMode` at all, and RN's default is `cover`:
+// the bag was squashed 6% narrow and its handle cropped off the top. It is the
+// company's own mark on every shop's page, so it renders wrong on every shop's
+// page.
+//
+// A call site multiplies its chosen HEIGHT by this to get the width, and sets
+// BOTH -- `aspectRatio` alone does not work here and the browser proved it:
+// an `Image` with a height and an aspectRatio but no width takes its own
+// intrinsic width instead, which drew the footer's 24px-tall mark 200px wide.
+// Two explicit numbers derived from one ratio cannot do that.
+export const KAIIBI_MARK_ASPECT = 200 / 212;
+
 // WHAT ACTUALLY CAUSED THE SCREENSHOT THIS REDESIGN CAME FROM.
 //
 // Nothing in this folder bounded its own width -- `grep -rn maxWidth
@@ -119,6 +169,69 @@ export const SPACE = {
 // ceiling, so the shop and the app now agree on how wide "wide" is. Still a
 // fixed number rather than a percentage -- a measure that grows with the
 // window stops being a measure.
+//
+// THE GRID STOPPED READING THIS (2026-09-06): the goods grid was the one
+// user this constant never should have had. DIRECTORY_MAX_WIDTH below
+// already makes the argument -- a grid of cards, scanned across, is not a
+// reading column and gains a column when it grows rather than losing one --
+// for the store DIRECTORY's own grid; Task C applies the identical argument
+// here. ThemeMarket and ThemeWindow's goods FlatList no longer sits inside
+// this bound at all: it fills the window, less the page's own padding (see
+// each theme's own `scroller`/`column` split), and gridColumnsForWidth grew
+// five new rungs above 1280 so a tile stays roughly its designed size
+// instead of five of them stretching to fill whatever the monitor allows.
+//
+// THE HEADER AND THE FOOTER STOPPED TOO, an hour later, the same day: they
+// kept this bound for one release while the grid lost it, on the theory that
+// three cards of facts and a colophon were closer to prose than to a grid.
+// Wrong call, caught live -- a header stopping at 1620px beside a grid
+// running to 1900px does not read as "this part is prose," it reads as a
+// page that forgot to finish resizing itself, and a footer that stops short
+// of the grid it closes is the same defect at the bottom of the page. The
+// argument this constant is FOR (a reading column) was never about the
+// ROW those three cards sit in -- a row of cards, scanned left to right like
+// the grid below it, has no line length to lose either. It was about the
+// one thing inside that row that actually reads as a sentence: the anchor
+// card's headline and its `about` paragraph. Those two now carry
+// PROSE_MAX_WIDTH directly (`anchorHead`/`anchorAbout`, theme-shared.tsx) --
+// bounding the TEXT rather than the row it sits in, which is what lets the
+// row itself widen with the grid while the sentence inside one of its cards
+// still stops at a comfortable measure.
+//
+// SO WHO STILL READS THIS, on the browsing (Shop) tab of ThemeMarket and
+// ThemeWindow: nobody. `grep -rn "maxWidth: SHOP_MAX_WIDTH" src/components/
+// storefront` (a style-property use, not a mention in some other constant's
+// own comment) turns up THREE call sites unconditionally, and neither is on
+// that tab: theme-counter.tsx's entire page -- `scroll` AND `searchInset`,
+// both -- Counter has no grid to free (Task B and Task C both say so
+// explicitly) and still reads this as its one and only width bound, top to
+// bottom; and CheckoutBar's own `slip` (theme-shared.tsx), which floats over
+// every theme's page and borrows this as a familiar ceiling for its own
+// width rather than inventing a second ad-hoc number. (An earlier draft of
+// this comment said "two" call sites -- it had counted `scroll` and `slip`
+// and missed `searchInset`, added by the very commit that corrected the
+// count. A comment correcting a number is not exempt from being wrong about
+// the next one.)
+//
+// TWO MORE, CONDITIONALLY: shop-chrome.tsx's `railBounded` and
+// `scrollerBounded`. These did not exist when the paragraph above was first
+// written, and an earlier draft of THIS one said the rail and the About/Visit
+// panel scroller were "not on this list any more" at all -- true for exactly
+// as long as ShopChrome only ever ran full-bleed. It stopped being true the
+// day Counter's own page turned out to disagree: Counter's `scroll` never
+// went full-bleed (the sentence above already says so), so a rail and a
+// panel scroller that assumed every theme HAD gone full-bleed put the same
+// mismatch this constant's history keeps producing back onto Counter instead
+// -- see shop-chrome.tsx's own `bounded` comment for the measurement. Those
+// two styles exist for exactly one reason: to COPY Counter's own bound back
+// onto the chrome sitting on top of its page, not to independently decide a
+// rail or a panel needs one. They are gated on `bounded`, the prop only
+// Counter's theme file ever sets true, so Market's and Window's own rail and
+// panel stay off this list in practice, on every tab, exactly as the
+// paragraph above still describes for them. If a further call site turns up
+// UNCONDITIONALLY on the Shop tab in a future change, that is new prose or a
+// new row to make the same choice about, not a reason to assume this
+// constant already covers it.
 export const SHOP_MAX_WIDTH = 1320;
 
 // THE PANEL GETS ITS OWN MEASURE, NARROWER THAN THE GRID -- the same argument
@@ -143,6 +256,26 @@ export const SHOP_MAX_WIDTH = 1320;
 // 820 is picked the way a reading column is picked -- a comfortable line
 // length for body text -- not derived from anything else in this file.
 export const PROSE_MAX_WIDTH = 820;
+
+// A SHEET GETS ITS OWN MEASURE, NARROWER THAN EITHER OF THE TWO ABOVE.
+//
+// This is the number that produced the defect it exists to fix: the product
+// sheet had no width bound at all, so on a 1512px window it spanned the whole
+// window and a 4:3 photo took 4:3 OF THAT -- over a thousand pixels tall,
+// with the name, the price and the buy button shoved off the bottom.
+//
+// PROSE_MAX_WIDTH (820) is picked for a page of running prose. A sheet is one
+// photo, a name, a price and a short paragraph -- a narrower thing again, the
+// same way prose is narrower than the grid. 480 is not derived from either
+// number: it is picked so the sheet reads as a CARD floating over the dimmed
+// page behind it, which is what makes dismissing it feel like putting one
+// thing down rather than leaving a second page.
+//
+// Shared by ProductSheet and CartSheet, which is why it lives here rather
+// than in either of them: a cart of three lines stretched across a 1,500px
+// window is a receipt printed on a bedsheet, and the two sheets floating at
+// different widths would read as two different surfaces.
+export const SHEET_MAX_WIDTH = 480;
 
 // Bento's radii. `card` is BENTO_RADIUS (theme.ts) by value and by intent --
 // not imported, because that constant lives beside `Colors.light` and this
@@ -200,12 +333,17 @@ export const ON_SCRIM_MUTED = '#e8e6e0';
 // not a photo the tile has darkened on its way to becoming legible. So the
 // vocabulary is shared -- both fade in the same ink-blue from the same
 // [0.3, ...] stop -- but the STRENGTH is two named constants, each owned by
-// the one surface that uses it. Nothing here claims they are, or should be,
-// the same value.
+// the CLASS of surface it fits (full-bleed vs a tile), not by a single call
+// site. Nothing here claims the two classes are, or should be, the same
+// value.
 //
-// THE HERO. The shop card's own hero scrim (`storefront-hero-scrim`,
-// theme-shared.tsx) -- full-bleed, so it can afford to go dark enough to
-// guarantee on-scrim text stays legible over any photo a shop uploads.
+// THE HERO. Full-bleed, so it can afford to go dark enough to guarantee
+// on-scrim text stays legible over any photo a shop uploads. Two call sites
+// share it for exactly that reason, both full-bleed photographs of unknown
+// brightness rather than tiles: the shop page's own hero
+// (`storefront-hero-scrim`, theme-shared.tsx) and the store directory's
+// featured card (`storefront-directory-featured-scrim-<slug>`,
+// shop-directory-card.tsx).
 export const HERO_SCRIM = {
   colors: ['transparent', 'rgba(16,22,35,0.82)'] as const,
   locations: [0.3, 0.92] as const,

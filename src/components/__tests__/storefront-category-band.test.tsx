@@ -1,4 +1,4 @@
-import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
+import { AccessibilityInfo, StyleSheet, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { CATEGORY_BAND_MINIMUM, CategoryBand, firstPhotoByCategory } from '@/components/storefront/category-band';
@@ -219,6 +219,62 @@ describe('the band drives the existing category filter, unchanged', () => {
     await act(async () => clear[0].props.onPress());
     expect(texts()).toContain('Basmati Rice 5kg');
     expect(texts()).toContain('Dates 1kg');
+  });
+});
+
+// Task 8 (wave-review-fixes.md item 8): both of these render inside
+// theme-market.tsx's `header`, itself a plain, unpadded child of the page
+// ScrollView's own `contentContainerStyle` (`page: { padding: SPACE.page }`)
+// -- the SAME already-padded column the anchor card, the goods grid and the
+// footer all sit in with no padding of their own. CategoryBand's `band` and
+// CategoryFilterBar's `filterChip` each ALSO carried their own horizontal
+// inset on top of that shared one -- 16 (page) + 16 (band) = 32 for the
+// first tile, 16 + 14 = 30 for the chip, against everything else's 16. The
+// fix is that neither style should add anything of its own; these assert
+// exactly that, resolved through `pressable()`'s own style FUNCTION for the
+// chip (see storefront-touch-targets.test.tsx's identical `resolvedStyle`
+// for why calling it with `{ pressed: false }` first is required, not
+// optional) rather than a browser-measured pixel number this harness cannot
+// lay out to reproduce.
+function resolvedStyle(node: { props?: { style?: unknown } }): Record<string, unknown> {
+  const raw = node.props?.style;
+  const style = typeof raw === 'function' ? raw({ pressed: false }) : raw;
+  return (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
+}
+
+describe('the band and the filter chip add no inset of their own', () => {
+  it('CategoryBand carries no horizontal padding beyond the page it already sits in', async () => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(<ThemeMarket storefront={shop} products={products} colors={colors} categories={categories} />);
+    });
+
+    const band = tree.root.findAll((n) => n.props?.testID === 'storefront-category-band')[0];
+    const style = resolvedStyle(band);
+    expect(style.paddingHorizontal ?? 0).toBe(0);
+    expect(style.paddingLeft ?? 0).toBe(0);
+    expect(style.paddingRight ?? 0).toBe(0);
+  });
+
+  it('CategoryFilterBar carries no horizontal margin beyond the page it already sits in', async () => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(<ThemeMarket storefront={shop} products={products} colors={colors} categories={categories} />);
+    });
+
+    // The chip renders only while a category is active -- select one first.
+    const pill = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-category-Dry goods' && typeof n.props?.onPress === 'function',
+    );
+    await act(async () => pill[0].props.onPress());
+
+    const chip = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-category-clear' && typeof n.props?.onPress === 'function',
+    )[0];
+    const style = resolvedStyle(chip);
+    expect(style.marginHorizontal ?? 0).toBe(0);
+    expect(style.marginLeft ?? 0).toBe(0);
+    expect(style.marginRight ?? 0).toBe(0);
   });
 });
 

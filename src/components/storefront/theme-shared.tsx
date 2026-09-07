@@ -15,7 +15,8 @@ import {
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
-  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE,
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, PROSE_MAX_WIDTH, RADIUS, SHOP_MAX_WIDTH, SPACE,
+  TABULAR, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
@@ -739,6 +740,27 @@ type ProductActionsProps = {
   canFlyToCart?: boolean;
 };
 
+// WHY `compact` GETS hitSlop RATHER THAN TOUCH_TARGET.
+//
+// `buttonCompact` (below) is `paddingVertical: 3` on a 10.5px label -- roughly
+// 19px measured, in Counter's price-list row, the ONE place this pair renders
+// beside a THIRD thing fighting the same line: `styles.price` sits to the
+// right of this whole row, at Counter's own row scale, and the row's height
+// is what a customer scans 200 times down one shop. Growing the button to 44
+// would nearly triple that row's height on every single line -- undoing
+// exactly the density Counter exists to offer (see theme-counter.tsx's own
+// header comment: "the theme that makes a 200-line pharmacy catalogue
+// readable"). That is the "genuinely cannot grow without breaking the
+// design" case scale.ts's TOUCH_TARGET comment names, and hitSlop is the
+// named alternative: it answers a tap without moving a pixel a customer
+// scanning the list actually sees.
+//
+// The numbers: 19px measured tall, ~30px measured wide (9px horizontal
+// padding either side of a 3-4 letter label at 10.5px bold). Top/bottom
+// pushes the tap area to 19 + 2*13 = 45px; left/right to 30 + 2*8 = 46px --
+// both just over TOUCH_TARGET, not merely "some slop".
+const COMPACT_BUTTON_HIT_SLOP = { top: 13, bottom: 13, left: 8, right: 8 };
+
 // The Add/Ask pair every theme with per-product actions needs. Originally
 // lived only in ProductTile (Market, Window); Counter has its own row layout
 // and so cannot reuse ProductTile itself, only the two rules its actions
@@ -776,7 +798,14 @@ export function ProductActions({
         <Pressable
           testID="product-tile-add"
           accessibilityRole="button"
-          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }])}
+          // TOUCH_TARGET on the ordinary (non-compact) button -- ProductTile's
+          // grid tile, where Add is the reason this page exists and there is
+          // nothing beside it competing for height. `compact` gets the
+          // opposite treatment, `hitSlop` rather than the floor -- see
+          // `COMPACT_BUTTON_HIT_SLOP`'s own comment below for the measurement
+          // that makes minHeight the wrong tool there.
+          style={pressable([styles.button, compact ? styles.buttonCompact : styles.buttonFloor, { backgroundColor: colors.accent }])}
+          hitSlop={compact ? COMPACT_BUTTON_HIT_SLOP : undefined}
           // fireFlyToCart reads the press's own window-space coordinate --
           // pageX/pageY, unaffected by how far this tile's grid has been
           // scrolled -- and hands it to whatever FlyToCartLayer is mounted
@@ -814,7 +843,8 @@ export function ProductActions({
         <Pressable
           testID="product-tile-ask"
           accessibilityRole="button"
-          style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }])}
+          style={pressable([styles.button, compact ? styles.buttonCompact : styles.buttonFloor, { backgroundColor: WHATSAPP_BUTTON_GREEN }])}
+          hitSlop={compact ? COMPACT_BUTTON_HIT_SLOP : undefined}
           onPress={handleAsk}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
@@ -979,14 +1009,44 @@ export function CategoryFilterBar({
 // margins either side. Breakpoints roughly split phone / tablet / laptop --
 // three columns is not "the" right answer for 768px so much as a deliberate
 // one, same as the rest of the grid a theme renders through.
+//
+// EVERY THRESHOLD HERE IS A MULTIPLE OF 128 (640 = 5x, 1024 = 8x, 1280 =
+// 10x, and every rung Task C added above it) -- not a house style for its
+// own sake, a target: at each boundary the tile a column count draws lands
+// in the same ~240-300px band the grid was designed around (see scale.ts's
+// own SPACE/TYPE comments), whatever the raw window width that crossed it.
+//
+// FIVE USED TO BE THE LAST RUNG, because `width` never climbed past
+// SHOP_MAX_WIDTH (1320) in practice -- the grid used to sit inside the
+// page's own reading-column bound, so nothing wider than that ever reached
+// this function. Task C moved the grid outside that bound (see
+// theme-market.tsx/theme-window.tsx's own `scroller`/`column` styles and
+// SHOP_MAX_WIDTH's comment in scale.ts) specifically so it could keep
+// growing on a wide monitor -- and `width` is `useWindowDimensions()`'s raw
+// figure, so it now genuinely climbs as far as the window does. Stopping at
+// five with nothing above 1280 meant a 2,560px window drew five ~500px
+// posters, which is worse than the fixed-width gutters this whole pass
+// replaced -- five 250px tiles and a lot of empty margin at least still
+// looked like a considered grid.
 export function gridColumnsForWidth(width: number): number {
   if (width < 640) return 2;
   if (width < 1024) return 3;
-  // Five only once the column itself widened (SHOP_MAX_WIDTH 1320): at that
-  // width a four-up tile is ~310px -- wider than a phone's whole two-up --
-  // and five keeps tiles near the ~250px the grid was designed around.
   if (width < 1280) return 4;
-  return 5;
+  if (width < 1536) return 5;
+  if (width < 1792) return 6;
+  if (width < 2048) return 7;
+  if (width < 2304) return 8;
+  if (width < 2560) return 9;
+  // 2,560px is the width named above -- ten columns there is a ~242px tile
+  // (see this file's own test suite for the arithmetic), back in the
+  // intended band. Left open-ended past this rung the same way five used to
+  // be the open-ended rung before it: a single browsing window wider than
+  // 2,560 logical px is not a screen size this page has ever been designed
+  // for or seen in practice (a real 4K/5K display reports a scaled logical
+  // width well under its native pixel count, not the raw figure), and a
+  // somewhat larger tile there is an honest degradation, not a defect worth
+  // chasing with another five thresholds.
+  return 10;
 }
 
 // Where the three shop cards stop stacking and sit in a row. Deliberately its
@@ -1018,6 +1078,141 @@ export function padFinalRow<T>(items: T[], numColumns: number): (T | null)[] {
   const remainder = items.length % numColumns;
   if (remainder === 0) return items;
   return [...items, ...Array<null>(numColumns - remainder).fill(null)];
+}
+
+// THE GOODS GET THEIR OWN SCROLL, TWO ROWS TALL -- and how tall that actually
+// is cannot be a number this file types in. A tile is a photo plus a name
+// slot, a price slot and an actions row, `dense` changes several of those,
+// and the image itself is `aspectRatio: 1` against a column width that moves
+// at every breakpoint gridColumnsForWidth answers for -- so "two rows" is a
+// question about whatever really got laid out, not a constant. Market and
+// Window each measure their own first cell (`onLayout`, held in state) and
+// hand the result here.
+//
+// Never rendered directly -- see ESTIMATED_ROW_HEIGHT below for what a caller
+// shows before that measurement exists.
+//
+// `rowCount <= 1` is the other half of "about two rows": a shop with one
+// row of stock has nothing to scroll TO, and bounding a single row's height
+// to itself would draw a scroll region with dead space beneath it -- the
+// exact defect padFinalRow's own comment names for the column axis, here on
+// the row axis instead. `null` is the signal a caller reads as "let the
+// FlatList be its own height," which is its ordinary unbounded behaviour.
+export function goodsScrollHeight(
+  measuredRowHeight: number | null,
+  rowGap: number,
+  rowCount: number,
+): number | null {
+  if (rowCount <= 1) return null;
+  const rowHeight = measuredRowHeight ?? ESTIMATED_ROW_HEIGHT;
+  return rowHeight * 2 + rowGap;
+}
+
+// THE SAME BOX, THREE ROWS TALL, for a window with the room to spare.
+//
+// `null` UNTIL A REAL MEASUREMENT EXISTS, deliberately NOT falling back to
+// ESTIMATED_ROW_HEIGHT the way goodsScrollHeight (above) does. That
+// constant's own comment says it stands in for "two rows" for the one frame
+// before a measurement arrives -- it never claimed to answer the harder
+// two-vs-three question, but feeding it into this function let it do exactly
+// that: on a tall enough window, `goodsRowBound` picked a THREE-row box built
+// from three ESTIMATED rows before any tile had ever been measured, and the
+// instant the real height arrived, the box visibly snapped to whatever three
+// rows of the ACTUAL tile height came to (804px -> 674px on the window that
+// found this). Returning null here instead means an unmeasured grid can only
+// ever be offered TWO rows -- goodsRowBound's own "holds two rows while the
+// window has not been measured" fallback -- which is one frame of an
+// under-estimate at worst, never an over-estimate that has to visibly
+// shrink.
+export function goodsThreeRowHeight(
+  measuredRowHeight: number | null,
+  rowGap: number,
+  rowCount: number,
+): number | null {
+  if (rowCount <= 2 || measuredRowHeight == null) return null;
+  return measuredRowHeight * 3 + rowGap * 2;
+}
+
+// HOW MANY ROWS THE GOODS BOX SHOWS, and the rule is a range rather than a
+// number: never fewer than two, never more than three, three only when the
+// window has the room for it.
+//
+// WHY IT IS ALWAYS BOUNDED, even when the page then has to scroll. The point
+// of this box is not that the page fits -- on a 14" laptop it cannot, and the
+// arithmetic saying so is in this file's history -- it is that the page's
+// LENGTH STOPS DEPENDING ON THE CATALOGUE. Unbounded, a shop that grows from
+// 28 items to 280 grows a page ten times longer, and every customer pays for
+// that stock in scrolling before they reach the footer. Bounded, the page is
+// the same short page either way and the growth goes where it belongs: inside
+// the grid, which scrolls.
+//
+// That is the whole trade, and it is why "two rows or nothing" was wrong. It
+// read the requirement as being about the WINDOW when it was about the
+// CATALOGUE.
+export function goodsRowBound(
+  twoRowHeight: number | null,
+  threeRowHeight: number | null,
+  remainder: number | null,
+): number | null {
+  // Nothing to bound: one row of stock or none. The box is its own height.
+  if (twoRowHeight == null) return null;
+  // Three rows only when they genuinely fit, and only when a third row exists
+  // to show -- a three-row box over two rows of stock is dead space.
+  if (threeRowHeight != null && remainder != null && remainder >= threeRowHeight) return threeRowHeight;
+  return twoRowHeight;
+}
+
+// What a caller renders for the one frame between "the grid mounted" and
+// "the first row reported its own height" -- not a claim about any real
+// tile's height (that is precisely the number goodsScrollHeight refuses to
+// guess), just tall enough that the region shows something resembling two
+// rows rather than collapsing to a sliver while the real measurement is in
+// flight. Exported so a test can assert against THIS constant rather than a
+// second copy of the number typed into the test file, which is exactly the
+// "asserting a value you typed" failure this pass exists to stop shipping.
+//
+// TWO ROWS ONLY -- `goodsThreeRowHeight` (above) does NOT fall back to this
+// the way `goodsScrollHeight` does, on purpose. This constant only ever
+// stood in for the two-row estimate; feeding it into the three-row function
+// too let it silently decide the two-vs-three question instead, and that
+// decision would then visibly reverse itself the instant a real measurement
+// arrived (see `goodsThreeRowHeight`'s own comment for the 804px -> 674px
+// snap this produced).
+export const ESTIMATED_ROW_HEIGHT = 260;
+
+// HOW MUCH ROOM THE GOODS BOX HAS, which is a different question from how
+// much it takes -- `goodsRowBound` above decides that, and only consults this
+// to choose between two rows and three.
+//
+// THE ARITHMETIC: what the page scroller was laid out at (`pageHeight`), less
+// the header and footer's own measured heights, less the page's own padding
+// (top AND bottom -- `pagePadding * 2`), less the two gaps between three
+// stacked children (`pageGap * 2` -- header-to-goods, goods-to-footer), less
+// CHECKOUT_BAR_CLEARANCE (reserved unconditionally -- see
+// `pageWithCheckoutBar`'s own comment in theme-market.tsx/theme-window.tsx).
+//
+// The result may be NEGATIVE, and that is information rather than an error: a
+// 14" laptop showing this shop has 157px of room against a 348px row, which
+// is precisely why the page there scrolls no matter what this returns. It is
+// not this function's job to hide that.
+//
+// NULL, NEVER ZERO, when a measurement has not arrived -- any of
+// pageHeight/headerHeight/footerHeight missing OR REPORTED AS EXACTLY ZERO. A
+// header measured before it has painted fires a real onLayout with height 0,
+// which this arithmetic cannot tell from a header that is genuinely nothing;
+// reading it as "not measured yet" is the only choice that cannot hand back a
+// remainder computed from a page that has not laid out. Callers treat null as
+// "no opinion yet" and fall back to two rows.
+export function goodsFitHeight(
+  pageHeight: number | null,
+  headerHeight: number | null,
+  footerHeight: number | null,
+  pagePadding: number,
+  pageGap: number,
+  checkoutClearance: number,
+): number | null {
+  if (!pageHeight || !headerHeight || !footerHeight) return null;
+  return pageHeight - headerHeight - footerHeight - pagePadding * 2 - pageGap * 2 - checkoutClearance;
 }
 
 // The cart lives in `storefront-cart.ts`, keyed by shop slug, and every
@@ -1502,16 +1697,18 @@ export function CheckoutScreen({
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <View style={styles.screenNav}>
-        {/* No background of its own -- `pressable(undefined)` still returns
-            the callback, so the opacity/scale applies to the bare text. */}
+        {/* Measured 17px before TOUCH_TARGET -- text with no box of its own,
+            the same shape as `hitSlop={8}` used to sit here without ever
+            clearing the floor (17 + 8 + 8 = 33). `minHeight` on the Pressable
+            itself (`screenBack`, below) states the reachable area directly
+            rather than padding an area around a number nobody had checked. */}
         <Pressable
           testID="storefront-checkout-back"
           accessibilityRole="button"
           onPress={onBack}
-          hitSlop={8}
-          style={pressable(undefined)}
+          style={pressable(styles.screenBack)}
         >
-          <Text style={[styles.screenBack, { color: colors.ink }]}>‹ Back</Text>
+          <Text style={[styles.screenBackText, { color: colors.ink }]}>‹ Back</Text>
         </Pressable>
         <Text style={[styles.screenTitle, { color: colors.ink }]}>Checkout</Text>
       </View>
@@ -1650,8 +1847,18 @@ const styles = StyleSheet.create({
   // -- one state, rendered the same way everywhere this page says it.
   openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   openPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
-  anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
-  anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
+  // `maxWidth: PROSE_MAX_WIDTH` on both -- the two places on this card that
+  // read as a SENTENCE rather than a name, a fact, or a pill. Bounding the
+  // TEXT here rather than the row ShopHeader sits in (see that row's own
+  // `header` style below, and SHOP_MAX_WIDTH's comment in scale.ts for why
+  // the row itself stopped carrying a width bound) is what lets the row
+  // widen with the grid on a wide monitor while a headline or an about
+  // paragraph inside one of its cards still stops at a comfortable measure
+  // instead of running the width of a 2,560px card.
+  anchorHead: {
+    fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16, maxWidth: PROSE_MAX_WIDTH,
+  },
+  anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7, maxWidth: PROSE_MAX_WIDTH },
   anchorFoot: {
     marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: ON_INK_HAIRLINE,
     flexDirection: 'row', gap: 8, flexWrap: 'wrap',
@@ -1670,7 +1877,19 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 14 },
   dot: { width: 9, height: 9, borderRadius: RADIUS.pill },
   stockLine: { fontSize: 11.5, marginTop: 10 },
-  pill: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 12, alignItems: 'center' },
+  // minHeight on the BASE style, not `tightPill` -- the narrow layout's own
+  // override only touches padding, so the floor set here survives both call
+  // sites (ShopHeader's `wide` branch keeps `pill` bare; the narrow branch
+  // layers `tightPill`'s smaller padding on top, and RN's shallow per-key
+  // merge leaves a key neither object repeats -- `minHeight` -- exactly as
+  // this one set it). storefront-cart-button measured 31px through
+  // `tightPill` before this; ShopPill has no other caller (`grep -rn
+  // ShopPill src` turns up only this file's own definition and the two calls
+  // in ShopHeader below), so there is no second button to check.
+  pill: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 12,
+    alignItems: 'center', justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   pillText: { fontSize: 13, fontWeight: '800' },
   blockPill: { alignSelf: 'stretch' },
   tightPill: { paddingHorizontal: 14, paddingVertical: 8 },
@@ -1689,19 +1908,50 @@ const styles = StyleSheet.create({
   pairCard: { flex: 1 },
 
   // Fixed green in every palette: a recognised affordance, not a brand colour.
-  wa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  // Measured 31px before TOUCH_TARGET -- `paddingVertical: 8` chosen to look
+  // right, the same way Cart's own padding was, never checked against a
+  // thumb until now.
+  wa: {
+    backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   waText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
   empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
   emptyBlock: { paddingHorizontal: 24, paddingVertical: 30, alignItems: 'center' },
   emptyHead: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
   emptyBody: { fontSize: 13, lineHeight: 19, marginTop: 7, textAlign: 'center', maxWidth: 320 },
-  emptyAction: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14 },
+  // Shared by `storefront-empty-clear-category` and `storefront-search-empty-clear`
+  // (both call sites pass this same key) -- the "show everything" way out of
+  // an empty grid, one control fixed once for both.
+  emptyAction: {
+    borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   emptyActionText: { fontSize: 12.5, fontWeight: '800' },
   // WhatsApp's own fixed colours, same as WhatsAppButton above -- never the
   // shop's palette.
-  emptyWa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
+  emptyWa: {
+    backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page },
+  // NO HORIZONTAL PADDING OF ITS OWN. This carried `paddingHorizontal:
+  // SPACE.page`, which was right when every theme dropped the field straight
+  // onto an unpadded page. Market and Window now render it inside the page's
+  // own padded column, so its 16 landed on top of the column's 16 and the
+  // field sat inset 32 against a hero card, a goods grid and a footer all
+  // sitting at 16. NOT "the one element on the page that did not line up
+  // with the others", though an earlier version of this comment claimed
+  // exactly that -- CategoryBand's own `band` style and CategoryFilterBar's
+  // own `filterChip` carried the identical double-padding bug, in the same
+  // already-padded column, at the same time this comment was written, and
+  // neither was touched by this fix. See those two styles' own comments
+  // (category-band.tsx, and `filterChip` below) for the fix that finally
+  // reaches them. Counter still renders this field outside its own padded
+  // scroller and supplies the inset there (`searchInset`), which is where
+  // the decision belongs: a container knows its own margins, a shared field
+  // cannot.
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   // The two placements this field ships in -- see the `floating` prop above.
   // Non-floating keeps the small gap this row always had above it
   // (CategoryBand/CategoryFilterBar, or Window and Counter's own header).
@@ -1709,7 +1959,17 @@ const styles = StyleSheet.create({
   // raises the field above whatever it overlaps -- `zIndex` rather than
   // relying on paint order, since Android's `elevation` on a sibling can
   // reorder that silently.
-  searchRowInline: { marginTop: 10 },
+  // A SECTION BREAK, not a card gap. This was 10, then briefly cardGap's 14,
+  // and both were still read as crowded against a 270px hero: cardGap is the
+  // space between two cards in the SAME group, and the search is not another
+  // card in the header's group -- it is where the page stops introducing the
+  // shop and starts letting you look through it. 26 is the rhythm this page
+  // already uses for exactly that move (`sectionHead`'s own paddingTop, the
+  // "WHAT'S IN TODAY" rule below), so the field now sits on the same beat as
+  // the other section boundary rather than inventing a third number.
+  // The narrow layout is untouched: it overlaps on purpose
+  // (`searchRowFloating`), which is the mockup's own move.
+  searchRowInline: { marginTop: 26 },
   // The rendered overlap is `SEARCH_FLOAT_OVERLAP`, not this margin's own
   // magnitude -- `headerNarrow`'s `gap` adds back onto it (see
   // SEARCH_FLOAT_OVERLAP's own comment above). A bare `-21` here would be
@@ -1736,17 +1996,49 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   searchGlyph: { fontSize: TYPE.body, opacity: 0.7 },
-  searchInput: { flex: 1, padding: 0, fontSize: TYPE.body },
-  searchClear: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8 },
+  // `storefront-search` measured 16px -- the TextInput sizes to its own text
+  // line, nothing else in this card asked it to be taller. minHeight here
+  // (not more paddingVertical on `searchCard`, which would also puff up the
+  // card sitting around every OTHER child) grows the field itself; the card
+  // stays `alignItems: 'center'` so the glyph and Clear stay vertically
+  // centred against the now-taller box rather than pinned to its old height.
+  searchInput: { flex: 1, padding: 0, fontSize: TYPE.body, minHeight: TOUCH_TARGET },
+  searchClear: {
+    borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
-  cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  // `CartButton` below this point in the file has no caller left (`grep -rn
+  // CartButton src/components/storefront` after ShopHeader moved to
+  // `ShopPill` turns up only this definition) -- kept at TOUCH_TARGET anyway
+  // for whichever future caller reaches for the obvious name, not because
+  // anything renders it today. See `pill`'s own comment above for the button
+  // actually on screen.
+  cart: {
+    borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8,
+    minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   cartText: { fontSize: 12.5, fontWeight: '800' },
-  filterChip: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginHorizontal: 14, marginTop: 12 },
+  // NO HORIZONTAL MARGIN OF ITS OWN. This carried `marginHorizontal: 14` --
+  // Market and Window render it directly inside the page's own already-
+  // padded column (see CategoryBand's `band` style, category-band.tsx, for
+  // the identical bug on its sibling), so 16 (page) + 14 (this) put the chip
+  // at 30 against the anchor card's 16. `alignSelf: 'flex-start'` means only
+  // the LEFT half of that margin ever did anything -- the chip does not
+  // stretch to fill its row, so a right margin here moved nothing.
+  filterChip: {
+    alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7,
+    marginTop: 12, minHeight: TOUCH_TARGET, alignItems: 'center', justifyContent: 'center',
+  },
   filterChipText: { fontSize: 12.5, fontWeight: '800' },
   // Full-size default: ProductTile's grid tile, where the pair fills the
   // tile's own width evenly.
   actions: { flexDirection: 'row', gap: 6 },
   button: { flex: 1, borderRadius: 9, paddingVertical: 6, alignItems: 'center' },
+  // The floor, layered on top of `button` only for the non-`compact` call --
+  // see `COMPACT_BUTTON_HIT_SLOP`'s own comment above for why `compact`
+  // reaches for hitSlop instead of this.
+  buttonFloor: { minHeight: TOUCH_TARGET, justifyContent: 'center' },
   buttonText: { fontSize: 12, fontWeight: '800' },
   // Row scale: Counter's dense price list, where the pair sits inline next
   // to the stock label rather than filling a row's width.
@@ -1767,16 +2059,31 @@ const styles = StyleSheet.create({
   // The longhand is identical on both.
   buttonCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: 7, paddingVertical: 3, paddingHorizontal: 9 },
   buttonTextCompact: { fontSize: 10.5 },
-  // The slot is what floats; the bar inside it is what the reading column
-  // bounds. Absolute left/right anchor to the theme root, which is the full
-  // window -- the maxWidth is what stops a 2000px screen getting a 1972px
-  // button while the goods sit in SHOP_MAX_WIDTH.
+  // The slot is what floats; the bar inside it carries its own width bound,
+  // independent of whatever the grid or the header are doing (Task C freed
+  // both of them from SHOP_MAX_WIDTH -- see that constant's own comment in
+  // scale.ts -- but a floating action bar is a different question from a
+  // grid or a row of cards: it is one button, and a 2000px-wide "Checkout"
+  // pill is not a bigger button, it is a slip that has stopped reading as a
+  // button at all). Absolute left/right anchor to the theme root, which is
+  // the full window, so the maxWidth below is what stops that -- reusing
+  // SHOP_MAX_WIDTH as a familiar ceiling rather than inventing a second
+  // ad-hoc number for the same "not the whole window" judgment.
   checkoutBarSlot: { position: 'absolute', left: 14, right: 14, bottom: 14, alignItems: 'center' },
   slip: {
     width: '100%', maxWidth: SHOP_MAX_WIDTH - 28,
     borderRadius: 999, paddingVertical: 8, paddingLeft: 16, paddingRight: 8,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14,
     shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+    // Content already carries this Pressable past 44 (the comment on
+    // CHECKOUT_BAR_CLEARANCE above works the arithmetic: `slipGo`'s own
+    // padding puts the box at 55px) -- but that height comes from a CHILD's
+    // padding, not a literal number in THIS style, which is exactly what
+    // storefront-touch-targets.test.tsx's rule cannot see without laying
+    // out a single pixel. `minHeight` states the floor this box already
+    // clears, rather than leaving it implied by a child the sweep does not
+    // read into.
+    minHeight: TOUCH_TARGET,
   },
   slipEvidence: { flexDirection: 'row', alignItems: 'center', gap: 11, flexShrink: 1 },
   slipThumbs: { flexDirection: 'row' },
@@ -1794,13 +2101,25 @@ const styles = StyleSheet.create({
   slipGoText: { fontSize: 13.5, fontWeight: '800' },
   screen: { flex: 1 },
   screenNav: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  screenBack: { fontSize: 14, fontWeight: '700' },
+  // The box, not the text -- see the Pressable's own comment above for the
+  // 17px measurement this floor replaces.
+  screenBack: { minHeight: TOUCH_TARGET, justifyContent: 'center' },
+  screenBackText: { fontSize: 14, fontWeight: '700' },
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  editCart: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  // Measured under the floor alongside Back and Place order -- `paddingVertical: 7`
+  // read as generous next to Edit cart's short label, and wasn't checked
+  // against a thumb either.
+  editCart: {
+    alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14,
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   editCartText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
-  continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
+  continueButton: {
+    marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center',
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   continueText: { fontSize: 14, fontWeight: '800' },
 });

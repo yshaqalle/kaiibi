@@ -1,6 +1,8 @@
+import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
 
 import { ThemeCounter } from '@/components/storefront/theme-counter';
+import { SHOP_MAX_WIDTH } from '@/components/storefront/scale';
 import { CHECKOUT_BAR_CLEARANCE } from '@/components/storefront/theme-shared';
 import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
@@ -224,5 +226,60 @@ describe('Counter search', () => {
 
     expect(texts).toContain('bandage');
     expect(texts).not.toContain('Nothing listed yet');
+  });
+});
+
+// Task 4 (wave-review-fixes.md item 4): the search field renders OUTSIDE
+// `styles.scroll` (the reading column, bounded to SHOP_MAX_WIDTH and
+// centred) so Counter can supply its own gutter -- see `searchInset`'s own
+// comment in theme-counter.tsx. That gutter used to be a bare
+// `paddingHorizontal` on an otherwise full-width View, which agreed with the
+// column below 1320 (both read as "the window, minus one inset") and
+// disagreed above it: at 1900px the field's own left edge sat at 16 while
+// the price-list card's sat at 306, centred inside the 1320-wide column.
+// These assert the STRUCTURE that fixes it -- the search sits in the same
+// bounded, centred column the list does -- rather than a pixel number this
+// harness cannot lay out to prove.
+describe('Counter search lines up with the price list above 1320', () => {
+  // SIBLING-ADJACENCY HELPER, the same pattern storefront-product-sheet.test.tsx
+  // and storefront-shop-chrome.test.tsx both use for the same reason:
+  // `toJSON()` yields HOST nodes only, so walking THAT tree (rather than
+  // `tree.root.findAll`, which also returns every composite wrapper in
+  // between) is what can tell "this node is wrapped in a bounded column" from
+  // "a bounded column merely exists somewhere in the same tree."
+  type HostNode = { type: string; props: Record<string, unknown>; children: unknown[] | null };
+
+  function pathToTestId(root: HostNode, testID: string, path: HostNode[] = []): HostNode[] | null {
+    const next = [...path, root];
+    if (root.props?.testID === testID) return next;
+    for (const child of root.children ?? []) {
+      if (typeof child === 'string') continue;
+      const found = pathToTestId(child as HostNode, testID, next);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function maxWidthsAlong(path: HostNode[]): unknown[] {
+    return path
+      .map((n) => StyleSheet.flatten(n.props?.style as never) as { maxWidth?: unknown } | undefined)
+      .map((s) => s?.maxWidth)
+      .filter((w) => w != null);
+  }
+
+  it('bounds the search field to the same SHOP_MAX_WIDTH column as the price list, not just the window', () => {
+    const many: StorefrontProduct[] = Array.from({ length: SEARCH_THRESHOLD }, (_, i) => ({
+      id: `p${i}`, name: `Filler ${i}`, description: null, category: 'Analgesics', priceCents: 250, stock: 4, imageUrl: null,
+    }));
+    const tree = renderCounter(shop, many);
+    const root = tree.toJSON() as HostNode;
+
+    const searchPath = pathToTestId(root, 'storefront-search');
+    expect(searchPath).not.toBeNull();
+    expect(maxWidthsAlong(searchPath as HostNode[])).toContain(SHOP_MAX_WIDTH);
+
+    const scroll = tree.root.findAll((n) => n.props?.testID === 'storefront-counter-scroll')[0];
+    const scrollMaxWidth = (StyleSheet.flatten(scroll.props.style as never) as { maxWidth?: unknown }).maxWidth;
+    expect(scrollMaxWidth).toBe(SHOP_MAX_WIDTH);
   });
 });

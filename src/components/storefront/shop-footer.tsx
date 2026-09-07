@@ -2,7 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { WhatsAppButton } from '@/components/storefront/theme-shared';
-import { DISPLAY_FONT, LETTER, SPACE, TYPE } from '@/components/storefront/scale';
+import { DISPLAY_FONT, KAIIBI_MARK_ASPECT, LETTER, SPACE, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import { openExternalUrl } from '@/lib/external-url';
 import { collectLocation } from '@/lib/storefront-collect';
 import type { PaletteColors } from '@/lib/storefront-catalog';
@@ -72,7 +72,11 @@ export function ShopFooter({
           onPress={() => openExternalUrl('https://kaiibi.com')}
           style={pressable(styles.brand)}
         >
-          <Image source={require('@/assets/images/kaiibi-mark-white.png')} style={styles.brandMark} />
+          <Image
+            source={require('@/assets/images/kaiibi-mark-white.png')}
+            style={styles.brandMark}
+            resizeMode="contain"
+          />
           <View>
             <Text style={[styles.brandEyebrow, { color: colors.onDarkMuted }]}>Powered by</Text>
             <Text style={[styles.brandName, { color: colors.ground }]}>kaiibi</Text>
@@ -97,8 +101,20 @@ const styles = StyleSheet.create({
   place: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase', marginTop: 6 },
   rule: { height: 1, marginTop: 20 },
   terms: { fontSize: TYPE.metaSmall + 1, marginTop: 16 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 19, alignSelf: 'flex-start' },
-  brandMark: { width: 21, height: 21 },
+  // Measured 29px -- a row's cross axis is vertical, so `alignItems: 'center'`
+  // (already here, for the mark and the two-line lockup) is what centres the
+  // mark and text against the taller box `minHeight` now reserves; no
+  // `justifyContent` change needed the way a single-Text button needs one,
+  // because this row's main axis is horizontal and nothing here should shift
+  // sideways.
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 19, alignSelf: 'flex-start', minHeight: TOUCH_TARGET },
+  // HEIGHT plus the mark's own ratio, never a square. This was 21x21 with no
+  // resizeMode, so RN's default `cover` squashed a 200x212 bag into a square
+  // and cropped its handle -- kaiibi's own mark drawn wrong at the foot of
+  // every shop's page. Sized off the two-line lockup beside it (a "Powered by"
+  // eyebrow over "kaiibi") rather than off a round number, so the mark reads
+  // as set with the words rather than parked next to them.
+  brandMark: { width: Math.round(24 * KAIIBI_MARK_ASPECT), height: 24 },
   brandEyebrow: {
     fontSize: TYPE.metaSmall - 1, fontWeight: '800',
     letterSpacing: LETTER.meta, textTransform: 'uppercase',

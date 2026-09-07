@@ -2,6 +2,7 @@ import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
   paletteColors, mutedInk, WHATSAPP_BUTTON_GREEN, CHECKOUT_BLUE, CHECKOUT_INK,
+  KAIIBI_BLUE, KAIIBI_INK,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -348,3 +349,35 @@ describe('checkout blue', () => {
     expect(paletteColors('azure').accent).toBe(CHECKOUT_BLUE);
   });
 });
+
+describe("kaiibi's own blue", () => {
+  it('carries white text, which is its whole job on the mark plate and the selected chip', () => {
+    expect(contrastRatio(KAIIBI_INK, KAIIBI_BLUE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // Coincidence, not derivation: pinned equal so a future rebrand that moves
+  // one without the other is a failing test, not a silent drift, and so
+  // whoever reads a red diff here knows to go re-read both comments before
+  // "fixing" it back to a shared constant.
+  it('coincides with checkout blue today, without being an alias of it', () => {
+    expect(KAIIBI_BLUE).toBe(CHECKOUT_BLUE);
+    expect(KAIIBI_INK).toBe(CHECKOUT_INK);
+  });
+});
+
+// REVIEW FINDING (whole-branch pass, item 9): this describe block used to
+// assert `DIRECTORY_STATE_OPEN === '#0b7a44'` -- a literal compared to a
+// literal written in the same commit, which cannot fail no matter what the
+// GRID CARD actually renders -- and a sibling assertion that the pair sits on
+// no palette's own `accent`, which is the same defect wearing different
+// clothes: a comparison between constants that never touches a render either.
+// The rendered dot's own colour is what actually matters, and it already has
+// real coverage: `storefront-directory.test.tsx`'s "fills the dot green when
+// open and grey when closed" reads the DOT's flattened style off a live
+// render and compares it to these same constants. The featured card's
+// on-photo pill gets the equivalent render-based coverage in the same file
+// ("badges an open/closed shop over its photo" plus the constants import),
+// now that `stateOpen`/`stateShut` (shop-directory-card.tsx) import
+// DIRECTORY_STATE_OPEN/SHUT directly instead of carrying their own hex
+// copies -- so there is nothing left for a description-of-the-code test here
+// to add.

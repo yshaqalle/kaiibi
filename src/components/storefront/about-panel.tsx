@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import {
+  DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TOUCH_TARGET, TYPE,
+} from '@/components/storefront/scale';
 import { ShopCard } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import { collectLocation } from '@/lib/storefront-collect';
@@ -363,9 +365,15 @@ const styles = StyleSheet.create({
 
   faq: { gap: 8 },
   q: { borderRadius: RADIUS.inset, overflow: 'hidden' },
+  // Measured live at 51.5px -- the question text's own line height plus this
+  // padding already clears the floor -- but, like `contact` in
+  // visit-panel.tsx, nothing here stated that before this: no literal height,
+  // no hitSlop, so a control genuinely built to 26px would have looked
+  // identical to the sweep. `minHeight` names the floor this toggle already
+  // meets.
   qHead: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    gap: 14, paddingHorizontal: 18, paddingVertical: 15,
+    gap: 14, paddingHorizontal: 18, paddingVertical: 15, minHeight: TOUCH_TARGET,
   },
   qText: { flex: 1, fontSize: TYPE.body + 0.5, fontWeight: '700', letterSpacing: LETTER.display },
   qMark: { fontSize: 18, fontWeight: '700' },
