@@ -1,0 +1,294 @@
+<title>Storefront Phase 4 — what shipped, what is left</title>
+<style>
+  :root{
+    --ink:#101014; --ground:#ffffff; --page:#f4f4f5; --muted:#5e5d65;
+    --edge:#ececf0; --blue:#0071e3; --done:#0b7a44; --left:#9a6b00;
+    --rule:rgba(16,16,20,.08);
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ink:#f2f2f4; --ground:#17171b; --page:#0e0e11; --muted:#a1a0aa;
+      --edge:#2a2a31; --blue:#4c9dff; --done:#3fbb7d; --left:#e0a83a;
+      --rule:rgba(255,255,255,.10);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#f2f2f4; --ground:#17171b; --page:#0e0e11; --muted:#a1a0aa;
+    --edge:#2a2a31; --blue:#4c9dff; --done:#3fbb7d; --left:#e0a83a;
+    --rule:rgba(255,255,255,.10);
+  }
+  :root[data-theme="light"]{
+    --ink:#101014; --ground:#ffffff; --page:#f4f4f5; --muted:#5e5d65;
+    --edge:#ececf0; --blue:#0071e3; --done:#0b7a44; --left:#9a6b00;
+    --rule:rgba(16,16,20,.08);
+  }
+  body{background:var(--page);color:var(--ink);font-family:var(--sans);
+    font-size:15px;line-height:1.55;margin:0;padding:40px 20px 80px;}
+  .wrap{max-width:1120px;margin:0 auto;}
+  h1{font-family:var(--serif);font-size:34px;line-height:1.15;font-weight:700;
+    letter-spacing:-.02em;margin:0 0 10px;text-wrap:balance;}
+  .lede{color:var(--muted);max-width:64ch;margin:0 0 6px;}
+  .eyebrow{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);margin:44px 0 12px;}
+  h2{font-family:var(--serif);font-size:23px;font-weight:700;letter-spacing:-.01em;margin:0 0 8px;}
+  .card{background:var(--ground);border-radius:16px;padding:20px 22px;}
+  .grid{display:grid;gap:14px;}
+  .shipped{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
+  .shipped .card{display:flex;flex-direction:column;gap:6px;}
+  .tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;
+    letter-spacing:.06em;text-transform:uppercase;}
+  .tag.done{color:var(--done);} .tag.left{color:var(--left);}
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+  .card h3{font-size:15.5px;font-weight:800;margin:0;letter-spacing:-.01em;}
+  .card p{margin:0;color:var(--muted);font-size:13.5px;}
+  .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;align-items:start;}
+  .phone{background:var(--page);border:1px solid var(--edge);border-radius:22px;
+    padding:14px;font-size:12.5px;}
+  .phone .cap{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;}
+  .blk{background:var(--ground);border-radius:12px;padding:11px 13px;margin-bottom:8px;}
+  .blk:last-child{margin-bottom:0;}
+  .blk .lbl{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .blk .val{font-weight:700;margin-top:2px;}
+  .wordmark{font-family:var(--serif);font-size:19px;font-weight:700;}
+  .photo{height:64px;border-radius:9px;background:linear-gradient(145deg,#c9d4e6,#9fb0c8);}
+  .thumbs{display:flex;gap:6px;margin-top:7px;}
+  .thumbs i{flex:1;height:26px;border-radius:6px;background:linear-gradient(145deg,#d8dfe9,#b6c3d4);}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+  .chip{background:var(--page);border-radius:7px;padding:3px 8px;font-size:10px;font-weight:700;color:var(--muted);}
+  .darkcard{background:var(--ink);color:var(--ground);border-radius:12px;padding:13px;margin-bottom:8px;}
+  :root[data-theme="dark"] .darkcard,
+  .darkcard{color:#fff;}
+  @media (prefers-color-scheme:dark){.darkcard{background:#000;}}
+  .darkcard .pill{display:inline-block;background:rgba(255,255,255,.16);border-radius:999px;
+    padding:3px 9px;font-size:10px;font-weight:800;}
+  .darkcard .place{font-family:var(--serif);font-size:17px;line-height:1.2;margin-top:8px;}
+  .darkcard .sub{font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.75;margin-top:5px;}
+  .btns{display:flex;gap:7px;margin-top:11px;}
+  .btn{flex:1;text-align:center;border-radius:999px;padding:8px;font-size:11.5px;font-weight:800;}
+  .btn.blue{background:var(--blue);color:#fff;} .btn.wa{background:#1f7a4d;color:#fff;}
+  .btn.quiet{background:var(--page);color:var(--ink);}
+  .moves{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px;}
+  .moves li{display:flex;gap:10px;font-size:13.5px;}
+  .moves b{font-weight:800;}
+  .moves .n{flex:none;width:20px;height:20px;border-radius:6px;background:var(--page);
+    color:var(--muted);font-size:10.5px;font-weight:800;display:grid;place-items:center;margin-top:2px;}
+  .note{border-left:2px solid var(--edge);padding-left:14px;color:var(--muted);font-size:13.5px;}
+  .risk{display:flex;gap:10px;align-items:baseline;padding:11px 0;border-bottom:1px solid var(--rule);}
+  .risk:last-child{border-bottom:0;}
+  .risk .who{flex:none;width:104px;font-size:10.5px;font-weight:800;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--muted);}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--page);padding:1px 5px;border-radius:5px;}
+  .prompt{background:var(--ink);color:#e8e8ea;border-radius:14px;padding:20px 22px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.65;
+    white-space:pre-wrap;overflow-x:auto;}
+  @media (prefers-color-scheme:dark){.prompt{background:#000;}}
+</style>
+
+<div class="wrap">
+  <h1>Phase 4 — About and Visit</h1>
+  <p class="lede">The storefront redesign is three phases in and merged. What remains is the
+  smallest of the four: no new features, no migrations, no new data. Tasks 21 and 22 are a
+  <em>re-weighting</em> — the same facts, in the order a stranger actually needs them.</p>
+
+  <div class="eyebrow">Shipped — phases 1 to 3, all on main</div>
+  <div class="grid shipped">
+    <div class="card">
+      <span class="tag done"><i class="dot"></i>PR #135</span>
+      <h3>Apple blue, the slip, branding</h3>
+      <p>Azure palette, a fixed checkout blue, the checkout slip in the reading column, and
+      the kaiibi mark a Pro plan can buy off.</p>
+    </div>
+    <div class="card">
+      <span class="tag done"><i class="dot"></i>PR #136</span>
+      <h3>The One — the shop page</h3>
+      <p>Photo hero with a scrim, floating search, flyer carousel, photo category tiles,
+      price-on-photo tiles with a NEW badge, and tier-1 motion.</p>
+    </div>
+    <div class="card">
+      <span class="tag done"><i class="dot"></i>PR #137</span>
+      <h3>The Store — the directory</h3>
+      <p>A kaiibi masthead, search that matches what shops <em>sell</em>, a photo-scrim
+      featured hero, and cards that say open with a dot <em>and</em> a word.</p>
+    </div>
+    <div class="card">
+      <span class="tag done"><i class="dot"></i>Also shipped</span>
+      <h3>The things driving it found</h3>
+      <p>Sheets that fit their window, a 44px touch floor on every public control, a grid
+      bounded to 2–3 rows, and a flyer carousel that no longer blows the header to 16.7M px.</p>
+    </div>
+  </div>
+
+  <div class="eyebrow">Task 21 — About: photos first</div>
+  <h2>A stranger trusts what they can see before what they can read</h2>
+  <p class="lede">Everything already renders. It is simply in a reader's order, not a
+  stranger's: the gallery sits below the text it should be vouching for.</p>
+
+  <div class="pair" style="margin-top:16px">
+    <div class="phone">
+      <div class="cap"><span>Today</span><span style="color:var(--muted)">ships now</span></div>
+      <div class="blk"><div class="lbl">About the shop</div>
+        <div style="margin-top:5px">You're gonna like the way you look, I guarantee it.</div></div>
+      <div class="blk" style="color:var(--muted)">Quality menswear on Main Street since 2024 —
+        shirts, trousers and outerwear picked for Hargeisa weather.</div>
+      <div class="blk"><div class="thumbs"><i></i><i></i><i></i><i></i></div></div>
+      <div class="blk"><div class="lbl">In the shop</div>
+        <div class="val">9 items · 4 categories · 2024</div></div>
+      <div class="blk"><div class="lbl">Why shop here</div>
+        <div class="val">Original brands only</div></div>
+      <div class="blk"><div class="lbl">Before you order</div>
+        <div class="val">Can I return an item? +</div></div>
+    </div>
+
+    <div class="phone">
+      <div class="cap"><span style="color:var(--left)">After Task 21</span><span style="color:var(--muted)">to build</span></div>
+      <div class="blk" style="padding:9px">
+        <div class="photo"></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:7px">Inside the shop · Main Street</div>
+        <div class="thumbs"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="blk"><div class="chips">
+        <span class="chip">Trading since 2024</span>
+        <span class="chip">9 items in today</span>
+        <span class="chip">Answers on WhatsApp</span></div></div>
+      <div class="blk">
+        <div class="wordmark" style="font-size:15px">You're gonna like the way you look.</div>
+        <div style="color:var(--muted);margin-top:6px">Quality menswear on Main Street since 2024.</div>
+        <div class="chips"><span class="chip">Original brands</span><span class="chip">Try before you pay</span></div>
+      </div>
+      <div class="blk"><div class="lbl">Before you order</div>
+        <div class="val">Can I return an item? +</div></div>
+    </div>
+
+    <div>
+      <ul class="moves">
+        <li><span class="n">1</span><span><b>Photos move to the top.</b> One cover — the first
+          gallery image — with a caption strip, thumbnails under it. The gallery exists; it is
+          only in the wrong place.</span></li>
+        <li><span class="n">2</span><span><b>The stats strip becomes proof chips.</b>
+          Trading-since, items-in-today, answers-on-WhatsApp — every one already mapped.</span></li>
+        <li><span class="n">3</span><span><b>Story and highlights merge</b> into one card, so
+          the page stops making the same claim twice.</span></li>
+        <li><span class="n">4</span><span><b>FAQ goes last, unchanged.</b> It answers a question
+          a customer only has after everything above.</span></li>
+      </ul>
+      <p class="note" style="margin-top:16px">The four FAQ toggles already clear the 44px touch
+      floor at 52px, and the gallery photos are not pressable. Keep both true.</p>
+    </div>
+  </div>
+
+  <div class="eyebrow">Task 22 — Visit: the decision card</div>
+  <h2>One question: can I get there before it closes, and where exactly?</h2>
+  <p class="lede">Four equal cards make the customer assemble that answer themselves. The
+  signature of the redesign is a landmark-first card built to be screenshotted and shown to a
+  bajaj driver — because the schema's own comments say shops here address themselves by
+  landmark.</p>
+
+  <div class="pair" style="margin-top:16px">
+    <div class="phone">
+      <div class="cap"><span>Today</span><span style="color:var(--muted)">ships now</span></div>
+      <div class="blk"><div class="lbl">Opening hours</div>
+        <div style="margin-top:4px">Mon 8:00 – 21:00<br>Tue 8:00 – 21:00<br>Wed 8:00 – 21:00<br>
+        Thu 8:00 – 21:00<br>Fri 8:00 – 12:00<br>Sat 9:00 – 18:00<br>Sun closed</div></div>
+      <div class="blk"><div class="lbl">Collect from</div>
+        <div class="val">Main Street, Hargeisa</div>
+        <div style="margin-top:8px"><span class="chip">Open in Maps</span></div></div>
+      <div class="blk"><div class="lbl">Delivery areas</div>
+        <div class="val">26 June · Jigjiga Yar · New Hargeisa</div></div>
+      <div class="blk"><div class="lbl">Contact</div>
+        <div class="val">WhatsApp · Phone · Instagram</div></div>
+    </div>
+
+    <div class="phone">
+      <div class="cap"><span style="color:var(--left)">After Task 22</span><span style="color:var(--muted)">to build</span></div>
+      <div class="darkcard">
+        <span class="pill">● Open · closes 9pm</span>
+        <div class="place">Opposite Deero Mall,<br>Main Street</div>
+        <div class="sub">Hargeisa · Hargeisa Men's Clothing</div>
+        <div class="btns"><span class="btn blue">Get directions</span><span class="btn wa">WhatsApp</span></div>
+      </div>
+      <div class="blk"><div class="val">Today: 8:00 – 21:00</div>
+        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">All hours ▾</div></div>
+      <div class="blk"><div class="lbl">Delivery, if you'd rather stay put</div>
+        <div class="chips"><span class="chip">26 June · $1</span>
+        <span class="chip">Jigjiga Yar · $1.50</span><span class="chip">New Hargeisa · $2</span></div></div>
+      <div class="blk"><div class="btns">
+        <span class="btn quiet">Call</span><span class="btn quiet">Instagram</span>
+        <span class="btn quiet">Share shop</span></div></div>
+    </div>
+
+    <div>
+      <ul class="moves">
+        <li><span class="n">1</span><span><b>The decision card leads.</b> Open state, then the
+          landmark set serif at direction-card size, then the two actions that matter.
+          <code>mapsUrlFor()</code> already exists.</span></li>
+        <li><span class="n">2</span><span><b>On <code>ink</code></b>, so it is the page's one
+          dark card — screenshot it and any driver can read it.</span></li>
+        <li><span class="n">3</span><span><b>Hours collapse to today.</b> "Today: 8:00 – 21:00 ·
+          All hours ▾"; expanded still shows the honest seven rows.</span></li>
+        <li><span class="n">4</span><span><b>Delivery areas become priced chips</b>, and contact
+          becomes an icon row that gains <b>Share shop</b> (the <code>waLink</code> composer with
+          the shop's own URL).</span></li>
+      </ul>
+      <p class="note" style="margin-top:16px">"Open in Maps" was 37px and is now floored at 44.
+      The delivery-area rows are plain views, not controls — if Task 22 makes them tappable,
+      they join the touch-target sweep in the same commit.</p>
+    </div>
+  </div>
+
+  <div class="eyebrow">Not in Phase 4 — carried, and still yours to decide</div>
+  <div class="card">
+    <div class="risk"><span class="who">iOS scroll</span><span>The goods grid is a bounded
+      scroller inside the page scroller. Android chains out of it; <b>iOS has no equivalent and
+      could not be tested here</b>. One swipe over the grid on a real iPhone answers it.</span></div>
+    <div class="risk"><span class="who">14-inch fit</span><span>The page no longer grows with the
+      catalogue, but header 358 + footer 196 means a true fit needs a compact header.</span></div>
+    <div class="risk"><span class="who">Tab rail</span><span><code>ShopTabRail</code> carries a
+      sliding pill nobody asked for, kept deliberately since Phase 2.</span></div>
+    <div class="risk"><span class="who">Gallery width</span><span>About's gallery at
+      <code>PROSE_MAX_WIDTH</code> (820) is narrower than before the branch — prose wants 820,
+      a photo gallery arguably wants more. Task 21 is the moment to settle it.</span></div>
+  </div>
+
+  <div class="eyebrow">The kickoff prompt</div>
+  <div class="prompt">Continue the kaiibi storefront redesign with Phase 4 — About and Visit.
+
+Enter the worktree first: EnterWorktree with path
+.claude/worktrees/storefront-apple-blue. Branch Phase 4 off main (Phases 1-3
+are all merged: PRs #135, #136, #137).
+
+READ THIS FIRST, before the master plan:
+docs/superpowers/plans/2026-09-07-storefront-phase-4-handoff.md
+It records the environment traps and — more importantly — the one pattern that
+recurred FOUR times across Phase 3: the commit that builds a detector leaves
+out of its fixture the one control the detector would newly catch. Then read
+.superpowers/sdd/progress.md, the ledger of every task, review finding and
+correction across all three phases.
+
+Then: docs/superpowers/plans/2026-09-05-storefront-master-plan.md for the
+decision ledger and Phase 4's Tasks 21-22. The visual source of truth is the
+About/Visit sections of docs/design/storefront-design-patterns-mockup.html,
+and docs/design/storefront-phase-4-mockup.html shows today beside the target.
+The design decisions are settled — do not relitigate them.
+
+Execute task-by-task with superpowers:subagent-driven-development: an
+implementer per task, a task-scoped reviewer after each, and a whole-branch
+review on the most capable model at the end. That last one found something no
+test could see on all three previous phases, twice in code the controller
+wrote directly. It is not optional.
+
+Hard rules: admin app and theme.ts untouched; no hex at call sites;
+no new dependencies; jest + tsc green before every commit; never use git stash
+(the stack is shared and holds three other branches' work); never push or touch
+the branch storefront-editor-removes-and-errors.
+
+Verify in a browser before claiming any layout works, and add every new control
+to storefront-touch-targets.test.tsx in the same commit that creates it.
+yusefshop is already seeded with a phone, Instagram, an About paragraph, 2
+highlights, 2 gallery images and 2 delivery areas, so both panels render fully.
+
+Finish with /testing-kaiibi and finishing-a-development-branch.</div>
+</div>
