@@ -199,26 +199,39 @@ export const KAIIBI_MARK_ASPECT = 200 / 212;
 // still stops at a comfortable measure.
 //
 // SO WHO STILL READS THIS, on the browsing (Shop) tab of ThemeMarket and
-// ThemeWindow: nobody. `grep -rn SHOP_MAX_WIDTH src/components/storefront`
-// after this change turns up two call sites (a style-property use, not a
-// mention in some other constant's own comment), and neither is on that tab:
-// theme-counter.tsx's entire page -- Counter has no grid to free (Task B and
-// Task C both say so explicitly) and still reads this as its one and only
-// width bound, top to bottom -- and CheckoutBar's own `slip` (theme-shared.tsx),
-// which floats over every theme's page and borrows this as a familiar ceiling
-// for its own width rather than inventing a second ad-hoc number.
+// ThemeWindow: nobody. `grep -rn "maxWidth: SHOP_MAX_WIDTH" src/components/
+// storefront` (a style-property use, not a mention in some other constant's
+// own comment) turns up THREE call sites unconditionally, and neither is on
+// that tab: theme-counter.tsx's entire page -- `scroll` AND `searchInset`,
+// both -- Counter has no grid to free (Task B and Task C both say so
+// explicitly) and still reads this as its one and only width bound, top to
+// bottom; and CheckoutBar's own `slip` (theme-shared.tsx), which floats over
+// every theme's page and borrows this as a familiar ceiling for its own
+// width rather than inventing a second ad-hoc number. (An earlier draft of
+// this comment said "two" call sites -- it had counted `scroll` and `slip`
+// and missed `searchInset`, added by the very commit that corrected the
+// count. A comment correcting a number is not exempt from being wrong about
+// the next one.)
 //
-// shop-chrome.tsx's tab rail and About/Visit panel scroller are NOT on this
-// list any more, though an earlier draft of this comment enumerated them as
-// settled call sites -- that draft was written under the same premise the
-// header and footer were fixed under one release late (see the paragraph
-// above): that a row not itself a sentence could still reasonably share the
-// grid's OLD bound. Once the header and footer went full-bleed, a rail and a
-// panel scroller still capped at 1320 stopped lining up with the page below
-// them for the identical reason -- see shop-chrome.tsx's own comments at
-// both call sites for the fix. If a fourth call site turns up on the Shop
-// tab in a future change, that is new prose or a new row to make the same
-// choice about, not a reason to assume this constant already covers it.
+// TWO MORE, CONDITIONALLY: shop-chrome.tsx's `railBounded` and
+// `scrollerBounded`. These did not exist when the paragraph above was first
+// written, and an earlier draft of THIS one said the rail and the About/Visit
+// panel scroller were "not on this list any more" at all -- true for exactly
+// as long as ShopChrome only ever ran full-bleed. It stopped being true the
+// day Counter's own page turned out to disagree: Counter's `scroll` never
+// went full-bleed (the sentence above already says so), so a rail and a
+// panel scroller that assumed every theme HAD gone full-bleed put the same
+// mismatch this constant's history keeps producing back onto Counter instead
+// -- see shop-chrome.tsx's own `bounded` comment for the measurement. Those
+// two styles exist for exactly one reason: to COPY Counter's own bound back
+// onto the chrome sitting on top of its page, not to independently decide a
+// rail or a panel needs one. They are gated on `bounded`, the prop only
+// Counter's theme file ever sets true, so Market's and Window's own rail and
+// panel stay off this list in practice, on every tab, exactly as the
+// paragraph above still describes for them. If a further call site turns up
+// UNCONDITIONALLY on the Shop tab in a future change, that is new prose or a
+// new row to make the same choice about, not a reason to assume this
+// constant already covers it.
 export const SHOP_MAX_WIDTH = 1320;
 
 // THE PANEL GETS ITS OWN MEASURE, NARROWER THAN THE GRID -- the same argument

@@ -96,7 +96,28 @@ function normalizedHitSlop(hitSlop: unknown): { top: number; bottom: number; lef
   return { top: h.top ?? 0, bottom: h.bottom ?? 0, left: h.left ?? 0, right: h.right ?? 0 };
 }
 
-function meetsTouchTargetRule(node: { props?: { style?: unknown; hitSlop?: unknown } }): boolean {
+// THE TWO CONTROLS ALLOWED TO SKIP THE ARITHMETIC -- because they are the two
+// places it has actually been done, by hand, in a comment: `product-tile-add`
+// and `product-tile-ask`, compact only (theme-shared.tsx:808, :847), whose
+// 45/46px working sits at theme-shared.tsx:759-762 (`COMPACT_BUTTON_HIT_SLOP`).
+//
+// This list is what replaced an unconditional `return true` below. That
+// branch -- "no literal width/height in the resolved style, so trust the
+// hitSlop at face value" -- is not a rare shape: Back (17px), Place order
+// (41px), cart-sheet Close (29px), product-sheet Close (40px), the checkout
+// inputs (39px) and the fulfilment segment (35px) are ALL text-and-padding
+// boxes with no literal size, which is exactly what floored them under a
+// fully green suite before each was measured and given a real `minHeight`.
+// Reverting any one of them back to a bare `hitSlop={8}` with no floor used
+// to still pass this file, because the branch that was supposed to check the
+// arithmetic instead skipped it for every control shaped like theirs -- the
+// same "the detector cannot see the thing it exists to catch" defect the
+// flyer dots are this task's other instance of. A control that reaches this
+// branch now has to be added to this list to pass, which means it has to be
+// measured first.
+const HAND_VERIFIED_HIT_SLOP_TESTIDS: readonly string[] = ['product-tile-add', 'product-tile-ask'];
+
+function meetsTouchTargetRule(node: { props?: { style?: unknown; hitSlop?: unknown; testID?: unknown } }): boolean {
   const flat = resolvedStyle(node);
   // `minHeight` is the floor everywhere a control's size comes from its own
   // padding (Add, Cart, the search field...). A fixed `height` counts too --
@@ -126,9 +147,13 @@ function meetsTouchTargetRule(node: { props?: { style?: unknown; hitSlop?: unkno
   const baseWidth = [flat.width, flat.minWidth].find((v) => typeof v === 'number') as number | undefined;
   if (baseHeight == null && baseWidth == null) {
     // Nothing literal to check an axis against -- a control sized by its own
-    // text and padding, the COMPACT_BUTTON_HIT_SLOP case above. Trusted at
-    // face value, exactly as every hitSlop was before this rule existed.
-    return true;
+    // text and padding, the COMPACT_BUTTON_HIT_SLOP case above. This USED TO
+    // be trusted at face value, unconditionally, which is exactly the branch
+    // Back, Place order and five others sat under the floor behind -- see
+    // HAND_VERIFIED_HIT_SLOP_TESTIDS' own comment. Now it is an allowlist: a
+    // control lands here honestly only if someone did the arithmetic by hand
+    // and said so above.
+    return HAND_VERIFIED_HIT_SLOP_TESTIDS.includes(node.props?.testID as string);
   }
   if (baseHeight != null && baseHeight + slop.top + slop.bottom < TOUCH_TARGET) return false;
   if (baseWidth != null && baseWidth + slop.left + slop.right < TOUCH_TARGET) return false;
@@ -515,7 +540,18 @@ describe('the checkout and confirmation screens the states above never reach', (
     // "Continue shopping" (ConfirmationScreen) and, since this fixture's
     // `hideBranding` is false, OrderPlaced's own "See how" -- two controls
     // that would otherwise be the exact regression this task fixed.
-    expect(confirmationControls.length).toBeGreaterThan(1);
+    //
+    // `toBeGreaterThan(1)` used to be the only check that `checkout.stage`
+    // actually reached 'confirmation' at all. It is not one: if the submit
+    // above silently failed to advance the stage, the tree would still be
+    // `CheckoutScreen` -- Back, both fields, both fulfilment segments, the
+    // area row, landmark, note and submit is nine controls on its own,
+    // already past 1, and this assertion would pass having tested a screen
+    // that was never reached. `storefront-continue-shopping` only exists on
+    // ConfirmationScreen (theme-shared.tsx), so its presence is what proves
+    // the stage actually advanced, not merely that SOME screen with more
+    // than one control rendered.
+    expect(confirmationControls.map((c) => c.props?.testID)).toContain('storefront-continue-shopping');
     const confirmationFailing = confirmationControls.filter((c) => !meetsTouchTargetRule(c));
     expect(confirmationFailing.map((c) => c.props?.testID)).toEqual([]);
   });

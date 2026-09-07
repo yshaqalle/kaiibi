@@ -118,6 +118,14 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         wide={wide}
         tab={activeTab}
         onSelectTab={selectTab}
+        // Counter's own page (`scroll` below) never went full-bleed and
+        // stays bounded to SHOP_MAX_WIDTH, centred -- see this file's own
+        // `scroll` comment. ShopChrome defaults to full-bleed (Market and
+        // Window's shape); this is what tells it to match Counter's instead,
+        // so the rail's pills and the About/Visit panel's footer line up
+        // with the price list under them rather than running to the
+        // window's own edge. See shop-chrome.tsx's own comment on `bounded`.
+        bounded
       >
       {/* A plain View never scrolls on native, and Expo Router's web reset sets
           `body { overflow: hidden }` -- either way, a catalogue longer than one

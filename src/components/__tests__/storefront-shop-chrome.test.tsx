@@ -1,6 +1,7 @@
 import { AccessibilityInfo, StyleSheet, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
+import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { PROSE_MAX_WIDTH, SHOP_MAX_WIDTH, SPACE } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -42,6 +43,21 @@ async function renderMarket() {
   let tree!: ReturnType<typeof create>;
   await act(async () => {
     tree = create(<ThemeMarket storefront={shop} products={[]} colors={colors} />);
+  });
+  return tree;
+}
+
+// Item 3 (final-review-fixes.md): this file used to render ThemeMarket only,
+// which is exactly why `4fdd886` removing the rail/panel's own bound could
+// put it back on Counter, unseen -- Market and Window's pages agree with a
+// full-bleed rail and panel; Counter's own page (`scroll`, theme-counter.tsx)
+// never went full-bleed and still centres itself inside SHOP_MAX_WIDTH. A
+// suite that only ever mounted the two themes the fix matched could not
+// have caught it drifting from the one theme it didn't.
+async function renderCounter() {
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(<ThemeCounter storefront={shop} products={[]} colors={colors} />);
   });
   return tree;
 }
@@ -146,5 +162,54 @@ describe('the About/Visit panel is full-bleed, and only the prose narrows', () =
     const maxWidths = maxWidthsAlong(path as HostNode[]);
     expect(maxWidths).toContain(PROSE_MAX_WIDTH);
     expect(maxWidths).not.toContain(SHOP_MAX_WIDTH);
+  });
+});
+
+// Item 3's own fix: Counter passes `bounded` to ShopChrome (theme-counter.tsx)
+// because its page, unlike Market's and Window's, never went full-bleed --
+// `scroll` there still carries `maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center'`
+// top to bottom (deliberately -- Counter has no grid to free, see scale.ts's
+// own SHOP_MAX_WIDTH comment). These mirror the two describe blocks above
+// with the opposite assertion: the rail and panel scroller here SHOULD carry
+// SHOP_MAX_WIDTH, because the page underneath them does.
+describe('Counter: the rail and panel match its own bounded page', () => {
+  it('bounds the tab rail to SHOP_MAX_WIDTH, unlike Market/Window', async () => {
+    const tree = await renderCounter();
+    const root = tree.toJSON() as HostNode;
+
+    const path = pathToTestId(root, 'storefront-tab-shop');
+    expect(path).not.toBeNull();
+
+    const maxWidths = maxWidthsAlong(path as HostNode[]);
+    expect(maxWidths).toContain(SHOP_MAX_WIDTH);
+  });
+
+  async function openAbout(tree: ReturnType<typeof create>) {
+    const aboutTab = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-tab-about' && typeof n.props?.onPress === 'function',
+    )[0];
+    expect(aboutTab).toBeDefined();
+    await act(async () => aboutTab.props.onPress());
+  }
+
+  it('bounds the panel scroller to SHOP_MAX_WIDTH, unlike Market/Window', async () => {
+    const tree = await renderCounter();
+    await openAbout(tree);
+
+    const scroller = tree.root.findAll((n) => n.props?.testID === 'storefront-panel-scroll')[0];
+    expect(scroller).toBeDefined();
+    const scrollerStyle = StyleSheet.flatten(scroller.props.style as never) as { maxWidth?: unknown };
+    expect(scrollerStyle.maxWidth).toBe(SHOP_MAX_WIDTH);
+  });
+
+  it('still gives the panel body the same horizontal inset Market/Window give theirs', async () => {
+    const tree = await renderCounter();
+    await openAbout(tree);
+
+    const scroller = tree.root.findAll((n) => n.props?.testID === 'storefront-panel-scroll')[0];
+    const bodyStyle = StyleSheet.flatten(scroller.props.contentContainerStyle as never) as {
+      paddingHorizontal?: unknown;
+    };
+    expect(bodyStyle.paddingHorizontal).toBe(SPACE.page);
   });
 });
