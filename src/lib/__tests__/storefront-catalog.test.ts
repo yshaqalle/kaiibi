@@ -307,6 +307,49 @@ describe('the tinted action tier', () => {
   });
 });
 
+// THE DECISION CARD'S "Get directions" FILL, on the page's ONE ink-filled
+// card. On the ink palette, `accent` IS `ink` byte for byte, so the raw
+// accent as a fill there has no plate at all -- the defect this token exists
+// to fix. `onDarkAccent` walks the accent away from `ink` until it clears
+// WCAG 1.4.11's 3:1 non-text floor; `onDarkAccentInk` walks a label to 4.5:1
+// against THAT fill.
+//
+// MEASURED, not assumed, before writing these gates: of the six coloured
+// palettes, only azure's own accent already cleared 3:1 against its own ink
+// (3.85:1). The other five did not -- palm 1.99:1, clay 2.61:1, sea 2.24:1,
+// saffron 2.82:1, plum 2.20:1 -- because every accent in this table is tuned
+// to carry white at 4.5:1 (dark enough for that) while every ink is tuned
+// near-black, so the two sit close in luminance on every palette but azure's
+// bright, fully-saturated blue. So azure, not "every palette but ink", is
+// the one this derivation must leave byte-identical -- asserted below rather
+// than assumed from the brief that first described this defect.
+describe("the decision card's fill on the ink-filled card", () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s clears 3:1 non-text contrast for onDarkAccent against its own ink', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.onDarkAccent, c.ink)).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(keys)('%s keeps the onDarkAccent label readable on that fill', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.onDarkAccentInk, c.onDarkAccent)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("leaves azure's accent untouched -- the one palette already inside the 3:1 floor", () => {
+    const c = paletteColors('azure');
+    expect(c.onDarkAccent).toBe(c.accent);
+  });
+
+  // The defect itself, pinned so it cannot come back: on ink, accent and ink
+  // were the same hex -- a button with no plate at all.
+  it('changes the ink palette, which is the collapse this token exists to fix', () => {
+    const c = paletteColors('ink');
+    expect(c.accent).toBe(c.ink); // the collapse this whole task is about
+    expect(c.onDarkAccent).not.toBe(c.ink);
+  });
+});
+
 describe('no accent impersonates the WhatsApp button', () => {
   const lab = (hex: string): [number, number, number] => {
     const n = parseInt(hex.slice(1), 16);

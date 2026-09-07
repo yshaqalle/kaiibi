@@ -114,7 +114,18 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
           {/* THE SHOP'S OWN ACCENT, not CHECKOUT_BLUE and not KAIIBI_BLUE --
               both of those are fixed colours reserved for a different job
               (the commit moment; kaiibi's own directory mark), and directions
-              is neither. */}
+              is neither. STEPPED rather than raw, though: this button sits
+              on the page's ONE ink-filled card, and on the ink palette
+              `accent` IS `ink`, byte for byte -- measured in a browser, the
+              raw accent rendered as bare text with no plate at all, computed
+              background rgb(20, 20, 24) identical to the card's. colors.
+              onDarkAccent/onDarkAccentInk (storefront-catalog.ts) are that
+              same accent walked away from `ink` until it clears WCAG
+              1.4.11's 3:1 non-text floor, with a label walked to 4.5:1
+              against THAT fill rather than assumed to be `ground` -- inert
+              on azure, whose accent already cleared the floor unassisted,
+              and a genuine (if smaller) correction on every other palette,
+              ink included. */}
           {where ? (
             // NO MAP, and that is deliberate rather than missing. A rendered
             // map needs a tile provider and a key, and the shop has no
@@ -129,9 +140,9 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
               accessibilityRole="link"
               accessibilityLabel={`Open ${where} in Maps`}
               onPress={() => openExternalUrl(mapsUrlFor(where))}
-              style={pressable([styles.directionsButton, styles.decisionAction, { backgroundColor: colors.accent }])}
+              style={pressable([styles.directionsButton, styles.decisionAction, { backgroundColor: colors.onDarkAccent }])}
             >
-              <Text style={[styles.directionsText, { color: colors.ground }]}>Get directions</Text>
+              <Text style={[styles.directionsText, { color: colors.onDarkAccentInk }]}>Get directions</Text>
             </Pressable>
           ) : null}
           {/* WHATSAPP MOVES HERE from the contact card below -- the same
