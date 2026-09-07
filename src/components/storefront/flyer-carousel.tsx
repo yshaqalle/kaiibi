@@ -728,7 +728,52 @@ function FlyerSlide({
 const styles = StyleSheet.create({
   // No margin of its own: the themes place the band, and each already has
   // its own vertical rhythm between the blurb and the goods.
-  band: { paddingTop: 12 },
+  //
+  // `width: '100%'` is load-bearing, not decorative -- it is the actual fix
+  // for a runaway that only shows up with two or more flyers (a single flyer
+  // renders the static branch above, which never touches this style or
+  // `handleLayout` at all). The invariant this line exists to hold: THE
+  // MEASURED WIDTH USED TO SIZE THE SLIDES MUST BE INDEPENDENT OF THE
+  // SLIDES. Before this line, `band` had no width of its own -- neither an
+  // explicit one nor `alignSelf: 'stretch'` -- so a browser laying it out
+  // had nothing to pin it to its parent's width and fell back to sizing it
+  // from its OWN CONTENT (shrink-to-fit), the same fallback a bare `<div>`
+  // takes once something upstream stops forcing it to fill its container.
+  // Its one child is `track` (the horizontal, paging ScrollView below,
+  // `storefront-flyer-track`), whose own content is N slides laid side by
+  // side and left unclipped for exactly this shrink-to-fit measurement --
+  // scrolling is what is SUPPOSED to hide the overflow, but shrink-to-fit
+  // sizing runs before scrolling gets a say, so it reports the full,
+  // un-scrolled sum. `handleLayout` below then reads THAT number off `band`
+  // and hands it to every slide as `width` (see the `.map` in the render),
+  // which makes the ScrollView's content wider still, which is what `band`
+  // measures next render -- one flyer's width added to the loop, and
+  // multiplied by however many flyers there are, until the browser's own
+  // layout clamp (2^24 = 16,777,216px) is the only thing left to stop it.
+  // That is why one flyer never triggers this (nothing measures its own
+  // scrollable content) and two or more always does.
+  //
+  // Two other shapes of fix were considered and rejected:
+  //   - Measuring a DIFFERENT, genuinely parent-sized element instead of
+  //     `band` (an outer wrapper around it) moves the read to a node that
+  //     is not itself in the loop, but every ancestor between here and the
+  //     nearest node with a real width is the exact same kind of bare,
+  //     width-less View `band` used to be -- so the wrapper would just
+  //     become the new thing shrink-to-fit measures the scrollable content
+  //     through, one frame later. It relocates the bug; it does not remove
+  //     the content-dependency that IS the bug.
+  //   - Constraining only `track` (the ScrollView) and leaving `band`
+  //     auto-width does not help either: `band` is the node `handleLayout`
+  //     reads, wired to its own `onLayout` a few lines down in the render.
+  //     Clamping the child while the parent that is actually MEASURED stays
+  //     free to shrink-to-fit around that child's content fixes what paints
+  //     without fixing what gets measured -- `width` state would still
+  //     chase the same runaway number.
+  // Fixing `band` itself is the only option where the node that is
+  // constrained and the node that is measured are the same node -- which is
+  // what makes "independent of the slides" true rather than true-until-the-
+  // next-render.
+  band: { paddingTop: 12, width: '100%' },
   slide: { paddingHorizontal: CARD_INSET },
   card: { borderRadius: 16, overflow: 'hidden' },
   // 16:9 rather than a fixed height -- a flyer is a poster the shop

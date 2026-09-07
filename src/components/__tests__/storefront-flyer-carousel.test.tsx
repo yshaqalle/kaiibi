@@ -172,6 +172,42 @@ describe('FlyerCarousel', () => {
     expect(withTestId(tree, 'storefront-flyer-next')).toHaveLength(1);
   });
 
+  // Regression: a shop with two or more published flyers destroyed its own
+  // header. `handleLayout` sets `width` from the BAND's own measured width,
+  // and every slide is sized to that same `width` -- but the band, styled
+  // with nothing but `paddingTop`, had no width of its own to be measured
+  // AS. A browser laying out a node with no width falls back to sizing it
+  // from its content, and the band's one child is a horizontal, paging
+  // ScrollView (`storefront-flyer-track`) whose un-scrolled content is every
+  // slide side by side -- so "the band's content" already means "N times
+  // whatever the slides are". Two or more flyers is what turns that into a
+  // loop: band measures content -> slides take that width -> the track's
+  // content grows to N times it -> nothing pins the band, so it measures
+  // wider -> slides grow again, with no ceiling but the browser's own layout
+  // clamp (2^24 = 16,777,216px). One flyer never enters this loop -- see the
+  // "static, not a carousel" test above -- because a single flyer renders
+  // the static branch, which has no ScrollView and never touches `width`
+  // state or `handleLayout` at all.
+  //
+  // Nothing lays out under Jest -- react-test-renderer never calls
+  // `onLayout`, so the runaway itself cannot be reproduced here (it was
+  // reproduced live instead, in a browser at 390x844 -- see
+  // flyer-width-report.md). What CAN be proved here is the structural
+  // invariant that makes the loop impossible to re-enter: `styles.band`
+  // must carry a width the browser resolves from the band's OWN PARENT
+  // (`width: '100%'` or `alignSelf: 'stretch'`), never a width the band
+  // would otherwise have to derive by measuring the very children this
+  // invariant exists to stop it from measuring. Before the fix this file
+  // ships alongside, `band`'s style was `{ paddingTop: 12 }` -- no `width`,
+  // no `alignSelf` -- and this assertion failed with `false !== true`; see
+  // flyer-width-report.md for the exact run against the pre-fix file.
+  it('constrains the band to a parent-derived width, so a browser can never size it from the scrollable content it contains', async () => {
+    const tree = await render([flyer({ id: 'f1' }), flyer({ id: 'f2' })]);
+    const band = withTestId(tree, 'storefront-flyer-band')[0];
+    const style = band.props.style as { width?: unknown; alignSelf?: unknown };
+    expect(style.width === '100%' || style.alignSelf === 'stretch').toBe(true);
+  });
+
   // Default off (property 1): a shop that has never touched auto_advance
   // must not move. Paired with the 'Task 4: motion' describe block below,
   // which proves the opposite case -- that a timer really does exist and
