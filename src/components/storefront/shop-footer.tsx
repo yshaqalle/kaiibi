@@ -73,9 +73,8 @@ export function ShopFooter({
           style={pressable(styles.brand)}
         >
           <Image
-            source={require('@/assets/images/kaiibi-mark-white.png')}
+            source={require('@/assets/images/kaiibi-mark-white-v2.png')}
             style={styles.brandMark}
-            resizeMode="contain"
           />
           <View>
             <Text style={[styles.brandEyebrow, { color: colors.onDarkMuted }]}>Powered by</Text>
@@ -114,7 +113,17 @@ const styles = StyleSheet.create({
   // every shop's page. Sized off the two-line lockup beside it (a "Powered by"
   // eyebrow over "kaiibi") rather than off a round number, so the mark reads
   // as set with the words rather than parked next to them.
-  brandMark: { width: Math.round(24 * KAIIBI_MARK_ASPECT), height: 24 },
+  //
+  // THE RATIO IS WHAT PROTECTS THE ARTWORK, not `resizeMode`. Measured on
+  // RN-web, BOTH this and the directory masthead compute `object-fit: fill`
+  // whether resizeMode is passed as a prop or set here -- so `contain` is not
+  // doing the work its name suggests, and the mark is undistorted only because
+  // the box is derived from KAIIBI_MARK_ASPECT and therefore already matches
+  // the asset (within the 1px of integer rounding: 21x24 is 0.875 against the
+  // file's 0.868). Change the asset without changing that constant and this
+  // stretches silently. `contain` is kept as the honest declaration of intent
+  // and as the behaviour native actually honours.
+  brandMark: { width: Math.round(24 * KAIIBI_MARK_ASPECT), height: 24, resizeMode: 'contain' },
   brandEyebrow: {
     fontSize: TYPE.metaSmall - 1, fontWeight: '800',
     letterSpacing: LETTER.meta, textTransform: 'uppercase',
