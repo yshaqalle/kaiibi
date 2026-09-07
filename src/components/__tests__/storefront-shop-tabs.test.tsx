@@ -424,6 +424,33 @@ describe('the Visit panel', () => {
     expect(has(tree, 'storefront-visit-instagram')).toBe(false);
   });
 
+  // THE "ASK" NUDGE ONLY APPEARS WHERE THERE IS SOMEBODY TO ASK. It used to be
+  // gated implicitly by sitting inside the `whatsappE164` branch of the old
+  // contact card; Task 22 moved it onto the delivery card, which dropped the
+  // gate until this pair of tests put it back. A shop with no WhatsApp and no
+  // phone was being told to "ask before you order" with nothing on the page to
+  // ask on -- the failure WhatsAppButton and ProductActions already refuse.
+  // Both arms of the gate, because `a || b` passing on `a` proves nothing
+  // about `b`: the fixture's default shop has WhatsApp and NO phone, so the
+  // second case is the only one that exercises the phone arm at all.
+  it('invites a question on WhatsApp alone', () => {
+    expect(textOf(renderVisit(), 'storefront-visit-areas'))
+      .toContain('Not sure your area is covered?');
+  });
+
+  it('invites a question on a phone alone, with no WhatsApp', () => {
+    expect(textOf(renderVisit({ whatsappE164: null, contactPhone: '+252634000111' }), 'storefront-visit-areas'))
+      .toContain('Not sure your area is covered?');
+  });
+
+  it('does not invite a question a shop with no WhatsApp and no phone could receive', () => {
+    const tree = renderVisit({ whatsappE164: null, contactPhone: null });
+    expect(textOf(tree, 'storefront-visit-areas')).not.toContain('Not sure your area is covered?');
+    // The rest of the card is untouched -- this gates one sentence, not the
+    // delivery list a customer came to this tab for.
+    expect(textOf(tree, 'storefront-visit-areas')).toContain('Jigjiga Yar');
+  });
+
   // The phone has been on every shop since 20260808000000 and was never shown.
   // The value itself moved from on-screen text to the accessibility label when
   // the row flattened to a compact icon button (Task 22) -- "Call" is what a

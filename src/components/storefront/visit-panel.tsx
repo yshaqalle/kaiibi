@@ -355,12 +355,24 @@ export function VisitPanel({
               </Text>
               {/* Moved here from the old contact card, which is where it sat
                   above the WhatsApp button before WhatsApp moved to the
-                  decision card (1d in the brief). The nudge is about DELIVERY
-                  AREAS, so its home is this card now, not wherever WhatsApp
-                  itself ended up. */}
-              <Text style={[styles.note, { color: colors.muted }]}>
-                Not sure your area is covered? Ask before you order.
-              </Text>
+                  decision card. The nudge is about DELIVERY AREAS, so its home
+                  is this card now, not wherever WhatsApp itself ended up.
+
+                  STILL GATED ON THERE BEING SOMEBODY TO ASK. It used to be
+                  gated implicitly, by sitting inside the `whatsappE164`
+                  branch; moving it out of that branch dropped the gate, so a
+                  shop with no WhatsApp and no phone was told to "ask" with
+                  nothing on the page to ask on. That is the failure
+                  WhatsAppButton and ProductActions already refuse -- lose the
+                  answer rather than print one that sends the customer
+                  nowhere. Instagram is deliberately not in this test: a handle
+                  is a profile to look at, not a channel this shop has promised
+                  to answer on. */}
+              {storefront.whatsappE164 || storefront.contactPhone ? (
+                <Text style={[styles.note, { color: colors.muted }]}>
+                  Not sure your area is covered? Ask before you order.
+                </Text>
+              ) : null}
             </ShopCard>
           ) : null}
 
