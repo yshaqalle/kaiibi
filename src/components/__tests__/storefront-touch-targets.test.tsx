@@ -653,18 +653,28 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
       expect(tree.root.findAll((n) => n.props?.testID === chipId).length).toBeGreaterThan(0);
     }
 
-    // NOT CONTROLS -- the same fact the Visit test below pins for the
-    // delivery-area rows (`expect(typeof rows[0].props?.onPress).not.toBe
-    // ('function')`). A chip or a photograph that merely LOOKS like a
-    // Pressable-shaped box is not one, and this is what would fail the day
-    // someone made one tappable without flooring it.
+    // NOT CONTROLS. `Image` accepts no `onPress` at all, so asserting
+    // `photo.props?.onPress` is not a function on the `Image` node itself
+    // would be true no matter what anyone did -- it is the wrap that matters:
+    // someone reaching for a lightbox wraps the `Image` in a `Pressable`,
+    // which leaves the testID on the (untouched) `Image` and would slip past
+    // a check that only ever looks at that one node. So this walks each
+    // photo's ANCESTORS up to the gallery container instead and asserts none
+    // of them carries a function `onPress` -- that is what actually fails
+    // the day someone makes one tappable (verified by hand: wrapping the
+    // cover `Image` in a `Pressable` locally makes this assertion fail, then
+    // reverted -- see this task's fix report).
     const galleryPhotos = tree.root.findAll(
       (n) => n.props?.testID === 'storefront-about-cover'
         || (typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-photo-')),
     );
     expect(galleryPhotos.length).toBeGreaterThan(0);
     for (const photo of galleryPhotos) {
-      expect(typeof photo.props?.onPress).not.toBe('function');
+      let ancestor = photo.parent;
+      while (ancestor && ancestor.props?.testID !== 'storefront-about-gallery') {
+        expect(typeof ancestor.props?.onPress).not.toBe('function');
+        ancestor = ancestor.parent;
+      }
     }
     const proofChips = tree.root.findAll(
       (n) => typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-proof-'),

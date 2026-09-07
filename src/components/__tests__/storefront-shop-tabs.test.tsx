@@ -277,7 +277,7 @@ describe('the About panel', () => {
   // Added by 20261021000000. Both are the shop's own writing, both optional,
   // and both must render as NOTHING when unset -- the rule every block on this
   // page follows.
-  it('renders no "why shop here" band for a shop that has written none', () => {
+  it('renders no highlight cards inside the story card for a shop that has written none', () => {
     expect(has(renderAbout({ highlights: [] }), 'storefront-about-highlights')).toBe(false);
   });
 
@@ -325,6 +325,29 @@ describe('the About panel', () => {
     const tree = renderAbout({ images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }] });
     expect(has(tree, 'storefront-about-gallery')).toBe(true);
     expect(has(tree, 'storefront-about-photo-i1')).toBe(false);
+  });
+
+  // The caption strip is the shop's PLACE, composed with collectLocation --
+  // `shop()`'s own defaults carry `collectNeighborhood: 'Jigjiga Yar'` and
+  // `city: 'Hargeisa'`, so a shop with photographs and no other override reads
+  // "Jigjiga Yar, Hargeisa" underneath the cover.
+  it('captions the cover with the shop\'s place, when it has one', () => {
+    const tree = renderAbout({ images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }] });
+    expect(textOf(tree, 'storefront-about-caption')).toBe('Jigjiga Yar, Hargeisa');
+  });
+
+  // `PublicStorefront.city` is `string | null` (src/types/models.ts), so a
+  // shop with photographs but no address, neighbourhood or city on file is a
+  // genuinely reachable state -- and the strip must render nothing at all
+  // rather than an empty line.
+  it('renders no caption strip for a shop with photographs but no place on file', () => {
+    const tree = renderAbout({
+      images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }],
+      collectAddress: null,
+      collectNeighborhood: null,
+      city: null,
+    });
+    expect(has(tree, 'storefront-about-caption')).toBe(false);
   });
 
   it('leads with a trading-since chip naming the year the shop opened, when it has one', () => {

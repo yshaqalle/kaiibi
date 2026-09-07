@@ -25,8 +25,8 @@ import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, Storefro
 // products the route already fetches, and every FAQ answer is derived from
 // `offers_delivery`, `payment_mode` and the area list.
 //
-// Three blocks are the shop's own: the "why shop here" cards
-// (`storefront_highlights`), the year it opened (`storefronts.trading_since`)
+// Three blocks are the shop's own: the highlight cards inside the merged story
+// card (`storefront_highlights`), the year it opened (`storefronts.trading_since`)
 // and the photographs (`storefront_images`). All are optional and all render
 // as NOTHING when unset -- the rule every block on this page follows. A shop
 // that has uploaded no photographs and written no highlights starts the tab at
@@ -200,10 +200,9 @@ export function AboutPanel({
   // time, when it has nothing true to say.
   const inStockCount = products.filter((product) => product.stock > 0).length;
   const proofChips: { id: string; text: string }[] = [];
-  // Leads when there is one, the same reasoning the old strip led with it:
-  // the one figure here not derivable from the page a customer is already
-  // looking at, and the one that answers "have these people been doing this a
-  // while".
+  // Leads when there is one: it is the one figure here not derivable from the
+  // page a customer is already looking at, and the one that answers "have
+  // these people been doing this a while".
   if (storefront.tradingSince) {
     proofChips.push({ id: 'trading', text: `Trading since ${storefront.tradingSince}` });
   }
@@ -246,7 +245,13 @@ export function AboutPanel({
                 resizeMode="cover"
               />
               {caption ? (
-                <Text style={[styles.caption, { color: colors.muted }]} numberOfLines={1}>{caption}</Text>
+                <Text
+                  testID="storefront-about-caption"
+                  style={[styles.caption, { color: colors.muted }]}
+                  numberOfLines={1}
+                >
+                  {caption}
+                </Text>
               ) : null}
             </View>
             {shownImages.length > 1 ? (
@@ -343,10 +348,8 @@ export function AboutPanel({
 const styles = StyleSheet.create({
   // Every top-of-tab block -- the gallery, the proof chips, the merged story
   // card -- sits inside this one gutter+gap wrapper now that none of them is a
-  // full-bleed band any more (see the removed `bandFill`'s history: the story
-  // used to be the one band made of type alone running edge to edge; now it is
-  // a `ShopCard` like everything else on this page, so there is nothing left
-  // that needs to run full-bleed).
+  // full-bleed band any more: the story is a `ShopCard` like everything else
+  // on this page, so there is nothing left that needs to run full-bleed.
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
   gutter: { paddingHorizontal: SPACE.page },
   band: { gap: 12, paddingTop: SPACE.page, paddingBottom: 4 },
