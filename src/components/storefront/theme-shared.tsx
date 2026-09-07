@@ -67,17 +67,34 @@ export type ThemeProps = {
 // Returns null when the shop has no number. Publishing requires one, so this is
 // the belt to that braces -- a page rendered from a row written before that rule
 // existed should lose the button, not render one that opens a chat with nobody.
-export function WhatsAppButton({ storefront }: { storefront: PublicStorefront }) {
+//
+// `label` is optional and defaults to what every existing call site already
+// printed. It exists for ONE caller: the Visit tab's decision card, where this
+// button sits beside "Get directions" in a shared row. Measured at 390px, the
+// full label makes the pair 309px wide inside a 286px card, so the two wrapped
+// onto separate lines and the design's "two actions, side by side" quietly
+// became two stacked ones -- correct at 1440 and wrong on the phone the page is
+// mostly read on. The SPOKEN label never shortens: a screen reader still hears
+// "Message on WhatsApp" whatever the button prints, because "WhatsApp" alone
+// says what the thing is and not what pressing it does.
+export function WhatsAppButton({
+  storefront, label = 'Message on WhatsApp', style,
+}: {
+  storefront: PublicStorefront;
+  label?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
   if (!storefront.whatsappE164) return null;
   const href = waLink(storefront.whatsappE164, `Hello ${storefront.shopName}, I have a question.`);
   return (
     <Pressable
       testID="storefront-whatsapp-button"
-      style={pressable(styles.wa)}
+      style={pressable([styles.wa, style])}
       onPress={() => openExternalUrl(href)}
       accessibilityRole="link"
+      accessibilityLabel="Message on WhatsApp"
     >
-      <Text style={styles.waText}>Message on WhatsApp</Text>
+      <Text style={styles.waText} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }

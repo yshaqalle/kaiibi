@@ -228,12 +228,11 @@ export function AboutPanel({
         {/* THE GALLERY, moved to the top: a stranger trusts what they can see
             before what they can read. It is a row of what the shop actually
             uploaded -- never a grid with holes in it. The cover is always the
-            first photo, full width; the design draws one wide photo above two
-            squares, which is what a shop with three gets. A shop with one gets
-            one wide photo and no thumbnail row, because a lone square beside
-            two gaps is a layout accident rather than a gallery. A shop with
-            none renders no cover, no strip and no thumbnail row at all -- the
-            tab simply starts at the proof chips below. */}
+            first photo, full width and 16:9; the rest are a THUMBNAIL STRIP
+            under it, which is what the design draws. A shop with one photo
+            gets the cover and no strip; a shop with none renders no cover, no
+            caption and no strip at all -- the tab simply starts at the proof
+            chips below. */}
         {shownImages.length > 0 ? (
           <View style={styles.gallery} testID="storefront-about-gallery">
             <View>
@@ -262,7 +261,7 @@ export function AboutPanel({
                     testID={`storefront-about-photo-${image.id}`}
                     source={{ uri: image.url! }}
                     onError={() => dropImage(image.id)}
-                    style={[styles.gallerySquare, { backgroundColor: colors.soft }]}
+                    style={[styles.galleryThumb, { backgroundColor: colors.soft }]}
                     resizeMode="cover"
                   />
                 ))}
@@ -371,10 +370,29 @@ const styles = StyleSheet.create({
   // register a location line under a photo asks for.
   caption: { fontSize: TYPE.metaSmall, marginTop: 6 },
   // Wraps, so four or five photographs fill rows instead of shrinking to fit
-  // one. `flexBasis` rather than a fixed width: two per row on a phone, more on
-  // a laptop, with no breakpoint to keep in step.
+  // one. `flexBasis` rather than a fixed width: several per row on a phone,
+  // more on a laptop, with no breakpoint to keep in step.
   galleryRest: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.gap },
-  gallerySquare: { flexGrow: 1, flexBasis: 140, aspectRatio: 1, borderRadius: RADIUS.inset },
+  // A FIXED HEIGHT, AND A CEILING ON THE WIDTH -- measured, not guessed.
+  //
+  // This was `flexGrow: 1, flexBasis: 140, aspectRatio: 1`, and the pair is a
+  // trap at low photo counts: `flexGrow` makes a LONE thumbnail take the whole
+  // column, and `aspectRatio: 1` then makes it that TALL. Measured in a browser
+  // on a shop with exactly two photos -- the common case, and the seeded one --
+  // it drew 326x326 at 390px and 788x788 at 1440px, a thumbnail nearly twice
+  // the height of the 16:9 cover above it, which pushed the proof chips to
+  // y=1345 and off the first screen on every laptop. The whole point of the
+  // re-weighting is that a stranger meets the photos and then the proof; a
+  // thumbnail that outgrows its own cover defeats it.
+  //
+  // No test in this repo can see this -- nothing lays out here -- so the height
+  // is stated rather than derived: a thumbnail is a fixed strip under the
+  // cover, the way both mockups draw it. `maxWidth` is what stops one photo
+  // spanning 788px of laptop; the row simply left-aligns when there are fewer
+  // thumbnails than fill it.
+  galleryThumb: {
+    flexGrow: 1, flexBasis: 104, maxWidth: 168, height: 76, borderRadius: RADIUS.inset,
+  },
 
   // THE PROOF CHIPS' ONE SHAPE, matching shop-directory-card.tsx's sell tags
   // exactly (radius 8, weight 700, size 10.5, `soft` fill, `muted` text) --

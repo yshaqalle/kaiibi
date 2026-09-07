@@ -129,14 +129,19 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
               accessibilityRole="link"
               accessibilityLabel={`Open ${where} in Maps`}
               onPress={() => openExternalUrl(mapsUrlFor(where))}
-              style={pressable([styles.directionsButton, { backgroundColor: colors.accent }])}
+              style={pressable([styles.directionsButton, styles.decisionAction, { backgroundColor: colors.accent }])}
             >
               <Text style={[styles.directionsText, { color: colors.ground }]}>Get directions</Text>
             </Pressable>
           ) : null}
           {/* WHATSAPP MOVES HERE from the contact card below -- the same
-              fixed-green button, unchanged. */}
-          {storefront.whatsappE164 ? <WhatsAppButton storefront={storefront} /> : null}
+              fixed-green button. It prints the short label here and only here,
+              so the pair actually fits one row on a phone; see WhatsAppButton's
+              own comment for the measurement, and note the spoken label is
+              unchanged. */}
+          {storefront.whatsappE164 ? (
+            <WhatsAppButton storefront={storefront} label="WhatsApp" style={styles.decisionAction} />
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -486,7 +491,16 @@ const styles = StyleSheet.create({
   decisionSub: {
     fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
-  decisionActions: { flexDirection: 'row', gap: 10, marginTop: 2, alignItems: 'center', flexWrap: 'wrap' },
+  // SIDE BY SIDE, and it has to be said in flex rather than left to intrinsic
+  // widths. This was a `flexWrap: 'wrap'` row of two naturally-sized buttons,
+  // which fits at 1440 and does NOT fit inside the card's 286px of usable width
+  // at 390 -- measured, the pair wanted 309px and wrapped, so the phone got two
+  // stacked buttons while the laptop got the design. `flex: 1` on both (with
+  // the short WhatsApp label beside it) makes them share whatever width there
+  // is, at every size, which is what the mockup's own `.btn { flex: 1 }` says.
+  // No wrap: two buttons that shrink together cannot fall onto a second line.
+  decisionActions: { flexDirection: 'row', gap: 10, marginTop: 2, alignItems: 'center' },
+  decisionAction: { flex: 1 },
   directionsButton: {
     borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11,
     minHeight: TOUCH_TARGET, justifyContent: 'center', alignItems: 'center',
