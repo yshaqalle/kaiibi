@@ -1,6 +1,7 @@
 import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
+import { registerFlyTrigger, resetFlyToCartForTests, unregisterFlyTrigger } from '@/components/storefront/fly-to-cart';
 import { ProductSheet } from '@/components/storefront/product-sheet';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { paletteColors } from '@/lib/storefront-catalog';
@@ -113,6 +114,48 @@ describe('a product description reaches the customer', () => {
     });
 
     expect(tree.toJSON()).toBeNull();
+  });
+
+  // DECISION 4: ProductSheet renders inside an AppModal -- a separate native
+  // window on iOS and Android -- so FlyToCartLayer's overlay (a sibling of
+  // the GRID, mounted once in ShopChrome) is not part of what that window
+  // draws. A dot arcing across a surface nobody watching the sheet can see
+  // is worse than no animation at all, so ProductSheet passes
+  // `canFlyToCart={false}` to the ProductActions it renders -- see
+  // theme-shared.tsx's own comment on that prop. The cart update must still
+  // happen; only the dot's flight is skipped.
+  describe('fly-to-cart: the dot cannot fly from inside a modal window', () => {
+    afterEach(() => {
+      resetFlyToCartForTests();
+    });
+
+    it('never fires the fly-to-cart trigger, while the cart still updates', () => {
+      const trigger = jest.fn();
+      const onAdd = jest.fn();
+      registerFlyTrigger(trigger);
+      let tree!: ReturnType<typeof create>;
+      act(() => {
+        tree = create(
+          <ProductSheet
+            product={rice}
+            colors={colors}
+            shopName={shop.shopName}
+            whatsappE164={shop.whatsappE164}
+            onClose={jest.fn()}
+            onAdd={onAdd}
+          />,
+        );
+      });
+
+      const add = tree.root.findAll(
+        (n) => n.props?.testID === 'product-tile-add' && typeof n.props?.onPress === 'function',
+      );
+      act(() => add[0].props.onPress({ nativeEvent: { pageX: 40, pageY: 220 } }));
+
+      expect(trigger).not.toHaveBeenCalled();
+      expect(onAdd).toHaveBeenCalledWith(rice);
+      unregisterFlyTrigger(trigger);
+    });
   });
 
   it('adds to the cart and closes, so the cart count is not hidden behind it', () => {

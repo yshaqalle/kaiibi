@@ -1,7 +1,7 @@
 import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
-import { ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
+import { pillMotion, ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
 import { VisitPanel, mapsUrlFor } from '@/components/storefront/visit-panel';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
@@ -141,6 +141,30 @@ describe('which tabs a shop gets', () => {
     );
     act(() => { about.props.onPress(); });
     expect(onSelect).toHaveBeenCalledWith('about');
+  });
+});
+
+// THE SLIDING PILL'S OWN DECISION (Task 17). Nothing about a `withSpring`
+// reaching its destination can be asserted through a render -- the shared
+// reanimated jest mock resolves every spring synchronously, so a rendered
+// pill is always already AT its target, springing or not. `pillMotion` is
+// the one fact that decides the difference, pulled out on its own for
+// exactly that reason (see shop-tabs.tsx's own comment beside it).
+describe('pillMotion: does the active-tab indicator slide or snap', () => {
+  it('slides under ordinary motion, once it already knows where it came from', () => {
+    expect(pillMotion(false, false)).toBe('spring');
+  });
+
+  it('never slides under reduced motion, even on a later tab press', () => {
+    expect(pillMotion(true, false)).toBe('snap');
+  });
+
+  it('snaps into place on the very first measurement -- nothing to travel FROM yet', () => {
+    expect(pillMotion(false, true)).toBe('snap');
+  });
+
+  it('reduced motion wins even on the first measurement', () => {
+    expect(pillMotion(true, true)).toBe('snap');
   });
 });
 

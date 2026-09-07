@@ -12,7 +12,7 @@ jest.mock('@/lib/supabase', () => ({ supabase: { rpc: jest.fn() } }));
 jest.mock('@/lib/storage', () => ({ publicImageUrl: (path: string | null) => (path ? `https://cdn.test/${path}` : null) }));
 
 import { supabase } from '@/lib/supabase';
-import { getPublicDeliveryAreas, getPublicStorefront, waLink } from '@/lib/storefront';
+import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts, waLink } from '@/lib/storefront';
 
 const rpc = supabase.rpc as jest.Mock;
 
@@ -358,6 +358,46 @@ describe('getPublicDeliveryAreas', () => {
   it('throws on an RPC error rather than swallowing it', async () => {
     rpc.mockResolvedValue({ data: null, error: new Error('db down') });
     await expect(getPublicDeliveryAreas('xamdi')).rejects.toThrow('db down');
+  });
+});
+
+// Task 16: get_public_storefront_products gained a `created_at` column in
+// 20261102000000, which feeds the tile's NEW badge (see isProductNew in
+// product-tile.tsx). Pinned here the same way hideBranding below pins
+// hide_branding: the mapping is the only place a snake_case RPC column
+// becomes the camelCase field a component reads.
+describe('getPublicStorefrontProducts createdAt', () => {
+  beforeEach(() => rpc.mockReset());
+
+  it('maps created_at to createdAt', async () => {
+    rpc.mockResolvedValue({
+      data: [
+        {
+          id: 'p1', name: 'Anker 20W charger', description: null, category: 'Phone',
+          price_cents: 1200, stock: 5, image_url: null, created_at: '2026-09-01T00:00:00Z',
+        },
+      ],
+      error: null,
+    });
+    const products = await getPublicStorefrontProducts('xamdi');
+    expect(products[0].createdAt).toBe('2026-09-01T00:00:00Z');
+  });
+
+  // The shipped-ahead-of-database case: a client built after this migration
+  // talking to a database still running the OLD function returns rows with
+  // no `created_at` key at all, not a `created_at: null` key. `?? null`
+  // (rather than reading the property directly) is what turns "key absent"
+  // and "key present but null" into the same result, so isProductNew's
+  // "absent means no badge" contract holds either way.
+  it('maps a row with no created_at column at all to null, not undefined', async () => {
+    rpc.mockResolvedValue({
+      data: [
+        { id: 'p1', name: 'Anker 20W charger', description: null, category: 'Phone', price_cents: 1200, stock: 5, image_url: null },
+      ],
+      error: null,
+    });
+    const products = await getPublicStorefrontProducts('xamdi');
+    expect(products[0].createdAt).toBeNull();
   });
 });
 

@@ -1,14 +1,25 @@
-import { type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  FadeInDown, runOnJS, useAnimatedReaction, useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withTiming,
+} from 'react-native-reanimated';
 
+import { Aurora } from '@/components/storefront/aurora';
 import { type CheckoutDetails, CheckoutForm } from '@/components/storefront/checkout-form';
+import {
+  clearSlipTarget, countUpDuration, countUpValue, fireFlyToCart, setSlipTarget, slipBumpMotion,
+} from '@/components/storefront/fly-to-cart';
 import { OrderPlaced } from '@/components/storefront/order-placed';
 import { pressable } from '@/components/storefront/press-feedback';
-import { DISPLAY_FONT, LETTER, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import {
+  DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SHOP_MAX_WIDTH, SPACE, TABULAR, TYPE,
+} from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
+import { isConfigured, isOpenAt } from '@/lib/store-hours';
 import { waLink } from '@/lib/storefront';
 import {
   addLine, cartItemCount, cartSubtotalCents, loadCart, saveCart, setQuantity, type StorefrontCart,
@@ -88,13 +99,15 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
 // comes across; the app's tokens do not.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Type ON the scrim, and so deliberately fixed -- the same pair, and the same
-// reasoning, as the constants this replaces in theme-window.tsx: the ground
-// underneath is an unknown photograph, and a palette's own ink would vanish
-// into it. Lives here now because the shop card is shared by all three themes
-// rather than being Window's alone.
-export const ON_SCRIM_INK = '#ffffff';
-export const ON_SCRIM_MUTED = '#e8e6e0';
+// Re-exported for backwards compatibility -- these two now live in scale.ts
+// (see that file's own comment) so a display component that only needs
+// them, CategoryBand chief among them, does not have to import this whole
+// module -- and with it `checkout-form`, `storefront-order` and
+// `@/lib/supabase` -- for two strings. This file still uses both directly
+// (below, and in ShopAnchor's own scrim), so importing them back in rather
+// than duplicating the values is what keeps this and scale.ts from being
+// able to drift apart.
+export { ON_SCRIM_INK, ON_SCRIM_MUTED };
 
 // A card. Borderless and unshadowed on purpose: the separation is the page
 // tone behind it, which is the whole of what makes a bento page read as
@@ -122,10 +135,63 @@ export function ShopCard({
 // reach it all move onto one `ink` card, and the page finally has a centre of
 // gravity instead of the 1,472px panel of `soft` that prompted this.
 //
-// The photo branch is Window's old hero, unchanged in substance: the image
-// fills the card, a flat 0.55 scrim goes over it, and the type takes the two
-// fixed on-scrim values above. What changed is only that it is now a card in a
-// row of cards rather than a full-bleed panel of its own.
+// The photo branch is Window's old hero, mostly unchanged in substance: the
+// image fills the card and the type takes the two fixed on-scrim values
+// above. What changed is the scrim itself -- see anchorScrim below -- and
+// that it is now a card in a row of cards rather than a full-bleed panel of
+// its own.
+
+// ONCE PER VISIT, NOT ONCE PER RENDER.
+//
+// A `useRef` inside ShopAnchor would not do it: pressing About or Visit and
+// coming back to Shop is not a re-render, it is a different ROUTE
+// (`[slug]/index.tsx` vs `[slug]/[tab].tsx` -- see StorefrontScreen's own
+// SHOP_CACHE comment on exactly this), and moving between routes unmounts
+// ThemeMarket/Window/Counter -- and so this component -- and mounts a fresh
+// one. A ref dies with the instance; a naive `entering` prop would replay the
+// rise on every single tab press. Module-level and keyed by slug for the same
+// reason SHOP_CACHE is: a shop's rise plays once per visit to its page, and a
+// genuinely fresh page load is expected to play it again.
+const HERO_RISEN = new Set<string>();
+
+// Read and write ends of HERO_RISEN, named so ShopAnchor's own body never
+// touches the Set directly. That indirection exists for one reason: it gives
+// a test a way in. react-native-reanimated's Jest mock
+// (jest/reanimated-mock.js, wrapping the library's own mock.ts) renders
+// `Animated.View` as a plain `View` and drops the `entering` prop on the
+// floor -- so no test that only renders ShopAnchor can tell a rise that
+// played from one that never did. These two functions, plus
+// resetHeroRisenForTests below, let a test observe and control the cache the
+// same way ShopAnchor's effect does, without mounting anything.
+export function heroHasRisen(slug: string): boolean {
+  return HERO_RISEN.has(slug);
+}
+
+export function markHeroRisen(slug: string): void {
+  HERO_RISEN.add(slug);
+}
+
+// TEST-ONLY SEAM. HERO_RISEN is module-level and, under Jest, lives for the
+// whole of a test file's run -- so one test marking a slug risen would leak
+// into every later test that reuses (or coincidentally picks) that slug. No
+// app code calls this: a real page load gets a fresh module instance for
+// free, which is the property the big comment above HERO_RISEN relies on.
+export function resetHeroRisenForTests(): void {
+  HERO_RISEN.clear();
+}
+
+// THE DECISION, pulled out on its own because nothing about it can be
+// asserted through a render (see the comment on heroHasRisen above) -- it is
+// a function of exactly two facts: is reduced motion on, and has this shop's
+// hero already spent its rise this session. Returns the millisecond delay
+// FadeInDown should carry for line `index`, or `null` when that line must
+// render already in its final position -- reduced motion means no animation
+// at all, never a faster one, and an already-risen shop must not replay it.
+export function heroRiseDelay(reducedMotion: boolean, alreadyRisen: boolean, index: number): number | null {
+  if (reducedMotion || alreadyRisen) return null;
+  return index * 80;
+}
+
 export function ShopAnchor({
   storefront, colors, style, wide, children,
 }: {
@@ -152,6 +218,46 @@ export function ShopAnchor({
   const place =
     collectLocation(storefront.collectAddress, storefront.collectNeighborhood, storefront.city) ?? storefront.city;
 
+  // `?? {}` for the same reason availableTabs defends the identical read:
+  // getPublicStorefront maps a missing column to {}, but a hand-built fixture
+  // (the editor preview, a dozen tests) is one omission away from handing this
+  // a hole, and isConfigured's Object.keys throws on undefined. Reused rather
+  // than reimplemented -- visit-panel.tsx's HoursCard is the one other place
+  // on this page that answers "is the shop open", and the two must never
+  // disagree about what "configured" or "open" means.
+  const hours = storefront.openingHours ?? {};
+  const hoursConfigured = isConfigured(hours);
+  // `new Date()` at render, deliberately not memoised -- the identical trade
+  // HoursCard makes, and for the identical reason: this page is opened, read
+  // and closed within a minute or two, and a stale "Open now" is worse than
+  // one that re-evaluates on a re-render.
+  const open = hoursConfigured && isOpenAt(hours, new Date());
+
+  // Reduced motion: no rise at all, not a faster one -- the lines render in
+  // their final position on the very first frame. `alreadyRisen` is read
+  // once per render, same as `shouldRise` used to be, so every line in this
+  // mount agrees on whether the hero has already spent its rise.
+  const reducedMotion = useReducedMotion();
+  const alreadyRisen = heroHasRisen(storefront.slug);
+  // Only marked "spent" when the rise actually played. A visit that opened
+  // under reduced motion never showed an animation, so it must not cost the
+  // one this slug is owed -- a customer who later turns reduced motion off
+  // and returns to this shop still gets to see it rise once. Runs after this
+  // render commits, so `alreadyRisen` above still reflects whether THIS mount
+  // -- the first eligible one for this slug -- gets to animate.
+  useEffect(() => {
+    if (!reducedMotion) markHeroRisen(storefront.slug);
+  }, [storefront.slug, reducedMotion]);
+
+  // `undefined` under either gate -- Animated.View treats a missing
+  // `entering` prop as "already in its final state", which is exactly what a
+  // skipped rise and an already-spent one both mean. The decision itself
+  // (heroRiseDelay above) is what a test can actually hold onto.
+  function riseIn(index: number) {
+    const delay = heroRiseDelay(reducedMotion, alreadyRisen, index);
+    return delay === null ? undefined : FadeInDown.duration(550).delay(delay);
+  }
+
   return (
     <View
       testID="storefront-shop-card"
@@ -160,9 +266,37 @@ export function ShopAnchor({
       {onPhoto ? (
         <>
           <Image source={{ uri: storefront.heroImageUrl! }} style={styles.anchorPhoto} resizeMode="cover" />
-          <View testID="storefront-hero-scrim" style={styles.anchorScrim} pointerEvents="none" />
+          {/* A BOTTOM-WEIGHTED GRADIENT, not the flat scrim this replaces, and
+              ONLY here -- never on the no-photo branch below. That second
+              half is the fix, not the gradient: the flat scrim used to be a
+              sibling of the photo `Image` inside the SAME `onPhoto ? (...)`
+              branch already, so it could never have painted over a photoless
+              card by itself -- but a grey shape was still turning up over the
+              no-photo fallback, which means whatever produced it lived
+              somewhere this component doesn't render from. Anchoring the new
+              gradient to the identical `onPhoto` guard the old scrim used is
+              the belt this fix-class is about: there is now exactly one
+              branch that can ever paint a scrim, and it is the one with a
+              photograph under it. */}
+          <LinearGradient
+            testID="storefront-hero-scrim"
+            colors={HERO_SCRIM.colors}
+            locations={HERO_SCRIM.locations}
+            style={styles.anchorScrim}
+            pointerEvents="none"
+          />
         </>
-      ) : null}
+      ) : (
+        // THE AURORA -- the photoless anchor's own counterpart to the scrim
+        // above, gated on the identical `onPhoto` boolean so the two can
+        // never both paint (a shop cannot have a photo AND no photo) and
+        // never both skip (every card gets exactly one background
+        // treatment). See aurora.tsx for what this actually renders, given
+        // no radial gradient and no blur are available on this branch. A
+        // static wash, not animated -- see that file's own header comment
+        // for why it no longer takes a `reducedMotion` prop at all.
+        <Aurora colors={colors} />
+      )}
 
       <Text style={[styles.eyebrow, { color: muted }]}>The shop</Text>
 
@@ -170,20 +304,61 @@ export function ShopAnchor({
           first question a forwarded link has to answer. adjustsFontSizeToFit
           carries the genuinely long names down rather than letting them wrap
           to three lines -- shop names are not length-limited anywhere. */}
-      <Text
-        testID="storefront-wordmark"
-        style={[styles.wordmark, wide && styles.wordmarkWide, { color: ink }, onPhoto && styles.onScrimText]}
-        numberOfLines={2}
-        adjustsFontSizeToFit
-        minimumFontScale={0.6}
-      >
-        {storefront.shopName}
-      </Text>
+      <Animated.View entering={riseIn(0)}>
+        <Text
+          testID="storefront-wordmark"
+          style={[styles.wordmark, wide && styles.wordmarkWide, { color: ink }, onPhoto && styles.onScrimText]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
+          {storefront.shopName}
+        </Text>
+      </Animated.View>
 
       {place ? (
-        <Text testID="storefront-eyebrow" style={[styles.place, { color: muted }, onPhoto && styles.onScrimText]}>
-          {place}
-        </Text>
+        <Animated.View entering={riseIn(1)}>
+          <Text testID="storefront-eyebrow" style={[styles.place, { color: muted }, onPhoto && styles.onScrimText]}>
+            {place}
+          </Text>
+        </Animated.View>
+      ) : null}
+
+      {/* THE ONE TRUST FACT a customer reads here without opening Visit --
+          whether the shop is open right now. (Collection and
+          pay-on-collection are already said once each, lower down this same
+          page -- CollectingCard's "Delivery / Collection only" and "Pay / On
+          collection" rows, then the footer's unconditional "Pay on
+          collection · Prices set by the shop". A ghost pill repeating just
+          "Collection" up here, a third time in one narrow scroll, said
+          nothing an anchor visitor did not already read twice more below --
+          see this file's git history for the pill this replaced.)
+
+          NO PILL AT ALL when the shop has not set hours -- the same rule
+          HoursCard follows for the identical reason: `isConfigured` false
+          means "never filled in", and a pill claiming a state the shop never
+          gave would be invented, not reported. Word AND fill, never colour
+          alone -- a customer who cannot tell accent from soft still reads
+          "Open now" or "Closed now". */}
+      {hoursConfigured ? (
+        <Animated.View entering={riseIn(2)}>
+          <View style={styles.pillRow}>
+            <View
+              testID="storefront-anchor-open-pill"
+              style={[styles.openPill, { backgroundColor: open ? colors.accent : colors.soft }]}
+            >
+              <Text
+                style={[
+                  styles.openPillText,
+                  { color: open ? colors.ground : colors.muted },
+                  onPhoto && styles.onScrimText,
+                ]}
+              >
+                {open ? 'Open now' : 'Closed now'}
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
       ) : null}
 
       {storefront.headline ? (
@@ -376,7 +551,7 @@ export function ShopPill({
 // a raw pixel test so the caller decides once, from the same measurement it
 // already takes to pick a column count.
 export function ShopHeader({
-  storefront, products, areas, colors, wide, itemCount, onOpenCart,
+  storefront, products, areas, colors, wide, itemCount, onOpenCart, narrowFloatingSearch, narrowFlyerCarousel,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
@@ -385,6 +560,27 @@ export function ShopHeader({
   wide: boolean;
   itemCount: number;
   onOpenCart: () => void;
+  // The floating SearchField element, or null -- computed and gated by the
+  // CALLER (ThemeMarket, via shouldOfferSearch) so that decision keeps
+  // living in exactly one place rather than being duplicated here. This
+  // component's only job is where to paint it: right after ShopAnchor and
+  // before headerPair, which is what makes its -21px pull land on the
+  // anchor's own bottom edge instead of on the Collecting/Stock pair below.
+  // Ignored entirely in the wide branch -- see ShopAnchor's placement there.
+  narrowFloatingSearch?: ReactNode;
+  // The FlyerCarousel element, same slot mechanism as narrowFloatingSearch
+  // and for the same reason: the mockup (storefront-bold-motion-mockup.html,
+  // .onesearch followed immediately by the flyer band) puts the carousel
+  // directly under the floating search, ABOVE the Collecting/Stock pair --
+  // not after the whole header, where it used to land as ThemeMarket's own
+  // sibling with the pair wedged in between. Rendered here, between
+  // narrowFloatingSearch and headerPair, so the caller keeps owning the
+  // "does this shop even have flyers" question (FlyerCarousel's own
+  // count === 0 guard) while this component owns only where the slot paints.
+  // Ignored entirely in the wide branch, same as narrowFloatingSearch -- wide
+  // keeps rendering the carousel as ThemeMarket's own sibling below the
+  // header, unchanged from before this fix.
+  narrowFlyerCarousel?: ReactNode;
 }) {
   const cartLabel = itemCount > 0 ? `Cart · ${itemCount}` : 'Cart';
   const cartA11y = itemCount > 0 ? `Open cart, ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'Open cart';
@@ -428,6 +624,8 @@ export function ShopHeader({
         />
       </View>
       <ShopAnchor storefront={storefront} colors={colors} />
+      {narrowFloatingSearch}
+      {narrowFlyerCarousel}
       <View style={styles.headerPair}>
         <CollectingCard storefront={storefront} areas={areas} colors={colors} style={styles.pairCard} stacked />
         <StockCard products={products} colors={colors} style={styles.pairCard} />
@@ -526,6 +724,19 @@ type ProductActionsProps = {
   // pair would turn every row into a card. `compact` is the same two
   // buttons at row scale, not a different component.
   compact?: boolean;
+  // Defaults to true -- the ordinary grid path (ProductTile, Counter's row)
+  // is unchanged. ProductSheet is the one caller that passes `false`: it
+  // renders this same component inside an AppModal, and on iOS and Android
+  // a Modal is its OWN native window, layered above everything FlyToCartLayer
+  // paints into. The dot would arc across a window nobody watching the sheet
+  // can see, and the slip it is racing toward is sitting behind the sheet
+  // besides -- so the flight is not merely pointless there, it is invisible
+  // by construction, on every platform where a Modal is a real window rather
+  // than a browser-only stacking context. A positive name (can it fly)
+  // rather than a negative one (suppress the fly) so the ordinary case reads
+  // as "yes, of course" rather than as a double negative at every call site
+  // that doesn't opt out.
+  canFlyToCart?: boolean;
 };
 
 // The Add/Ask pair every theme with per-product actions needs. Originally
@@ -540,7 +751,9 @@ type ProductActionsProps = {
 // the button rather than render one that opens a chat with nobody. An earlier
 // version rendered Ask always and made it silently do nothing, which is the
 // worse half of both options -- the customer taps and the app shrugs.
-export function ProductActions({ product, colors, shopName, whatsappE164, onAdd, compact }: ProductActionsProps) {
+export function ProductActions({
+  product, colors, shopName, whatsappE164, onAdd, compact, canFlyToCart = true,
+}: ProductActionsProps) {
   const outOfStock = product.stock <= 0;
 
   function handleAsk() {
@@ -564,7 +777,34 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
           testID="product-tile-add"
           accessibilityRole="button"
           style={pressable([styles.button, compact && styles.buttonCompact, { backgroundColor: colors.accent }])}
-          onPress={() => onAdd?.(product)}
+          // fireFlyToCart reads the press's own window-space coordinate --
+          // pageX/pageY, unaffected by how far this tile's grid has been
+          // scrolled -- and hands it to whatever FlyToCartLayer is mounted
+          // for this page (fly-to-cart.ts's own header comment explains why
+          // a registry rather than a threaded prop). It is deliberately
+          // fire-and-forget: a shop with no dot to show (the slip has never
+          // laid out, or reduced motion is on) is still a shop whose cart
+          // gets the item, exactly as it did before this pass existed.
+          //
+          // `canFlyToCart` gates only THIS call -- the cart update
+          // (`onAdd?.(product)`, next line) always runs regardless, because
+          // an Add pressed inside ProductSheet's modal must still add to the
+          // cart and still let the sheet's own onAdd close it; only the
+          // dot's flight is skipped, since FlyToCartLayer paints into a
+          // different native window a modal cannot see.
+          onPress={(e) => {
+            // `e` (and `e.nativeEvent`) is optional here on purpose: dozens
+            // of existing tests across this suite call a captured
+            // `.props.onPress()` with no argument at all to simulate a
+            // press, and every one of them must keep passing exactly as it
+            // did before this pass -- fireFlyToCart's own `origin` parameter
+            // is already nullable for precisely this "no coordinate to
+            // give" case.
+            if (canFlyToCart) {
+              fireFlyToCart(e?.nativeEvent ? { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY } : null);
+            }
+            onAdd?.(product);
+          }}
         >
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: colors.ground }]}>Add</Text>
         </Pressable>
@@ -612,28 +852,52 @@ export function CartButton({ colors, count, onPress }: { colors: PaletteColors; 
 // below is what Android and web get -- and a filter with no visible way out
 // is the same dead end CategoryFilterBar exists to avoid.
 export function SearchField({
-  colors, value, onChange, count,
+  colors, value, onChange, count, floating,
 }: {
   colors: PaletteColors;
   value: string;
   onChange: (next: string) => void;
   count: number;
+  // Pulls this field up to overlap whatever sits directly above it by the
+  // mockup's own -21px (docs/design/storefront-bold-motion-mockup.html,
+  // .onesearch) instead of sitting in plain flow beneath it. Only
+  // ThemeMarket's narrow layout passes this -- see theme-market.tsx -- because
+  // it is the only placement where "whatever sits above" is ShopAnchor's own
+  // card and not the wide 3-card row, where the same 21px could land on a
+  // real WhatsApp/Cart button rather than a card's own blank padding.
+  floating?: boolean;
 }) {
   return (
-    <View style={styles.searchRow}>
-      <TextInput
-        testID="storefront-search"
-        accessibilityLabel={`Search ${count} items`}
-        placeholder={`Search ${count} items`}
-        placeholderTextColor={colors.muted}
-        value={value}
-        onChangeText={onChange}
-        autoCorrect={false}
-        autoCapitalize="none"
-        returnKeyType="search"
-        clearButtonMode="while-editing"
-        style={[styles.search, { borderColor: colors.edge, color: colors.ink, backgroundColor: colors.ground }]}
-      />
+    <View style={[styles.searchRow, floating ? styles.searchRowFloating : styles.searchRowInline]}>
+      <View
+        style={[styles.searchCard, { backgroundColor: colors.ground, shadowColor: colors.ink }]}
+      >
+        {/* The mockup's own glyph (.onesearch i) -- a plain character rather
+            than an icon font, so the floating card costs nothing new: no
+            dependency, and the same glyph reads on every platform this page
+            ships to. Hidden from screen readers -- the TextInput's own
+            accessibilityLabel already says "Search N items". */}
+        <Text
+          style={[styles.searchGlyph, { color: colors.muted }]}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        >
+          ⌕
+        </Text>
+        <TextInput
+          testID="storefront-search"
+          accessibilityLabel={`Search ${count} items`}
+          placeholder={`Search ${count} items…`}
+          placeholderTextColor={colors.muted}
+          value={value}
+          onChangeText={onChange}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          style={[styles.searchInput, { color: colors.ink }]}
+        />
+      </View>
       {value.length > 0 ? (
         <Pressable
           testID="storefront-search-clear"
@@ -849,43 +1113,220 @@ export function CheckoutBar({
   fulfilment: string | null;
   onPress: () => void;
 }) {
+  // Hooks run on EVERY render, including the itemCount===0 one that returns
+  // null below -- React does not allow a conditional hook, and this
+  // component's own instance is never unmounted just because the cart is
+  // momentarily empty (the parent theme always renders <CheckoutBar/>; only
+  // its OWN return decides whether that renders anything -- see
+  // useStorefrontCart's neighbours in this file for the identical shape).
+  const reducedMotion = useReducedMotion();
+  const slipRef = useRef<View>(null);
+
+  // THIS INSTANCE'S OWN CLAIM on the slip-target registry -- a plain object
+  // created once per mount, compared only by `===`. What makes the cleanup
+  // below identity-checked rather than unconditional: see
+  // `clearSlipTarget`'s own comment in fly-to-cart.ts for the hazard (an
+  // outgoing CheckoutBar's unmount racing an incoming one's mount, on a
+  // route transition) this guards against.
+  const slipOwnerRef = useRef({});
+
+  // THE SLIP TARGET -- registered on every layout of this box (mount, and
+  // any resize) rather than read once, so a laptop window resize or a
+  // rotation keeps it honest. Window-space (measureInWindow), the same
+  // space the press event ProductActions hands fireFlyToCart already
+  // carries -- see fly-to-cart.ts's own header comment on why a
+  // module-level value stands in for a ref threaded back up through three
+  // themes. `+ 28, + height / 2` lands the target roughly where the first
+  // thumbnail sits -- the mockup's own `sr.left+28` offset.
+  //
+  // Optional-chained throughout: `measureInWindow` is a real native method
+  // react-test-renderer's host instances do not implement, and every test
+  // that renders CheckoutBar must keep passing without it -- a shop with no
+  // registered target just never gets a dot (ProductActions' own
+  // fireFlyToCart already degrades to that outcome gracefully).
+  function registerSlipTarget() {
+    const node = slipRef.current as unknown as {
+      measureInWindow?: (cb: (x: number, y: number, width: number, height: number) => void) => void;
+    } | null;
+    node?.measureInWindow?.((x, y, width, height) => {
+      setSlipTarget({ x: x + 28, y: y + height / 2 }, slipOwnerRef.current);
+    });
+  }
+
+  // Clears this instance's OWN claim on unmount -- `setSlipTarget` never had
+  // a matching cleanup at all before this fix, so a CheckoutBar that
+  // unmounted left a stale, unreachable target sitting in the registry
+  // (harmless only by luck: the next CheckoutBar to lay out would overwrite
+  // it before anything read it). Mount/unmount only (`[]`): this must not
+  // re-run on every re-render, or it would clear the very target the effect
+  // above just set.
+  useEffect(() => {
+    const owner = slipOwnerRef.current;
+    return () => clearSlipTarget(owner);
+  }, []);
+
+  // THE BUMP. Two shared values, one per branch of slipBumpMotion, rather
+  // than one animated between two different meanings -- each stays at its
+  // own resting value (1) whichever branch is playing, so switching a
+  // device's reduced-motion setting between two Add presses can never leave
+  // one stuck mid-animation.
+  const bumpScale = useSharedValue(1);
+  const bumpOpacity = useSharedValue(1);
+  const bumpStyle = useAnimatedStyle(() => ({
+    opacity: bumpOpacity.value,
+    transform: [{ scale: bumpScale.value }],
+  }));
+
+  // THE COUNT-UP. `displayCents` is what the slip actually PRINTS;
+  // `subtotalCents` is the prop, the cart's real, already-updated total.
+  // Tracking them separately is what lets the printed figure lag the real
+  // one for exactly `countUpDuration` -- reading straight from the prop
+  // would show the new total the instant the cart changed, with no tween at
+  // all to see.
+  //
+  // DRIVEN OFF A REANIMATED SHARED VALUE, deliberately, rather than a raw
+  // `requestAnimationFrame` loop on the JS thread: an earlier version of
+  // this used one directly, and it left a scheduled frame callback that
+  // could fire AFTER a test's render tree was done with it -- react-test-
+  // renderer never unmounts a tree a test does not explicitly unmount, so
+  // the callback survived into the next test file's module teardown and
+  // threw "trying to import a file after the Jest environment has been torn
+  // down". `progress` below is owned by Reanimated instead, which tears
+  // itself down with the component; only its COMPLETION callback (fired
+  // once, `finished` guaranteed true or false) ever touches React state, via
+  // `runOnJS`, matching the pattern the bump above already uses.
+  const [displayCents, setDisplayCents] = useState(subtotalCents);
+  const previousSubtotal = useRef(subtotalCents);
+  const everMounted = useRef(false);
+  const progress = useSharedValue(0);
+
+  // Read inside the reaction below via `runOnJS`, so the closure it calls
+  // always sees the CURRENT from/to/duration for whichever tween is in
+  // flight, without progress itself needing to carry anything but 0..1.
+  const tweenFrom = useRef(subtotalCents);
+  const tweenTo = useRef(subtotalCents);
+  const tweenDuration = useRef(0);
+
+  function applyProgress(k: number) {
+    setDisplayCents(countUpValue(tweenFrom.current, tweenTo.current, k * tweenDuration.current, tweenDuration.current));
+  }
+
+  // Mirrors `progress` back onto the JS thread as it advances, for a smooth
+  // read on a real device. A no-op under the shared reanimated jest mock
+  // (`useAnimatedReaction: NOOP`) -- see the `withTiming` completion
+  // callback below for how the FINAL value still lands under test, which is
+  // the only part of this tween any test asserts on.
+  useAnimatedReaction(
+    () => progress.value,
+    (current) => runOnJS(applyProgress)(current),
+  );
+
+  useEffect(() => {
+    // First render only: show the real number outright. A cart that
+    // survived from an earlier visit must not count up from zero on
+    // arrival, and there is no CHANGE yet for the slip to acknowledge.
+    if (!everMounted.current) {
+      everMounted.current = true;
+      previousSubtotal.current = subtotalCents;
+      setDisplayCents(subtotalCents);
+      return;
+    }
+    if (subtotalCents === previousSubtotal.current) return;
+    const from = previousSubtotal.current;
+    const to = subtotalCents;
+    previousSubtotal.current = to;
+
+    // Plays regardless of whether a dot ever reached the slip -- see
+    // ProductActions' own comment: a customer on a device with no
+    // registered target, or reduced motion on, is still a customer whose
+    // slip must acknowledge that the total just changed.
+    // Reanimated SharedValue `.value` assignments below -- the library's own
+    // documented mutation API, not a React-owned value the experimental
+    // react-hooks/immutability rule's model applies to.
+    /* eslint-disable react-hooks/immutability */
+    const motion = slipBumpMotion(reducedMotion);
+    if (motion.kind === 'scale') {
+      bumpScale.value = withSequence(withTiming(motion.amount, { duration: 120 }), withTiming(1, { duration: 230 }));
+    } else {
+      bumpOpacity.value = withSequence(withTiming(0.55, { duration: 90 }), withTiming(1, { duration: 180 }));
+    }
+
+    const duration = countUpDuration(reducedMotion);
+    if (duration <= 0) {
+      // Reduced motion: countUpValue would already collapse to `to`
+      // immediately (its own `durationMs <= 0` guard), but setting it here
+      // directly skips starting a Reanimated tween for it entirely.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing displayed state to the cart's own already-updated total, the same shape income-statement-view.tsx's identical suppression covers
+      setDisplayCents(to);
+      return;
+    }
+    tweenFrom.current = from;
+    tweenTo.current = to;
+    tweenDuration.current = duration;
+    progress.value = 0;
+    // `withTiming`'s own completion callback -- fired with `finished: true`
+    // on a real device once the full duration elapses, and SYNCHRONOUSLY
+    // under the shared reanimated mock (react-native-reanimated's own
+    // mock.ts calls `callback?.(true)` immediately) -- is what guarantees
+    // the slip always converges on the exact new total, whether or not
+    // `useAnimatedReaction` above ever fired a single intermediate frame.
+    progress.value = withTiming(1, { duration }, (finished) => {
+      if (finished) runOnJS(setDisplayCents)(to);
+    });
+    /* eslint-enable react-hooks/immutability */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bumpScale/bumpOpacity/progress are stable shared-value refs
+  }, [subtotalCents, reducedMotion]);
+
   if (itemCount === 0) return null;
   const line = `${itemCount} ${itemCount === 1 ? 'item' : 'items'}${fulfilment ? ` · ${fulfilment}` : ''}`;
   return (
     <View pointerEvents="box-none" style={styles.checkoutBarSlot}>
-      <Pressable
-        testID="storefront-checkout-bar"
-        accessibilityRole="button"
-        onPress={onPress}
-        style={pressable([styles.slip, { backgroundColor: colors.ground, shadowColor: '#000' }])}
-      >
-        <View style={styles.slipEvidence}>
-          <View style={styles.slipThumbs}>
-            {thumbnails.map((uri, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.slipThumb,
-                  i === 0 && styles.slipThumbFirst,
-                  { backgroundColor: colors.soft, borderColor: colors.ground },
-                ]}
-              >
-                {uri ? <Image source={{ uri }} style={styles.slipThumbImage} /> : null}
-              </View>
-            ))}
+      {/* THE BUMP lives on this OUTER wrapper, never merged into the
+          Pressable's own style array -- Task 15's collision (RN style
+          flattening replaces a whole `transform` array on key collision,
+          rather than merging it element-by-element) is exactly what would
+          happen if this scale shared the same node press-feedback's own
+          press-scale animates. Two nodes, two transforms, neither can ever
+          wipe the other out. */}
+      <Animated.View style={bumpStyle}>
+        <Pressable
+          ref={slipRef}
+          onLayout={registerSlipTarget}
+          testID="storefront-checkout-bar"
+          accessibilityRole="button"
+          onPress={onPress}
+          style={pressable([styles.slip, { backgroundColor: colors.ground, shadowColor: '#000' }])}
+        >
+          <View style={styles.slipEvidence}>
+            <View style={styles.slipThumbs}>
+              {thumbnails.map((uri, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.slipThumb,
+                    i === 0 && styles.slipThumbFirst,
+                    { backgroundColor: colors.soft, borderColor: colors.ground },
+                  ]}
+                >
+                  {uri ? <Image source={{ uri }} style={styles.slipThumbImage} /> : null}
+                </View>
+              ))}
+            </View>
+            <View>
+              {/* TABULAR (styles.slipTotal), so a figure that gains a digit
+                  mid-count-up does not shift the layout around it. */}
+              <Text style={[styles.slipTotal, { color: colors.ink }]} numberOfLines={1}>{formatCents(displayCents)}</Text>
+              <Text style={[styles.slipLine, { color: colors.muted }]} numberOfLines={1}>{line}</Text>
+            </View>
           </View>
-          <View>
-            <Text style={[styles.slipTotal, { color: colors.ink }]} numberOfLines={1}>{formatCents(subtotalCents)}</Text>
-            <Text style={[styles.slipLine, { color: colors.muted }]} numberOfLines={1}>{line}</Text>
+          {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on
+              every palette (Step 0). White type, the pair the constant is
+              contrast-tested for; colors.ground would drift per palette. */}
+          <View style={[styles.slipGo, { backgroundColor: CHECKOUT_BLUE }]}>
+            <Text style={[styles.slipGoText, { color: CHECKOUT_INK }]}>Checkout</Text>
           </View>
-        </View>
-        {/* CHECKOUT_BLUE, not colors.accent -- the affordance is fixed on
-            every palette (Step 0). White type, the pair the constant is
-            contrast-tested for; colors.ground would drift per palette. */}
-        <View style={[styles.slipGo, { backgroundColor: CHECKOUT_BLUE }]}>
-          <Text style={[styles.slipGoText, { color: CHECKOUT_INK }]}>Checkout</Text>
-        </View>
-      </Pressable>
+        </Pressable>
+      </Animated.View>
     </View>
   );
 }
@@ -1160,6 +1601,18 @@ export function ConfirmationScreen({
 // every palette, and a derived token would be six values doing one job.
 const ON_INK_HAIRLINE = 'rgba(255,255,255,0.14)';
 
+// THE FLOATING SEARCH CARD'S OVERLAP ONTO THE ANCHOR -- 21px, the number the
+// mockup settled on. `headerNarrow` (below) is a column flex container with
+// `gap: SPACE.cardGap` between its children, and RN's flex `gap` and a
+// child's own negative `marginTop` SUM rather than one replacing the other --
+// so a margin of `-21` on top of a `SPACE.cardGap` (14) gap rendered as only
+// a 7px overlap, not 21, the whole time this shipped. Expressing the margin
+// as `-(SEARCH_FLOAT_OVERLAP + SPACE.cardGap)` is what keeps the two numbers
+// from being able to drift apart silently again: change the gap, and the
+// margin below moves with it, still landing on exactly this many pixels of
+// overlap.
+const SEARCH_FLOAT_OVERLAP = 21;
+
 const styles = StyleSheet.create({
   // ── bento surfaces ──
   card: { borderRadius: RADIUS.card, padding: SPACE.card },
@@ -1167,12 +1620,13 @@ const styles = StyleSheet.create({
   // radius rather than squaring off its corners.
   anchor: { overflow: 'hidden' },
   anchorPhoto: { ...StyleSheet.absoluteFill },
-  // A FLAT scrim covering the whole card, not a bottom-weighted gradient: the
-  // type flows from the TOP of this card, so the area needing darkening is all
-  // of it. What 0.55 does and does not buy is unchanged from the panel this
-  // replaces -- comfortable against a mid or dark photo, not sufficient against
-  // a near-white one, which is what the text shadow below carries.
-  anchorScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
+  // Positioning only -- the LinearGradient it sizes paints its own colours.
+  // Bottom-weighted (`locations` biased toward the end) rather than the flat
+  // scrim this replaces: the type sits at the BOTTOM of this card, so only the
+  // area behind it needs to go dark, and the top of the photo now shows
+  // through nearly untouched. The text shadow below still carries whatever a
+  // near-white photo leaves the gradient short of.
+  anchorScrim: { ...StyleSheet.absoluteFill },
   onScrimText: { textShadowColor: 'rgba(0,0,0,0.65)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
@@ -1186,6 +1640,16 @@ const styles = StyleSheet.create({
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta,
     textTransform: 'uppercase', marginTop: 10,
   },
+  // Wraps the single open-state pill -- mockup's `.pills` (gap: 6). Kept as
+  // its own row (rather than folding `openPill`'s own margin back in)
+  // because it is the row that rises as one entering unit; a second pill
+  // used to share it, removed once the collection word it repeated was
+  // already said twice more, lower down this same page.
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, alignSelf: 'flex-start' },
+  // Same shape as HoursCard's own `statePill`/`stateText` in visit-panel.tsx
+  // -- one state, rendered the same way everywhere this page says it.
+  openPill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
+  openPillText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
   anchorHead: { fontSize: 17, fontWeight: '700', letterSpacing: LETTER.display, lineHeight: 23, marginTop: 16 },
   anchorAbout: { fontSize: TYPE.body, lineHeight: 20, marginTop: 7 },
   anchorFoot: {
@@ -1237,8 +1701,42 @@ const styles = StyleSheet.create({
   // shop's palette.
   emptyWa: { backgroundColor: WHATSAPP_BUTTON_GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 14 },
   emptyWaText: { color: WHATSAPP_INK, fontSize: 12.5, fontWeight: '800' },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page, paddingTop: 10 },
-  search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 10, fontSize: TYPE.body },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACE.page },
+  // The two placements this field ships in -- see the `floating` prop above.
+  // Non-floating keeps the small gap this row always had above it
+  // (CategoryBand/CategoryFilterBar, or Window and Counter's own header).
+  // Floating replaces that gap with the mockup's own overlap instead, and
+  // raises the field above whatever it overlaps -- `zIndex` rather than
+  // relying on paint order, since Android's `elevation` on a sibling can
+  // reorder that silently.
+  searchRowInline: { marginTop: 10 },
+  // The rendered overlap is `SEARCH_FLOAT_OVERLAP`, not this margin's own
+  // magnitude -- `headerNarrow`'s `gap` adds back onto it (see
+  // SEARCH_FLOAT_OVERLAP's own comment above). A bare `-21` here would be
+  // exactly the bug that shipped: correct-looking, wrong once the parent's
+  // gap is added in.
+  searchRowFloating: { marginTop: -(SEARCH_FLOAT_OVERLAP + SPACE.cardGap), zIndex: 1 },
+  searchCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    // "0 8 24 rgba(ink, 0.13)" -- the mockup's own .onesearch shadow --
+    // expressed as RN's shadow* props plus `elevation` for Android, the same
+    // idiom styles.slip below already uses. `colors.ink` rather than a fixed
+    // black: every palette's `ink` already reads as near-black (see the
+    // comment on THE ANCHOR CARD decision above), so this shadow needs no
+    // colour literal of its own.
+    shadowOpacity: 0.13,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  searchGlyph: { fontSize: TYPE.body, opacity: 0.7 },
+  searchInput: { flex: 1, padding: 0, fontSize: TYPE.body },
   searchClear: { borderRadius: 999, paddingHorizontal: 13, paddingVertical: 8 },
   searchClearText: { fontSize: 12.5, fontWeight: '800' },
   cart: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
@@ -1287,7 +1785,10 @@ const styles = StyleSheet.create({
   },
   slipThumbFirst: { marginLeft: 0 },
   slipThumbImage: { width: '100%', height: '100%' },
-  slipTotal: { fontSize: 14, fontWeight: '800' },
+  // TABULAR: the count-up (fly-to-cart.ts's countUpValue) redraws this text
+  // every animation frame, and a proportional face would shuffle digits
+  // sideways as it climbed through $9.99 -> $10.00.
+  slipTotal: { fontSize: 14, fontWeight: '800', ...TABULAR },
   slipLine: { fontSize: 11.5, fontWeight: '600', marginTop: 1 },
   slipGo: { borderRadius: 999, paddingHorizontal: 20, paddingVertical: 11 },
   slipGoText: { fontSize: 13.5, fontWeight: '800' },

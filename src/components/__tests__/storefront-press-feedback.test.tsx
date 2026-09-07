@@ -4,7 +4,7 @@ import { act, create } from 'react-test-renderer';
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { paletteColors } from '@/lib/storefront-catalog';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { PublicStorefront, StorefrontFlyer, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
@@ -57,12 +57,19 @@ function pressablesIn(tree: ReturnType<typeof create>) {
   );
 }
 
-async function renderMarket() {
+async function renderMarket(overrides: Partial<PublicStorefront> = {}) {
   let tree!: ReturnType<typeof create>;
   await act(async () => {
-    tree = create(<ThemeMarket storefront={shop} products={products} colors={colors} />);
+    tree = create(<ThemeMarket storefront={{ ...shop, ...overrides }} products={products} colors={colors} />);
   });
   return tree;
+}
+
+function flyer(id: string): StorefrontFlyer {
+  return {
+    id, imageUrl: 'https://cdn.example/shop/eid.jpg', headline: 'Eid stock has landed',
+    subline: 'New lanterns in today.', linkKind: 'none', linkValue: null, offer: null,
+  };
 }
 
 // EVERY Pressable in the storefront used to take a plain style object, so a
@@ -97,6 +104,24 @@ describe('every storefront control acknowledges a press', () => {
     const buttons = pressablesIn(tree);
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.filter((b) => !respondsToPress(b))).toHaveLength(0);
+  });
+
+  // Task 17's own audit: the shop's fixture above ships no flyers, so the
+  // suite above never actually exercised FlyerCarousel's prev/next arrows
+  // or its dots -- both existed with a plain style ARRAY (no press feedback
+  // at all) until this task, entirely unseen by "no button is left with a
+  // static style" because there was nothing to render it against. Two
+  // flyers is the minimum that turns the arrows and dots on at all
+  // (flyer-carousel.tsx returns a simpler, arrow-less branch at count<=1).
+  it('the flyer carousel: no arrow or dot is left with a static style', async () => {
+    const tree = await renderMarket({ flyers: [flyer('f1'), flyer('f2')] });
+    const buttons = pressablesIn(tree);
+    const arrowsAndDots = buttons.filter((b) => {
+      const testID = b.props?.testID;
+      return testID === 'storefront-flyer-prev' || testID === 'storefront-flyer-next' || testID === 'storefront-flyer-dot';
+    });
+    expect(arrowsAndDots.length).toBeGreaterThan(0);
+    expect(arrowsAndDots.filter((b) => !respondsToPress(b))).toHaveLength(0);
   });
 
   // The feedback must not swallow the thing it decorates. A style callback

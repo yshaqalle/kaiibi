@@ -93,6 +93,54 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
     );
   }
 
+  // Floats over the anchor's own bottom edge -- the platform-shot move
+  // docs/design/storefront-bold-motion-mockup.html's "The One" section
+  // commits to (`.onesearch`, margin -21px). Narrow layout only: in the
+  // wide 3-card row (see ShopHeader), ShopAnchor sits BESIDE
+  // CollectingCard/StockCard rather than above them, and either one's
+  // own button (Cart, WhatsApp) can be the last thing painted at that
+  // row's bottom edge -- overlapping a real control there is a worse
+  // defect than the 21px of breathing room a wide screen already has to
+  // spare. Wide keeps the field in its old, non-overlapping spot below,
+  // unchanged. Gated by the same `shouldOfferSearch` either way, so a
+  // shop under the threshold gets neither placement and the anchor
+  // sits flush with nothing above FlyerCarousel.
+  //
+  // Handed to ShopHeader as `narrowFloatingSearch` rather than rendered as
+  // ShopHeader's sibling: ShopHeader's narrow branch nests ShopAnchor inside
+  // its own View, ahead of headerPair (CollectingCard + StockCard) -- so a
+  // sibling of the WHOLE header sits after headerPair, not after the
+  // anchor, and the -21px pull lands on the light Collecting/Stock cards
+  // instead of the anchor's dark card. Threading it through as a prop keeps
+  // this exact gate (shouldOfferSearch, !wide) the only place that decision
+  // is made, while letting ShopHeader paint it between the two children it
+  // actually belongs between.
+  const narrowFloatingSearch = !wide && shouldOfferSearch(products) ? (
+    <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} floating />
+  ) : null;
+
+  // Built once as an element, same reason `header` below is: identity
+  // matters. Which spot actually PAINTS it -- ShopHeader's narrow branch
+  // (via the `narrowFlyerCarousel` slot, right after the floating search)
+  // or here, as ThemeMarket's own sibling below the whole header -- depends
+  // on `wide`, but the element itself, and FlyerCarousel's own "nothing
+  // when the shop has no flyers" guard, is the exact same one either way.
+  // See the ShopHeader render below for why narrow needs the slot at all:
+  // the mockup (storefront-bold-motion-mockup.html, `.onesearch` immediately
+  // followed by the flyer band) puts the carousel directly under the
+  // floating search, ABOVE the Collecting/Stock pair -- and a sibling of
+  // the WHOLE header lands after that pair, not after the search.
+  const flyerCarousel = (
+    <FlyerCarousel
+      flyers={storefront.flyers}
+      colors={colors}
+      shopName={storefront.shopName}
+      whatsappE164={storefront.whatsappE164}
+      onSelectCategory={setCategory}
+      autoAdvance={storefront.autoAdvance}
+    />
+  );
+
   // Built as an ELEMENT, not as a component passed to ListHeaderComponent.
   // An inline `() => <Header/>` is a new component type on every render, which
   // remounts the whole header each keystroke and takes the search field's focus
@@ -107,27 +155,24 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
         wide={wide}
         itemCount={itemCount}
         onOpenCart={() => setCartOpen(true)}
+        narrowFloatingSearch={narrowFloatingSearch}
+        narrowFlyerCarousel={flyerCarousel}
       />
 
-      {/* Below the shop card, above the goods. A customer arriving on a
-          forwarded link needs to know whose page this is before the loudest
-          thing on it speaks -- and the poster belongs next to what it points
-          at, not stranded above the header. Renders nothing at all when the
-          shop has no flyers; see FlyerCarousel. */}
-      <FlyerCarousel
-        flyers={storefront.flyers}
-        colors={colors}
-        shopName={storefront.shopName}
-        whatsappE164={storefront.whatsappE164}
-        onSelectCategory={setCategory}
-        autoAdvance={storefront.autoAdvance}
-      />
+      {/* Wide only -- ShopHeader's wide branch ignores narrowFlyerCarousel
+          entirely (ShopAnchor sits beside the cards there, and the search
+          does not float), so wide keeps painting the carousel here, as
+          ThemeMarket's own sibling below the whole header, exactly as it
+          did before this fix. Narrow paints the SAME element inside
+          ShopHeader instead (see narrowFlyerCarousel above) -- never both,
+          so FlyerCarousel mounts exactly once either way. */}
+      {wide ? flyerCarousel : null}
       {/* Above the filter chip, not below: the band is how a customer
           CHOOSES a category and the chip is how they leave one, so the
           chip belongs next to the grid it is narrowing. */}
-      <CategoryBand categories={categories} colors={colors} active={category} onSelect={setCategory} />
+      <CategoryBand categories={categories} products={products} colors={colors} active={category} onSelect={setCategory} />
       <CategoryFilterBar colors={colors} category={category} onClear={() => setCategory(null)} />
-      {shouldOfferSearch(products) ? (
+      {wide && shouldOfferSearch(products) ? (
         <SearchField colors={colors} value={query} onChange={setQuery} count={inCategory.length} />
       ) : null}
       {shown.length > 0 ? (

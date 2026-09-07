@@ -103,6 +103,16 @@ export function ProductSheet({ product, colors, shopName, whatsappE164, onClose,
                 colors={colors}
                 shopName={shopName}
                 whatsappE164={whatsappE164}
+                // This sheet renders inside an AppModal (see this file's own
+                // header comment) -- on iOS and Android a Modal is a
+                // separate native window, so FlyToCartLayer's overlay (mounted
+                // once in ShopChrome, under the grid) is not part of what
+                // that window draws. The dot would arc across a surface
+                // nobody looking at the sheet can see, and the slip it is
+                // racing toward sits behind the sheet besides. The cart
+                // update and the slip's own bump/count-up still happen --
+                // only the dot's flight is skipped.
+                canFlyToCart={false}
                 // Add, then close: leaving the sheet open over a grid whose
                 // cart button has just changed hides the only feedback the
                 // action gives.

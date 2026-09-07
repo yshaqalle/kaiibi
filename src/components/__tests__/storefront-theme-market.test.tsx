@@ -5,7 +5,8 @@ import { ThemeMarket } from '@/components/storefront/theme-market';
 import { SPACE } from '@/components/storefront/scale';
 import { CHECKOUT_BAR_CLEARANCE } from '@/components/storefront/theme-shared';
 import { paletteColors } from '@/lib/storefront-catalog';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import { SEARCH_THRESHOLD } from '@/lib/storefront-search';
+import type { PublicStorefront, StorefrontFlyer, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
@@ -85,7 +86,210 @@ async function renderMarket(slug: string) {
   return tree;
 }
 
+// Task 14's slot: the flyer band belongs directly under the floating
+// search and above the categories. `toJSON()` yields HOST nodes only, in
+// DOCUMENT order -- the same reason storefront-flyer-carousel.test.tsx's own
+// `hostNodes` walker exists, and the property this suite needs: not merely
+// that all three render, but that they render in THIS order. Task 13 shipped
+// a defect (the search's own -21px pull landing on the wrong sibling) that
+// every structural "does it exist" test passed -- this is written the way
+// that task's own retrospective asks for, as a check of who comes before
+// whom, not just who is present.
+type HostNode = { type: string; props: Record<string, unknown>; children: unknown[] | null };
+
+function hostNodes(tree: ReturnType<typeof create>): HostNode[] {
+  const out: HostNode[] = [];
+  const walk = (node: unknown) => {
+    if (!node || typeof node === 'string') return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const host = node as HostNode;
+    out.push(host);
+    (host.children ?? []).forEach(walk);
+  };
+  walk(tree.toJSON() as unknown);
+  return out;
+}
+
+function firstIndexOfTestId(nodes: HostNode[], testID: string): number {
+  return nodes.findIndex((node) => node.props?.testID === testID);
+}
+
+// Whether `testID` is on `node` itself or on anything under it. Used below
+// to identify WHICH of a parent's direct children a given testID lives
+// inside, without caring how many host layers that child wraps it in --
+// SearchField, for instance, nests `storefront-search` two Views deep
+// (searchRow > searchCard > TextInput), so the relevant "sibling" for an
+// adjacency check is SearchField's own root, not the TextInput itself.
+function subtreeHasTestId(node: HostNode, testID: string): boolean {
+  if (node.props?.testID === testID) return true;
+  return (node.children ?? []).some(
+    (child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID),
+  );
+}
+
+// Depth-first search for the first host node carrying `testID`.
+function findByTestIdNode(root: HostNode, testID: string): HostNode | null {
+  if (root.props?.testID === testID) return root;
+  for (const child of root.children ?? []) {
+    if (typeof child === 'string') continue;
+    const found = findByTestIdNode(child as HostNode, testID);
+    if (found) return found;
+  }
+  return null;
+}
+
+// The actual regression check for Task 14's fix: not merely that the
+// carousel comes SOMEWHERE after the search and before the categories (the
+// pre-fix test above), which stayed green with the whole Collecting/Stock
+// pair wedged in between (`header`'s own direct children were [ShopHeader,
+// FlyerCarousel, CategoryBand, ...] -- ShopHeader and FlyerCarousel were
+// already outer-level siblings even with the pair buried inside
+// ShopHeader's own narrow View), but that the carousel is the floating
+// search's very next sibling INSIDE `storefront-header` itself -- exactly
+// what "directly under the floating search" in the brief means. Anchored on
+// `storefront-header` (ShopHeader's own root, present in both the narrow and
+// wide branch) rather than on some generic lowest-common-ancestor search,
+// because an LCA taken over the whole page trivially resolves to that same
+// misleading outer level: ShopHeader-as-a-whole and FlyerCarousel-as-a-whole
+// really were adjacent siblings under the old code, which is what let the
+// order-only check above pass on the defect in the first place.
+function nextDirectChildAfter(parent: HostNode, testID: string): HostNode | string | null {
+  const children = parent.children ?? [];
+  const idx = children.findIndex((child) => typeof child !== 'string' && subtreeHasTestId(child as HostNode, testID));
+  if (idx === -1) return null;
+  return (children[idx + 1] as HostNode | string | undefined) ?? null;
+}
+
+function flyer(id: string): StorefrontFlyer {
+  return {
+    id, imageUrl: null, headline: `Flyer ${id}`, subline: null,
+    linkKind: 'none', linkValue: null, offer: null,
+  };
+}
+
 describe('ThemeMarket', () => {
+  // The regression this pins: FlyerCarousel renders between ShopHeader's
+  // floating search (narrow layout, the default width react-test-renderer
+  // uses -- see storefront-search-float.test.tsx's identical reliance on
+  // that) and CategoryBand, in document order. Two flyers so the multi-slide
+  // band (dots, a real `storefront-flyer-band`) renders rather than the
+  // single-flyer static case; two categories clears CATEGORY_BAND_MINIMUM so
+  // CategoryBand renders at all rather than returning null with nothing to
+  // be a sibling of.
+  it('places the flyer band between the floating search and the category band', async () => {
+    // SEARCH_THRESHOLD products, split across two categories -- enough to
+    // clear both shouldOfferSearch (the floating search) and
+    // CATEGORY_BAND_MINIMUM (the category band), so both of the flyer
+    // band's neighbours actually render rather than the assertion passing
+    // vacuously against two nodes that were never there.
+    const catalogue: StorefrontProduct[] = Array.from({ length: SEARCH_THRESHOLD }, (_, i) => ({
+      id: `sp${i}`,
+      name: `Product ${i}`,
+      description: null,
+      category: i % 2 === 0 ? 'Phone' : 'Cable',
+      priceCents: 1000 + i,
+      stock: 5,
+      imageUrl: null,
+    }));
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, slug: 'xamdi-market-flyer-slot', flyers: [flyer('f1'), flyer('f2')] }}
+          products={catalogue}
+          categories={[
+            { name: 'Phone', imageUrl: null, productCount: catalogue.length / 2 },
+            { name: 'Cable', imageUrl: null, productCount: catalogue.length / 2 },
+          ]}
+          colors={colors}
+        />,
+      );
+    });
+
+    const nodes = hostNodes(tree);
+    const searchIndex = firstIndexOfTestId(nodes, 'storefront-search');
+    const flyerIndex = firstIndexOfTestId(nodes, 'storefront-flyer-band');
+    const categoryIndex = firstIndexOfTestId(nodes, 'storefront-category-band');
+
+    expect(searchIndex).toBeGreaterThan(-1);
+    expect(flyerIndex).toBeGreaterThan(-1);
+    expect(categoryIndex).toBeGreaterThan(-1);
+    expect(searchIndex).toBeLessThan(flyerIndex);
+    expect(flyerIndex).toBeLessThan(categoryIndex);
+  });
+
+  // The order check above is necessary but not sufficient -- it stayed
+  // green through the whole "carousel sits after the header, with the
+  // Collecting/Stock pair wedged in between" defect this fix corrects,
+  // because search < flyer < category held true regardless of what else sat
+  // between search and flyer. This is the adjacency check the brief asks
+  // for: the carousel must be the floating search's very next SIBLING, not
+  // merely somewhere after it. Reverting the `narrowFlyerCarousel` slot
+  // (theme-shared.tsx's ShopHeader, theme-market.tsx's `header`) makes this
+  // fail -- the carousel goes back to being a sibling of the whole
+  // `<ShopHeader>`, so the search's next sibling becomes `headerPair`
+  // (Collecting/Stock) instead.
+  it('places the flyer band as the floating search\'s next sibling, directly beneath it', async () => {
+    const catalogue: StorefrontProduct[] = Array.from({ length: SEARCH_THRESHOLD }, (_, i) => ({
+      id: `sp${i}`,
+      name: `Product ${i}`,
+      description: null,
+      category: i % 2 === 0 ? 'Phone' : 'Cable',
+      priceCents: 1000 + i,
+      stock: 5,
+      imageUrl: null,
+    }));
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, slug: 'xamdi-market-flyer-adjacency', flyers: [flyer('f1'), flyer('f2')] }}
+          products={catalogue}
+          categories={[
+            { name: 'Phone', imageUrl: null, productCount: catalogue.length / 2 },
+            { name: 'Cable', imageUrl: null, productCount: catalogue.length / 2 },
+          ]}
+          colors={colors}
+        />,
+      );
+    });
+
+    const root = tree.toJSON() as HostNode;
+    const header = findByTestIdNode(root, 'storefront-header');
+    expect(header).not.toBeNull();
+
+    const sibling = nextDirectChildAfter(header as HostNode, 'storefront-search');
+
+    expect(sibling).not.toBeNull();
+    expect(typeof sibling === 'string' ? false : subtreeHasTestId(sibling as HostNode, 'storefront-flyer-band')).toBe(true);
+  });
+
+  // The requirement most likely to regress silently, per the brief: a shop
+  // with no flyers gets no frame at all, not an empty band sitting between
+  // the search and the categories.
+  it('renders no flyer band at all when the shop has no flyers', async () => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <ThemeMarket
+          storefront={{ ...shop, slug: 'xamdi-market-no-flyers', flyers: [] }}
+          products={products}
+          categories={[]}
+          colors={colors}
+        />,
+      );
+    });
+    const nodes = hostNodes(tree);
+    expect(firstIndexOfTestId(nodes, 'storefront-flyer-band')).toBe(-1);
+    expect(firstIndexOfTestId(nodes, 'storefront-flyer-slide')).toBe(-1);
+  });
+
+
   // B6: the sticky CheckoutBar is `position: absolute` and reserves no
   // space of its own. Task 5 made this unconditional -- the first Add must
   // not reflow the page under the customer's finger, so the grid carries

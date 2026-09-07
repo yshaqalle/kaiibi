@@ -1,7 +1,9 @@
 import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
-import { FlyerCarousel, AUTO_ADVANCE_INTERVAL_MS } from '@/components/storefront/flyer-carousel';
+import {
+  FlyerCarousel, AUTO_ADVANCE_INTERVAL_MS, clampOffset, nearestIndex, nextWheelOffset, wheelPanDelta,
+} from '@/components/storefront/flyer-carousel';
 import { openExternalUrl } from '@/lib/external-url';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontFlyer } from '@/types/models';
@@ -547,5 +549,69 @@ describe('FlyerCarousel: motion', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+// Task 14's web mouse arithmetic, pure and unmounted -- no ScrollView, no
+// Platform override needed. These are the same decisions
+// storefront-flyer-carousel-web.test.tsx drives through a real (Platform.OS
+// === 'web') mount; holding them here too means a future change to the MATH
+// fails a fast, component-free test before it ever reaches one that has to
+// build a whole tree to notice.
+describe('FlyerCarousel: web mouse math (Task 14)', () => {
+  describe('wheelPanDelta', () => {
+    it('picks deltaY when it is the larger axis (a mouse wheel)', () => {
+      expect(wheelPanDelta(0, 40)).toBe(40);
+    });
+
+    it('picks deltaX when it is the larger axis (a trackpad swipe)', () => {
+      expect(wheelPanDelta(-65, 3)).toBe(-65);
+    });
+  });
+
+  describe('clampOffset', () => {
+    it('never goes negative', () => {
+      expect(clampOffset(-40, 900)).toBe(0);
+    });
+
+    it('never passes the last card', () => {
+      expect(clampOffset(1200, 900)).toBe(900);
+    });
+
+    it('passes an in-range offset through unchanged', () => {
+      expect(clampOffset(450, 900)).toBe(450);
+    });
+  });
+
+  describe('nextWheelOffset', () => {
+    it('pans the current offset by the wheel delta', () => {
+      expect(nextWheelOffset(100, 0, 60, 900)).toBe(160);
+    });
+
+    it('clamps a pan that would overshoot the last card', () => {
+      expect(nextWheelOffset(850, 0, 200, 900)).toBe(900);
+    });
+
+    it('clamps a pan that would go negative', () => {
+      expect(nextWheelOffset(20, 0, -80, 900)).toBe(0);
+    });
+  });
+
+  describe('nearestIndex', () => {
+    it('rounds to the closest card', () => {
+      expect(nearestIndex(0, 300, 3)).toBe(0);
+      expect(nearestIndex(140, 300, 3)).toBe(0);
+      expect(nearestIndex(160, 300, 3)).toBe(1);
+      expect(nearestIndex(300, 300, 3)).toBe(1);
+      expect(nearestIndex(600, 300, 3)).toBe(2);
+    });
+
+    it('clamps to the first card rather than going negative', () => {
+      expect(nearestIndex(-50, 300, 3)).toBe(0);
+    });
+
+    it('clamps to the last card rather than reading past it', () => {
+      expect(nearestIndex(1000, 300, 3)).toBe(2);
+    });
   });
 });
