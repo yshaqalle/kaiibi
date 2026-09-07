@@ -2,7 +2,8 @@ import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
 import { pillMotion, ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
-import { VisitPanel, mapsUrlFor } from '@/components/storefront/visit-panel';
+import { VisitPanel, mapsUrlFor, shareMessage } from '@/components/storefront/visit-panel';
+import { storefrontAddress } from '@/lib/storefront-host';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
@@ -409,27 +410,62 @@ describe('the Visit panel', () => {
     expect(textOf(renderVisit(), 'storefront-visit-collect')).toContain('Jigjiga Yar, Hargeisa');
   });
 
-  it('offers no contact card to a shop with no way to be reached at all', () => {
+  // Task 22: Share shop has no optional datum to gate on -- forwarding a
+  // published shop's own address is always possible -- so the icon-row card
+  // is never actually empty any more, even for a shop with no phone, no
+  // Instagram and no WhatsApp. This is the deliberate behaviour change Task
+  // 22 introduces (the new affordance), not a regression of the old "absent
+  // when nothing to contact by" rule -- Share itself is the "something".
+  it('still offers the icon row -- Share shop alone -- for a shop with no way to be reached otherwise', () => {
     const tree = renderVisit({ whatsappE164: null, contactPhone: null, instagram: null });
-    expect(has(tree, 'storefront-visit-contact')).toBe(false);
+    expect(has(tree, 'storefront-visit-contact')).toBe(true);
+    expect(has(tree, 'storefront-visit-share')).toBe(true);
+    expect(has(tree, 'storefront-visit-call')).toBe(false);
+    expect(has(tree, 'storefront-visit-instagram')).toBe(false);
   });
 
   // The phone has been on every shop since 20260808000000 and was never shown.
+  // The value itself moved from on-screen text to the accessibility label when
+  // the row flattened to a compact icon button (Task 22) -- "Call" is what a
+  // sighted customer reads, the number is what a screen reader announces.
   it('offers a call row when the shop has a phone, even with no WhatsApp', () => {
     const tree = renderVisit({ whatsappE164: null, contactPhone: '+252 63 000 0000' });
     expect(has(tree, 'storefront-visit-contact')).toBe(true);
-    expect(textOf(tree, 'storefront-visit-call')).toContain('+252 63 000 0000');
+    const call = tree.root.find(
+      (n) => n.props?.testID === 'storefront-visit-call' && typeof n.props?.onPress === 'function',
+    );
+    expect(call.props?.accessibilityLabel).toContain('+252 63 000 0000');
   });
 
+  // Same move as Call above: the @ still prints, now in the accessibility
+  // label rather than on the compact button's own face.
   it('offers an Instagram row, printing the @ it does not store', () => {
     const tree = renderVisit({ instagram: 'jiija.electronics' });
-    expect(textOf(tree, 'storefront-visit-instagram')).toContain('@jiija.electronics');
+    const instagram = tree.root.find(
+      (n) => n.props?.testID === 'storefront-visit-instagram' && typeof n.props?.onPress === 'function',
+    );
+    expect(instagram.props?.accessibilityLabel).toContain('@jiija.electronics');
   });
 
   it('shows neither row for a shop that has neither', () => {
     const tree = renderVisit({ contactPhone: null, instagram: null });
     expect(has(tree, 'storefront-visit-call')).toBe(false);
     expect(has(tree, 'storefront-visit-instagram')).toBe(false);
+  });
+
+  // Share shop composes from the app's single sources -- storefrontAddress
+  // (the one place a public address is built) and shareMessage's own
+  // customer-voice copy, never a hand-rolled wa.me string.
+  describe('Share shop', () => {
+    it('offers the control for every shop', () => {
+      expect(has(renderVisit(), 'storefront-visit-share')).toBe(true);
+    });
+
+    it('names the shop and ends on its one true address', () => {
+      const message = shareMessage(shop({ shopName: 'Jiija Electronics', slug: 'jiija' }));
+      expect(message).toContain('Jiija Electronics');
+      expect(message.endsWith(storefrontAddress('jiija'))).toBe(true);
+    });
   });
 
   // The mockup draws a map here. A rendered map needs a tile provider and a
@@ -466,6 +502,16 @@ describe('opening hours', () => {
     );
   }
 
+  // Task 22: the seven-row week is now a disclosure, collapsed by default --
+  // this presses the "All hours" toggle so a test can still reach the rows
+  // the way the touch-target sweep's own "expanded state too" section does.
+  function expandHours(tree: ReturnType<typeof create>) {
+    const toggle = tree.root.find(
+      (n) => n.props?.testID === 'storefront-visit-hours-toggle' && typeof n.props?.onPress === 'function',
+    );
+    act(() => { toggle.props.onPress(); });
+  }
+
   // An empty object means "never filled in". Seven "Closed" rows would invent a
   // claim the shop never made -- the same rule StockCard follows when it
   // refuses to say "all in stock today" about a shop with nothing listed.
@@ -473,31 +519,108 @@ describe('opening hours', () => {
     expect(has(renderHours({}), 'storefront-visit-hours')).toBe(false);
   });
 
-  it('prints every day of the week once the shop has', () => {
+  it('collapses to a single "Today" line by default, with an All hours toggle', () => {
     const tree = renderHours(HOURS);
+    expect(has(tree, 'storefront-visit-hours-toggle')).toBe(true);
+    // None of the seven day rows are in the tree until the toggle is pressed
+    // -- exactly the shape a Modal-while-closed or a `flyers: []` carousel
+    // hid from the sweep before; this is what proves the collapse is real
+    // rather than merely styled shut.
+    for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      expect(has(tree, `storefront-visit-hours-${day}`)).toBe(false);
+    }
+  });
+
+  it('prints every day of the week once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
     for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
       expect(has(tree, `storefront-visit-hours-${day}`)).toBe(true);
     }
   });
 
-  it('prints a split shift as both ranges, not just the first', () => {
-    expect(textOf(renderHours(HOURS), 'storefront-visit-hours-wed'))
-      .toContain('08:00 – 11:30, 14:00 – 21:00');
-  });
-
-  it('says Closed on a day with no ranges', () => {
-    expect(textOf(renderHours(HOURS), 'storefront-visit-hours-tue')).toContain('Closed');
-  });
-
-  // Colour is never the only signal -- the pill says which state it is in.
-  it('states open or closed in words, not only in colour', () => {
-    const text = textOf(renderHours(HOURS), 'storefront-visit-open-now');
-    expect(text === 'Open now' || text === 'Closed now').toBe(true);
-  });
-
-  it('marks the day the customer is actually standing in', () => {
+  it('collapses again on a second press', () => {
     const tree = renderHours(HOURS);
+    expandHours(tree);
+    expect(has(tree, 'storefront-visit-hours-mon')).toBe(true);
+    expandHours(tree);
+    expect(has(tree, 'storefront-visit-hours-mon')).toBe(false);
+  });
+
+  it('prints a split shift as both ranges, not just the first, once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
+    expect(textOf(tree, 'storefront-visit-hours-wed')).toContain('08:00 – 11:30, 14:00 – 21:00');
+  });
+
+  it('says Closed on a day with no ranges, once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
+    expect(textOf(tree, 'storefront-visit-hours-tue')).toContain('Closed');
+  });
+
+  it('marks the day the customer is actually standing in, once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
     const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
     expect(textOf(tree, `storefront-visit-hours-${today}`)).toContain('today');
+  });
+
+  it('collapses to "Today: Closed" on a day with no ranges', () => {
+    // Deterministic at ANY real clock, with no fake timer needed: this
+    // fixture configures only 'tue' (to an explicit closure), so
+    // `rangesFor` returns [] for whichever weekday the suite actually runs
+    // on -- the absent-key branch for six of them, the explicit `[]` for
+    // Tuesday itself -- and `formatDayHours([])` is "Closed" either way.
+    const tuesdayOnly = { tue: [] };
+    const text = textOf(renderHours(tuesdayOnly), 'storefront-visit-hours');
+    expect(text).toContain('Today:');
+    expect(text).toContain('Closed');
+  });
+});
+
+// THE DECISION PILL'S TEXT, under a CONTROLLED clock. `isOpenAt` (and so the
+// pill built on it) reads the device clock, so asserting its exact wording
+// against `new Date()` would make this suite pass at 10am and fail at 10pm --
+// precisely the trap this task's own brief warns against. `jest.useFakeTimers`
+// pins the instant every test in this block runs at, scoped to only this
+// block (`afterEach` restores real timers) so no other describe block in this
+// file is affected.
+describe('the decision pill, at a fixed instant', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function renderAt(hours: object, iso: string) {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(iso));
+    return render(<VisitPanel storefront={shop({ openingHours: hours })} areas={AREAS} colors={colors} />);
+  }
+
+  it('reads "Open · closes <time>" while a range is open', () => {
+    // 2026-08-03 is the Monday HOURS already keys off (see MONDAY-anchored
+    // fixtures elsewhere in this suite); 10:00 sits inside its 08:00-21:00
+    // block.
+    const tree = renderAt(HOURS, '2026-08-03T10:00:00');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Open · closes 9pm');
+  });
+
+  it('reads "Closed · opens <time>" on a day with nothing left, but hours later this week', () => {
+    // Tuesday carries no ranges in HOURS; Wednesday opens at 08:00.
+    const tree = renderAt(HOURS, '2026-08-04T10:00:00');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Closed · opens tomorrow, 8am');
+  });
+
+  it('reads bare "Closed" when nothing reopens within a week', () => {
+    const neverReopens = { mon: [{ open: '08:00', close: '09:00' }] };
+    const tree = renderAt(neverReopens, '2026-08-03T20:00:00');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Closed');
+  });
+
+  // isConfigured false -- the shop never set hours at all -- must print no
+  // pill whatsoever, not a "Closed" that invents a claim the shop never made.
+  it('renders no pill at all for a shop that never set hours', () => {
+    const tree = renderAt({}, '2026-08-03T10:00:00');
+    expect(has(tree, 'storefront-visit-open-now')).toBe(false);
   });
 });

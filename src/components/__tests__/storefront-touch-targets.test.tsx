@@ -254,7 +254,32 @@ const shop: PublicStorefront = {
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
-  openingHours: {},
+  // Configured, not `{}` (Task 22): `isConfigured({})` is false, so
+  // `HoursCard` (visit-panel.tsx) -- and with it the "All hours" toggle this
+  // task adds -- returned null for every render this file ever walked, the
+  // fifth instance of this file's own defect (see the "About and Visit tabs"
+  // describe block's own header comment for the first four). A full week
+  // rather than one day so the sweep never has to ask which weekday it is
+  // running on.
+  //
+  // DETERMINISTIC REGARDLESS OF THE CLOCK, on purpose: `isOpenAt`'s result
+  // (open vs closed) only ever changes the decision pill's TEXT here, never
+  // the SHAPE of the tree -- the pill itself, "Get directions", WhatsApp and
+  // the hours toggle all render either way, and this sweep asserts presence
+  // and touch-target floors, not wording. A pill reading "Open · closes 9pm"
+  // at 10am and "Closed · opens 8am" at 10pm is exactly the same NUMBER of
+  // controls, so no fake timer is needed here -- the exact-wording assertions
+  // that DO need one live in storefront-shop-tabs.test.tsx's own "the decision
+  // pill, at a fixed instant" describe block instead, per this task's brief.
+  openingHours: {
+    mon: [{ open: '08:00', close: '21:00' }],
+    tue: [{ open: '08:00', close: '21:00' }],
+    wed: [{ open: '08:00', close: '21:00' }],
+    thu: [{ open: '08:00', close: '21:00' }],
+    fri: [{ open: '08:00', close: '21:00' }],
+    sat: [{ open: '08:00', close: '21:00' }],
+    sun: [{ open: '08:00', close: '21:00' }],
+  },
   // Set (Task 21), not null: `null` here kept the trading-since proof chip
   // (`storefront-about-proof-trading`, about-panel.tsx) out of every tree this
   // file walks, exactly the way `about: null`/`images: []` kept the tab and
@@ -703,7 +728,7 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     expect(failing.map((c) => c.props?.testID)).toEqual([]);
   });
 
-  it('Visit: directions, call, Instagram and WhatsApp all carry the floor or a hitSlop', async () => {
+  it('Visit: directions, call, Instagram, WhatsApp, Share and the hours toggle all carry the floor or a hitSlop', async () => {
     const tree = await renderTheme(ThemeMarket, visitAreas, 'visit');
 
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-visit-panel').length).toBeGreaterThan(0);
@@ -722,11 +747,47 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
 
     const controls = touchControlsIn(tree);
     const controlIds = controls.map((c) => c.props?.testID);
-    for (const requiredId of ['storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram']) {
+    // `storefront-visit-share` (Task 22's new affordance) and
+    // `storefront-visit-hours-toggle` (the "All hours" disclosure) are named
+    // here for the same reason the four FAQ ids are above: a control that
+    // silently stopped rendering must fail this assertion by name, not shrink
+    // a count nobody was comparing against anything.
+    for (const requiredId of [
+      'storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram',
+      'storefront-visit-share', 'storefront-visit-hours-toggle',
+    ]) {
       expect(controlIds).toContain(requiredId);
     }
 
     const failing = controls.filter((c) => !meetsTouchTargetRule(c));
     expect(failing.map((c) => c.props?.testID)).toEqual([]);
+
+    // THE EXPANDED HOURS STATE. Collapsed-by-default is exactly the shape
+    // that hid `Modal`, the checkout/confirmation screens and the flyer dots
+    // from this same sweep before it (see this describe block's own header
+    // comment) -- so the toggle is pressed here and the tree re-walked,
+    // rather than trusting prose that the disclosure has nothing left to
+    // hide. Expanding reveals NO NEW control: the seven day rows are plain
+    // View/Text, the identical shape the area rows above are already
+    // confirmed to be, carrying no `onPress` of their own. What this proves
+    // is that absence, under test, rather than assuming it -- the rows'
+    // OWN presence is asserted directly first, so "nothing to sweep" is a
+    // fact about a tree that genuinely mounted the rows, not one where they
+    // silently failed to appear at all.
+    const toggle = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-visit-hours-toggle' && typeof n.props?.onPress === 'function',
+    )[0];
+    await act(async () => toggle.props.onPress());
+
+    for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      expect(tree.root.findAll((n) => n.props?.testID === `storefront-visit-hours-${day}`).length).toBeGreaterThan(0);
+    }
+
+    const expandedControls = touchControlsIn(tree);
+    // Same set of controls, same order -- proof the expanded rows added no
+    // Pressable of their own for the floor check below to have missed.
+    expect(expandedControls.map((c) => c.props?.testID)).toEqual(controlIds);
+    const expandedFailing = expandedControls.filter((c) => !meetsTouchTargetRule(c));
+    expect(expandedFailing.map((c) => c.props?.testID)).toEqual([]);
   });
 });

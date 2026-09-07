@@ -168,6 +168,27 @@ export function nextOpeningLabel(hours: OpeningHours, at: Date): string | null {
   return null;
 }
 
+// "CLOSES 9PM" -- the one thing the Visit tab's decision card needs that
+// nothing above produces. Same shape as nextOpeningLabel: a customer-facing
+// label, 12-hour, built on formatClockTime so the two can never drift into
+// two different clock formats.
+//
+// INCAPABLE OF DISAGREEING WITH isOpenAt, by construction: the range it picks
+// is chosen by the identical predicate isOpenAt applies (`isValidRange(range)
+// && minutes >= open && minutes < close`), so a `null` here and a `false`
+// there always agree, at every boundary including the exclusive one at
+// `close`. Split shifts: when `at` falls in the FIRST of two blocks, `.find`
+// returns that block, not the second -- the first block's own close is the
+// truth a customer standing in the shop right now needs, not the day's last
+// closing time.
+export function closingLabel(hours: OpeningHours, at: Date): string | null {
+  const minutes = at.getHours() * 60 + at.getMinutes();
+  const range = rangesFor(hours, weekdayKeyFor(at)).find(
+    (r) => isValidRange(r) && minutes >= minutesOf(r.open) && minutes < minutesOf(r.close)
+  );
+  return range ? `closes ${formatClockTime(minutesOf(range.close))}` : null;
+}
+
 // ---------------------------------------------------------------------------
 // Split days: the rules the editor needs but the readers above don't
 // ---------------------------------------------------------------------------
