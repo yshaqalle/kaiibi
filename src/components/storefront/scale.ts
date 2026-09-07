@@ -142,19 +142,25 @@ export const TOUCH_TARGET = 44;
 // THE KAIIBI MARK'S OWN PROPORTIONS, because it is not square and both places
 // that draw it were treating it as though it were.
 //
-// `assets/images/kaiibi-mark-{white,black}.png` are 200x212 -- a shopping bag
-// with a handle, which is naturally taller than it is wide. ShopFooter drew it
-// into a 21x21 box with no `resizeMode` at all, and RN's default is `cover`:
-// the bag was squashed 6% narrow and its handle cropped off the top. It is the
-// company's own mark on every shop's page, so it renders wrong on every shop's
-// page.
+// `assets/images/kaiibi-mark-white-v2.png` is 512x590 -- taller than it is
+// wide, like the bag it draws. ShopFooter once drew the mark into a 21x21 box
+// with no `resizeMode` at all, and RN's default is `cover`: the bag was
+// squashed narrow and its handle cropped off the top. It is the company's own
+// mark on every shop's page, so it rendered wrong on every shop's page.
 //
 // A call site multiplies its chosen HEIGHT by this to get the width, and sets
 // BOTH -- `aspectRatio` alone does not work here and the browser proved it:
 // an `Image` with a height and an aspectRatio but no width takes its own
 // intrinsic width instead, which drew the footer's 24px-tall mark 200px wide.
 // Two explicit numbers derived from one ratio cannot do that.
-export const KAIIBI_MARK_ASPECT = 200 / 212;
+//
+// THE NUMBER MOVED WITH THE ARTWORK (2026-09-07). This was 200/212 = 0.943,
+// the proportions of the OLD `kaiibi-mark-white.png`. The mark itself was
+// wrong -- see the asset's own note below -- and the replacement is 512/590 =
+// 0.868. A ratio and the file it describes are one fact in two places: change
+// the asset without this and the new mark is squashed by exactly the margin
+// between them, which is the bug this constant exists to prevent.
+export const KAIIBI_MARK_ASPECT = 512 / 590;
 
 // WHAT ACTUALLY CAUSED THE SCREENSHOT THIS REDESIGN CAME FROM.
 //

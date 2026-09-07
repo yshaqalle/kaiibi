@@ -151,7 +151,7 @@ export default function StoreDirectoryScreen() {
                 same argument applies to a choice the customer just made. */}
             <View testID="storefront-directory-mark" style={[styles.mark, { backgroundColor: KAIIBI_BLUE }]}>
               <Image
-                source={require('@/assets/images/kaiibi-mark-white.png')}
+                source={require('@/assets/images/kaiibi-mark-white-v2.png')}
                 style={styles.markImage}
                 accessibilityIgnoresInvertColors
               />
