@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
+import { TOUCH_TARGET } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import { orderAddress } from '@/lib/storefront-host';
@@ -111,7 +112,14 @@ const styles = StyleSheet.create({
   acqWho: { flexShrink: 1 },
   acqLead: { fontSize: 13.5, fontWeight: '800' },
   acqSub: { fontSize: 12.5, marginTop: 2 },
-  acqButton: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
+  // The confirmation screen's own control the checkout sweep never rendered
+  // far enough to see: paddingVertical: 9 read fine next to "See how" and
+  // was never checked against a thumb, same as everything else this task
+  // floored.
+  acqButton: {
+    borderWidth: 1, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9,
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   acqButtonText: { fontSize: 12.5, fontWeight: '800' },
   card: { borderRadius: 18, padding: 20, gap: 4 },
   label: { fontSize: 12.5, fontWeight: '800' },

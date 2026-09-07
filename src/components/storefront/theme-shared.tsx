@@ -1697,16 +1697,18 @@ export function CheckoutScreen({
   return (
     <View style={[styles.screen, { backgroundColor: colors.ground }]}>
       <View style={styles.screenNav}>
-        {/* No background of its own -- `pressable(undefined)` still returns
-            the callback, so the opacity/scale applies to the bare text. */}
+        {/* Measured 17px before TOUCH_TARGET -- text with no box of its own,
+            the same shape as `hitSlop={8}` used to sit here without ever
+            clearing the floor (17 + 8 + 8 = 33). `minHeight` on the Pressable
+            itself (`screenBack`, below) states the reachable area directly
+            rather than padding an area around a number nobody had checked. */}
         <Pressable
           testID="storefront-checkout-back"
           accessibilityRole="button"
           onPress={onBack}
-          hitSlop={8}
-          style={pressable(undefined)}
+          style={pressable(styles.screenBack)}
         >
-          <Text style={[styles.screenBack, { color: colors.ink }]}>‹ Back</Text>
+          <Text style={[styles.screenBackText, { color: colors.ink }]}>‹ Back</Text>
         </Pressable>
         <Text style={[styles.screenTitle, { color: colors.ink }]}>Checkout</Text>
       </View>
@@ -2099,13 +2101,25 @@ const styles = StyleSheet.create({
   slipGoText: { fontSize: 13.5, fontWeight: '800' },
   screen: { flex: 1 },
   screenNav: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  screenBack: { fontSize: 14, fontWeight: '700' },
+  // The box, not the text -- see the Pressable's own comment above for the
+  // 17px measurement this floor replaces.
+  screenBack: { minHeight: TOUCH_TARGET, justifyContent: 'center' },
+  screenBackText: { fontSize: 14, fontWeight: '700' },
   screenTitle: { fontSize: 16, fontWeight: '800' },
   screenBody: { paddingHorizontal: 14, paddingBottom: 24 },
   screenError: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  editCart: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14 },
+  // Measured under the floor alongside Back and Place order -- `paddingVertical: 7`
+  // read as generous next to Edit cart's short label, and wasn't checked
+  // against a thumb either.
+  editCart: {
+    alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginBottom: 14,
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   editCartText: { fontSize: 12.5, fontWeight: '800' },
   screenHint: { fontSize: 12.5, marginTop: 10, textAlign: 'center' },
-  continueButton: { marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
+  continueButton: {
+    marginTop: 16, borderRadius: 999, paddingVertical: 12, alignItems: 'center',
+    justifyContent: 'center', minHeight: TOUCH_TARGET,
+  },
   continueText: { fontSize: 14, fontWeight: '800' },
 });

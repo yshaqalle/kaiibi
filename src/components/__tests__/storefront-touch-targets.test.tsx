@@ -6,13 +6,23 @@ import { ThemeMarket } from '@/components/storefront/theme-market';
 import { ThemeWindow } from '@/components/storefront/theme-window';
 import { TOUCH_TARGET } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
-import type { PublicShopSummary, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
+import type {
+  PublicDeliveryArea, PublicShopSummary, PublicStorefront, StorefrontCategory, StorefrontProduct,
+} from '@/types/models';
 
 import StoreDirectoryScreen from '@/app/store/index';
 
 const mockListPublicShops = jest.fn();
+// The RPC boundary -- see the "checkout and confirmation" describe block
+// below, the one place this file drives a real submit through the real
+// useCheckoutFlow/placeOrder (theme-shared.tsx, storefront-order.ts) rather
+// than mocking either of those away, the same choice
+// storefront-checkout-whatsapp-choice.test.tsx makes and for the same
+// reason: CheckoutForm's onSubmit -> useCheckoutFlow.submit -> placeOrder is
+// wiring worth exercising for real, not just trusting each link in isolation.
+const mockRpc = jest.fn();
 
-jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+jest.mock('@/lib/supabase', () => ({ supabase: { rpc: (...args: unknown[]) => mockRpc(...args) } }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
 jest.mock('expo-router/head', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/lib/storefront-directory', () => {
@@ -195,12 +205,45 @@ const shop: PublicStorefront = {
   hideBranding: false,
 };
 
-async function renderTheme(Theme: typeof ThemeMarket | typeof ThemeWindow | typeof ThemeCounter) {
+async function renderTheme(
+  Theme: typeof ThemeMarket | typeof ThemeWindow | typeof ThemeCounter,
+  // Defaults to none, same as ThemeProps' own default (theme-shared.tsx) --
+  // only the checkout/confirmation describe block below passes a real one,
+  // to reach the "Deliver" segment, its area rows and its landmark field.
+  areas: PublicDeliveryArea[] = [],
+) {
   let tree!: ReturnType<typeof create>;
   await act(async () => {
-    tree = create(<Theme storefront={shop} products={makeProducts()} colors={colors} categories={categories} />);
+    tree = create(
+      <Theme storefront={shop} products={makeProducts()} colors={colors} categories={categories} areas={areas} />,
+    );
   });
   return tree;
+}
+
+// Pressable forwards `onPress`/`onChangeText` down through a forwardRef View
+// to its own host node (the same fact `touchControlsIn` above relies on) --
+// filtering on the callback being a function is what keeps either helper to
+// exactly one match. Synchronous `act`, not the async form: `onPress` here
+// can itself be async (`checkout-form-submit` triggers the real
+// useCheckoutFlow.submit, unawaited by CheckoutForm's own handler) and
+// `flush` below is what lets that settle, the same two-step
+// press-then-flush storefront-checkout-whatsapp-choice.test.tsx already
+// proves is enough for this exact RPC chain.
+function press(tree: ReturnType<typeof create>, testID: string) {
+  const [node] = tree.root.findAll((n) => n.props?.testID === testID && typeof n.props?.onPress === 'function');
+  act(() => node.props.onPress());
+}
+
+function setText(tree: ReturnType<typeof create>, testID: string, value: string) {
+  const [node] = tree.root.findAll((n) => n.props?.testID === testID && typeof n.props?.onChangeText === 'function');
+  act(() => node.props.onChangeText(value));
+}
+
+async function flush() {
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 describe('every public-surface control meets the touch-target rule', () => {
@@ -309,5 +352,114 @@ describe('the states a zero-cart, nothing-open render never reaches', () => {
 
     const failing = controls.filter((c) => !meetsTouchTargetRule(c));
     expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});
+
+// The RPC's own RETURNING shape (snake_case) -- see mapOrder in
+// storefront-order.ts. Reused for both the rejected and the accepted call
+// below; only `error`/`data` differ.
+const confirmedOrderRow = {
+  number: 91,
+  status: 'placed',
+  payment_mode: 'on_collection',
+  fulfilment: 'deliver',
+  delivery_area: 'Hodan',
+  customer_phone: '+252634456789',
+  subtotal_cents: 1000,
+  delivery_fee_cents: 500,
+  total_cents: 1500,
+  items: [{ product_id: 'p0', name: 'Product 0', unit_price_cents: 1000, quantity: 1, line_total_cents: 1000 }],
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE CHECKOUT AND CONFIRMATION SCREENS -- the defect this whole file's
+// extension exists to catch. `checkout.stage` (useCheckoutFlow,
+// theme-shared.tsx) swaps the ENTIRE theme tree for `CheckoutScreen` then
+// `ConfirmationScreen`; none of the describe blocks above ever moves it past
+// 'browse', so neither screen had ever been swept. That is exactly how Back
+// (17px), the form's name/phone/landmark/note fields (39px), the fulfilment
+// toggle (35px) and "Place order" (41px) all sat under the floor -- on the
+// one screen a customer actually commits an order from -- behind a fully
+// green suite, live in a browser at 390px, not in this file. See
+// checkout-form.tsx, theme-shared.tsx and order-placed.tsx's own comments on
+// the fix each control needed.
+//
+// COVERAGE: both stages are reached by rendering ThemeMarket and driving the
+// REAL useCheckoutFlow (theme-shared.tsx) through them -- 'checkout' via
+// pressing `storefront-checkout-bar`, 'confirmation' via a submit that
+// actually calls placeOrder (storefront-order.ts) against a mocked
+// `supabase.rpc` -- rather than mounting `CheckoutScreen`/`ConfirmationScreen`
+// directly. Both stages ARE reachable that way, so doing it through the
+// theme is proof the WIRING (CheckoutBar's onPress -> openCheckout,
+// CheckoutForm's onSubmit -> useCheckoutFlow.submit -> placeOrder) actually
+// puts a customer on the same tree this sweep inspects -- the identical
+// choice storefront-checkout-whatsapp-choice.test.tsx already made for the
+// same reason. If a future stage genuinely cannot be reached this way, render
+// that screen component directly instead -- but say so here, so the boundary
+// is a stated fact rather than an assumption the next reader has to rediscover.
+//
+// Market only, for the same reason the cart/product-sheet describe block
+// above is Market-only: CheckoutScreen and ConfirmationScreen are the exact
+// same components under Market, Window and Counter -- all three themes pass
+// identical props to the same two functions, with no theme-specific branch
+// inside either for a second render to catch that this one does not.
+describe('the checkout and confirmation screens the states above never reach', () => {
+  const deliveryAreas: PublicDeliveryArea[] = [{ name: 'Hodan', feeCents: 500 }];
+
+  beforeEach(() => {
+    mockRpc.mockReset();
+  });
+
+  it('checkout (delivery selected, a rejected submit) and confirmation: every control still carries the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket, deliveryAreas);
+
+    // AN ITEM, THEN THE CHECKOUT BAR -- the one path from 'browse' to
+    // `checkout.stage === 'checkout'`.
+    press(tree, 'product-tile-add');
+    press(tree, 'storefront-checkout-bar');
+
+    // DELIVER, NOT COLLECT -- `shop.offersDelivery` is true and this render
+    // passed an area, so `canDeliver` (checkout-form.tsx) is true and the
+    // "Deliver" segment, its area rows and the landmark field all mount.
+    // Staying on "Store pick-up" would leave three of the controls this task
+    // floored (`checkout-form-fulfilment-deliver`, `checkout-form-area-Hodan`,
+    // `checkout-form-landmark-input`) unswept -- the exact gap a zero-cart
+    // render leaves for CartSheet and ProductSheet in the block above.
+    press(tree, 'checkout-form-fulfilment-deliver');
+    setText(tree, 'checkout-form-name-input', 'Amina Warsame');
+    setText(tree, 'checkout-form-phone-input', '0634456789');
+    press(tree, 'checkout-form-area-Hodan');
+    setText(tree, 'checkout-form-landmark-input', 'Blue gate, behind the mosque');
+
+    // A REJECTED SUBMIT -- the one client error (`unavailable_item`) that
+    // renders a FOURTH control this screen only shows in this state:
+    // `storefront-checkout-edit-cart` (theme-shared.tsx).
+    mockRpc.mockRejectedValueOnce({ message: 'unavailable_item' });
+    press(tree, 'checkout-form-submit');
+    await flush();
+
+    const checkoutControls = touchControlsIn(tree);
+    // Guards the guard: Back, name, phone, both fulfilment segments, the one
+    // area row, landmark, note, submit, submit-whatsapp and edit-cart is ten
+    // -- the exact number matters less than a floor high enough that a
+    // control silently missing from this render would shrink the count back
+    // toward what the zero-cart sweep already reaches.
+    expect(checkoutControls.length).toBeGreaterThan(9);
+    const checkoutFailing = checkoutControls.filter((c) => !meetsTouchTargetRule(c));
+    expect(checkoutFailing.map((c) => c.props?.testID)).toEqual([]);
+
+    // NOW A SUCCESSFUL SUBMIT -- the only way `checkout.stage` reaches
+    // 'confirmation'.
+    mockRpc.mockResolvedValueOnce({ data: confirmedOrderRow, error: null });
+    press(tree, 'checkout-form-submit');
+    await flush();
+
+    const confirmationControls = touchControlsIn(tree);
+    // "Continue shopping" (ConfirmationScreen) and, since this fixture's
+    // `hideBranding` is false, OrderPlaced's own "See how" -- two controls
+    // that would otherwise be the exact regression this task fixed.
+    expect(confirmationControls.length).toBeGreaterThan(1);
+    const confirmationFailing = confirmationControls.filter((c) => !meetsTouchTargetRule(c));
+    expect(confirmationFailing.map((c) => c.props?.testID)).toEqual([]);
   });
 });
