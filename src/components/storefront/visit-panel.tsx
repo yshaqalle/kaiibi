@@ -2,7 +2,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { WhatsAppButton, ShopCard } from '@/components/storefront/theme-shared';
-import { LETTER, RADIUS, SPACE, TABULAR, TYPE } from '@/components/storefront/scale';
+import {
+  LETTER, RADIUS, SPACE, TABULAR, TOUCH_TARGET, TYPE,
+} from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import {
@@ -328,7 +330,18 @@ const styles = StyleSheet.create({
   column: { gap: SPACE.cardGap },
   columnMain: { flex: 1.15 },
   columnSide: { flex: 1 },
-  mapsButton: { borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11, alignSelf: 'flex-start', marginTop: 14 },
+  // Live at 390px: 37px, the fourth instance of this file's own defect
+  // pattern -- the fixture that would have shown it (`about`, `contactPhone`,
+  // `instagram`, `areas`, `images`, `highlights` all null/[]) kept both this
+  // tab and the About tab out of every render the sweep walked, so a control
+  // built from text and padding alone, never checked against a thumb, sat
+  // under the floor behind a green suite the same way Add, Ask and five
+  // others already had. `minHeight`, not more padding -- it raises exactly
+  // this button and leaves "Open in Maps" the same size it was designed at.
+  mapsButton: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11, alignSelf: 'flex-start', marginTop: 14,
+    minHeight: TOUCH_TARGET, justifyContent: 'center',
+  },
   mapsText: { fontSize: 12.5, fontWeight: '800' },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
@@ -343,9 +356,15 @@ const styles = StyleSheet.create({
   areaName: { fontSize: TYPE.body, fontWeight: '700', flexShrink: 1 },
   fee: { fontSize: TYPE.body, fontWeight: '800', ...TABULAR },
   action: { flexDirection: 'row', marginTop: 14 },
+  // Measured live at 63px -- the 38px glyph plus its own padding already
+  // clears the floor -- but nothing here SAID so before this: no literal
+  // height and no hitSlop, so the sweep (which asserts the rule, never lays a
+  // control out) had no way to tell this Pressable apart from one that was
+  // genuinely 26px. `minHeight` states the floor this row already meets
+  // rather than leaving it implied by a glyph's own size.
   contact: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 1,
+    paddingVertical: 12, borderBottomWidth: 1, minHeight: TOUCH_TARGET,
   },
   contactGlyph: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   contactGlyphText: { fontSize: 17 },

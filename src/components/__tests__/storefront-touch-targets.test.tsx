@@ -5,6 +5,7 @@ import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { ThemeWindow } from '@/components/storefront/theme-window';
 import { TOUCH_TARGET } from '@/components/storefront/scale';
+import type { ShopTabKey } from '@/components/storefront/shop-tabs';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type {
   PublicDeliveryArea, PublicShopSummary, PublicStorefront, StorefrontCategory, StorefrontFlyer,
@@ -241,45 +242,69 @@ const shop: PublicStorefront = {
   theme: 'market',
   palette: 'ink',
   headline: 'Everything for the house and the phone.',
-  about: null,
+  // Non-null, along with contactPhone/instagram/highlights/images below --
+  // see the "About and Visit tabs" describe block near the end of this file
+  // for why: `availableTabs` (shop-tabs.tsx) gates the About tab on exactly
+  // this field, so a null `about` here would keep the tab itself out of every
+  // tree this file walks, the same way `flyers: []` kept the carousel dots out
+  // before the fix above this one.
+  about: 'Family-run since the old covered market, now stocking phones and pantry staples side by side.',
   heroImageUrl: null,
   offersDelivery: true,
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
   openingHours: {},
-  tradingSince: null, highlights: [], images: [],
-  contactPhone: null, instagram: null,
+  tradingSince: null,
+  highlights: [
+    { id: 'h1', title: 'Same-day delivery', body: 'Ordered before 4pm, on your step by evening.' },
+    { id: 'h2', title: 'Genuine parts only', body: 'Every phone accessory here is the real thing.' },
+  ],
+  images: [
+    { id: 'im1', url: 'https://cdn.example/shop/gallery-1.jpg' },
+    { id: 'im2', url: 'https://cdn.example/shop/gallery-2.jpg' },
+  ],
+  contactPhone: '+252634000111',
+  instagram: 'xamditouch',
   flyers,
   autoAdvance: false,
   hideBranding: false,
 };
 
-// WHAT THE REST OF THIS FIXTURE STILL HIDES, found while fixing the flyers
-// gap above and left as a finding rather than a fifth item this task did not
-// scope: `about: null` and `areas: []` (this file's own `renderTheme`
-// default) together mean `availableTabs` (shop-tabs.tsx) returns `['shop']`
-// alone, so ShopTabRail renders NOTHING (`tabs.length < 2`) in every describe
-// block below except the checkout one -- and that one drives the checkout
-// flow, never a tab press. The About and Visit tabs, and everything inside
-// them (about-panel.tsx's highlights/images, visit-panel.tsx's own
-// `tel:`/instagram Pressables, both currently unreachable because
-// `contactPhone`/`instagram` are also null here), have never been swept by
-// this file. Not fixed here -- it is a second, larger fixture gap than the
-// one this task was sent to close, and belongs to whoever next touches those
-// two tabs' own controls.
+// THIS FIXTURE USED TO HIDE A SECOND GAP, found while fixing the flyers one
+// above and left as a finding rather than scope creep: `about: null` and
+// `contactPhone`/`instagram: null` meant `availableTabs` (shop-tabs.tsx) never
+// added 'about' to the rail, and even driving a theme onto 'visit' would have
+// shown `visit-panel.tsx`'s `ContactRow`s rendering nothing at all -- a
+// Pressable that never mounts is invisible to a sweep in exactly the way a
+// Pressable sized wrong is not. Both are filled in above now, and the "About
+// and Visit tabs" describe block near the end of this file is what actually
+// walks the trees that unlocks -- see its own comment for which controls that
+// closes the gap on and how it reaches a tab no describe block above ever
+// selects.
 
 async function renderTheme(
   Theme: typeof ThemeMarket | typeof ThemeWindow | typeof ThemeCounter,
   // Defaults to none, same as ThemeProps' own default (theme-shared.tsx) --
-  // only the checkout/confirmation describe block below passes a real one,
-  // to reach the "Deliver" segment, its area rows and its landmark field.
+  // only the checkout/confirmation describe block below, and the About/Visit
+  // one near the end of this file, pass a real one.
   areas: PublicDeliveryArea[] = [],
+  // Undefined leaves the tab UNCONTROLLED -- `useShopTab` (shop-tabs.tsx)
+  // keeps its own state, starting on 'shop' -- which is exactly what every
+  // describe block above the About/Visit one at the end of this file relies
+  // on to stay on the Shop tab without asking for it explicitly. Passing one
+  // drives `ThemeProps`' own `tab` prop directly, the same address-bar wiring
+  // StorefrontView uses in the browser, rather than pressing a tab Pressable
+  // to get there.
+  tab?: ShopTabKey,
 ) {
   let tree!: ReturnType<typeof create>;
   await act(async () => {
     tree = create(
-      <Theme storefront={shop} products={makeProducts()} colors={colors} categories={categories} areas={areas} />,
+      <Theme
+        storefront={shop} products={makeProducts()} colors={colors} categories={categories} areas={areas}
+        {...(tab ? { tab, onSelectTab: () => {} } : {})}
+      />,
     );
   });
   return tree;
@@ -554,5 +579,101 @@ describe('the checkout and confirmation screens the states above never reach', (
     expect(confirmationControls.map((c) => c.props?.testID)).toContain('storefront-continue-shopping');
     const confirmationFailing = confirmationControls.filter((c) => !meetsTouchTargetRule(c));
     expect(confirmationFailing.map((c) => c.props?.testID)).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE ABOUT AND VISIT TABS -- the fourth instance of this file's own defect,
+// and the one none of the four describe blocks above, nor either of the two
+// below them, ever touched. `renderTheme`'s default fixture used to carry
+// `about: null`, `contactPhone: null`, `instagram: null`, `areas: []`,
+// `images: []` and `highlights: []` (see the fixture's own comment above),
+// which meant `availableTabs` (shop-tabs.tsx) never returned more than
+// `['shop']` and `ShopTabRail` rendered nothing at all -- there was no
+// Pressable to press to reach either tab, even before asking whether its
+// controls were sized right. That is exactly how `storefront-visit-directions`
+// (37px, `visit-panel.tsx`'s "Open in Maps") sat under the floor: live in a
+// browser, behind a fully green suite that had never once rendered the row it
+// sits in.
+//
+// COVERAGE: Market only, driven straight to each tab via `ThemeProps`' own
+// `tab`/`onSelectTab` (`renderTheme`'s third argument, above) rather than by
+// pressing `storefront-tab-about`/`storefront-tab-visit` -- `ShopTabRail`'s
+// own Pressables carry `accessibilityRole="tab"`, which `touchControlsIn`
+// deliberately excludes (see this file's own header comment), so pressing one
+// would prove nothing about the floor and would only add a second act() this
+// sweep does not need. `ShopChrome` -- the component that owns the tab rail
+// and decides which panel mounts (shop-chrome.tsx) -- is imported unchanged by
+// theme-market.tsx, theme-window.tsx and theme-counter.tsx alike, all three
+// passing it the identical props; that is the same fact the cart/product-sheet
+// and checkout blocks above already lean on for their own Market-only
+// coverage, and it holds here for the same reason: there is no theme-specific
+// branch inside ShopChrome, AboutPanel or VisitPanel left for a second render
+// under Window or Counter to catch that this one does not.
+// ─────────────────────────────────────────────────────────────────────────
+describe('the About and Visit tabs no describe block above ever selects', () => {
+  // Two areas, priced differently (one free), so VisitPanel's own delivery
+  // card renders a real list rather than a single row -- the same reason the
+  // checkout block above passes a real `deliveryAreas` rather than `[]`. Names
+  // distinct from that block's own 'Hodan' only so a failure in either test's
+  // output is never ambiguous about which fixture produced it.
+  const visitAreas: PublicDeliveryArea[] = [
+    { name: 'QA Hodan', feeCents: 0 },
+    { name: 'QA Bakaaro', feeCents: 15000 },
+  ];
+
+  it('About: the FAQ toggles, gallery and highlights all carry the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket, visitAreas, 'about');
+
+    // Guards the guard: if `about` ever stopped reaching this tree (the
+    // fixture regressing to null, or `active` falling back to 'shop' the way
+    // `ShopChrome` does for a tab that no longer exists), this would be the
+    // first thing to notice, before any control count could paper over it.
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-panel').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-gallery').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-highlights').length).toBeGreaterThan(0);
+
+    const controls = touchControlsIn(tree);
+    const controlIds = controls.map((c) => c.props?.testID);
+    // The FAQ is generated (shopQuestions, about-panel.tsx) rather than fixed
+    // in count -- this fixture's `offersDelivery`, `areas` and `whatsappE164`
+    // together produce all four -- so naming each toggle is what makes a
+    // dropped question an assertion failure rather than a smaller number
+    // nobody compared against anything.
+    for (const requiredId of [
+      'storefront-faq-pay', 'storefront-faq-delivery', 'storefront-faq-collect', 'storefront-faq-stock',
+    ]) {
+      expect(controlIds).toContain(requiredId);
+    }
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
+  });
+
+  it('Visit: directions, call, Instagram and WhatsApp all carry the floor or a hitSlop', async () => {
+    const tree = await renderTheme(ThemeMarket, visitAreas, 'visit');
+
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-visit-panel').length).toBeGreaterThan(0);
+    // Both area rows render (proof the delivery-areas card itself mounted),
+    // but neither is a control: they are plain Views with no `onPress` and no
+    // `accessibilityRole`, so `touchControlsIn` never picks them up, and a
+    // floor on a row nobody can tap would be a number this rule has no
+    // argument for. Asserted here as a fact about the tree, not folded into
+    // the touch-target loop below where its absence would look like the same
+    // kind of finding as a control that actually failed.
+    for (const areaName of ['QA Hodan', 'QA Bakaaro']) {
+      const rows = tree.root.findAll((n) => n.props?.testID === `storefront-visit-area-${areaName}`);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(typeof rows[0].props?.onPress).not.toBe('function');
+    }
+
+    const controls = touchControlsIn(tree);
+    const controlIds = controls.map((c) => c.props?.testID);
+    for (const requiredId of ['storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram']) {
+      expect(controlIds).toContain(requiredId);
+    }
+
+    const failing = controls.filter((c) => !meetsTouchTargetRule(c));
+    expect(failing.map((c) => c.props?.testID)).toEqual([]);
   });
 });
