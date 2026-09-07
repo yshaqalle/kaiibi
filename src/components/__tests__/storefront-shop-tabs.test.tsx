@@ -1,10 +1,11 @@
+import { StyleSheet } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
 import { pillMotion, ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
 import { VisitPanel, mapsUrlFor, shareMessage } from '@/components/storefront/visit-panel';
 import { storefrontAddress } from '@/lib/storefront-host';
-import { paletteColors } from '@/lib/storefront-catalog';
+import { PALETTES, paletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -659,5 +660,34 @@ describe('the decision pill, at a fixed instant', () => {
   it('renders no pill at all for a shop that never set hours', () => {
     const tree = renderAt({}, '2026-08-03T10:00:00');
     expect(has(tree, 'storefront-visit-open-now')).toBe(false);
+  });
+
+  // THE PILL MUST HAVE A PLATE, ON EVERY PALETTE, IN BOTH STATES.
+  //
+  // This is the one thing about the pill a test in this repo CAN see: not its
+  // size or position -- nothing here lays out -- but the colour it resolves
+  // to, against the colour of the card it sits on. It is worth pinning because
+  // the defect it catches shipped: the pill kept the `accent` fill it wore on
+  // HoursCard's light header, and on the ink palette `accent` IS `ink`, so a
+  // browser showed the OPEN pill as bare text on the ink card while the CLOSED
+  // one kept its bright `soft` plate. Green suite, inverted emphasis, on the
+  // palette every shop starts on.
+  //
+  // Asserted across ALL seven palettes rather than the default one, because
+  // this is precisely a defect that hides in a single palette: six of them
+  // looked fine.
+  it.each(PALETTES.map((p) => p.key))('gives the open pill a plate distinct from the card on %s', (palette) => {
+    const paletted = paletteColors(palette);
+    const tree = render(
+      <VisitPanel storefront={shop({ openingHours: HOURS })} areas={AREAS} colors={paletted} />,
+    );
+    for (const iso of ['2026-08-03T10:00:00', '2026-08-04T10:00:00']) {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(iso));
+      const pill = tree.root.findAll((n) => n.props?.testID === 'storefront-visit-open-now')[0];
+      const fill = StyleSheet.flatten(pill.props.style).backgroundColor;
+      expect(fill).toBeDefined();
+      expect(fill).not.toBe(paletted.ink);
+    }
   });
 });

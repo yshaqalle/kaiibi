@@ -74,13 +74,28 @@ function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; co
           storefront-catalog.ts sets for the stock dots and HoursCard already
           followed. NO PILL AT ALL when hours were never configured: printing
           a state for a shop that never set hours would invent a claim it
-          never made. */}
+          never made.
+
+          THE OPEN FILL IS `onDarkAccent`, NOT `accent`, for the same measured
+          reason "Get directions" below it is. This pill moved from HoursCard's
+          light header onto the ink card, and the raw accent it brought with it
+          collapses here: on the ink palette `accent` IS `ink`, so a browser
+          showed the OPEN pill as bare text with no plate (computed background
+          rgb(20,20,24), the card's own) while the CLOSED pill -- filled `soft`
+          -- kept a bright one. The state a shop most wants read was the one
+          that disappeared, and the emphasis was inverted on the palette every
+          shop starts on. `soft` stays right for closed: it is a light plate on
+          a dark card on every palette, which is the property this pill needs
+          and the one the accent silently did not have. */}
       {pill ? (
         <View
           testID="storefront-visit-open-now"
-          style={[styles.statePill, open ? { backgroundColor: colors.accent } : { backgroundColor: colors.soft }]}
+          style={[
+            styles.statePill,
+            open ? { backgroundColor: colors.onDarkAccent } : { backgroundColor: colors.soft },
+          ]}
         >
-          <Text style={[styles.stateText, { color: open ? colors.ground : colors.muted }]}>{pill}</Text>
+          <Text style={[styles.stateText, { color: open ? colors.onDarkAccentInk : colors.muted }]}>{pill}</Text>
         </View>
       ) : null}
 
@@ -518,10 +533,14 @@ const styles = StyleSheet.create({
   },
   directionsText: { fontSize: 12.5, fontWeight: '800' },
 
-  // THE OPEN PILL -- lives on the decision card now, same shape HoursCard's
-  // header used to draw (self-contained `soft`/`accent` fill, `muted`/`ground`
-  // text), which is why it still reads correctly sitting on an `ink` card: the
-  // pill supplies its own light surface rather than relying on the card's.
+  // THE OPEN PILL -- lives on the decision card now, the shape HoursCard's
+  // header used to draw. It did NOT survive the move unchanged, and the
+  // comment that used to sit here said it did: "the pill supplies its own
+  // light surface rather than relying on the card's" was true of the `soft`
+  // fill it wears when closed and false of the `accent` it wore when open,
+  // which on the ink palette is `ink` itself. A pill on a light header can
+  // borrow the palette's accent; a pill on an ink card cannot. See the fill's
+  // own comment in DecisionCard for the measurement.
   statePill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   stateText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
 
