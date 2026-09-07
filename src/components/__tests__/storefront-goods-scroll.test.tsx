@@ -301,7 +301,22 @@ describe.each([
   // on its own either -- this is the "scrolled deep, cell 0 off-screen, no
   // fresh measurement arrives" case the brief names, reproduced here by
   // simply never calling `onLayout` a second time.
-  it('drops the measured row height on a width change even when the column count does not move', async () => {
+  // THE ANTI-STROBE RULE, and it replaces its own opposite.
+  //
+  // An earlier version of this test asserted that a width change DROPPED the
+  // measured row height back to the estimate, so a resize inside one column
+  // band could not keep a stale number. It did stop that -- and it made
+  // dragging a window edge strobe, because a drag fires a resize dozens of
+  // times a second and every one of them sent the goods box to the 534px
+  // estimate and back to its measured 870. "It does not behave well when
+  // changing the window size" was that, and the reset was the cause.
+  //
+  // So the rule inverted: a measurement is HELD until a fresh one replaces it.
+  // Held is off by whatever the resize changed; the estimate is off by 336px
+  // and always in the same direction. Both halves are asserted below, because
+  // holding alone would be a stale layout and replacing alone is what the old
+  // reset already did.
+  it('holds the measured row height across a width change, and takes a fresh measurement when one arrives', async () => {
     await act(async () => {
       Dimensions.set({
         window: { width: 1300, height: 900, scale: 1, fontScale: 1 },
@@ -329,11 +344,22 @@ describe.each([
       });
 
       const afterResize = flatten(goodsList(tree).props.style).maxHeight;
-      // NOT the stale, 300-measured bound -- back to the not-yet-measured
-      // estimate, the same branch a genuinely fresh mount starts in (see
-      // ESTIMATED_ROW_HEIGHT's own comment in theme-shared.tsx).
-      expect(afterResize).not.toBe(300 * 2 + SPACE.cardGap);
-      expect(afterResize).toBe(goodsScrollHeight(null, SPACE.cardGap, 3));
+      // HELD, not dropped: still the 300-measured bound, and specifically NOT
+      // the estimate. This is the assertion that fails if the width-keyed
+      // reset ever comes back, which is what made a drag strobe.
+      expect(afterResize).toBe(300 * 2 + SPACE.cardGap);
+      expect(afterResize).not.toBe(goodsScrollHeight(null, SPACE.cardGap, 3));
+
+      // And replaced the moment a real measurement lands -- the half that
+      // stops "held" from meaning "stale for ever". onLayout fires on the row
+      // whenever the width changes (RN-web's ResizeObserver, native's layout
+      // pass); here it is called directly, since it never fires under this
+      // harness.
+      const afterRelayout = tree.root.findAll(
+        (n) => n.props?.testID === 'storefront-goods-row' && typeof n.props?.onLayout === 'function',
+      );
+      act(() => afterRelayout[0].props.onLayout({ nativeEvent: { layout: { height: 360 } } }));
+      expect(flatten(goodsList(tree).props.style).maxHeight).toBe(360 * 2 + SPACE.cardGap);
 
       await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     } finally {

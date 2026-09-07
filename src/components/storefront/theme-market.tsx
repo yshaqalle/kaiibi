@@ -96,12 +96,23 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   // re-enters the not-yet-measured branch for one frame, which every
   // consumer already handles, and the fresh onLayout events land immediately
   // after.
-  useEffect(() => {
-    setRowHeight(null);
-    setPageHeight(null);
-    setHeaderHeight(null);
-    setFooterHeight(null);
-  }, [width]);
+  // AND THEN IT WAS DELETED, because dropping them is what made a DRAG look
+  // broken. A programmatic resize is one step and settles in a frame, so the
+  // fallback never shows; dragging a window edge fires a resize dozens of
+  // times a second, and each one sent the goods box to
+  // `ESTIMATED_ROW_HEIGHT`'s 534 and back to its measured 870. The customer's
+  // report was "it does not behave well when changing the window size", and
+  // this was it: not a stale layout, a strobing one.
+  //
+  // Nothing is reset now. The stale-measurement problem the reset existed for
+  // is handled where it actually happens: `onLayout` fires on the header, the
+  // footer, the page scroller AND the row whenever the width changes -- on web
+  // through the ResizeObserver RN-web attaches to every measured View, on
+  // native through the layout pass a rotation triggers -- so every number
+  // refreshes one frame later on its own. Holding the PREVIOUS measurement for
+  // that frame is strictly better than holding an estimate: it is off by
+  // whatever the resize changed, where the estimate is off by 336px and always
+  // in the same direction.
   const threeRowHeight = goodsThreeRowHeight(rowHeight, SPACE.cardGap, rowCount);
   const remainder = goodsFitHeight(
     pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,

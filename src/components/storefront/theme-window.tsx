@@ -66,12 +66,10 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
-  useEffect(() => {
-    setRowHeight(null);
-    setPageHeight(null);
-    setHeaderHeight(null);
-    setFooterHeight(null);
-  }, [width]);
+  // No width-keyed reset -- see theme-market.tsx's comment where this one used
+  // to be. Dropping the four measurements on every resize event made a DRAG
+  // strobe between the estimate and the measured height; every one of them
+  // re-measures on its own one frame later.
   const threeRowHeight = goodsThreeRowHeight(rowHeight, SPACE.cardGap, rowCount);
   const remainder = goodsFitHeight(
     pageHeight, headerHeight, footerHeight, SPACE.page, SPACE.cardGap, CHECKOUT_BAR_CLEARANCE,
