@@ -352,18 +352,38 @@ export function AboutPanel({
             </View>
           ) : null}
         </ShopCard>
-      </View>
 
-      {/* THE FAQ, LAST -- unchanged by Task 21. It is the "before you order"
-          checkpoint, and it already worked.
+        {/* THE FAQ, LAST -- moved inside `panel` here (alignment fix,
+            post-Task-25). Task 25 left this band OUTSIDE `panel`, recreating
+            `panel`'s own inset by hand with `gutter`'s `paddingHorizontal:
+            SPACE.page` -- a leftover from before Task 21, when the story was
+            itself a full-bleed `ground` band and every band (including this
+            one) needed its own gutter because none of them could lean on a
+            shared padded container. Task 21 folded the story and highlights
+            into a `ShopCard` inside `panel`; this band was never migrated
+            with it.
 
-          `styles.prose` (Task 25): the FAQ is read, questions and answers,
-          the same as the story card above -- it keeps PROSE_MAX_WIDTH too,
-          `gutter`'s own `paddingHorizontal: SPACE.page` staying underneath it
-          the same way `body` stays underneath the story card's own bound. */}
-      <View style={[styles.band, styles.gutter, styles.lastBand, styles.prose]} testID="storefront-about-faq">
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Before you order</Text>
-        <Accordion colors={colors} questions={questions} />
+            The result: two different containers each claiming to reproduce
+            the SAME inset. At narrow widths `body`'s padding + `gutter`'s
+            padding happened to equal `body`'s padding + `panel`'s padding
+            (16+16 either way), so the two paths coincided by coincidence --
+            but a bounded, CENTRED box does not scale like a plain sum of
+            paddings, so at 1440 they diverged: measured live, the FAQ's own
+            question cards sat at x=326 while the proof chips and story card
+            sat at x=310, 16px apart. Confirmed here in the diff: `gutter`
+            and `lastBand` were used ONLY by this view (grep across the file
+            and its tests), so neither was load-bearing anywhere else -- pure
+            leftover, safe to delete along with the second container.
+
+            Now the FAQ is a plain fourth child of `panel`, exactly like the
+            proof chips and the story card above it: `panel`'s own padding is
+            its only source of inset, and `panel`'s own `gap` is its only
+            source of spacing from the story card, so all three read the
+            SAME formula rather than two that happen to agree at one width. */}
+        <View style={[styles.faqBand, styles.prose]} testID="storefront-about-faq">
+          <Text style={[styles.eyebrow, { color: colors.muted }]}>Before you order</Text>
+          <Accordion colors={colors} questions={questions} />
+        </View>
       </View>
     </View>
   );
@@ -371,13 +391,14 @@ export function AboutPanel({
 
 const styles = StyleSheet.create({
   // Every top-of-tab block -- the gallery, the proof chips, the merged story
-  // card -- sits inside this one gutter+gap wrapper now that none of them is a
-  // full-bleed band any more: the story is a `ShopCard` like everything else
-  // on this page, so there is nothing left that needs to run full-bleed.
+  // card, and (as of the alignment fix below) the FAQ band -- sits inside
+  // this one padding+gap wrapper now that none of them is a full-bleed band
+  // any more: the story is a `ShopCard` like everything else on this page,
+  // so there is nothing left that needs to run full-bleed. This is now the
+  // ONLY source of horizontal inset for every bounded block below (see
+  // `prose`) -- no block reproduces it with a gutter of its own, which is
+  // exactly the bug the alignment fix removed.
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
-  gutter: { paddingHorizontal: SPACE.page },
-  band: { gap: 12, paddingTop: SPACE.page, paddingBottom: 4 },
-  lastBand: { paddingBottom: SPACE.page },
   // THE BOUND MOVED HERE FROM shop-chrome.tsx (Task 25). Phase 4 put a
   // gallery at the top of this tab, and a photograph has no reading measure
   // to keep -- so the chrome no longer wraps this whole panel in one
@@ -388,7 +409,26 @@ const styles = StyleSheet.create({
   // block in this file that never takes it (see its own comment above), and
   // `panel` above stays unbounded so the gallery can fill `body`
   // (shop-chrome.tsx) right up to the width `ShopFooter` already renders at.
+  //
+  // ALL THREE bounded blocks must resolve this identically -- same maxWidth,
+  // same alignSelf, and (this is the part Task 25 got wrong for the FAQ) NO
+  // paddingHorizontal of its own layered on top, because `panel` above is
+  // already the one and only container supplying that inset. A block that
+  // adds its own horizontal padding on top of `prose` narrows its READABLE
+  // content a second time without narrowing the bounding box drawn around
+  // it, which is exactly how the FAQ's question cards ended up 16px right of
+  // the proof chips and story card at 1440 despite all three measuring the
+  // same `maxWidth` here.
   prose: { width: '100%', maxWidth: PROSE_MAX_WIDTH, alignSelf: 'center' },
+  // THE FAQ BAND's only own style now: the 12px gap between its "Before you
+  // order" eyebrow and the accordion beneath it -- the same role `storyCard`
+  // below gives its own children. No padding of any kind: `panel` above
+  // supplies this band's inset and its spacing from the story card above it
+  // (via `panel`'s own `padding` and `gap`), the same as it already does for
+  // the proof chips and the story card. See the alignment-fix comment at
+  // this band's call site for the full story of why that used to be two
+  // different containers instead of one.
+  faqBand: { gap: 12 },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },

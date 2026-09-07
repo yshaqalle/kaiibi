@@ -383,6 +383,46 @@ describe('the About panel', () => {
     expect(StyleSheet.flatten(faq.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
   });
 
+  // ALIGNMENT FIX, following a browser measurement: at 1440px the FAQ's own
+  // question cards sat at x=326 while the proof chips and story card sat at
+  // x=310, 16px apart, even though all three resolve the same `maxWidth`
+  // above. The cause wasn't `maxWidth` -- it was the FAQ layering its own
+  // `paddingHorizontal` (via a `gutter` style, now removed) on top of the
+  // SAME `prose` bound the other two use bare. A centred, bounded box's
+  // rendered edge depends on maxWidth AND alignSelf, but any padding
+  // layered on top of it shifts its CONTENT inward a second time without
+  // moving the box itself -- which is invisible to a `maxWidth`-only
+  // assertion and only shows up once you measure pixels in a browser.
+  //
+  // So this pins the other half of the invariant: all three bounded blocks
+  // must carry the SAME (zero) horizontal padding of their own, not just the
+  // same maxWidth. `panel` (about-panel.tsx) is the one and only container
+  // meant to supply that inset now.
+  //
+  // NOT VACUOUS: confirmed by temporarily restoring the old
+  // `paddingHorizontal: SPACE.page` gutter on the FAQ band and re-running
+  // this file -- the assertion below failed (`toBeUndefined()` saw 16), then
+  // passed again once the line was reverted. See task-25-report.md's
+  // "Alignment fix" section for the exact output.
+  it('gives the proof chips, story card and FAQ band the same (zero) horizontal padding of their own', () => {
+    const tree = renderAbout({
+      images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }],
+    });
+
+    const storyCard = hostNode(tree, 'storefront-about-story-card');
+    const proof = hostNode(tree, 'storefront-about-proof');
+    const faq = hostNode(tree, 'storefront-about-faq');
+
+    for (const node of [storyCard, proof, faq]) {
+      const flat = StyleSheet.flatten(node.props.style) as {
+        paddingHorizontal?: unknown; paddingLeft?: unknown; paddingRight?: unknown;
+      };
+      expect(flat.paddingHorizontal).toBeUndefined();
+      expect(flat.paddingLeft).toBeUndefined();
+      expect(flat.paddingRight).toBeUndefined();
+    }
+  });
+
   // The caption strip is the shop's PLACE, composed with collectLocation --
   // `shop()`'s own defaults carry `collectNeighborhood: 'Jigjiga Yar'` and
   // `city: 'Hargeisa'`, so a shop with photographs and no other override reads
