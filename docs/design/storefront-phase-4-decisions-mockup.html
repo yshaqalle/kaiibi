@@ -1,0 +1,315 @@
+<title>Phase 4 — what you chose, and what it measures now</title>
+<style>
+  :root{
+    --ground:#ffffff; --page:#f7f7f8; --ink:#141418; --muted:#5f5f6a;
+    --edge:#e7e7ec; --rule:rgba(20,20,24,.09);
+    --blue:#0071e3; --done:#0b7a44; --pick:#8a5a05; --bad:#b3261e;
+    --card-ink:#141418; --card-oda:#727274; --wa:#1f7a4d;
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#17171b; --page:#0e0e11; --ink:#f2f2f4; --muted:#a3a2ad;
+      --edge:#2b2b33; --rule:rgba(255,255,255,.10);
+      --blue:#4c9dff; --done:#3fbb7d; --pick:#e0a83a; --bad:#f2857c;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#17171b; --page:#0e0e11; --ink:#f2f2f4; --muted:#a3a2ad;
+    --edge:#2b2b33; --rule:rgba(255,255,255,.10);
+    --blue:#4c9dff; --done:#3fbb7d; --pick:#e0a83a; --bad:#f2857c;
+  }
+  :root[data-theme="light"]{
+    --ground:#ffffff; --page:#f7f7f8; --ink:#141418; --muted:#5f5f6a;
+    --edge:#e7e7ec; --rule:rgba(20,20,24,.09);
+    --blue:#0071e3; --done:#0b7a44; --pick:#8a5a05; --bad:#b3261e;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--page);color:var(--ink);font-family:var(--sans);
+    font-size:15px;line-height:1.55;margin:0;padding:40px 20px 96px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  h1{font-family:var(--serif);font-size:36px;line-height:1.1;font-weight:700;
+    letter-spacing:-.02em;margin:0 0 12px;text-wrap:balance;}
+  .lede{color:var(--muted);max-width:66ch;margin:0;font-size:16px;}
+  h2{font-family:var(--serif);font-size:23px;font-weight:700;letter-spacing:-.01em;
+    margin:0 0 4px;text-wrap:balance;}
+  h3{font-size:15.5px;font-weight:800;margin:0;letter-spacing:-.01em;}
+  .eyebrow{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin:52px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--rule);}
+  .card{background:var(--ground);border-radius:16px;padding:20px 22px;}
+  .stack{display:flex;flex-direction:column;gap:14px;}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(236px,1fr));gap:14px;}
+  .tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;
+    letter-spacing:.07em;text-transform:uppercase;}
+  .tag.done{color:var(--done);} .tag.open{color:var(--pick);} .tag.bad{color:var(--bad);}
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+  p{margin:0;}
+  .sub{color:var(--muted);font-size:13.5px;}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--page);
+    padding:1px 5px;border-radius:5px;}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;}
+  th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--muted);padding:0 12px 8px 0;}
+  td{padding:9px 12px 9px 0;border-top:1px solid var(--rule);vertical-align:top;}
+  td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .was{color:var(--muted);text-decoration:line-through;text-decoration-thickness:1px;}
+  .now{font-weight:800;color:var(--done);}
+  .scroll{overflow-x:auto;}
+
+  .spec{background:var(--card-ink);border-radius:14px;padding:14px;width:100%;}
+  .spec .pill{display:inline-block;border-radius:999px;padding:4px 10px;
+    font-size:10.5px;font-weight:800;letter-spacing:.03em;}
+  .spec .place{font-family:var(--serif);font-size:19px;line-height:1.15;color:#fff;
+    margin-top:9px;letter-spacing:-.01em;}
+  .spec .who{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
+    color:#a9a8b0;margin-top:5px;}
+  .spec .acts{display:flex;gap:8px;margin-top:12px;}
+  .spec .btn{flex:1;text-align:center;border-radius:999px;padding:9px 6px;
+    font-size:11.5px;font-weight:800;}
+  .wa{background:var(--wa);color:#fff;}
+
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .ba > div{display:flex;flex-direction:column;gap:9px;}
+  .balabel{font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;}
+  .balabel.before{color:var(--muted);} .balabel.after{color:var(--done);}
+
+  .chiprow{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{background:var(--page);border-radius:8px;padding:3px 8px;font-size:10.5px;
+    font-weight:700;color:var(--muted);display:inline-flex;align-items:baseline;gap:4px;}
+  .chip b{font-size:13.5px;font-weight:800;color:var(--ink);
+    font-variant-numeric:tabular-nums;}
+  .hoursrow{background:var(--page);border-radius:10px;padding:10px 12px;
+    font-weight:800;font-size:13.5px;}
+
+  .note{border-left:2px solid var(--edge);padding-left:14px;color:var(--muted);font-size:13.5px;}
+  .todo{background:var(--ground);border-radius:16px;padding:20px 22px;
+    border-left:3px solid var(--pick);}
+  .defect{background:var(--ground);border-radius:16px;padding:20px 22px;
+    border-left:3px solid var(--bad);}
+  .foot{margin-top:16px;color:var(--muted);font-size:12.5px;}
+  .widths{display:flex;gap:8px;align-items:flex-end;margin-top:4px;}
+  .widths .bar{border-radius:5px;background:linear-gradient(140deg,#c9d4e6,#9fb0c8);height:34px;}
+  .widths .txt{border-radius:3px;background:var(--edge);height:5px;}
+</style>
+
+<div class="wrap">
+  <h1>You picked four. Here is what they measure now.</h1>
+  <p class="lede">All four were implemented, and every number below was read off a browser
+  after the change, not predicted before it. Two of the four moved a contrast ratio; one
+  deleted a helper that had nothing left to do; one let the photographs out of the reading
+  column. That last one also introduced a 16px misalignment, which the same measurement pass
+  caught and which is now fixed — it is written up at the bottom rather than quietly dropped.</p>
+
+  <!-- ═══════════ DECISION 1 ═══════════ -->
+  <div class="eyebrow">Decision 1 · the loudest thing on the card — built</div>
+
+  <div class="card stack">
+    <div>
+      <span class="tag done"><i class="dot"></i>Option B · open takes the white plate</span>
+      <h2 style="margin-top:8px">Open now shouts. Closed murmurs.</h2>
+      <p class="sub" style="max-width:66ch;margin-top:6px">The open pill measured
+      <span class="num">3.83:1</span> against the card while the closed pill measured
+      <span class="num">16.72:1</span> — the state a shop most wants read was the fainter of
+      the two by more than four times. Both the pill and the primary action now take
+      <code>ground</code>; closed steps down to the grey.</p>
+    </div>
+
+    <div class="ba">
+      <div>
+        <span class="balabel before">Before · open at 3.83:1</span>
+        <div class="spec">
+          <span class="pill" style="background:#727274;color:#fff">Open · closes 8pm</span>
+          <div class="place">Shop 12,<br>Bakaaro Market</div>
+          <div class="who">Yusefshop</div>
+          <div class="acts"><span class="btn" style="background:#727274;color:#fff">Get directions</span>
+          <span class="btn wa">WhatsApp</span></div>
+        </div>
+      </div>
+      <div>
+        <span class="balabel after">After · open at 18.37:1 — measured</span>
+        <div class="spec">
+          <span class="pill" style="background:#fff;color:#141418">Open now</span>
+          <div class="place">Shop 12,<br>Bakaaro Market</div>
+          <div class="who">Yusefshop</div>
+          <div class="acts"><span class="btn" style="background:#fff;color:#141418">Get directions</span>
+          <span class="btn wa">WhatsApp</span></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note">Applied to <b>all seven palettes</b>, not just <code>ink</code>. The page
+    that asked this question claimed six palettes were already fine; measured, every one of
+    them sat between <span class="num">3.01</span> and <span class="num">3.85:1</span> — those
+    accents had been stepped <em>up to</em> the 3:1 floor, not comfortably past it. The test
+    now asserts the open pill's contrast is strictly greater than the closed pill's on every
+    palette, so a future token swap that re-inverts them fails. Proven by inverting the fills:
+    all seven cases failed (plum expected &gt;17.04, got 3.74).</p>
+  </div>
+
+  <!-- ═══════════ DECISION 2 + 3 ═══════════ -->
+  <div class="eyebrow">Decisions 2 and 3 · the fee, and saying the hour once — built</div>
+
+  <div class="grid3" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+    <div class="card stack">
+      <span class="tag done"><i class="dot"></i>Option B · fee at body size</span>
+      <h3>The number gets the weight</h3>
+      <p class="sub">The chip shape stays — one chip vocabulary on this page is something a
+      Phase 3 review fought for. Only the fee changed.</p>
+      <div class="ba" style="grid-template-columns:1fr">
+        <div>
+          <span class="balabel before">Before · everything at 10.5px</span>
+          <div class="chiprow">
+            <span class="chip">Jigjiga Yar · Free</span>
+            <span class="chip">Ahmed Dhagah · $1.00</span>
+          </div>
+          <span class="balabel after" style="margin-top:6px">After · fee 13.5px / 800 — measured</span>
+          <div class="chiprow">
+            <span class="chip">Jigjiga Yar · <b>Free</b></span>
+            <span class="chip">Ahmed Dhagah · <b>$1.00</b></span>
+          </div>
+        </div>
+      </div>
+      <p class="sub">The place name stays quiet at 10.5px. The fee is the deciding fact, so it
+      is the one that carries weight.</p>
+    </div>
+
+    <div class="card stack">
+      <span class="tag done"><i class="dot"></i>Option B · the pill drops the hour</span>
+      <h3>The closing time is said once</h3>
+      <p class="sub">Two notations sat about 70px apart. The pill now answers "can I go" and
+      the row answers "until when".</p>
+      <div class="ba" style="grid-template-columns:1fr">
+        <div>
+          <span class="balabel before">Before · the same fact twice</span>
+          <div class="spec" style="padding:11px"><span class="pill"
+            style="background:#727274;color:#fff">Open · closes 8pm</span></div>
+          <div class="hoursrow">Today: 08:00 – 20:00</div>
+          <span class="balabel after" style="margin-top:6px">After — measured</span>
+          <div class="spec" style="padding:11px"><span class="pill"
+            style="background:#fff;color:#141418">Open now</span></div>
+          <div class="hoursrow">Today: 08:00 – 20:00</div>
+        </div>
+      </div>
+      <p class="sub"><b>A consequence worth knowing:</b> this left
+      <code>closingLabel</code> with no caller at all, so it was deleted along with its eight
+      tests. The page that asked the question said it would "stay for the closed state" — that
+      was wrong; closed uses <code>nextOpeningLabel</code>. Zero references remain in
+      <code>src/</code>.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════ DECISION 4 ═══════════ -->
+  <div class="eyebrow">Decision 4 · how wide the photographs get — built</div>
+
+  <div class="card stack">
+    <div>
+      <span class="tag done"><i class="dot"></i>Option B · photos break out, prose stays</span>
+      <h2 style="margin-top:8px">The gallery takes the page. The reading keeps its measure.</h2>
+      <p class="sub" style="max-width:66ch;margin-top:6px">The 820px bound exists because a
+      Phase-1 review measured the about paragraph running to roughly 200 characters a line at
+      1320. That reasoning is about <em>text</em> — and Phase 4 put photographs at the top of
+      this tab. So the bound moved out of the chrome and into the panel, where it can tell a
+      picture from a paragraph.</p>
+    </div>
+
+    <div class="ba">
+      <div>
+        <span class="balabel before">Before · everything at 820</span>
+        <div style="background:var(--page);border-radius:10px;padding:12px">
+          <div class="widths" style="flex-direction:column;align-items:center">
+            <div class="bar" style="width:60%"></div>
+            <div class="txt" style="width:60%"></div>
+            <div class="txt" style="width:60%"></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <span class="balabel after">After · measured at 1440</span>
+        <div style="background:var(--page);border-radius:10px;padding:12px">
+          <div class="widths" style="flex-direction:column;align-items:center">
+            <div class="bar" style="width:100%"></div>
+            <div class="txt" style="width:60%"></div>
+            <div class="txt" style="width:60%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:34%">Block at 1440</th><th>Left</th><th>Width</th>
+          <th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td>Cover photo + caption</td><td class="n now">32</td><td class="n now">1376</td>
+            <td>The full body width — the same width the footer already had.</td></tr>
+          <tr><td>Proof chips</td><td class="n">310</td><td class="n">820</td>
+            <td>Read, so bounded.</td></tr>
+          <tr><td>Story + highlights card</td><td class="n">310</td><td class="n">820</td>
+            <td>Read, so bounded.</td></tr>
+          <tr><td>FAQ question cards</td><td class="n">310</td><td class="n">820</td>
+            <td>Read, so bounded. Was 16px out of line — see below.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">At 390 nothing changes: the bound is wider than the screen, so every block
+    is the same 326px it always was.</p>
+  </div>
+
+  <!-- ═══════════ THE DEFECT ═══════════ -->
+  <div class="eyebrow">Found by the same measurement — and fixed</div>
+
+  <div class="card">
+    <span class="tag done"><i class="dot"></i>Regression from Decision 4 · fixed</span>
+    <h3 style="margin-top:6px">Three prose blocks, one left edge</h3>
+    <p class="sub" style="margin-top:6px;max-width:70ch">At 1440 the FAQ's question cards sat
+    at <span class="num">x=326</span> while the proof chips and the story card sat at
+    <span class="num">x=310</span>. At 390 both paths coincidentally landed on 32, so only a
+    wide screen showed it.</p>
+    <p class="sub" style="margin-top:10px;max-width:70ch"><b>Cause.</b> Two of the three blocks
+    sit inside the panel, whose padding lands <em>outside</em> the 820 bound. The FAQ sat
+    outside the panel and recreated the inset with its own gutter, which lands <em>inside</em>
+    it — a leftover from before Task 21, when the story was a full-bleed band and every band
+    needed its own inset. The story was folded into a card inside the panel; this band was
+    never migrated with it.</p>
+    <p class="sub" style="margin-top:10px;max-width:70ch"><b>Fix.</b> The FAQ is now a plain
+    fourth child of the panel and the three leftover styles are deleted, so one container owns
+    the inset — this codebase's own recorded rule: <em>the gutter belongs to the container that
+    knows its own margins.</em> Measured after, at both widths: one left edge and one right
+    edge (<span class="num">32/358</span> at 390, <span class="num">310/1130</span> at 1440),
+    with the gallery still full-bleed at <span class="num">1376</span>.</p>
+    <p class="sub" style="margin-top:10px">No test here lays out, so nothing could have caught
+    the pixels — a browser did. What is pinned instead is the cause: none of the three bounded
+    blocks may carry horizontal padding of its own. Restoring the gutter fails it.</p>
+  </div>
+
+  <!-- ═══════════ STILL YOURS ═══════════ -->
+  <div class="eyebrow">Still yours</div>
+
+  <div class="todo stack">
+    <div>
+      <h3>One swipe on a real iPhone</h3>
+      <p class="sub" style="margin-top:5px;max-width:70ch">The goods grid is a bounded scroller
+      inside the page scroller. Android chains out of it — verified, six swipes reached the
+      footer. <b>iOS has neither that nor the browser's overscroll chaining</b>, and no machine
+      here has tap injection, so it has never been tested in four phases. Load a shop page,
+      swipe over the product grid. If the page keeps scrolling there is nothing to fix.</p>
+    </div>
+    <div style="border-top:1px solid var(--rule);padding-top:12px">
+      <h3>Two smaller ones</h3>
+      <p class="sub" style="margin-top:5px;max-width:70ch"><b>Rebase #140 onto main?</b> It was
+      cut before the new logo landed, so the mark only appears alongside this work afterwards —
+      conflict-free, zero shared files. <b>And this page:</b> it is sitting untracked in
+      <code>docs/design/</code> so #140 stayed exactly as reviewed. It can go into #140, into a
+      follow-up, or nowhere.</p>
+    </div>
+  </div>
+
+  <p class="foot">State: 242 suites / 4,495 tests green under two timezones,
+  <code>tsc --noEmit</code> exit 0, zero console errors, zero controls under the 44px floor.
+  <code>yusefshop.trading_since</code> is still <span class="num">2019</span> so the third
+  proof chip renders; the revert SQL is in the progress ledger.</p>
+</div>
