@@ -145,53 +145,29 @@ states. That data is QA data and can be changed or removed freely.
 Both panels are bounded by `PROSE_MAX_WIDTH` (820) via `shop-chrome.tsx`, and their
 controls are now swept for the 44px floor — keep both true.
 
-## Task 23 (ADDED 2026-09-07) — the kaiibi mark is still the wrong artwork
+## Task 23 — DONE (PR #139), and the reason it is worth reading anyway
 
-The user, looking at the merged result: *"the logo is incorrect for the store and the
-branding, keep the blue color but change the logo"*.
+The kaiibi mark was the wrong artwork in both places that draw it. **Fixed and shipped**;
+this stays here because the failure mode generalises.
 
-So this is an ARTWORK swap, not a colour or layout change:
+The correct source was `assets/images/kaiibi.jpeg` — **a white mark on a black ground with
+no alpha**. Used as-is it would have painted a black square on the blue plate. The shipped
+asset, `kaiibi-mark-white-v2.png`, is that artwork with the ground removed using luminance
+as the alpha channel (keeps anti-aliased edges; a hard threshold leaves a jagged rim at
+24px), trimmed to the mark itself, which occupied only 530×616 of a 1280 square.
 
-- **`KAIIBI_BLUE` stays.** The blue plate on the directory masthead and everything else
-  about the lockup's placement and size is settled and correct.
-- **The mark image is wrong** in both places that draw it:
-  - `src/app/store/index.tsx` — the directory masthead, `markImage`, currently
-    `kaiibi-mark-white.png` at 26px tall on a 44px `KAIIBI_BLUE` plate.
-  - `src/components/storefront/shop-footer.tsx` — the "Powered by kaiibi" colophon,
-    `brandMark`, the same asset at 24px tall on `ink`.
+**`KAIIBI_MARK_ASPECT` moved with it, `200/212` → `512/590`.** A ratio and the file it
+describes are one fact in two places. If you ever swap the asset again, change both or the
+mark is squashed by exactly the difference.
 
-**DO NOT GUESS WHICH ASSET IS RIGHT.** I already guessed once — `kaiibi-mark-white.png`
-on a blue plate, on the reasoning that it matched the app icon — and it is still wrong.
-The candidates in `assets/images/` are:
+**Two things measurement corrected, both worth carrying:**
 
-| file | size | note |
-|---|---|---|
-| `kaiibi-mark-white.png` | 200×212 | white bag mark, currently used in both places |
-| `kaiibi-mark-black.png` | 200×212 | the same mark in black |
-| `kaiibi-logo-transparent.png` | 200×298 | the full lockup — bag **plus** the "ka iibi" wordmark |
-| `kaiibi_log.png` | 200×298 | same dimensions as the lockup; unexamined |
-| `icon.png` | 1024² | the app icon |
-| `android-icon-foreground.png` | 1024² | adaptive-icon foreground |
-| `splash-icon.png` | 400×424 | splash mark |
-
-**Ask the user which file is correct, or have them drop the correct one into
-`assets/images/`, before writing any code.** If the answer is the full lockup
-(`kaiibi-logo-transparent.png`), note that it already contains the wordmark — so the
-masthead would stop rendering its own `Kaiibi` text beside it, or it would say the name
-twice, which is the exact repetition defect Phase 3's masthead was built to remove.
-
-**Whatever asset lands, keep the two rules that already cost a bug each:**
-
-1. **Set BOTH `width` and `height`, derived from `KAIIBI_MARK_ASPECT`** (`scale.ts`). An
-   `Image` with a height and an `aspectRatio` but no width takes its own intrinsic width —
-   that drew the footer's 24px mark 200px wide. If the new asset has different proportions,
-   update that constant and its comment.
-2. **`resizeMode: 'contain'`.** The footer originally had none, and RN's default `cover`
-   squashed a 200×212 bag into a 21×21 square and cropped its handle.
-
-Verify in a browser at 390 and 1440 on `/store` (masthead) and `/store/yusefshop`
-(footer), and report the measured rendered width × height and the ratio against the
-asset's own — that is how the squashing was caught.
+1. `contain` is **not** what keeps the mark undistorted on RN-web. Both call sites compute
+   `object-fit: fill` whether `resizeMode` is a prop or a style — the box being derived
+   from the asset's own ratio is what protects it. A comment claiming otherwise was
+   written, measured, and rewritten before it shipped.
+2. An `Image` with a `height` and an `aspectRatio` but **no `width`** takes its own
+   intrinsic width. That drew a 24px-tall mark 200px wide. Always set both.
 
 ## Open, and genuinely undecided
 
