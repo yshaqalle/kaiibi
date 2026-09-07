@@ -8,6 +8,7 @@ import {
   clampOffset, nearestIndex, nextWheelOffset, shouldConsumeWheel, supportsHover, wheelPanDelta,
 } from '@/components/storefront/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
+import { TOUCH_TARGET } from '@/components/storefront/scale';
 import { openExternalUrl } from '@/lib/external-url';
 import { offerCopyFor } from '@/lib/poster';
 import { waLink } from '@/lib/storefront';
@@ -551,6 +552,23 @@ export function FlyerCarousel({
 
       <View style={styles.dots} testID="storefront-flyer-dots">
         {flyers.map((flyer, i) => (
+          // The PRESSABLE is TOUCH_TARGET square; the visible dot inside it
+          // stays 7px -- a page indicator, not a button, and shrinking it to
+          // reach 44 on its own would be exactly the disguise a customer
+          // could no longer read as "which slide am I on". `hitSlop` was
+          // tried here first and rejected: 7 + 8 + 8 = 23, well under 44 (the
+          // measurement that found this), and reaching 44 with slop alone
+          // would need +18/19 a side, which on dots this close together
+          // (6px gap) overlaps the NEXT dot's own hit area rather than
+          // enlarging this one in isolation -- an ambiguous tap, not a
+          // bigger one. A real box, sized in layout rather than borrowed
+          // from a neighbour, is what makes each dot's 44px answer only to
+          // itself. On a phone -- this page's whole audience, arriving over
+          // a WhatsApp link -- these dots are the ONLY way to change flyers:
+          // `hoverCapable` is false there, so both arrows sit at
+          // `opacity: 0` with `pointerEvents: 'none'` (see the arrows'
+          // own comments above), leaving a swipe a customer has to discover
+          // on their own, or this row.
           <Pressable
             key={flyer.id}
             testID="storefront-flyer-dot"
@@ -561,9 +579,10 @@ export function FlyerCarousel({
             accessibilityState={{ selected: i === index }}
             accessibilityLabel={`Flyer ${i + 1} of ${count}`}
             onPress={() => goTo(i)}
-            hitSlop={8}
-            style={pressable([styles.dot, { backgroundColor: i === index ? colors.accent : colors.soft }])}
-          />
+            style={pressable(styles.dotTarget)}
+          >
+            <View style={[styles.dot, { backgroundColor: i === index ? colors.accent : colors.soft }]} />
+          </Pressable>
         ))}
       </View>
     </View>
@@ -739,6 +758,18 @@ const styles = StyleSheet.create({
   // `false` there.
   arrowShown: { opacity: 1 },
   arrowHiddenWeb: { opacity: 0 },
-  dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingTop: 9 },
+  // No `gap` any more -- each dot's own TOUCH_TARGET box already spaces its
+  // neighbours; a gap on top of that would just be extra dead room between
+  // two boxes that already tile edge to edge. `paddingTop` is unchanged: it
+  // is the row's own distance from the card above it, not the dots' size.
+  dots: { flexDirection: 'row', justifyContent: 'center', paddingTop: 9 },
+  // The tap target. Square, TOUCH_TARGET on a side -- but the visible dot
+  // sits at its TOP (`justifyContent: 'flex-start'`), not centred in it, so
+  // the row keeps the same 9px distance under the card it always had; the
+  // extra reach TOUCH_TARGET needs falls below and beside the dot, into
+  // space nothing else was using, rather than pushing the dot itself down
+  // into new whitespace.
+  dotTarget: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: 'center', justifyContent: 'flex-start' },
+  // The visible page indicator -- stays 7px regardless of its box's size.
   dot: { width: 7, height: 7, borderRadius: 999 },
 });

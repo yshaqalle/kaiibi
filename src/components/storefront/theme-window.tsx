@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
@@ -47,22 +47,23 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   const shown = searchProducts(inCategory, query);
   const cells = padFinalRow(shown, numColumns);
   // See theme-market.tsx's identical block: the measurement the goods
-  // region's own height is built from. Reset below, together with
-  // page/header/footer, on any width change -- NOT in its own effect keyed
-  // on `[numColumns]` alone, which is what this file (and theme-market.tsx)
-  // used to do: `key={numColumns}` only remounts the FlatList, and so only
-  // re-measures cell 0, when a resize crosses a column breakpoint, so a
-  // resize that stays inside one band (1300 -> 1500, both 5 columns) left a
-  // stale, old-width measurement in place with nothing to overwrite it.
+  // region's own height is built from. NOT reset on a width change -- see
+  // theme-market.tsx's own fuller comment (from "EVERY MEASUREMENT IS
+  // DROPPED" through "AND THEN IT WAS DELETED") for why an earlier version
+  // reset this on every resize, keyed on `[numColumns]` alone (`key=
+  // {numColumns}` only remounts the FlatList, and so only re-measures cell
+  // 0, when a resize crosses a column breakpoint -- a resize that stays
+  // inside one band, like 1300 -> 1500, both 5 columns, left a stale,
+  // old-width measurement with nothing to overwrite it), and why the reset
+  // itself was removed once a wider one made a window drag strobe instead.
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
   const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
   // See theme-market.tsx's identical block: three more measurements
-  // (page/header/footer) feed goodsFitHeight alongside the two-row cap above,
-  // and all four -- `rowHeight` included, below -- are dropped when the
-  // window's width changes, because the header's cards stack and the footer
-  // rewraps at a breakpoint and their old heights would otherwise size the
-  // goods box for a window that no longer exists.
+  // (page/header/footer) feed goodsFitHeight alongside the two-row cap
+  // above. None of the four -- `rowHeight` included -- is reset when the
+  // window's width changes; each simply re-measures on its own via
+  // `onLayout` one frame after a resize settles.
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
@@ -232,8 +233,8 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
           // inflating its cells to fill the width.
           data={cells}
           // See theme-market.tsx's comment on this same pattern. `rowHeight`
-          // above is cleared by the width effect now, not by this remount --
-          // see that state's own comment for why.
+          // above is not cleared by anything on a resize any more, this
+          // remount included -- see that state's own comment for why.
           key={numColumns}
           numColumns={numColumns}
           keyExtractor={(p, i) => p?.id ?? `pad-${i}`}

@@ -7,7 +7,8 @@ import { ThemeWindow } from '@/components/storefront/theme-window';
 import { TOUCH_TARGET } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
 import type {
-  PublicDeliveryArea, PublicShopSummary, PublicStorefront, StorefrontCategory, StorefrontProduct,
+  PublicDeliveryArea, PublicShopSummary, PublicStorefront, StorefrontCategory, StorefrontFlyer,
+  StorefrontProduct,
 } from '@/types/models';
 
 import StoreDirectoryScreen from '@/app/store/index';
@@ -183,6 +184,30 @@ const categories: StorefrontCategory[] = [
   { name: 'Snacks', imageUrl: null, productCount: 12 },
 ];
 
+// TWO flyers, not zero -- an empty `flyers: []` is what let the dots' 23px
+// tap target (7px dot + hitSlop 8 = 23, flyer-carousel.tsx) sit unswept
+// through two prior commits: `count === 0` makes FlyerCarousel return null
+// before any Pressable exists for the sweep to find, so the ONE control this
+// page's whole phone audience uses to change flyers (the arrows sit at
+// `opacity: 0` with `pointerEvents: 'none'` whenever `hoverCapable` is false
+// -- see flyer-carousel.tsx's own comment) was never in a tree this file
+// walked. Two is the minimum that turns the dots AND the arrows on at all
+// (`count === 1` renders a hero with neither -- property 2, flyer-carousel.tsx).
+// Market and Window both render this list (ThemeMarket/ThemeWindow pass
+// `storefront.flyers` straight through); Counter deliberately never reads it
+// (theme-counter.tsx's own header comment), so this fixture change reaches
+// exactly the two themes the defect could ever have hidden in.
+const flyers: StorefrontFlyer[] = [
+  {
+    id: 'fly1', imageUrl: 'https://cdn.example/shop/eid.jpg', headline: 'Eid stock has landed',
+    subline: 'New lanterns and kettles in store now.', linkKind: 'none', linkValue: null, offer: null,
+  },
+  {
+    id: 'fly2', imageUrl: null, headline: 'Second poster', subline: null,
+    linkKind: 'none', linkValue: null, offer: null,
+  },
+];
+
 const shop: PublicStorefront = {
   shopName: 'Xamdi Electronics',
   city: 'Hargeisa',
@@ -200,10 +225,24 @@ const shop: PublicStorefront = {
   openingHours: {},
   tradingSince: null, highlights: [], images: [],
   contactPhone: null, instagram: null,
-  flyers: [],
+  flyers,
   autoAdvance: false,
   hideBranding: false,
 };
+
+// WHAT THE REST OF THIS FIXTURE STILL HIDES, found while fixing the flyers
+// gap above and left as a finding rather than a fifth item this task did not
+// scope: `about: null` and `areas: []` (this file's own `renderTheme`
+// default) together mean `availableTabs` (shop-tabs.tsx) returns `['shop']`
+// alone, so ShopTabRail renders NOTHING (`tabs.length < 2`) in every describe
+// block below except the checkout one -- and that one drives the checkout
+// flow, never a tab press. The About and Visit tabs, and everything inside
+// them (about-panel.tsx's highlights/images, visit-panel.tsx's own
+// `tel:`/instagram Pressables, both currently unreachable because
+// `contactPhone`/`instagram` are also null here), have never been swept by
+// this file. Not fixed here -- it is a second, larger fixture gap than the
+// one this task was sent to close, and belongs to whoever next touches those
+// two tabs' own controls.
 
 async function renderTheme(
   Theme: typeof ThemeMarket | typeof ThemeWindow | typeof ThemeCounter,
@@ -344,11 +383,29 @@ describe('the states a zero-cart, nothing-open render never reaches', () => {
     await act(async () => openTile[0].props.onPress());
 
     const controls = touchControlsIn(tree);
-    // Guards the guard, same reasoning as the zero-state sweeps above --
-    // and a stronger floor here, since this sweep exists specifically to
-    // reach cart-sheet-close, product-sheet-close and the cart-line
-    // steppers, which the count above must be large enough to include.
-    expect(controls.length).toBeGreaterThan(10);
+    // GUARDS THE GUARD BY NAME, not by count. `toBeGreaterThan(10)` used to
+    // stand in here -- commented as existing specifically to reach
+    // `cart-sheet-close`, `product-sheet-close` and the steppers -- but the
+    // zero-cart Market render already clears 10 on its own (25 products x
+    // add/ask, the tiles, the search field, the cart button are ~45 controls
+    // before either modal mounts), so a count this low was satisfied four
+    // times over by controls it was not written to test. If `AppModal` ever
+    // stopped rendering its children, this sweep would fall back to that
+    // same ~45-control zero-cart tree, comfortably clear 10, and stay green
+    // while testing none of the three controls it exists for -- the exact
+    // silent failure this file's header comment says the whole rule was
+    // written to end. Naming the testIDs is what makes their absence an
+    // assertion failure instead of a number that happens not to have moved
+    // yet. `p1` is the first IN-STOCK product `makeProducts` yields (`p0`'s
+    // `i % 5 === 0` makes it the first with `stock: 0`, so it has no
+    // `product-tile-add` at all -- see ProductActions) and so the one
+    // `add[0]` above actually adds.
+    const controlIds = controls.map((c) => c.props?.testID);
+    for (const requiredId of [
+      'cart-sheet-close', 'product-sheet-close', 'cart-line-decrease-p1', 'cart-line-increase-p1',
+    ]) {
+      expect(controlIds).toContain(requiredId);
+    }
 
     const failing = controls.filter((c) => !meetsTouchTargetRule(c));
     expect(failing.map((c) => c.props?.testID)).toEqual([]);

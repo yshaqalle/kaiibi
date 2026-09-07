@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
@@ -49,30 +49,23 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
   const cells = padFinalRow(shown, numColumns);
   // THE MEASUREMENT the goods region's own height is built from -- see
   // goodsScrollHeight's comment in theme-shared.tsx for why this cannot be a
-  // constant. Reset below alongside pageHeight/headerHeight/footerHeight, on
-  // ANY width change -- not only a column-count change. An earlier version
-  // reset this one alone, on `[numColumns]`: `key={numColumns}` remounts the
-  // FlatList exactly when the column count crosses a breakpoint, so that
-  // case was covered, but a resize that stays inside one breakpoint band
-  // (1300 -> 1500 are both 5 columns, see gridColumnsForWidth) changes
-  // `width` without changing `numColumns` at all. `onLayout` is wired only
-  // to cell 0 (see `renderItem` below), and a long enough grid can have
-  // scrolled cell 0 out of the virtualized window by the time that resize
-  // happens -- no fresh measurement arrives to overwrite the stale one, and
-  // the box kept a height computed for a tile the new width no longer draws.
-  // Dropping it with the other three re-enters the same "not yet measured"
-  // branch they already handle (see the effect below), rather than trusting
-  // a number that was only ever true for a width the window has left.
+  // constant. NOT reset on a width change any more -- see this state's own
+  // fuller comment several lines down (from "EVERY MEASUREMENT IS DROPPED"
+  // through "AND THEN IT WAS DELETED") for why an earlier version reset it
+  // on every resize, and why that reset was removed: holding the previous
+  // measurement for one frame is strictly better than trusting an estimate,
+  // because `onLayout` refreshes this on its own the moment the resize
+  // settles.
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   const rowCount = numColumns > 0 ? Math.ceil(cells.length / numColumns) : 0;
   const twoRowHeight = goodsScrollHeight(rowHeight, SPACE.cardGap, rowCount);
   // THE PAGE'S OWN FIT -- three more measurements (the page scroller's own
   // laid-out height, the header, the footer), fed to goodsFitHeight
-  // alongside the two-row cap above. Reset together with `rowHeight`, below,
-  // on any width change: the header and footer's own content does not
-  // depend on numColumns specifically, and the page's own height is a
-  // property of the WINDOW, not the grid inside it -- see goodsFitHeight's
-  // own comment in theme-shared.tsx for the arithmetic.
+  // alongside the two-row cap above. NOT reset on a width change, the same
+  // as `rowHeight` above -- see its own comment for why, and for the fuller
+  // history a few lines down. The page's own height is a property of the
+  // WINDOW, not the grid inside it -- see goodsFitHeight's own comment in
+  // theme-shared.tsx for the arithmetic.
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const [footerHeight, setFooterHeight] = useState<number | null>(null);
@@ -417,11 +410,11 @@ export function ThemeMarket({ storefront, products, colors, areas = [], categori
           // FlatList refuses to change numColumns on the fly (RN warns
           // and ignores it) -- `key` forces a fresh mount whenever the
           // column count crosses a breakpoint, which is the pattern RN's
-          // own error message for this points at. `rowHeight` above is
-          // cleared by the width effect now, not by this remount -- see
-          // that state's own comment for why a column-count-only reset
-          // left a gap this remount alone cannot close (a resize that
-          // never crosses a column breakpoint never remounts anything).
+          // own error message for this points at. `rowHeight` above is not
+          // cleared by anything on a resize any more -- see its own
+          // comment, several lines up, for why holding the previous
+          // measurement until `onLayout` refreshes it beats resetting to
+          // an estimate.
           key={numColumns}
           numColumns={numColumns}
           keyExtractor={(p, i) => p?.id ?? `pad-${i}`}
