@@ -661,9 +661,11 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     // a check that only ever looks at that one node. So this walks each
     // photo's ANCESTORS up to the gallery container instead and asserts none
     // of them carries a function `onPress` -- that is what actually fails
-    // the day someone makes one tappable (verified by hand: wrapping the
-    // cover `Image` in a `Pressable` locally makes this assertion fail, then
-    // reverted -- see this task's fix report).
+    // the day someone makes one tappable. Confirmed by break-and-restore
+    // before it shipped: wrapping the cover `Image` in a `Pressable` inserts
+    // exactly one node between the gallery and the `Image`, the loop below
+    // reaches it, and this assertion fails. To re-confirm, do that again --
+    // the check is only worth its lines while it can still fail.
     const galleryPhotos = tree.root.findAll(
       (n) => n.props?.testID === 'storefront-about-cover'
         || (typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-photo-')),
