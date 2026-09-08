@@ -29,7 +29,7 @@ import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, Storefro
 // different page, not an overlay, and keeping a FlatList of 200 products
 // mounted behind them would cost the memory and gain nothing.
 export function ShopChrome({
-  storefront, products, categories, areas, colors, wide, tab, onSelectTab, children, bounded = false,
+  storefront, products, categories, areas, colors, wide, windowHeight, tab, onSelectTab, children, bounded = false,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
@@ -37,6 +37,12 @@ export function ShopChrome({
   areas: PublicDeliveryArea[];
   colors: PaletteColors;
   wide: boolean;
+  // Threaded straight through to AboutPanel (Task 26), the same way `wide`
+  // already is -- see that file's own comment on why the About tab's photo
+  // carousel needs the window's HEIGHT and not just a wide/narrow boolean,
+  // and why that is still cheaper than a second subscription. VisitPanel has
+  // no photo carousel and never receives this.
+  windowHeight: number;
   tab: ShopTabKey;
   onSelectTab: (tab: ShopTabKey) => void;
   /** The theme's own browsing UI. Rendered only on the 'shop' tab. */
@@ -139,26 +145,45 @@ export function ShopChrome({
         >
           {/* PROSE_MAX_WIDTH, narrower again than the page's own SPACE.page
               inset above -- see scale.ts. The grid earned 1320 for a fifth
-              column; a paragraph read at that width is unreadable, and
-              neither panel bounds its own text. The footer below is
-              deliberately OUTSIDE this View, at the SAME level as it is on
-              the Shop tab (a plain trailing child of the padded body, not of
-              a narrower prose wrapper) -- see this ScrollView's own comment
-              above for why that is what keeps the one footer one width. */}
-          <View style={styles.prose}>
-            {active === 'about' ? (
-              <AboutPanel
-                storefront={storefront}
-                products={products}
-                categories={categories}
-                areas={areas}
-                colors={colors}
-                wide={wide}
-              />
-            ) : (
+              column; a paragraph read at that width is unreadable.
+
+              ONLY ONE OF THESE TWO PANELS BOUNDS ITSELF HERE, AND IT IS NOT
+              ABOUT (Task 25, still true after Task 26). This used to wrap
+              BOTH panels in one `styles.prose` column, back when neither
+              panel's own content had anything but text in it. Phase 4 put a
+              photo gallery at the top of About, and About is handed the full,
+              unbounded width below and narrows its OWN blocks instead: the
+              gallery, the proof chips, the merged story card and the FAQ band
+              each carry PROSE_MAX_WIDTH directly (about-panel.tsx's own
+              `prose` style) -- Task 26 added the gallery to that list (it
+              used to carry no bound at all; see about-panel.tsx's own
+              comment on why a bounded, single-photo carousel is a different
+              shape from the full-bleed cover-plus-thumbnail-strip row it
+              replaced). Visit has no photographs -- hours, delivery chips and
+              contact are still all prose, top to bottom -- so it keeps being
+              bounded HERE, at the chrome level, exactly as before.
+
+              The footer below is deliberately OUTSIDE either panel, at the
+              SAME level as it is on the Shop tab (a plain trailing child of
+              the padded body, not of a narrower prose wrapper) -- see this
+              ScrollView's own comment above for why that is what keeps the
+              one footer one width, regardless of which blocks inside either
+              panel bound themselves narrower. */}
+          {active === 'about' ? (
+            <AboutPanel
+              storefront={storefront}
+              products={products}
+              categories={categories}
+              areas={areas}
+              colors={colors}
+              wide={wide}
+              windowHeight={windowHeight}
+            />
+          ) : (
+            <View style={styles.prose}>
               <VisitPanel storefront={storefront} areas={areas} colors={colors} wide={wide} />
-            )}
-          </View>
+            </View>
+          )}
           <ShopFooter storefront={storefront} colors={colors} />
         </ScrollView>
       )}
@@ -207,12 +232,17 @@ const styles = StyleSheet.create({
   scrollerBounded: { maxWidth: SHOP_MAX_WIDTH, alignSelf: 'center' },
   // SPACE.page, not SHOP_MAX_WIDTH -- see this file's own comment at the
   // ScrollView above. This is the inset the footer now shares with the Shop
-  // tab's identical footer; `prose` below narrows further, but only for the
-  // panel's own paragraph, never for the footer sitting outside it.
+  // tab's identical footer; `prose` below narrows further, but only where it
+  // is still applied (Visit), never for the footer sitting outside it.
   body: { paddingHorizontal: SPACE.page, paddingBottom: 24 },
   // Narrower than `body`'s own inset -- see PROSE_MAX_WIDTH in scale.ts. No
   // `alignSelf: 'center'` needed beyond `body`'s own padding for this to
   // read as centred: at any width `body` already leaves the panel, this
   // bound is the one still doing work.
+  //
+  // VISIT ONLY, as of Task 25 -- see the call site's own comment above for
+  // why About stopped taking this here and narrows its own blocks instead.
+  // This style still exists, unchanged, for the one panel that is still
+  // prose top to bottom.
   prose: { width: '100%', maxWidth: PROSE_MAX_WIDTH, alignSelf: 'center' },
 });

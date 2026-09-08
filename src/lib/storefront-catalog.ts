@@ -46,6 +46,17 @@ export type PaletteColors = {
   // gives them on a light card, and `muted` itself is useless there -- it is ink
   // blended toward ground, so on an ink fill it is nearly invisible.
   onDarkMuted: string;
+  // THE DECISION CARD'S "Get directions" FILL -- a control filled onto the
+  // page's ONE ink-filled surface, walked to WCAG 1.4.11's 3:1 against `ink`
+  // rather than used raw. Raw `accent` fails outright on the ink palette,
+  // where it IS `ink` byte for byte, and (measured, see onDarkAccentOf) falls
+  // short on most of the coloured palettes too. Never a general-purpose
+  // second accent -- it exists for a fill sitting on `ink`, nowhere else.
+  onDarkAccent: string;
+  // The label colour ON `onDarkAccent`, cleared to 4.5:1 against THAT fill --
+  // not against `ground`, not against `ink`. Pairs with `onDarkAccent` alone;
+  // using it beside any other fill is not tested and not the job it is for.
+  onDarkAccentInk: string;
 };
 
 // There is NO stockOk, and that is the design.
@@ -96,7 +107,8 @@ export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 // nobody notices is wrong.
 type BasePaletteColors = Omit<
   PaletteColors,
-  'muted' | 'danger' | 'stockOut' | 'onDarkMuted' | 'hairline' | 'edge' | 'accentWash' | 'accentInk'
+  | 'muted' | 'danger' | 'stockOut' | 'onDarkMuted' | 'hairline' | 'edge' | 'accentWash' | 'accentInk'
+  | 'onDarkAccent' | 'onDarkAccentInk'
 >;
 
 const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
@@ -238,6 +250,50 @@ export function accentInkOf(palette: StorefrontPalette): string {
   return stepUntilContrast(onWash, c.ground, 4.5);
 }
 
+// THE DECISION CARD'S "Get directions" FILL -- the accent's own boundary
+// against the page's ONE ink-filled surface. On the ink palette `accent` and
+// `ink` are the same hex (#141418), so the raw accent as a fill on that card
+// carries no plate at all: measured in a browser, its computed background is
+// rgb(20, 20, 24), identical to the card's. Not a text role, so 4.5:1 is the
+// wrong gate here -- this is WCAG 1.4.11 Non-text Contrast, the same
+// threshold and the same reason `edgeInk` exists: a control's boundary
+// against its surface, not type sitting on it.
+//
+// MEASURED, not assumed. Of the six coloured palettes, only azure's own
+// accent already cleared 3:1 against its own ink (3.85:1) before this token
+// existed -- pinned below, and the reason this derivation must leave azure
+// byte-identical. The other five did not: palm 1.99:1, clay 2.61:1,
+// sea 2.24:1, saffron 2.82:1, plum 2.20:1 -- closer to the ink palette's
+// outright collapse than "genuinely distinct" suggests, because every accent
+// in COLORS is tuned to be dark enough to carry white at 4.5:1 (see the
+// azure comment above) while every ink is tuned to be near-black -- two dark
+// tones sitting close together in luminance is this table's rule, not an
+// exception ink alone fell into. So this token genuinely steps five more
+// palettes' Get-directions fill a small amount, not only ink's; azure's
+// bright, fully-saturated blue is the one accent already clear of the floor.
+//
+// On ink specifically it steps to a plate visibly lighter than the card,
+// which is correct for the same reason `accentWashOf`'s own comment gives
+// for its palette: ink has no colour of its own to lend the button, so
+// distance in LIGHTNESS is the only thing left to draw a plate with.
+export function onDarkAccentOf(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  return stepUntilContrast(c.accent, c.ink, 3);
+}
+
+// The label ON `onDarkAccent` -- 4.5:1, the ordinary text gate, because this
+// one IS type rather than a control boundary. Computed from `ground` rather
+// than hardcoded to it: on most palettes `ground` already clears 4.5:1
+// against `onDarkAccentOf` and is returned unchanged, which is what carries
+// white-on-a-coloured-plate through untouched (`accent` is tuned for exactly
+// that job). It is not guaranteed to land there, though, and does not on
+// every palette here -- which is the whole reason this is a walk and not a
+// hardcoded `ground`.
+export function onDarkAccentInkOf(palette: StorefrontPalette): string {
+  const c = COLORS[paletteKey(palette)];
+  return stepUntilContrast(c.ground, onDarkAccentOf(palette), 4.5);
+}
+
 // Checkout form errors ("Add your name...", a bad phone, a missing landmark)
 // used to hard-code clay's own accent (#98452a) as the error colour on every
 // palette -- so a shop on ink, palm, sea, saffron or plum saw an unrelated
@@ -301,6 +357,8 @@ export function paletteColors(palette: StorefrontPalette): PaletteColors {
     edge: edgeInk(key),
     accentWash: accentWashOf(key),
     accentInk: accentInkOf(key),
+    onDarkAccent: onDarkAccentOf(key),
+    onDarkAccentInk: onDarkAccentInkOf(key),
   };
 }
 

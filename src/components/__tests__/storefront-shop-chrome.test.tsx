@@ -5,7 +5,7 @@ import { ThemeCounter } from '@/components/storefront/theme-counter';
 import { ThemeMarket } from '@/components/storefront/theme-market';
 import { PROSE_MAX_WIDTH, SHOP_MAX_WIDTH, SPACE } from '@/components/storefront/scale';
 import { paletteColors } from '@/lib/storefront-catalog';
-import type { PublicStorefront } from '@/types/models';
+import type { PublicDeliveryArea, PublicStorefront } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
@@ -39,10 +39,16 @@ const shop: PublicStorefront = {
   hideBranding: false,
 };
 
-async function renderMarket() {
+// One priced area is enough to earn the Visit tab (see availableTabs) --
+// only Task 25's own chrome-level Visit test below passes it, so every other
+// call in this file keeps rendering the single-tab-plus-About shop it always
+// has.
+const AREAS: PublicDeliveryArea[] = [{ name: 'Jigjiga Yar', feeCents: 150 }];
+
+async function renderMarket(areas: PublicDeliveryArea[] = []) {
   let tree!: ReturnType<typeof create>;
   await act(async () => {
-    tree = create(<ThemeMarket storefront={shop} products={[]} colors={colors} />);
+    tree = create(<ThemeMarket storefront={shop} products={[]} colors={colors} areas={areas} />);
   });
   return tree;
 }
@@ -151,12 +157,56 @@ describe('the About/Visit panel is full-bleed, and only the prose narrows', () =
     expect(bodyStyle.paddingHorizontal).toBe(SPACE.page);
   });
 
-  it('still narrows the prose (About panel) to PROSE_MAX_WIDTH, inside that same inset', async () => {
+  // TASK 25 REWRITES THIS TEST, RATHER THAN JUST RETIRING IT. Before Task 25,
+  // the chrome wrapped BOTH panels in one `styles.prose` column, and this
+  // test proved About sat inside it. Now About bounds its own blocks instead
+  // (about-panel.tsx's own `prose` style; the block-by-block proof -- the
+  // gallery, story card, proof chips and FAQ band each at PROSE_MAX_WIDTH,
+  // the gallery joining that list in Task 26 -- lives in
+  // storefront-shop-tabs.test.tsx, which renders AboutPanel directly and so
+  // is the right place to assert it). What THIS
+  // file can still prove, walking the chrome down to the panel's own root
+  // testID, is the other half: the CHROME itself no longer supplies a
+  // PROSE_MAX_WIDTH ancestor above the panel. If it still did, the panel
+  // would be narrowed TWICE (once here, once per-block inside it) -- not
+  // what Task 25 asked for, and not something the block-by-block test alone
+  // could catch, since it never renders the chrome above AboutPanel at all.
+  it('no longer wraps the About panel itself in a chrome-level PROSE_MAX_WIDTH column', async () => {
     const tree = await renderMarket();
     await openAbout(tree);
 
     const root = tree.toJSON() as HostNode;
     const path = pathToTestId(root, 'storefront-about-panel');
+    expect(path).not.toBeNull();
+
+    const maxWidths = maxWidthsAlong(path as HostNode[]);
+    expect(maxWidths).not.toContain(PROSE_MAX_WIDTH);
+    expect(maxWidths).not.toContain(SHOP_MAX_WIDTH);
+  });
+
+  // THE OTHER HALF OF TASK 25'S BRIEF: proving Visit did NOT silently widen
+  // along with About. Visit has no gallery -- hours, delivery chips and
+  // contact are still all prose, top to bottom -- so shop-chrome.tsx keeps
+  // wrapping it in `styles.prose` exactly as before Task 25. Reaching that
+  // needs the chrome mounted above it (VisitPanel rendered on its own, as
+  // storefront-shop-tabs.test.tsx's `renderVisit` does, cannot see a bound
+  // the CHROME applies from outside), which is why this assertion lives
+  // here rather than in that file: it is the one place in this repo that
+  // renders ShopChrome and can walk from it down to the panel.
+  async function openVisit(tree: ReturnType<typeof create>) {
+    const visitTab = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-tab-visit' && typeof n.props?.onPress === 'function',
+    )[0];
+    expect(visitTab).toBeDefined();
+    await act(async () => visitTab.props.onPress());
+  }
+
+  it('still wraps the Visit panel in a chrome-level PROSE_MAX_WIDTH column', async () => {
+    const tree = await renderMarket(AREAS);
+    await openVisit(tree);
+
+    const root = tree.toJSON() as HostNode;
+    const path = pathToTestId(root, 'storefront-visit-panel');
     expect(path).not.toBeNull();
 
     const maxWidths = maxWidthsAlong(path as HostNode[]);

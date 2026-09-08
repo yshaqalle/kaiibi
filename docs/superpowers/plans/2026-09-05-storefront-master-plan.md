@@ -48,17 +48,17 @@
 
 `docs/superpowers/plans/2026-09-05-storefront-apple-blue-and-branding.md`, Tasks 1–11, as written there (full TDD code included). Status: the azure client catalog (Task 1's client half) is already committed on this branch.
 
-- [ ] Task 1 — DB accepts `azure` (constraint migration)
-- [ ] Task 2 — tinted tier tokens `accentWash`/`accentInk` + gates
-- [ ] Task 3 — quiet actions wear the tier
-- [ ] Task 4 — Palm stops reading green-on-green (accent + ink)
-- [ ] Task 5 — unconditional checkout clearance
-- [ ] Task 6 — checkout bar joins the reading column
-- [ ] Task 7 — the slip (incl. `CHECKOUT_BLUE`/`CHECKOUT_INK` constants + checkout-flow primaries)
-- [ ] Task 8 — desktop column 1320 + 5th grid column
-- [ ] Task 9 — `hide_storefront_branding` end to end (plans column + RPC + client mapping)
-- [ ] Task 10 — footer colophon lockup
-- [ ] Task 11 — confirmation ask; then the order-status mark (Task 12 there)
+- [x] Task 1 — DB accepts `azure` (constraint migration)
+- [x] Task 2 — tinted tier tokens `accentWash`/`accentInk` + gates
+- [x] Task 3 — quiet actions wear the tier
+- [x] Task 4 — Palm stops reading green-on-green (accent + ink)
+- [x] Task 5 — unconditional checkout clearance
+- [x] Task 6 — checkout bar joins the reading column
+- [x] Task 7 — the slip (incl. `CHECKOUT_BLUE`/`CHECKOUT_INK` constants + checkout-flow primaries)
+- [x] Task 8 — desktop column 1320 + 5th grid column
+- [x] Task 9 — `hide_storefront_branding` end to end (plans column + RPC + client mapping)
+- [x] Task 10 — footer colophon lockup
+- [x] Task 11 — confirmation ask; then the order-status mark (Task 12 there)
 
 ---
 
@@ -70,54 +70,54 @@ Build on Market first (the default theme); Window/Counter inherit the shared pie
 
 **Files:** `package.json` (via `npx expo install expo-linear-gradient`), `src/components/storefront/theme-shared.tsx` (`ShopAnchor`, ~line 129 — read its photo branch first).
 
-- [ ] Read `ShopAnchor` fully. Its photo branch currently lays a flat 0.55 scrim over the image; replace with a bottom-weighted `LinearGradient` (`['transparent', 'rgba(16,22,35,0.82)']`, locations `[0.3, 0.92]`). This is also the fix-class for the live grey-shape defect: the gradient renders **only when `heroImageUrl` is present** — never over the no-photo fallback.
-- [ ] Wordmark rise: wrap the anchor's name/place/status lines in Reanimated entering animations (`FadeInDown.duration(550).delay(i*80)`), gated: run once per mount of the shop tab, skipped entirely when `useReducedMotion()` is true. Status pills (from Phase-1 Task 8's open state… note: open-state pill on the anchor is **new here** — compute with `isConfigured`/`isOpenAt` exactly as `visit-panel.tsx` does, words + fill, never colour alone).
-- [ ] Acceptance: photo shops show the gradient scrim with legible `ON_SCRIM_INK` type; photoless shops render the ink anchor unchanged (aurora is Task 17); no animation on tab switches; reduced-motion renders static.
-- [ ] `npx jest storefront && npx tsc --noEmit` → commit `feat(storefront): the hero learns a real scrim and the wordmark rises once`
+- [x] Read `ShopAnchor` fully. Its photo branch currently lays a flat 0.55 scrim over the image; replace with a bottom-weighted `LinearGradient` (`['transparent', 'rgba(16,22,35,0.82)']`, locations `[0.3, 0.92]`). This is also the fix-class for the live grey-shape defect: the gradient renders **only when `heroImageUrl` is present** — never over the no-photo fallback.
+- [x] Wordmark rise: wrap the anchor's name/place/status lines in Reanimated entering animations (`FadeInDown.duration(550).delay(i*80)`), gated: run once per mount of the shop tab, skipped entirely when `useReducedMotion()` is true. Status pills (from Phase-1 Task 8's open state… note: open-state pill on the anchor is **new here** — compute with `isConfigured`/`isOpenAt` exactly as `visit-panel.tsx` does, words + fill, never colour alone).
+- [x] Acceptance: photo shops show the gradient scrim with legible `ON_SCRIM_INK` type; photoless shops render the ink anchor unchanged (aurora is Task 17); no animation on tab switches; reduced-motion renders static.
+- [x] `npx jest storefront && npx tsc --noEmit` → commit `feat(storefront): the hero learns a real scrim and the wordmark rises once`
 
 ### Task 13: Floating search + the trust facts
 
 **Files:** `src/components/storefront/theme-market.tsx` (search placement), `theme-shared.tsx` (`SearchField` styling).
 
-- [ ] Restyle `SearchField` to the card treatment (radius 13, `ground` fill, shadow `0 8 24 rgba(ink,0.13)` via elevation/shadow props, search glyph) and pull it up to overlap the anchor's bottom edge by ~21px (negative margin on the wrapper, zIndex above the anchor). Placeholder becomes `Search {count} items…`.
-- [ ] Under it (or in the anchor's status row where Task 12 put pills), ensure the three facts read without opening Visit: open state, collection word, pay-on-collection. No new data — compose from `storefront` fields already on the page.
-- [ ] Acceptance vs the mockup's One section; search threshold behaviour unchanged (`shouldOfferSearch` still gates at 12 — when hidden, the anchor sits flush and nothing overlaps).
-- [ ] Verify + commit `feat(storefront): the search floats and the facts read at a glance`
+- [x] Restyle `SearchField` to the card treatment (radius 13, `ground` fill, shadow `0 8 24 rgba(ink,0.13)` via elevation/shadow props, search glyph) and pull it up to overlap the anchor's bottom edge by ~21px (negative margin on the wrapper, zIndex above the anchor). Placeholder becomes `Search {count} items…`.
+- [x] Under it (or in the anchor's status row where Task 12 put pills), ensure the three facts read without opening Visit: open state, collection word, pay-on-collection. No new data — compose from `storefront` fields already on the page.
+- [x] Acceptance vs the mockup's One section; search threshold behaviour unchanged (`shouldOfferSearch` still gates at 12 — when hidden, the anchor sits flush and nothing overlaps).
+- [x] Verify + commit `feat(storefront): the search floats and the facts read at a glance`
 
 ### Task 14: The flyer carousel takes the promo slot (with mouse handlers)
 
 **Files:** read `src/components/storefront/flyer-carousel.tsx` (19KB — unread; do this first), `theme-market.tsx`.
 
-- [ ] Read the carousel's current API and where it renders today. Deliverable: it renders in The One's slot — directly under the floating search, above categories — as swipeable snap cards with dots, only when the shop has flyers (no empty frame).
-- [ ] Web mouse affordances (RN-web): wheel-pan (vertical delta → horizontal scroll, `preventDefault`), drag-to-grab on `pointerType === 'mouse'` (suspend snap while dragging, settle to nearest card on release), clickable dots, hover-only ‹ › arrows (`(hover:hover)` equivalent: show on `onHoverIn`, pointer devices only). Touch behaviour untouched.
-- [ ] Acceptance: mockup's carousel behaviour reproduced on web with a mouse; native swipe unchanged; dots track position.
-- [ ] Verify + commit `feat(storefront): the flyers take the promo slot, and a mouse can drive them`
+- [x] Read the carousel's current API and where it renders today. Deliverable: it renders in The One's slot — directly under the floating search, above categories — as swipeable snap cards with dots, only when the shop has flyers (no empty frame).
+- [x] Web mouse affordances (RN-web): wheel-pan (vertical delta → horizontal scroll, `preventDefault`), drag-to-grab on `pointerType === 'mouse'` (suspend snap while dragging, settle to nearest card on release), clickable dots, hover-only ‹ › arrows (`(hover:hover)` equivalent: show on `onHoverIn`, pointer devices only). Touch behaviour untouched.
+- [x] Acceptance: mockup's carousel behaviour reproduced on web with a mouse; native swipe unchanged; dots track position.
+- [x] Verify + commit `feat(storefront): the flyers take the promo slot, and a mouse can drive them`
 
 ### Task 15: Photo category tiles
 
 **Files:** `theme-shared.tsx` (`CategoryFilterBar` / the category band — locate with `grep -n "CategoryBand\|CategoryFilterBar" src/components/storefront/theme-shared.tsx`).
 
-- [ ] Each category tile derives its image from its first product with a photo (`products.find(p => p.category === c && p.imageUrl)`); scrim + label + count over it. A category with no photo degrades to the existing pill. Active state: the tile's scrim deepens + a `CHECKOUT_BLUE`-free accent ring? — **no**: active = accent-filled label chip on the tile, consistent with the pill rule ("accent = the active filter").
-- [ ] Acceptance vs mockup; filter behaviour byte-identical (only presentation changes); still horizontal-scrollable with the Task 14 mouse handlers pattern where it overflows.
-- [ ] Verify + commit `feat(storefront): categories become windows, not words`
+- [x] Each category tile derives its image from its first product with a photo (`products.find(p => p.category === c && p.imageUrl)`); scrim + label + count over it. A category with no photo degrades to the existing pill. Active state: the tile's scrim deepens + a `CHECKOUT_BLUE`-free accent ring? — **no**: active = accent-filled label chip on the tile, consistent with the pill rule ("accent = the active filter").
+- [x] Acceptance vs mockup; filter behaviour byte-identical (only presentation changes); still horizontal-scrollable with the Task 14 mouse handlers pattern where it overflows.
+- [x] Verify + commit `feat(storefront): categories become windows, not words`
 
 ### Task 16: Tile v2 — price tag on the photo, and the NEW badge
 
 **Files:** `src/components/storefront/product-tile.tsx`, `src/lib/storefront.ts`, `src/types/models.ts`, one migration.
 
-- [ ] Price moves onto the photo as a `ground` pill (tabular numerals), bottom-left; tile shadow per the mockup (`0 2 10 rgba(ink,.06)`), photo inset radius 13; the text block simplifies (name + stock word).
-- [ ] **NEW badge needs data:** `StorefrontProduct` has no `createdAt`. Migration `2026…_storefront_products_created_at.sql` recreates `get_public_storefront_products` (latest-body copy-forward recipe from Phase 1 Task 9) adding `created_at timestamptz`; client maps `createdAt: (row.created_at as string) ?? null`. Badge renders when `createdAt` is within 14 days — accent chip, top-right of the photo; absent `createdAt` → no badge (shipped-ahead-of-DB safe).
-- [ ] Verify + commit `feat(storefront): the price sits on the photo, and new stock says so`
+- [x] Price moves onto the photo as a `ground` pill (tabular numerals), bottom-left; tile shadow per the mockup (`0 2 10 rgba(ink,.06)`), photo inset radius 13; the text block simplifies (name + stock word).
+- [x] **NEW badge needs data:** `StorefrontProduct` has no `createdAt`. Migration `2026…_storefront_products_created_at.sql` recreates `get_public_storefront_products` (latest-body copy-forward recipe from Phase 1 Task 9) adding `created_at timestamptz`; client maps `createdAt: (row.created_at as string) ?? null`. Badge renders when `createdAt` is within 14 days — accent chip, top-right of the photo; absent `createdAt` → no badge (shipped-ahead-of-DB safe).
+- [x] Verify + commit `feat(storefront): the price sits on the photo, and new stock says so`
 
 ### Task 17: Motion tier 1 + the aurora
 
 **Files:** `theme-shared.tsx` (slip + `CheckoutBar` from Phase-1 Task 7, category bar, `ShopAnchor`), `press-feedback.ts` (audit usage).
 
-- [ ] **Fly-to-cart:** on Add, an accent dot (absolute, Reanimated shared values) arcs from the pressed tile to the slip (~520ms, transform-only), slip spring-bumps 3.5%, total **counts up** over 300ms with `TABULAR`. Reduced motion: values jump, slip still bumps once via opacity.
-- [ ] **Sliding active pill** on the category bar (measure target layout, spring left/width — or Reanimated layout transitions).
-- [ ] **Aurora fallback anchor:** photoless shops get three blurred radial `LinearGradient` blobs of the palette's own accent family drifting on a 14s loop at ≤50% opacity behind the ink card; static single radial under reduced motion.
-- [ ] **Press feedback audit:** every pressable on the page uses `press-feedback.ts`; web hover-lift on tiles (`onHoverIn` scale/shadow), never on native.
-- [ ] Verify (this task especially: run on a real device via `/testing-kaiibi` — 60fps on low-end Android is the acceptance) + commit `feat(storefront): the page answers the hand — fly-to-cart, count-up, and a living anchor`
+- [x] **Fly-to-cart:** on Add, an accent dot (absolute, Reanimated shared values) arcs from the pressed tile to the slip (~520ms, transform-only), slip spring-bumps 3.5%, total **counts up** over 300ms with `TABULAR`. Reduced motion: values jump, slip still bumps once via opacity.
+- [x] **Sliding active pill** on the category bar (measure target layout, spring left/width — or Reanimated layout transitions).
+- [x] **Aurora fallback anchor:** photoless shops get three blurred radial `LinearGradient` blobs of the palette's own accent family drifting on a 14s loop at ≤50% opacity behind the ink card; static single radial under reduced motion.
+- [x] **Press feedback audit:** every pressable on the page uses `press-feedback.ts`; web hover-lift on tiles (`onHoverIn` scale/shadow), never on native.
+- [x] Verify (this task especially: run on a real device via `/testing-kaiibi` — 60fps on low-end Android is the acceptance) + commit `feat(storefront): the page answers the hand — fly-to-cart, count-up, and a living anchor`
 
 ---
 
@@ -127,18 +127,18 @@ Reference: the bold-motion mockup's "The Store" section. Read `src/components/st
 
 ### Task 18: Masthead, search-that-knows-what-they-sell, city chips
 
-- [ ] Kaiibi masthead (mark + wordmark in kaiibi blue `#0071e3` — **this is kaiibi's page; the blue is at home here and only here**), one-line promise, prominent search. Search matches shop names **and** their sell-tags (the directory rows already carry what shops sell — surface it). City chips filter (`city` field), "All" default.
-- [ ] Verify + commit `feat(storefront): the directory gets a front door`
+- [x] Kaiibi masthead (mark + wordmark in kaiibi blue `#0071e3` — **this is kaiibi's page; the blue is at home here and only here**), one-line promise, prominent search. Search matches shop names **and** their sell-tags (the directory rows already carry what shops sell — surface it). City chips filter (`city` field), "All" default.
+- [x] Verify + commit `feat(storefront): the directory gets a front door`
 
 ### Task 19: The featured shop as a hero
 
-- [ ] `featuredShop()` already picks one; render it as the photo-scrim hero card with serif name, open pill, and a blue **Visit shop** button. No photo → ink-filled feature card (current `FeaturedShopCard` treatment, kept).
-- [ ] Verify + commit `feat(storefront): being featured finally looks like something`
+- [x] `featuredShop()` already picks one; render it as the photo-scrim hero card with serif name, open pill, and a blue **Visit shop** button. No photo → ink-filled feature card (current `FeaturedShopCard` treatment, kept).
+- [x] Verify + commit `feat(storefront): being featured finally looks like something`
 
 ### Task 20: Directory cards with life
 
-- [ ] Card v2: photo, name, **open dot + word** (never colour alone; closed shows "opens 8am" via the hours helpers), city, sell-tags as quiet chips. Web hover-lift; entering stagger (once). Shop cards stay palette-neutral — the shop's colours bloom on their page, not in the list.
-- [ ] Verify + commit `feat(storefront): the shops in the list look open for business`
+- [x] Card v2: photo, name, **open dot + word** (never colour alone; closed shows "opens 8am" via the hours helpers), city, sell-tags as quiet chips. Web hover-lift; entering stagger (once). Shop cards stay palette-neutral — the shop's colours bloom on their page, not in the list.
+- [x] Verify + commit `feat(storefront): the shops in the list look open for business`
 
 ---
 
@@ -148,21 +148,51 @@ Reference: the patterns mockup's About/Visit sections. No new features; order an
 
 ### Task 21: About — photos first
 
-- [ ] Reorder `about-panel.tsx`: cover photo (first gallery image) with caption strip → thumbnails → proof chips (trading-since / items-in-today / answers-on-WhatsApp, from fields already mapped) → story+highlights merged card → FAQ last, unchanged.
-- [ ] Verify + commit `feat(storefront): about leads with what a stranger can see`
+- [x] Reorder `about-panel.tsx`: cover photo (first gallery image) with caption strip → thumbnails → proof chips (trading-since / items-in-today / answers-on-WhatsApp, from fields already mapped) → story+highlights merged card → FAQ last, unchanged.
+- [x] Verify + commit `feat(storefront): about leads with what a stranger can see`
 
 ### Task 22: Visit — the decision card
 
-- [ ] `visit-panel.tsx`: lead with one ink decision card — open state pill, the collect line set serif at direction-card size (start from `collectLocation(...)` composition), **Get directions** (existing `mapsUrlFor`) + WhatsApp side by side. Hours collapse to "Today: X – Y · All hours ▾" (expand keeps the honest seven rows). Delivery areas → priced chips. Contact → icon row incl. **Share shop** (`waLink` composer with the shop's URL).
-- [ ] Verify + commit `feat(storefront): visit answers its one question first`
+- [x] `visit-panel.tsx`: lead with one ink decision card — open state pill, the collect line set serif at direction-card size (start from `collectLocation(...)` composition), **Get directions** (existing `mapsUrlFor`) + WhatsApp side by side. Hours collapse to "Today: X – Y · All hours ▾" (expand keeps the honest seven rows). Delivery areas → priced chips. Contact → icon row incl. **Share shop** (`waLink` composer with the shop's URL).
+- [x] Verify + commit `feat(storefront): visit answers its one question first`
 
 ---
 
 ## Final verification
 
-- [ ] Full: `npx jest storefront && npx tsc --noEmit` green; migrations apply in order.
+- [x] Full: `npx jest storefront && npx tsc --noEmit` green; migrations apply in order.
 - [ ] `/testing-kaiibi` end-to-end on web (mouse AND touch emulation), Android, iOS: Azure save persists; slip + fly-to-cart at 60fps; carousel drives by wheel/drag/dots/arrows; 1320 column + 5 grid columns ≥1280; hero scrim only over real photos; branding present on free / absent on pro; directory search finds a shop by a thing it sells; About/Visit match the mockups; reduced-motion renders everything static.
-- [ ] Then `superpowers:finishing-a-development-branch` — PR against `main` from `worktree-storefront-apple-blue`.
+- [x] Then `superpowers:finishing-a-development-branch` — PR against `main` from `worktree-storefront-apple-blue`.
+
+### Status (2026-09-07) — all 22 tasks shipped; one gate deliberately left open
+
+Phase 1 → PR #135, Phase 2 → #136, Phase 3 → #137, Phase 4 (Tasks 21–22) → **#140**. Task 23,
+the kaiibi mark, was added after the plan was written and shipped as #139.
+
+**The one unticked box above is unticked on purpose.** These are the parts of it that were
+never actually exercised, listed so the box is not quietly ticked by someone reading the rest:
+
+- **Android: not exercised at all in Phase 4** — no device or emulator attached. Phase 3 did
+  drive a Pixel 8 by `adb` (taps, swipes, touch targets measured at 44.2dp on the device), so
+  the platform is not unverified in general — but nothing in Phase 4 has run on it.
+- **iOS: rendering only, on both phases that reached it.** This machine has no `simctl` input
+  injection, so no iOS interaction has ever been tested across the whole redesign.
+- **The iOS scroll trap is the concrete consequence** and remains the one open risk: the goods
+  grid is a bounded scroller inside the page scroller, Android chains out of it via
+  `nestedScrollEnabled`, and iOS has neither that nor the browser's overscroll chaining. One
+  swipe over the product grid on a real iPhone answers it.
+- **60fps on low-end Android** (Task 17's own stated acceptance) was never measured.
+- **Reduced motion** is covered by unit tests at every seam, never watched live.
+- **"Migrations apply in order"** (the box above it) is ticked in the sense that every
+  migration's declared object was verified present on a database that has had them all, and
+  all five were applied to production and confirmed through the anon endpoint. It has **not**
+  been proven by an ordered replay on a clean database — these migrations assume Supabase's own
+  bootstrap, which only `db reset` creates, and that is forbidden here because it wipes dev
+  data.
+
+What *was* verified end-to-end on web, by driving rather than reading: 29/29 assertions across
+both re-weighted tabs, every outbound control clicked with navigation intercepted so the
+asserted value is the URL the app actually composes, plus Shop-tab and checkout regressions.
 
 ---
 

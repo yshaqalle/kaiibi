@@ -254,8 +254,37 @@ const shop: PublicStorefront = {
   collectAddress: null,
   collectNeighborhood: null,
   paymentMode: 'on_collection',
-  openingHours: {},
-  tradingSince: null,
+  // Configured, not `{}` (Task 22): `isConfigured({})` is false, so
+  // `HoursCard` (visit-panel.tsx) -- and with it the "All hours" toggle this
+  // task adds -- returned null for every render this file ever walked, the
+  // fifth instance of this file's own defect (see the "About and Visit tabs"
+  // describe block's own header comment for the first four). A full week
+  // rather than one day so the sweep never has to ask which weekday it is
+  // running on.
+  //
+  // DETERMINISTIC REGARDLESS OF THE CLOCK, on purpose: `isOpenAt`'s result
+  // (open vs closed) only ever changes the decision pill's TEXT here, never
+  // the SHAPE of the tree -- the pill itself, "Get directions", WhatsApp and
+  // the hours toggle all render either way, and this sweep asserts presence
+  // and touch-target floors, not wording. A pill reading "Open · closes 9pm"
+  // at 10am and "Closed · opens 8am" at 10pm is exactly the same NUMBER of
+  // controls, so no fake timer is needed here -- the exact-wording assertions
+  // that DO need one live in storefront-shop-tabs.test.tsx's own "the decision
+  // pill, at a fixed instant" describe block instead, per this task's brief.
+  openingHours: {
+    mon: [{ open: '08:00', close: '21:00' }],
+    tue: [{ open: '08:00', close: '21:00' }],
+    wed: [{ open: '08:00', close: '21:00' }],
+    thu: [{ open: '08:00', close: '21:00' }],
+    fri: [{ open: '08:00', close: '21:00' }],
+    sat: [{ open: '08:00', close: '21:00' }],
+    sun: [{ open: '08:00', close: '21:00' }],
+  },
+  // Set (Task 21), not null: `null` here kept the trading-since proof chip
+  // (`storefront-about-proof-trading`, about-panel.tsx) out of every tree this
+  // file walks, exactly the way `about: null`/`images: []` kept the tab and
+  // the gallery out before the two fixture fixes above this one.
+  tradingSince: 2016,
   highlights: [
     { id: 'h1', title: 'Same-day delivery', body: 'Ordered before 4pm, on your step by evening.' },
     { id: 'h2', title: 'Genuine parts only', body: 'Every phone accessory here is the real thing.' },
@@ -633,6 +662,55 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-gallery').length).toBeGreaterThan(0);
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-highlights').length).toBeGreaterThan(0);
 
+    // THE BLOCKS TASK 21 MOVED TO THE TOP -- the cover, the thumbnail row, the
+    // proof-chip row and the merged story card. Named individually rather than
+    // folded into the assertions above: `tradingSince: 2016` (this fixture's
+    // own comment above) is what makes the trading chip exist in this tree at
+    // all, and a regression back to `null` would otherwise only shrink a
+    // control count nobody was comparing against a specific testID.
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-cover').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-photo-im2').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-proof').length).toBeGreaterThan(0);
+    expect(tree.root.findAll((n) => n.props?.testID === 'storefront-about-story-card').length).toBeGreaterThan(0);
+    for (const chipId of [
+      'storefront-about-proof-trading', 'storefront-about-proof-stock', 'storefront-about-proof-whatsapp',
+    ]) {
+      expect(tree.root.findAll((n) => n.props?.testID === chipId).length).toBeGreaterThan(0);
+    }
+
+    // NOT CONTROLS. `Image` accepts no `onPress` at all, so asserting
+    // `photo.props?.onPress` is not a function on the `Image` node itself
+    // would be true no matter what anyone did -- it is the wrap that matters:
+    // someone reaching for a lightbox wraps the `Image` in a `Pressable`,
+    // which leaves the testID on the (untouched) `Image` and would slip past
+    // a check that only ever looks at that one node. So this walks each
+    // photo's ANCESTORS up to the gallery container instead and asserts none
+    // of them carries a function `onPress` -- that is what actually fails
+    // the day someone makes one tappable. Confirmed by break-and-restore
+    // before it shipped: wrapping the cover `Image` in a `Pressable` inserts
+    // exactly one node between the gallery and the `Image`, the loop below
+    // reaches it, and this assertion fails. To re-confirm, do that again --
+    // the check is only worth its lines while it can still fail.
+    const galleryPhotos = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-about-cover'
+        || (typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-photo-')),
+    );
+    expect(galleryPhotos.length).toBeGreaterThan(0);
+    for (const photo of galleryPhotos) {
+      let ancestor = photo.parent;
+      while (ancestor && ancestor.props?.testID !== 'storefront-about-gallery') {
+        expect(typeof ancestor.props?.onPress).not.toBe('function');
+        ancestor = ancestor.parent;
+      }
+    }
+    const proofChips = tree.root.findAll(
+      (n) => typeof n.props?.testID === 'string' && n.props.testID.startsWith('storefront-about-proof-'),
+    );
+    expect(proofChips.length).toBeGreaterThan(0);
+    for (const chip of proofChips) {
+      expect(typeof chip.props?.onPress).not.toBe('function');
+    }
+
     const controls = touchControlsIn(tree);
     const controlIds = controls.map((c) => c.props?.testID);
     // The FAQ is generated (shopQuestions, about-panel.tsx) rather than fixed
@@ -640,8 +718,18 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     // together produce all four -- so naming each toggle is what makes a
     // dropped question an assertion failure rather than a smaller number
     // nobody compared against anything.
+    // 'storefront-about-dot' is named here for the same reason the four FAQ
+    // ids are: Task 26's whole CRITICAL was a dot that failed the floor while
+    // sitting unswept (flyer-carousel.tsx's own history) -- this fixture's
+    // two gallery images (`im1`, `im2`, above) are what turns the new
+    // AboutGallery carousel's dots on at all (they render only at
+    // `count >= 2`, which this fixture already satisfies -- confirmed by
+    // running this file, not assumed), so a dot that stopped rendering must
+    // fail this assertion BY NAME rather than shrink a count nobody compares
+    // against anything.
     for (const requiredId of [
       'storefront-faq-pay', 'storefront-faq-delivery', 'storefront-faq-collect', 'storefront-faq-stock',
+      'storefront-about-dot',
     ]) {
       expect(controlIds).toContain(requiredId);
     }
@@ -650,7 +738,7 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     expect(failing.map((c) => c.props?.testID)).toEqual([]);
   });
 
-  it('Visit: directions, call, Instagram and WhatsApp all carry the floor or a hitSlop', async () => {
+  it('Visit: directions, call, Instagram, WhatsApp, Share and the hours toggle all carry the floor or a hitSlop', async () => {
     const tree = await renderTheme(ThemeMarket, visitAreas, 'visit');
 
     expect(tree.root.findAll((n) => n.props?.testID === 'storefront-visit-panel').length).toBeGreaterThan(0);
@@ -669,11 +757,56 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
 
     const controls = touchControlsIn(tree);
     const controlIds = controls.map((c) => c.props?.testID);
-    for (const requiredId of ['storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram']) {
+    // `storefront-visit-share` (Task 22's new affordance) and
+    // `storefront-visit-hours-toggle` (the "All hours" disclosure) are named
+    // here for the same reason the four FAQ ids are above: a control that
+    // silently stopped rendering must fail this assertion by name, not shrink
+    // a count nobody was comparing against anything.
+    for (const requiredId of [
+      'storefront-visit-directions', 'storefront-visit-call', 'storefront-visit-instagram',
+      'storefront-visit-share', 'storefront-visit-hours-toggle',
+    ]) {
       expect(controlIds).toContain(requiredId);
     }
+    // `storefront-whatsapp-button` is on the shared `WhatsAppButton`
+    // (theme-shared.tsx), and a full theme tree carries TWO of them -- the
+    // decision card's and `ShopFooter`'s (theme-market.tsx). A plain
+    // `toContain` above would stay green on the footer's copy alone, so it
+    // would NOT fail by name if the decision card's own button silently
+    // stopped rendering -- exactly the guarantee this loop's comment claims
+    // for every other id in it. Asserting the count is what actually proves
+    // both are present.
+    expect(controlIds.filter((id) => id === 'storefront-whatsapp-button')).toHaveLength(2);
 
     const failing = controls.filter((c) => !meetsTouchTargetRule(c));
     expect(failing.map((c) => c.props?.testID)).toEqual([]);
+
+    // THE EXPANDED HOURS STATE. Collapsed-by-default is exactly the shape
+    // that hid `Modal`, the checkout/confirmation screens and the flyer dots
+    // from this same sweep before it (see this describe block's own header
+    // comment) -- so the toggle is pressed here and the tree re-walked,
+    // rather than trusting prose that the disclosure has nothing left to
+    // hide. Expanding reveals NO NEW control: the seven day rows are plain
+    // View/Text, the identical shape the area rows above are already
+    // confirmed to be, carrying no `onPress` of their own. What this proves
+    // is that absence, under test, rather than assuming it -- the rows'
+    // OWN presence is asserted directly first, so "nothing to sweep" is a
+    // fact about a tree that genuinely mounted the rows, not one where they
+    // silently failed to appear at all.
+    const toggle = tree.root.findAll(
+      (n) => n.props?.testID === 'storefront-visit-hours-toggle' && typeof n.props?.onPress === 'function',
+    )[0];
+    await act(async () => toggle.props.onPress());
+
+    for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      expect(tree.root.findAll((n) => n.props?.testID === `storefront-visit-hours-${day}`).length).toBeGreaterThan(0);
+    }
+
+    const expandedControls = touchControlsIn(tree);
+    // Same set of controls, same order -- proof the expanded rows added no
+    // Pressable of their own for the floor check below to have missed.
+    expect(expandedControls.map((c) => c.props?.testID)).toEqual(controlIds);
+    const expandedFailing = expandedControls.filter((c) => !meetsTouchTargetRule(c));
+    expect(expandedFailing.map((c) => c.props?.testID)).toEqual([]);
   });
 });

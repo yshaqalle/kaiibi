@@ -1,16 +1,20 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
 import { WhatsAppButton, ShopCard } from '@/components/storefront/theme-shared';
 import {
-  LETTER, RADIUS, SPACE, TABULAR, TOUCH_TARGET, TYPE,
+  DISPLAY_FONT, LETTER, RADIUS, SPACE, TABULAR, TOUCH_TARGET, TYPE,
 } from '@/components/storefront/scale';
 import { formatCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import {
-  DAY_LABELS, WEEK_ORDER, formatDayHours, isConfigured, isOpenAt, rangesFor, weekdayKeyFor,
+  DAY_LABELS, WEEK_ORDER, formatDayHours, isConfigured, isOpenAt, nextOpeningLabel, rangesFor,
+  weekdayKeyFor, type OpeningHours,
 } from '@/lib/store-hours';
 import { collectLocation } from '@/lib/storefront-collect';
+import { storefrontAddress } from '@/lib/storefront-host';
+import { shareOnWhatsApp } from '@/lib/whatsapp';
 import type { PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront } from '@/types/models';
 
@@ -27,124 +31,329 @@ import type { PublicDeliveryArea, PublicStorefront } from '@/types/models';
 // The summary stays on the Shop tab. It is a summary now rather than the whole
 // truth, which is what it was always trying to be.
 
-// THE HIGHEST-VALUE STRING ON THIS PAGE, and it was sitting in the database
-// unread. `shop_locations.opening_hours` has existed since 20260809000000 --
-// the shop fills it in under Settings -> Locations, the dashboard shows it, the
-// scheduler validates shifts against it -- and the one audience who most needs
-// it, a stranger deciding whether to walk over, was never shown it.
-//
-// Renders NOTHING at all when the shop has not set hours. `isConfigured` is the
-// guard: an empty object means "never filled in", and printing seven "Closed"
-// rows for it would invent a claim the shop never made -- the same rule
-// StockCard follows when it refuses to say "all in stock today" about a shop
-// with nothing listed.
-function HoursCard({ storefront, colors }: { storefront: PublicStorefront; colors: PaletteColors }) {
-  // See availableTabs on why this is defended rather than trusted.
-  const hours = storefront.openingHours ?? {};
-  if (!isConfigured(hours)) return null;
+// THE RE-WEIGHTING (Task 22). The customer's question here is single: can I
+// get there before it closes, and where exactly. Four equal cards used to
+// make them assemble that answer themselves; this page now leads with ONE
+// decision card that answers it -- a landmark-first direction card, built to
+// be screenshotted and shown to a bajaj driver, because that is how this city
+// actually navigates (20260808000000's own comment on addressing by
+// landmark/neighbourhood). Everything else -- the full week of hours, the
+// priced delivery list, the ways to reach the shop -- is reference material
+// beneath it, exactly the facts this tab always rendered, re-ordered rather
+// than replaced.
 
-  // `new Date()` at render, deliberately not memoised or frozen: this page is
-  // opened, read and closed within a minute or two, and a stale "Open now" is
-  // worse than one that re-evaluates on a re-render. The DEVICE's clock and
-  // weekday are used because the times are local wall-clock strings with no
-  // timezone (see the column comment) -- which is right for a customer standing
-  // in the same city as the shop, and wrong for one abroad. That is the trade
-  // the column's own design already made.
+// THE DECISION CARD -- the page's ONE dark card, filled `colors.ink` the same
+// way `ShopAnchor` and `ShopFooter` are: primary type in `colors.ground`,
+// secondary in `colors.onDarkMuted`. It leads the panel at both widths (see
+// `VisitPanel`'s own layout below) rather than sitting inside either column,
+// so it never gets squeezed into the narrow side.
+//
+// Renders NOTHING when it would be empty -- no hours configured, no place to
+// name and no WhatsApp number -- the rule every optional block on this page
+// follows.
+function DecisionCard({ storefront, colors }: { storefront: PublicStorefront; colors: PaletteColors }) {
+  const hours = storefront.openingHours ?? {};
+  const hoursConfigured = isConfigured(hours);
+  const where = collectLocation(
+    storefront.collectAddress, storefront.collectNeighborhood, storefront.city,
+  );
+
+  if (!hoursConfigured && !where && !storefront.whatsappE164) return null;
+
+  // `new Date()` at render, deliberately not memoised -- the identical trade
+  // HoursCard makes below, and for the identical reason: this page is opened,
+  // read and closed within a minute or two, and a stale state is worse than
+  // one that re-evaluates on a re-render.
   const now = new Date();
-  const today = weekdayKeyFor(now);
-  const open = isOpenAt(hours, now);
+  const pill = decisionPillLabel(hours, now);
+  const open = hoursConfigured && isOpenAt(hours, now);
 
   return (
-    <ShopCard colors={colors} testID="storefront-visit-hours">
-      <View style={styles.hoursHead}>
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Opening hours</Text>
-        {/* SHAPE AND WORD CARRY THE STATE, not colour alone -- the rule
-            storefront-catalog.ts sets for the stock dots. The pill is filled
-            with the palette's own accent when open and with `soft` when not,
-            and it says which in words either way. */}
+    <View testID="storefront-visit-decision" style={[styles.decisionCard, { backgroundColor: colors.ink }]}>
+      {/* SHAPE AND WORD CARRY THE STATE, not colour alone -- the rule
+          storefront-catalog.ts sets for the stock dots and HoursCard already
+          followed. NO PILL AT ALL when hours were never configured: printing
+          a state for a shop that never set hours would invent a claim it
+          never made.
+
+          THE EMPHASIS WAS INVERTED, AND TASK 24 FIXES IT (measured, not
+          assumed). The open pill used to wear `onDarkAccent` and the closed
+          pill `soft`; against this card those measure 3.83:1 and 16.72:1 on
+          the ink palette -- the state a shop most wants read was the FAINTER
+          of the two, by more than four times. It is not only ink, either:
+          every palette's `onDarkAccent` sits between 3.01:1 and 3.85:1 against
+          its own `ink`, because that token is walked to WCAG 1.4.11's 3:1
+          non-text FLOOR (see its own comment in storefront-catalog.ts) -- the
+          minimum for a control's boundary to be perceptible, not what the
+          loudest thing on a card should measure.
+
+          So OPEN now takes `colors.ground` on `colors.ink` -- 18.37:1 on the
+          ink palette, the loudest plate this card has, and the same
+          inverted-surface convention ShopFooter already uses (type in
+          `ground` on an `ink` fill). CLOSED steps DOWN onto `onDarkAccent`
+          instead of `soft`: still legible, correctly the quieter of the two.
+          `onDarkAccent`/`onDarkAccentInk` keep their one job -- the quiet
+          plate on this card -- unchanged. */}
+      {pill ? (
         <View
           testID="storefront-visit-open-now"
           style={[
             styles.statePill,
-            open ? { backgroundColor: colors.accent } : { backgroundColor: colors.soft },
+            open ? { backgroundColor: colors.ground } : { backgroundColor: colors.onDarkAccent },
           ]}
         >
-          <Text style={[styles.stateText, { color: open ? colors.ground : colors.muted }]}>
-            {open ? 'Open now' : 'Closed now'}
-          </Text>
+          <Text style={[styles.stateText, { color: open ? colors.ink : colors.onDarkAccentInk }]}>{pill}</Text>
         </View>
+      ) : null}
+
+      {/* THE PLACE, set serif at direction-card size -- this is the
+          screenshot. Omitted entirely when collectLocation has nothing to
+          say. */}
+      {where ? (
+        <Text style={[styles.decisionPlace, { color: colors.ground }]}>{where}</Text>
+      ) : null}
+
+      {/* THE SUB-LINE, under the place -- what makes the screenshot legible
+          to someone who did not open the page. It used to print the city
+          again beside the shop name, but `where` is `collectLocation`'s own
+          output, and that helper's comment says it ALREADY ends on the city
+          -- for the very common shop with only a city set, `where` IS just
+          the city, and the old `[city, shopName]` line read "Hargeisa /
+          HARGEISA · SHOP" one line apart. The shop's name is the part that
+          actually makes a forwarded screenshot legible (the city is already
+          in the serif line above), so that is the whole sub-line now -- which
+          degrades correctly in that same city-only case: the sub-line is the
+          shop name alone, exactly what it should be. Only makes sense
+          captioning a place that is actually shown above it. */}
+      {where && storefront.shopName ? (
+        <Text style={[styles.decisionSub, { color: colors.onDarkMuted }]} numberOfLines={1}>
+          {storefront.shopName}
+        </Text>
+      ) : null}
+
+      {/* "Choose collection at checkout and pick your order up from the
+          counter. Pay when you collect." used to print right here, on the
+          old "Find us" card this one replaces. It is deliberately not
+          restored: ShopFooter prints "Pay on collection · Prices set by the
+          shop" on every page of this shop already, which is the payment HALF
+          of the sentence. The HOW -- checkout is where you choose it, the
+          counter is where you collect it -- survives only for a shop that
+          has an About tab at all: `availableTabs` (shop-tabs.tsx) gates that
+          tab on `storefront.about` being non-null, so a shop with priced
+          delivery areas or set hours and no About paragraph gets a Visit tab
+          and no About tab, and for that shop the generated FAQ answering
+          "How do I pay?" is on no page whatsoever -- the footer's line is all
+          that remains. Not restoring the sentence is still the right call (a
+          decision card's whole job is answering ONE question without a
+          paragraph under it); this comment just stops pretending every shop
+          keeps the full fact somewhere. */}
+
+      {where || storefront.whatsappE164 ? (
+        <View style={styles.decisionActions}>
+          {/* `colors.ground` ON `colors.ink`, NOT the shop's own accent and
+              not `onDarkAccent` -- Task 24's same fix as the pill above, for
+              the same measured reason. `onDarkAccent` is walked only to WCAG
+              1.4.11's 3:1 non-text FLOOR against `ink` (3.01:1-3.85:1 across
+              every palette, see that token's own comment in
+              storefront-catalog.ts): the minimum for a control's boundary to
+              be perceptible, not what this card's ONE primary action should
+              measure. `ground` on `ink` clears 18.37:1 -- the loudest plate
+              the card has, the same inverted-surface convention ShopFooter
+              already uses. `onDarkAccent`/`onDarkAccentInk` keep their one
+              remaining job here: the closed pill above, still a quiet plate,
+              nothing louder. */}
+          {where ? (
+            // NO MAP, and that is deliberate rather than missing. A rendered
+            // map needs a tile provider and a key, and the shop has no
+            // coordinates on file -- only a neighbourhood string. Drawing a
+            // decorative grid with a pin on it, as the mockup does on this
+            // very card, would be a picture of a map rather than a map, and a
+            // customer would try to pinch it. This button does the thing the
+            // map was there for: hands the place to whatever maps app they
+            // already use.
+            <Pressable
+              testID="storefront-visit-directions"
+              accessibilityRole="link"
+              accessibilityLabel={`Open ${where} in Maps`}
+              onPress={() => openExternalUrl(mapsUrlFor(where))}
+              style={pressable([styles.directionsButton, styles.decisionAction, { backgroundColor: colors.ground }])}
+            >
+              <Text style={[styles.directionsText, { color: colors.ink }]}>Get directions</Text>
+            </Pressable>
+          ) : null}
+          {/* WHATSAPP MOVES HERE from the contact card below -- the same
+              fixed-green button. It prints the short label here and only here,
+              so the pair actually fits one row on a phone; see WhatsAppButton's
+              own comment for the measurement, and note the spoken label is
+              unchanged. */}
+          {storefront.whatsappE164 ? (
+            <WhatsAppButton storefront={storefront} label="WhatsApp" style={styles.decisionAction} />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// Composes the decision card's pill text. Pulled out on its own because it is
+// the one piece of copy this task adds real branching to, and a pure function
+// is what a reader (and a future change) can reason about without a render.
+//
+// `!hoursConfigured` is the ONLY null case -- once hours exist, there is
+// always something honest to say: open, closed with a reopening time, or bare
+// "Closed" when nothing reopens within the week nextOpeningLabel already
+// looked at.
+//
+// OPEN NO LONGER NAMES A CLOSING TIME (Task 24, decision 3). It used to read
+// "Open · closes 8pm", about 70px above `HoursCard`'s own "Today: 08:00 –
+// 20:00" -- the same fact, in two notations, close enough on the page to read
+// as two answers rather than one. The hours row keeps its 24-hour form (see
+// its own comment on why a locale API is wrong there), so the fact was only
+// ever going to live in one place, and this pill is the one that gives it up:
+// "Open now" says the thing this pill actually exists for -- can I go right
+// now -- without repeating a number `HoursCard` already prints correctly.
+function decisionPillLabel(hours: OpeningHours, now: Date): string | null {
+  if (!isConfigured(hours)) return null;
+  if (isOpenAt(hours, now)) return 'Open now';
+  const next = nextOpeningLabel(hours, now);
+  return next ? `Closed · ${next}` : 'Closed';
+}
+
+// Opening hours, collapsed to today. `isConfigured` keeps its guard: a shop
+// that never set hours renders no hours card whatsoever, unchanged from
+// before this task -- printing seven "Closed" rows for it would invent a
+// claim the shop never made, the same rule StockCard follows.
+//
+// The open/closed PILL that used to live in this card's own header has moved
+// to the decision card above (1a in the brief) -- it is not rendered twice.
+function HoursCard({ storefront, colors }: { storefront: PublicStorefront; colors: PaletteColors }) {
+  // See availableTabs on why this is defended rather than trusted.
+  const hours = storefront.openingHours ?? {};
+  // Collapsed by default -- the seven-row week is reference material now, not
+  // the decision. A disclosure hidden by default is exactly the shape that
+  // slipped past this page's own sweep once already (see the Modal case in
+  // storefront-touch-targets.test.tsx's own header comment); its own toggle is
+  // named in that file's requiredId loop for exactly that reason.
+  const [expanded, setExpanded] = useState(false);
+  if (!isConfigured(hours)) return null;
+
+  // `new Date()` at render, deliberately not memoised or frozen -- the DEVICE's
+  // clock and weekday are used because the times are local wall-clock strings
+  // with no timezone (see the column comment), which is right for a customer
+  // standing in the same city as the shop, and wrong for one abroad. That is
+  // the trade the column's own design already made.
+  const now = new Date();
+  const today = weekdayKeyFor(now);
+  const todayRanges = rangesFor(hours, today);
+
+  return (
+    <ShopCard colors={colors} testID="storefront-visit-hours">
+      <View style={styles.hoursHead}>
+        <Text style={[styles.todayLine, { color: colors.ink }]}>
+          Today: {formatDayHours(todayRanges)}
+        </Text>
+        <Pressable
+          testID="storefront-visit-hours-toggle"
+          accessibilityRole="button"
+          accessibilityLabel="All hours"
+          accessibilityState={{ expanded }}
+          onPress={() => setExpanded((current) => !current)}
+          style={pressable(styles.toggle)}
+        >
+          <Text style={[styles.toggleText, { color: colors.muted }]}>
+            All hours {expanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
       </View>
 
-      <View style={styles.list}>
-        {WEEK_ORDER.map((day, index) => {
-          const isToday = day === today;
-          const ranges = rangesFor(hours, day);
-          return (
-            <View
-              key={day}
-              testID={`storefront-visit-hours-${day}`}
-              style={[
-                styles.row,
-                index < WEEK_ORDER.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.hairline },
-                // Today gets the plate, because "is it open NOW" is the
-                // question, and a customer should not have to work out which
-                // row applies to them.
-                isToday && [styles.today, { backgroundColor: colors.soft, borderBottomWidth: 0 }],
-              ]}
-            >
-              <Text style={[styles.day, { color: colors.ink }, isToday && styles.dayToday]}>
-                {DAY_LABELS[day]}{isToday ? ' · today' : ''}
-              </Text>
-              <Text
+      {/* THE HONEST SEVEN ROWS, unchanged in substance -- moved behind the
+          toggle rather than rewritten. Same testIDs, same order, same
+          today-plate treatment, same split-shift formatting. */}
+      {expanded ? (
+        <View style={styles.list}>
+          {WEEK_ORDER.map((day, index) => {
+            const isToday = day === today;
+            const ranges = rangesFor(hours, day);
+            return (
+              <View
+                key={day}
+                testID={`storefront-visit-hours-${day}`}
                 style={[
-                  styles.time,
-                  { color: ranges.length === 0 ? colors.muted : colors.ink },
-                  isToday && styles.timeToday,
+                  styles.row,
+                  index < WEEK_ORDER.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.hairline },
+                  isToday && [styles.today, { backgroundColor: colors.soft, borderBottomWidth: 0 }],
                 ]}
               >
-                {/* Split shifts print as "08:00 – 11:30, 14:00 – 21:00" --
-                    formatDayHours already joins them, which is the whole
-                    reason each day is a list rather than one range. */}
-                {formatDayHours(ranges)}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
+                <Text style={[styles.day, { color: colors.ink }, isToday && styles.dayToday]}>
+                  {DAY_LABELS[day]}{isToday ? ' · today' : ''}
+                </Text>
+                <Text
+                  style={[
+                    styles.time,
+                    { color: ranges.length === 0 ? colors.muted : colors.ink },
+                    isToday && styles.timeToday,
+                  ]}
+                >
+                  {formatDayHours(ranges)}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
     </ShopCard>
   );
 }
 
-// One way to reach the shop. Pressable in full rather than the value alone: a
-// 44px row is a target somebody can hit on a phone, where a phone number set at
-// body size is not.
-function ContactRow({
-  colors, glyph, value, label, onPress, testID,
+// One button in the contact row -- Call, Instagram or Share shop. Pressable in
+// full rather than the value alone: TOUCH_TARGET is a floor on the control
+// itself, not on the word inside it.
+//
+// NO GLYPH, AND THAT IS WHAT LETS THE WORDS BE WORDS. Both mockups draw this
+// row as three plain text pills; the emoji were added here and they cost about
+// 21px each (the glyph plus its gap) out of a share that measures ~95px at
+// 390px. That deficit is what forced "Instagram" to "IG" and "Share shop" to
+// "Share" -- two abbreviations bought to pay for two decorations. Dropping the
+// glyphs pays for both words outright, and it also ends a split register the
+// row could not resolve: `phone` and `camera` are colour emoji on every
+// platform while `arrow` is monochrome text on iOS and web and an emoji arrow
+// on some Android font stacks, so one of the three never matched the others.
+//
+// `numberOfLines={1}` stays. It is not what makes today's labels fit -- they
+// fit because they are short enough -- it is what makes a future long one
+// ellipsise visibly instead of silently wrapping to a second line and growing
+// the pill, which is the defect that was actually measured here.
+function ContactButton({
+  colors, testID, label, accessibilityLabel, onPress,
 }: {
   colors: PaletteColors;
-  glyph: string;
-  value: string;
-  label: string;
-  onPress: () => void;
   testID: string;
+  label: string;
+  accessibilityLabel: string;
+  onPress: () => void;
 }) {
   return (
     <Pressable
       testID={testID}
       accessibilityRole="link"
-      accessibilityLabel={`${label}: ${value}`}
+      accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={pressable([styles.contact, { borderBottomColor: colors.hairline }])}
+      style={pressable([styles.contactButton, { backgroundColor: colors.soft }])}
     >
-      <View style={[styles.contactGlyph, { backgroundColor: colors.soft }]}>
-        <Text style={styles.contactGlyphText}>{glyph}</Text>
-      </View>
-      <View style={styles.contactText}>
-        <Text style={[styles.contactValue, { color: colors.ink }]} numberOfLines={1}>{value}</Text>
-        <Text style={[styles.contactLabel, { color: colors.muted }]}>{label}</Text>
-      </View>
+      <Text style={[styles.contactButtonText, { color: colors.ink }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
+}
+
+// A customer-voice message for forwarding the shop to a friend -- NOT
+// publish-bar.tsx's sharePageMessage, which says the shop "is now online", a
+// publish announcement that is false in a customer's mouth. Names the shop
+// and ends on the address, so the address is the last thing read and the
+// easy thing to tap. Exported so its composition is testable without a
+// render -- the same reason mapsUrlFor below is exported.
+export function shareMessage(storefront: PublicStorefront): string {
+  return `Thought you'd like this shop — ${storefront.shopName}. `
+    + `Order from your phone: ${storefrontAddress(storefront.slug)}`;
 }
 
 export function VisitPanel({
@@ -158,9 +367,6 @@ export function VisitPanel({
   // dimensions of its own (the rule ShopAnchor already follows).
   wide?: boolean;
 }) {
-  const where = collectLocation(
-    storefront.collectAddress, storefront.collectNeighborhood, storefront.city,
-  );
   // Cheapest first, so the list opens with the best case and a customer
   // scanning for their own area meets the free one (if there is one) first.
   // Ties broken by name so the order is stable between renders rather than
@@ -169,133 +375,145 @@ export function VisitPanel({
 
   return (
     <View style={styles.panel} testID="storefront-visit-panel">
-      <View style={styles.head}>
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Visit &amp; deliver</Text>
-        <Text style={[styles.title, wide && styles.titleWide, { color: colors.ink }]}>
-          {/* Two sentences' worth of promise in one line, and it changes with
-              what the shop actually offers -- a collection-only shop reaching
-              this tab through its hours must not be told what delivery costs. */}
-          {areas.length > 0
-            ? 'Where to find us, and what it costs to come to you'
-            : 'Where to find us, and when we are open'}
-        </Text>
-      </View>
+      {/* THE DECISION CARD LEADS AT BOTH WIDTHS -- outside the two-column
+          split below, so it can never be squeezed into the narrow side
+          column the way a card sitting inside `columnSide` would be. */}
+      <DecisionCard storefront={storefront} colors={colors} />
 
       <View style={[styles.columns, wide && styles.columnsWide]}>
         <View style={[styles.column, wide && styles.columnMain]}>
-      {where ? (
-        <ShopCard colors={colors} testID="storefront-visit-collect">
-          <Text style={[styles.eyebrow, { color: colors.muted }]}>Find us</Text>
-          <Text style={[styles.place, { color: colors.ink }]}>{where}</Text>
-          <Text style={[styles.note, { color: colors.muted }]}>
-            Choose collection at checkout and pick your order up from the counter. Pay when you collect.
-          </Text>
-          {/* NO MAP, and that is deliberate rather than missing. A rendered
-              map needs a tile provider and a key, and the shop has no
-              coordinates on file -- only a neighbourhood string. Drawing a
-              decorative grid with a pin on it, as the mockup does, would be a
-              picture of a map rather than a map, and a customer would try to
-              pinch it. This button does the thing the map was there for:
-              hands the place to whatever maps app they already use. */}
-          <Pressable
-            testID="storefront-visit-directions"
-            accessibilityRole="link"
-            accessibilityLabel={`Open ${where} in Maps`}
-            onPress={() => openExternalUrl(mapsUrlFor(where))}
-            style={pressable([styles.mapsButton, { backgroundColor: colors.soft }])}
-          >
-            <Text style={[styles.mapsText, { color: colors.ink }]}>Open in Maps</Text>
-          </Pressable>
-        </ShopCard>
-      ) : null}
-
-      <HoursCard storefront={storefront} colors={colors} />
+          <HoursCard storefront={storefront} colors={colors} />
         </View>
 
         <View style={[styles.column, wide && styles.columnSide]}>
+          {/* DELIVERY AREAS AS PRICED CHIPS. Gone entirely for a
+              collection-only shop -- this tab used to require areas to exist
+              at all; now that hours can bring a customer here on their own,
+              an empty "Delivery areas" card would be a heading with nothing
+              under it. */}
+          {sorted.length > 0 ? (
+            <ShopCard colors={colors} testID="storefront-visit-areas">
+              <Text style={[styles.eyebrow, { color: colors.muted }]}>Delivery, if you&apos;d rather stay put</Text>
+              <View style={styles.chips}>
+                {sorted.map((area) => (
+                  <View
+                    // Keyed by name: PublicDeliveryArea carries no id (see
+                    // types/models.ts), and a shop cannot price the same area
+                    // twice.
+                    key={area.name}
+                    testID={`storefront-visit-area-${area.name}`}
+                    style={[styles.chip, { backgroundColor: colors.soft }]}
+                  >
+                    {/* NOT A CONTROL -- plain View/Text, no onPress, no
+                        accessibilityRole. Matches the ONE chip shape Task 21
+                        introduced in about-panel.tsx (itself matching
+                        shop-directory-card.tsx's sell tags): a card gets
+                        exactly one chip vocabulary, not a second one invented
+                        per surface -- the CHIP shape stays. Only the fee
+                        inside it changed weight (Task 24, decision 2).
 
-      {/* Gone entirely for a collection-only shop. This tab used to require
-          areas to exist at all; now that hours can bring a customer here on
-          their own, an empty "Delivery areas" card would be a heading with
-          nothing under it. */}
-      {sorted.length > 0 ? (
-      <ShopCard colors={colors} testID="storefront-visit-areas">
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Delivery areas</Text>
-        <View style={styles.list}>
-          {sorted.map((area, index) => (
-            <View
-              // Keyed by name: PublicDeliveryArea carries no id (see
-              // types/models.ts), and a shop cannot price the same area twice.
-              key={area.name}
-              testID={`storefront-visit-area-${area.name}`}
-              style={[
-                styles.row,
-                index < sorted.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.hairline },
-              ]}
-            >
-              <Text style={[styles.areaName, { color: colors.ink }]} numberOfLines={2}>{area.name}</Text>
-              {/* A free area says the word rather than "$0.00" -- a price of
-                  zero is a fact about the fee, and "Free" is the fact about
-                  the offer. Not coloured: the whole list is priced, and
-                  tinting one row would make the rest look like a warning. */}
-              <Text style={[styles.fee, { color: colors.ink }]}>
-                {area.feeCents === 0 ? 'Free' : formatCents(area.feeCents)}
-              </Text>
-            </View>
-          ))}
-        </View>
-        <Text style={[styles.note, { color: colors.muted }]}>
-          Pay the shop when your order arrives.
-        </Text>
-      </ShopCard>
-      ) : null}
-
-      {/* THE THREE WAYS IN, and the card is gone entirely when there are none.
-          WhatsApp was the only one this page had ever offered; the phone has
-          been on every shop since 20260808000000 and the handle is new. */}
-      {storefront.whatsappE164 || storefront.contactPhone || storefront.instagram ? (
-        <ShopCard colors={colors} testID="storefront-visit-contact">
-          <Text style={[styles.eyebrow, { color: colors.muted }]}>Reach the shop</Text>
-
-          {storefront.contactPhone ? (
-            <ContactRow
-              testID="storefront-visit-call"
-              colors={colors}
-              glyph="📞"
-              value={storefront.contactPhone}
-              label="Call the shop"
-              // `tel:` is the one scheme every platform agrees on, and the OS
-              // decides what to do with it -- dialler on a phone, a prompt on a
-              // laptop. Stripped of spaces because a number typed for humans
-              // ("+252 63 000 0000") is not a valid tel: target.
-              onPress={() => openExternalUrl(`tel:${storefront.contactPhone!.replace(/[^\d+]/g, '')}`)}
-            />
-          ) : null}
-
-          {storefront.instagram ? (
-            <ContactRow
-              testID="storefront-visit-instagram"
-              colors={colors}
-              glyph="📷"
-              // The @ is printed, never stored -- see normalizeInstagram.
-              value={`@${storefront.instagram}`}
-              label="Instagram"
-              onPress={() => openExternalUrl(`https://instagram.com/${storefront.instagram}`)}
-            />
-          ) : null}
-
-          {storefront.whatsappE164 ? (
-            <>
-              <Text style={[styles.note, { color: colors.muted }]}>
-                Not sure your area is covered? Ask before you order.
-              </Text>
-              <View style={styles.action}>
-                <WhatsAppButton storefront={storefront} />
+                        THE FEE GETS THE WEIGHT, THE AREA NAME DOES NOT. This
+                        tab exists (its own header comment says so) because
+                        "the question a customer actually has is whether
+                        THEIR neighbourhood is on the list and what it costs
+                        them" -- and the fee, the actual answer, used to be
+                        the smallest type on the whole tab: 10.5px, the same
+                        weight and colour as the neighbourhood name beside it.
+                        The name stays at the chip's own size, in `muted`; the
+                        fee steps up to `TYPE.body` (13.5) in `colors.ink` at
+                        weight 800, so the number a customer scans for is the
+                        thing that actually stands out. Nested `Text`, not a
+                        second sibling, so the chip stays one wrapping unit
+                        -- RN reflows nested Text as one run of words. */}
+                    <Text style={[styles.chipText, { color: colors.muted }]}>
+                      {area.name} ·{' '}
+                      <Text testID={`storefront-visit-area-fee-${area.name}`} style={[styles.chipFee, { color: colors.ink }]}>
+                        {/* A free area says the word rather than "$0.00" --
+                            a price of zero is a fact about the fee, and
+                            "Free" is the fact about the offer. */}
+                        {area.feeCents === 0 ? 'Free' : formatCents(area.feeCents)}
+                      </Text>
+                    </Text>
+                  </View>
+                ))}
               </View>
-            </>
+              <Text style={[styles.note, { color: colors.muted }]}>
+                Pay the shop when your order arrives.
+              </Text>
+              {/* Moved here from the old contact card, which is where it sat
+                  above the WhatsApp button before WhatsApp moved to the
+                  decision card. The nudge is about DELIVERY AREAS, so its home
+                  is this card now, not wherever WhatsApp itself ended up.
+
+                  STILL GATED ON THERE BEING SOMEBODY TO ASK. It used to be
+                  gated implicitly, by sitting inside the `whatsappE164`
+                  branch; moving it out of that branch dropped the gate, so a
+                  shop with no WhatsApp and no phone was told to "ask" with
+                  nothing on the page to ask on. That is the failure
+                  WhatsAppButton and ProductActions already refuse -- lose the
+                  answer rather than print one that sends the customer
+                  nowhere. Instagram is deliberately not in this test: a handle
+                  is a profile to look at, not a channel this shop has promised
+                  to answer on. */}
+              {storefront.whatsappE164 || storefront.contactPhone ? (
+                <Text style={[styles.note, { color: colors.muted }]}>
+                  Not sure your area is covered? Ask before you order.
+                </Text>
+              ) : null}
+            </ShopCard>
           ) : null}
-        </ShopCard>
-      ) : null}
+
+          {/* CONTACT, FLATTENED TO ONE ICON ROW. Share shop has no optional
+              datum to gate on -- forwarding a published shop's own address is
+              always possible -- so this card is never actually empty; Call
+              and Instagram render only when their own value exists. WhatsApp
+              is NOT in this row any more; it moved to the decision card. */}
+          <ShopCard colors={colors} testID="storefront-visit-contact" style={styles.contactCard}>
+            <View style={styles.contactRow}>
+              {storefront.contactPhone ? (
+                <ContactButton
+                  colors={colors}
+                  testID="storefront-visit-call"
+                  label="Call"
+                  accessibilityLabel={`Call the shop: ${storefront.contactPhone}`}
+                  // `tel:` is the one scheme every platform agrees on, and
+                  // the OS decides what to do with it -- dialler on a phone, a
+                  // prompt on a laptop. Stripped of spaces because a number
+                  // typed for humans ("+252 63 000 0000") is not a valid
+                  // tel: target.
+                  onPress={() => openExternalUrl(`tel:${storefront.contactPhone!.replace(/[^\d+]/g, '')}`)}
+                />
+              ) : null}
+
+              {storefront.instagram ? (
+                <ContactButton
+                  colors={colors}
+                  testID="storefront-visit-instagram"
+                  label="Instagram"
+                  // The @ is printed here, never stored -- see
+                  // normalizeInstagram. The spoken label carries the handle
+                  // itself, which the button has no room to print.
+                  accessibilityLabel={`Instagram: @${storefront.instagram}`}
+                  onPress={() => openExternalUrl(`https://instagram.com/${storefront.instagram}`)}
+                />
+              ) : null}
+
+              <ContactButton
+                colors={colors}
+                testID="storefront-visit-share"
+                label="Share shop"
+                // The SPOKEN label stays fully descriptive even though the
+                // printed one shrank -- the same rule WhatsAppButton's own
+                // comment sets ("'WhatsApp' alone says what the thing is and
+                // not what pressing it does"). Pressing this opens WhatsApp's
+                // own contact picker (shareOnWhatsApp), not a generic OS share
+                // sheet, so a screen reader is told that rather than left to
+                // guess it from "Share <shop name>" alone.
+                accessibilityLabel={`Share ${storefront.shopName} on WhatsApp`}
+                onPress={() => shareOnWhatsApp(shareMessage(storefront))}
+              />
+            </View>
+          </ShopCard>
         </View>
       </View>
     </View>
@@ -320,61 +538,77 @@ export function mapsUrlFor(place: string): string {
 
 const styles = StyleSheet.create({
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
-  head: { gap: 10, marginBottom: 4 },
-  title: { fontSize: 21, lineHeight: 26, fontWeight: '800', letterSpacing: LETTER.displayLoud },
-  titleWide: { fontSize: 27, lineHeight: 32 },
-  // One column on a phone; the design's 1.15fr / 1fr on a laptop. The cards
-  // themselves are unchanged between the two -- only where they sit.
+  // One column on a phone; an even two on a laptop (see columnMain/columnSide
+  // below for why 1:1 replaced the old 1.15/1 split).
   columns: { gap: SPACE.cardGap },
   columnsWide: { flexDirection: 'row', alignItems: 'flex-start' },
   column: { gap: SPACE.cardGap },
-  columnMain: { flex: 1.15 },
+  // RE-BALANCED TO 1:1 (Task 22). The old 1.15/1 split existed because the
+  // main column held the "Find us" card AND the hours card, the two heaviest
+  // things on the page, against a side column of areas and contact. The "Find
+  // us" card is gone from both columns now -- it is the decision card, full
+  // width above this row -- leaving a collapsed hours disclosure (a single
+  // line plus a toggle, most of the time) against delivery chips and the
+  // contact row. Neither side is reliably heavier than the other any more, so
+  // an even split is the honest read rather than carrying a ratio tuned for a
+  // card that no longer lives in either column.
+  columnMain: { flex: 1 },
   columnSide: { flex: 1 },
-  // Live at 390px: 37px, the fourth instance of this file's own defect
-  // pattern -- the fixture that would have shown it (`about`, `contactPhone`,
-  // `instagram`, `areas`, `images`, `highlights` all null/[]) kept both this
-  // tab and the About tab out of every render the sweep walked, so a control
-  // built from text and padding alone, never checked against a thumb, sat
-  // under the floor behind a green suite the same way Add, Ask and five
-  // others already had. `minHeight`, not more padding -- it raises exactly
-  // this button and leaves "Open in Maps" the same size it was designed at.
-  mapsButton: {
-    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11, alignSelf: 'flex-start', marginTop: 14,
-    minHeight: TOUCH_TARGET, justifyContent: 'center',
-  },
-  mapsText: { fontSize: 12.5, fontWeight: '800' },
   eyebrow: {
     fontSize: TYPE.eyebrow, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
   },
-  place: { fontSize: 17, fontWeight: '800', letterSpacing: LETTER.display, marginTop: 10 },
   note: { fontSize: TYPE.body, lineHeight: 19, marginTop: 10 },
   list: { marginTop: 12 },
   row: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     gap: 14, paddingVertical: 11,
   },
-  areaName: { fontSize: TYPE.body, fontWeight: '700', flexShrink: 1 },
-  fee: { fontSize: TYPE.body, fontWeight: '800', ...TABULAR },
-  action: { flexDirection: 'row', marginTop: 14 },
-  // Measured live at 63px -- the 38px glyph plus its own padding already
-  // clears the floor -- but nothing here SAID so before this: no literal
-  // height and no hitSlop, so the sweep (which asserts the rule, never lays a
-  // control out) had no way to tell this Pressable apart from one that was
-  // genuinely 26px. `minHeight` states the floor this row already meets
-  // rather than leaving it implied by a glyph's own size.
-  contact: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 1, minHeight: TOUCH_TARGET,
-  },
-  contactGlyph: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  contactGlyphText: { fontSize: 17 },
-  contactText: { flexShrink: 1 },
-  contactValue: { fontSize: TYPE.body, fontWeight: '700' },
-  contactLabel: { fontSize: TYPE.metaSmall + 1, marginTop: 2 },
 
-  hoursHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  statePill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5 },
+  // THE DECISION CARD. `RADIUS.card`/`SPACE.card` match ShopCard's own card
+  // style exactly (theme-shared.tsx) -- this one is not built from ShopCard
+  // because ShopCard hard-codes a `colors.ground` fill, and this is the
+  // page's one card filled with `colors.ink` instead, the same reason
+  // ShopAnchor builds its own card rather than wrapping ShopCard.
+  decisionCard: { borderRadius: RADIUS.card, padding: SPACE.card, gap: 10 },
+  // ~1.4x today's flat-sans 17px, serif, and set to DOMINATE the card -- this
+  // is the screenshot. DISPLAY_FONT rather than the body face, the same
+  // display treatment about-panel.tsx's headline uses.
+  decisionPlace: {
+    fontFamily: DISPLAY_FONT, fontSize: 24, lineHeight: 29, fontWeight: '700', letterSpacing: LETTER.display,
+  },
+  decisionSub: {
+    fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: LETTER.meta, textTransform: 'uppercase',
+  },
+  // SIDE BY SIDE, and it has to be said in flex rather than left to intrinsic
+  // widths. This was a `flexWrap: 'wrap'` row of two naturally-sized buttons,
+  // which fits at 1440 and does NOT fit inside the card's 286px of usable width
+  // at 390 -- measured, the pair wanted 309px and wrapped, so the phone got two
+  // stacked buttons while the laptop got the design. `flex: 1` on both (with
+  // the short WhatsApp label beside it) makes them share whatever width there
+  // is, at every size, which is what the mockup's own `.btn { flex: 1 }` says.
+  // No wrap: two buttons that shrink together cannot fall onto a second line.
+  decisionActions: { flexDirection: 'row', gap: 10, marginTop: 2, alignItems: 'center' },
+  decisionAction: { flex: 1 },
+  directionsButton: {
+    borderRadius: RADIUS.pill, paddingHorizontal: 18, paddingVertical: 11,
+    minHeight: TOUCH_TARGET, justifyContent: 'center', alignItems: 'center',
+  },
+  directionsText: { fontSize: 12.5, fontWeight: '800' },
+
+  // THE OPEN PILL -- lives on the decision card now, the shape HoursCard's
+  // header used to draw. Its fill/label pair is chosen per state in
+  // DecisionCard above, not here (open takes `ground`/`ink`, closed takes
+  // `onDarkAccent`/`onDarkAccentInk` -- Task 24 inverted which state wears
+  // which, see that comment for the measurement); this style block is only
+  // the shape both states share.
+  statePill: { borderRadius: RADIUS.pill, paddingHorizontal: 11, paddingVertical: 5, alignSelf: 'flex-start' },
   stateText: { fontSize: TYPE.metaSmall, fontWeight: '800', letterSpacing: 0.4 },
+
+  // THE HOURS CARD, collapsed.
+  hoursHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  todayLine: { fontSize: TYPE.body, fontWeight: '700', flexShrink: 1 },
+  toggle: { paddingHorizontal: 4, minHeight: TOUCH_TARGET, justifyContent: 'center' },
+  toggleText: { fontSize: TYPE.metaSmall + 1, fontWeight: '800' },
   // Bleeds into the card's own padding so today reads as a highlighted ROW
   // rather than as a box sitting inside the list.
   today: { marginHorizontal: -12, paddingHorizontal: 12, borderRadius: RADIUS.inset },
@@ -382,4 +616,34 @@ const styles = StyleSheet.create({
   dayToday: { fontWeight: '800' },
   time: { fontSize: TYPE.body, ...TABULAR },
   timeToday: { fontWeight: '800' },
+
+  // THE DELIVERY CHIPS -- the ONE chip shape on this page, matching
+  // about-panel.tsx's proof chips (which themselves match
+  // shop-directory-card.tsx's sell tags) byte for byte: radius 8, weight 700,
+  // size 10.5, `soft` fill, `muted` text. The chip itself is unchanged (Task
+  // 24, decision 2) -- only the fee inside it (chipFee, below) steps up.
+  chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 12 },
+  chip: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  chipText: { fontSize: 10.5, fontWeight: '700' },
+  // THE FEE, set apart from the chip's own type (Task 24, decision 2): body
+  // size rather than the chip's 10.5, weight 800 rather than 700, and
+  // TABULAR so a column of chips lines its digits up. Colour is set at the
+  // call site (`colors.ink`), not here, matching every other token-coloured
+  // style on this page.
+  chipFee: { fontSize: TYPE.body, fontWeight: '800', ...TABULAR },
+
+  // THE CONTACT ICON ROW.
+  contactCard: { padding: 12 },
+  contactRow: { flexDirection: 'row', gap: 8 },
+  // `minHeight: TOUCH_TARGET` states the floor directly rather than leaving
+  // it implied by a glyph and some padding -- this row is more compact than
+  // the 63px stacked ContactRows it replaces, which is exactly the risk this
+  // page's own touch-target sweep exists to catch (see scale.ts's own
+  // TOUCH_TARGET comment: "Open in Maps" shipped at 37px on this same file
+  // behind a fully green suite).
+  contactButton: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: RADIUS.pill, paddingHorizontal: 10, minHeight: TOUCH_TARGET,
+  },
+  contactButtonText: { fontSize: TYPE.metaSmall + 1, fontWeight: '800' },
 });

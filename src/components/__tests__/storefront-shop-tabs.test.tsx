@@ -1,9 +1,13 @@
+import { StyleSheet } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { AboutPanel, shopQuestions } from '@/components/storefront/about-panel';
 import { pillMotion, ShopTabRail, availableTabs } from '@/components/storefront/shop-tabs';
-import { VisitPanel, mapsUrlFor } from '@/components/storefront/visit-panel';
-import { paletteColors } from '@/lib/storefront-catalog';
+import { PROSE_MAX_WIDTH, TYPE } from '@/components/storefront/scale';
+import { VisitPanel, mapsUrlFor, shareMessage } from '@/components/storefront/visit-panel';
+import { contrastRatio } from '@/lib/contrast';
+import { storefrontAddress } from '@/lib/storefront-host';
+import { PALETTES, paletteColors } from '@/lib/storefront-catalog';
 import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, StorefrontProduct } from '@/types/models';
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -71,6 +75,19 @@ function textOf(tree: ReturnType<typeof create>, testID: string): string {
 
 function has(tree: ReturnType<typeof create>, testID: string): boolean {
   return tree.root.findAll((n) => n.props?.testID === testID).length > 0;
+}
+
+// The HOST node for a given testID -- the same host-vs-composite distinction
+// `textOf` above makes and explains: a `ShopCard`-wrapped testID (the story
+// card below) shows up TWICE under a bare `find`/`findAll`, once on the
+// composite `ShopCard` instance (the JSX call site's own `testID` prop) and
+// once on the host `View` it renders to, and only the host actually carries
+// a resolvable `style`. Used wherever a test needs the RESOLVED style of a
+// testID that might be either shape, rather than merely its presence.
+function hostNode(tree: ReturnType<typeof create>, testID: string) {
+  return tree.root.findAll(
+    (n) => n.props?.testID === testID && typeof n.type === 'string',
+  )[0];
 }
 
 // A TAB HAS TO EARN ITS PLACE by saying something the Shop tab does not. These
@@ -209,15 +226,23 @@ describe('the generated FAQ', () => {
 });
 
 describe('the About panel', () => {
-  function renderAbout(overrides: Partial<PublicStorefront> = {}, cats = categories, areas = AREAS) {
+  // 900, not the ambient jest window's own height (1334, `@react-native/
+  // jest-preset`'s default) -- explicit for the same reason `wide={false}` is
+  // below: a round number this file's own gallery tests can reason about
+  // directly (`photoHeightCapFor(900)` is exactly 360), rather than a value
+  // that would also change if that preset's own default ever moved.
+  function renderAbout(
+    overrides: Partial<PublicStorefront> = {}, cats = categories, areas = AREAS, prods = products,
+  ) {
     return render(
       <AboutPanel
         storefront={shop({ about: 'Ten years on the same corner.', ...overrides })}
-        products={products}
+        products={prods}
         categories={cats}
         areas={areas}
         colors={colors}
         wide={false}
+        windowHeight={900}
       />,
     );
   }
@@ -230,26 +255,52 @@ describe('the About panel', () => {
     expect(has(renderAbout({ headline: null }), 'storefront-about-headline')).toBe(false);
   });
 
-  it('counts what it shows rather than storing it', () => {
-    const stats = textOf(renderAbout(), 'storefront-about-stats');
-    expect(stats).toContain('items listed');
-    expect(stats).toContain('3');
-    expect(stats).toContain('category');
-    expect(stats).toContain('delivery areas');
+  // Task 21: the stats strip (categories, delivery areas, items listed) is
+  // gone, replaced by proof chips -- three reasons to trust the shop rather
+  // than a dashboard row. `products` (module-level, 3 items, all in stock)
+  // and `shop()`'s own default `whatsappE164` together produce the stock and
+  // WhatsApp chips; `tradingSince` stays unset by default (see `shop()`
+  // above), so that chip is absent here on purpose.
+  it('shows what a customer can verify right now, as proof chips', () => {
+    const proof = textOf(renderAbout(), 'storefront-about-proof');
+    expect(proof).toContain('3 items in today');
+    expect(proof).toContain('Answers on WhatsApp');
   });
 
-  // A shop with no categories should not be told it has zero of them.
-  it('leaves out a figure it would have to report as zero', () => {
-    const stats = textOf(renderAbout({}, [], []), 'storefront-about-stats');
-    expect(stats).not.toContain('categor');
-    expect(stats).not.toContain('delivery area');
-    expect(stats).toContain('items listed');
+  // Counting ALL listed products would claim stock a shop with an empty
+  // shelf does not have -- `stock > 0` is what "in today" actually asks, and
+  // the chip must never print "0 items in today".
+  it('never reads "0 items in today" for a shop with nothing in stock', () => {
+    const emptyStock = products.map((product) => ({ ...product, stock: 0 }));
+    const tree = renderAbout({}, categories, AREAS, emptyStock);
+    expect(has(tree, 'storefront-about-proof-stock')).toBe(false);
+    // The row itself survives on the WhatsApp chip alone -- this fixture's
+    // `whatsappE164` is still set, so "no stock" must not read as "no proof
+    // row at all".
+    expect(has(tree, 'storefront-about-proof')).toBe(true);
+  });
+
+  it('says "1 item in today", not "1 items", for a single item still in stock', () => {
+    const oneInStock = products.map((product, i) => ({ ...product, stock: i === 0 ? 1 : 0 }));
+    const tree = renderAbout({}, categories, AREAS, oneInStock);
+    expect(textOf(tree, 'storefront-about-proof-stock')).toContain('1 item in today');
+  });
+
+  it('offers no WhatsApp proof chip to a shop with no number to message', () => {
+    expect(has(renderAbout({ whatsappE164: null }), 'storefront-about-proof-whatsapp')).toBe(false);
+  });
+
+  // The whole row is absent, not a row of nothing, once every chip drops out.
+  it('renders no proof row at all for a shop with nothing to claim', () => {
+    const emptyStock = products.map((product) => ({ ...product, stock: 0 }));
+    const tree = renderAbout({ whatsappE164: null, tradingSince: null }, categories, AREAS, emptyStock);
+    expect(has(tree, 'storefront-about-proof')).toBe(false);
   });
 
   // Added by 20261021000000. Both are the shop's own writing, both optional,
   // and both must render as NOTHING when unset -- the rule every block on this
   // page follows.
-  it('renders no "why shop here" band for a shop that has written none', () => {
+  it('renders no highlight cards inside the story card for a shop that has written none', () => {
     expect(has(renderAbout({ highlights: [] }), 'storefront-about-highlights')).toBe(false);
   });
 
@@ -299,14 +350,120 @@ describe('the About panel', () => {
     expect(has(tree, 'storefront-about-photo-i1')).toBe(false);
   });
 
-  it('leads the strip with the year the shop opened, when it has one', () => {
-    expect(textOf(renderAbout({ tradingSince: 2014 }), 'storefront-about-stats'))
-      .toContain('trading since');
+  // TASK 26: THE GALLERY REJOINS THE PROSE MEASURE.
+  //
+  // Task 25 left the gallery off this list on purpose, because a full-width
+  // cover-plus-thumbnail-strip photo has no reading measure to keep -- this
+  // is the test that used to pin THAT decision (`gallery.maxWidth` was
+  // asserted `toBeUndefined()`). Task 26 replaces that shape with a bounded,
+  // single-photo carousel (about-gallery.tsx): the user reported the cover
+  // "takes the entire page" on a laptop, measured at 1376x774 (86% of the
+  // viewport) at 1440x900 -- so the gallery now takes `PROSE_MAX_WIDTH` the
+  // same way every other block on this tab does, which is what actually
+  // fixes that measurement. `PROSE_MAX_WIDTH` is imported rather than
+  // hard-coded as 820, so this test moves with that constant instead of
+  // pinning a literal against itself.
+  //
+  // NOT VACUOUS: confirmed by temporarily dropping `styles.prose` back off
+  // the gallery's own style array in about-panel.tsx and re-running this
+  // file -- the gallery assertion below failed (`toBe(PROSE_MAX_WIDTH)` saw
+  // `undefined`), then passed again once the line was restored. See
+  // task-26-report.md for the exact output.
+  it('bounds the gallery to PROSE_MAX_WIDTH, the same measure every read block on this tab keeps', () => {
+    const tree = renderAbout({
+      images: [
+        { id: 'i1', url: 'https://cdn.test/a.jpg' },
+        { id: 'i2', url: 'https://cdn.test/b.jpg' },
+      ],
+    });
+
+    const gallery = hostNode(tree, 'storefront-about-gallery');
+    expect(gallery).toBeDefined();
+    expect(StyleSheet.flatten(gallery.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
+
+    const storyCard = hostNode(tree, 'storefront-about-story-card');
+    expect(StyleSheet.flatten(storyCard.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
+
+    const proof = hostNode(tree, 'storefront-about-proof');
+    expect(StyleSheet.flatten(proof.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
+
+    const faq = hostNode(tree, 'storefront-about-faq');
+    expect(StyleSheet.flatten(faq.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
   });
 
-  it('says nothing about a year the shop never set', () => {
-    expect(textOf(renderAbout({ tradingSince: null }), 'storefront-about-stats'))
-      .not.toContain('trading since');
+  // ALIGNMENT FIX, following a browser measurement: at 1440px the FAQ's own
+  // question cards sat at x=326 while the proof chips and story card sat at
+  // x=310, 16px apart, even though all three resolve the same `maxWidth`
+  // above. The cause wasn't `maxWidth` -- it was the FAQ layering its own
+  // `paddingHorizontal` (via a `gutter` style, now removed) on top of the
+  // SAME `prose` bound the other two use bare. A centred, bounded box's
+  // rendered edge depends on maxWidth AND alignSelf, but any padding
+  // layered on top of it shifts its CONTENT inward a second time without
+  // moving the box itself -- which is invisible to a `maxWidth`-only
+  // assertion and only shows up once you measure pixels in a browser.
+  //
+  // So this pins the other half of the invariant: all four bounded blocks
+  // (the gallery included, as of Task 26 -- see the test above) must carry
+  // the SAME (zero) horizontal padding of their own, not just the same
+  // maxWidth. `panel` (about-panel.tsx) is the one and only container meant
+  // to supply that inset now.
+  //
+  // NOT VACUOUS: confirmed by temporarily restoring the old
+  // `paddingHorizontal: SPACE.page` gutter on the FAQ band and re-running
+  // this file -- the assertion below failed (`toBeUndefined()` saw 16), then
+  // passed again once the line was reverted. See task-25-report.md's
+  // "Alignment fix" section for the exact output.
+  it('gives the gallery, proof chips, story card and FAQ band the same (zero) horizontal padding of their own', () => {
+    const tree = renderAbout({
+      images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }],
+    });
+
+    const gallery = hostNode(tree, 'storefront-about-gallery');
+    const storyCard = hostNode(tree, 'storefront-about-story-card');
+    const proof = hostNode(tree, 'storefront-about-proof');
+    const faq = hostNode(tree, 'storefront-about-faq');
+
+    for (const node of [gallery, storyCard, proof, faq]) {
+      const flat = StyleSheet.flatten(node.props.style) as {
+        paddingHorizontal?: unknown; paddingLeft?: unknown; paddingRight?: unknown;
+      };
+      expect(flat.paddingHorizontal).toBeUndefined();
+      expect(flat.paddingLeft).toBeUndefined();
+      expect(flat.paddingRight).toBeUndefined();
+    }
+  });
+
+  // The caption strip is the shop's PLACE, composed with collectLocation --
+  // `shop()`'s own defaults carry `collectNeighborhood: 'Jigjiga Yar'` and
+  // `city: 'Hargeisa'`, so a shop with photographs and no other override reads
+  // "Jigjiga Yar, Hargeisa" underneath the cover.
+  it('captions the cover with the shop\'s place, when it has one', () => {
+    const tree = renderAbout({ images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }] });
+    expect(textOf(tree, 'storefront-about-caption')).toBe('Jigjiga Yar, Hargeisa');
+  });
+
+  // `PublicStorefront.city` is `string | null` (src/types/models.ts), so a
+  // shop with photographs but no address, neighbourhood or city on file is a
+  // genuinely reachable state -- and the strip must render nothing at all
+  // rather than an empty line.
+  it('renders no caption strip for a shop with photographs but no place on file', () => {
+    const tree = renderAbout({
+      images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }],
+      collectAddress: null,
+      collectNeighborhood: null,
+      city: null,
+    });
+    expect(has(tree, 'storefront-about-caption')).toBe(false);
+  });
+
+  it('leads with a trading-since chip naming the year the shop opened, when it has one', () => {
+    const tree = renderAbout({ tradingSince: 2014 });
+    expect(has(tree, 'storefront-about-proof-trading')).toBe(true);
+    expect(textOf(tree, 'storefront-about-proof-trading')).toContain('Trading since 2014');
+  });
+
+  it('shows no trading-since chip for a shop that never set one', () => {
+    expect(has(renderAbout({ tradingSince: null }), 'storefront-about-proof-trading')).toBe(false);
   });
 
   it('opens the first question and closes it again when pressed', () => {
@@ -354,31 +511,122 @@ describe('the Visit panel', () => {
     expect(listed.indexOf('Ahmed Dhagah')).toBeLessThan(listed.indexOf('Koodbuur'));
   });
 
-  it('names the counter to collect from', () => {
-    expect(textOf(renderVisit(), 'storefront-visit-collect')).toContain('Jigjiga Yar, Hargeisa');
+  // Task 24, decision 2: the fee is the actual answer to the question this
+  // tab exists for -- so it gets set apart from the area name, not merely
+  // present beside it. Asserted on the fee's own RESOLVED style rather than
+  // its mere existence, so a future change that flattens the fee and the name
+  // back into one run of text (same size, same weight) fails here -- the
+  // defect this test exists to catch is exactly that regression, not the
+  // fee's absence.
+  it('sets the fee apart from the area name with weight and size, not just presence', () => {
+    const tree = renderVisit();
+    const fee = tree.root.find((n) => n.props?.testID === 'storefront-visit-area-fee-Jigjiga Yar');
+    const style = StyleSheet.flatten(fee.props.style);
+    expect(style.fontSize).toBe(TYPE.body);
+    expect(style.fontWeight).toBe('800');
   });
 
-  it('offers no contact card to a shop with no way to be reached at all', () => {
+  it('names the place on the decision card', () => {
+    expect(textOf(renderVisit(), 'storefront-visit-decision')).toContain('Jigjiga Yar, Hargeisa');
+  });
+
+  // Fix 1 (Task 22 whole-branch review): `where` is
+  // `collectLocation(collectAddress, collectNeighborhood, city)`, and that
+  // helper's own comment says it ALREADY ends on the city -- for the very
+  // common shop with only a city set (no address, no neighbourhood), `where`
+  // IS just the city. The sub-line underneath must not print it a second
+  // time. Compared lowercase on the raw string `textOf` returns, because the
+  // sub-line's own `textTransform: 'uppercase'` style never reaches that
+  // string -- only the rendered pixels.
+  it('never prints the city twice on the decision card', () => {
+    const tree = renderVisit({ collectAddress: null, collectNeighborhood: null, city: 'Hargeisa' });
+    const text = textOf(tree, 'storefront-visit-decision').toLowerCase();
+    expect(text.match(/hargeisa/g)?.length ?? 0).toBe(1);
+  });
+
+  // Task 22: Share shop has no optional datum to gate on -- forwarding a
+  // published shop's own address is always possible -- so the icon-row card
+  // is never actually empty any more, even for a shop with no phone, no
+  // Instagram and no WhatsApp. This is the deliberate behaviour change Task
+  // 22 introduces (the new affordance), not a regression of the old "absent
+  // when nothing to contact by" rule -- Share itself is the "something".
+  it('still offers the icon row -- Share shop alone -- for a shop with no way to be reached otherwise', () => {
     const tree = renderVisit({ whatsappE164: null, contactPhone: null, instagram: null });
-    expect(has(tree, 'storefront-visit-contact')).toBe(false);
+    expect(has(tree, 'storefront-visit-contact')).toBe(true);
+    expect(has(tree, 'storefront-visit-share')).toBe(true);
+    expect(has(tree, 'storefront-visit-call')).toBe(false);
+    expect(has(tree, 'storefront-visit-instagram')).toBe(false);
+  });
+
+  // THE "ASK" NUDGE ONLY APPEARS WHERE THERE IS SOMEBODY TO ASK. It used to be
+  // gated implicitly by sitting inside the `whatsappE164` branch of the old
+  // contact card; Task 22 moved it onto the delivery card, which dropped the
+  // gate until this pair of tests put it back. A shop with no WhatsApp and no
+  // phone was being told to "ask before you order" with nothing on the page to
+  // ask on -- the failure WhatsAppButton and ProductActions already refuse.
+  // Both arms of the gate, because `a || b` passing on `a` proves nothing
+  // about `b`: the fixture's default shop has WhatsApp and NO phone, so the
+  // second case is the only one that exercises the phone arm at all.
+  it('invites a question on WhatsApp alone', () => {
+    expect(textOf(renderVisit(), 'storefront-visit-areas'))
+      .toContain('Not sure your area is covered?');
+  });
+
+  it('invites a question on a phone alone, with no WhatsApp', () => {
+    expect(textOf(renderVisit({ whatsappE164: null, contactPhone: '+252634000111' }), 'storefront-visit-areas'))
+      .toContain('Not sure your area is covered?');
+  });
+
+  it('does not invite a question a shop with no WhatsApp and no phone could receive', () => {
+    const tree = renderVisit({ whatsappE164: null, contactPhone: null });
+    expect(textOf(tree, 'storefront-visit-areas')).not.toContain('Not sure your area is covered?');
+    // The rest of the card is untouched -- this gates one sentence, not the
+    // delivery list a customer came to this tab for.
+    expect(textOf(tree, 'storefront-visit-areas')).toContain('Jigjiga Yar');
   });
 
   // The phone has been on every shop since 20260808000000 and was never shown.
+  // The value itself moved from on-screen text to the accessibility label when
+  // the row flattened to a compact icon button (Task 22) -- "Call" is what a
+  // sighted customer reads, the number is what a screen reader announces.
   it('offers a call row when the shop has a phone, even with no WhatsApp', () => {
     const tree = renderVisit({ whatsappE164: null, contactPhone: '+252 63 000 0000' });
     expect(has(tree, 'storefront-visit-contact')).toBe(true);
-    expect(textOf(tree, 'storefront-visit-call')).toContain('+252 63 000 0000');
+    const call = tree.root.find(
+      (n) => n.props?.testID === 'storefront-visit-call' && typeof n.props?.onPress === 'function',
+    );
+    expect(call.props?.accessibilityLabel).toContain('+252 63 000 0000');
   });
 
+  // Same move as Call above: the @ still prints, now in the accessibility
+  // label rather than on the compact button's own face.
   it('offers an Instagram row, printing the @ it does not store', () => {
     const tree = renderVisit({ instagram: 'jiija.electronics' });
-    expect(textOf(tree, 'storefront-visit-instagram')).toContain('@jiija.electronics');
+    const instagram = tree.root.find(
+      (n) => n.props?.testID === 'storefront-visit-instagram' && typeof n.props?.onPress === 'function',
+    );
+    expect(instagram.props?.accessibilityLabel).toContain('@jiija.electronics');
   });
 
   it('shows neither row for a shop that has neither', () => {
     const tree = renderVisit({ contactPhone: null, instagram: null });
     expect(has(tree, 'storefront-visit-call')).toBe(false);
     expect(has(tree, 'storefront-visit-instagram')).toBe(false);
+  });
+
+  // Share shop composes from the app's single sources -- storefrontAddress
+  // (the one place a public address is built) and shareMessage's own
+  // customer-voice copy, never a hand-rolled wa.me string.
+  describe('Share shop', () => {
+    it('offers the control for every shop', () => {
+      expect(has(renderVisit(), 'storefront-visit-share')).toBe(true);
+    });
+
+    it('names the shop and ends on its one true address', () => {
+      const message = shareMessage(shop({ shopName: 'Jiija Electronics', slug: 'jiija' }));
+      expect(message).toContain('Jiija Electronics');
+      expect(message.endsWith(storefrontAddress('jiija'))).toBe(true);
+    });
   });
 
   // The mockup draws a map here. A rendered map needs a tile provider and a
@@ -394,12 +642,22 @@ describe('the Visit panel', () => {
     expect(url).toContain(encodeURIComponent('Jigjiga Yar, Hargeisa'));
   });
 
-  // A collection-only shop reaching this tab through its hours must not be
-  // told what delivery costs.
-  it('does not promise delivery in its heading when there is none', () => {
-    const text = textOf(renderVisit({ openingHours: HOURS }, []), 'storefront-visit-panel');
-    expect(text).toContain('when we are open');
-    expect(text).not.toContain('what it costs to come to you');
+  // Task 22, Fix 6: WhatsApp moved from the contact icon row onto the
+  // decision card (brief item 1d). An ancestor walk from the button up to
+  // the decision card is what actually proves "it is ON this card" -- mere
+  // presence anywhere in the tree would have passed before this task moved
+  // it, and would prove nothing about the move itself.
+  it('places WhatsApp on the decision card, not in the contact icon row', () => {
+    const tree = renderVisit();
+    const button = tree.root.find((n) => n.props?.testID === 'storefront-whatsapp-button');
+    let ancestor = button.parent;
+    let sawDecisionCard = false;
+    while (ancestor) {
+      if (ancestor.props?.testID === 'storefront-visit-decision') sawDecisionCard = true;
+      expect(ancestor.props?.testID).not.toBe('storefront-visit-contact');
+      ancestor = ancestor.parent;
+    }
+    expect(sawDecisionCard).toBe(true);
   });
 
   it('drops the delivery card entirely for a collection-only shop', () => {
@@ -415,6 +673,16 @@ describe('opening hours', () => {
     );
   }
 
+  // Task 22: the seven-row week is now a disclosure, collapsed by default --
+  // this presses the "All hours" toggle so a test can still reach the rows
+  // the way the touch-target sweep's own "expanded state too" section does.
+  function expandHours(tree: ReturnType<typeof create>) {
+    const toggle = tree.root.find(
+      (n) => n.props?.testID === 'storefront-visit-hours-toggle' && typeof n.props?.onPress === 'function',
+    );
+    act(() => { toggle.props.onPress(); });
+  }
+
   // An empty object means "never filled in". Seven "Closed" rows would invent a
   // claim the shop never made -- the same rule StockCard follows when it
   // refuses to say "all in stock today" about a shop with nothing listed.
@@ -422,31 +690,177 @@ describe('opening hours', () => {
     expect(has(renderHours({}), 'storefront-visit-hours')).toBe(false);
   });
 
-  it('prints every day of the week once the shop has', () => {
+  it('collapses to a single "Today" line by default, with an All hours toggle', () => {
     const tree = renderHours(HOURS);
+    expect(has(tree, 'storefront-visit-hours-toggle')).toBe(true);
+    // None of the seven day rows are in the tree until the toggle is pressed
+    // -- exactly the shape a Modal-while-closed or a `flyers: []` carousel
+    // hid from the sweep before; this is what proves the collapse is real
+    // rather than merely styled shut.
+    for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      expect(has(tree, `storefront-visit-hours-${day}`)).toBe(false);
+    }
+  });
+
+  it('prints every day of the week once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
     for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
       expect(has(tree, `storefront-visit-hours-${day}`)).toBe(true);
     }
   });
 
-  it('prints a split shift as both ranges, not just the first', () => {
-    expect(textOf(renderHours(HOURS), 'storefront-visit-hours-wed'))
-      .toContain('08:00 – 11:30, 14:00 – 21:00');
-  });
-
-  it('says Closed on a day with no ranges', () => {
-    expect(textOf(renderHours(HOURS), 'storefront-visit-hours-tue')).toContain('Closed');
-  });
-
-  // Colour is never the only signal -- the pill says which state it is in.
-  it('states open or closed in words, not only in colour', () => {
-    const text = textOf(renderHours(HOURS), 'storefront-visit-open-now');
-    expect(text === 'Open now' || text === 'Closed now').toBe(true);
-  });
-
-  it('marks the day the customer is actually standing in', () => {
+  it('collapses again on a second press', () => {
     const tree = renderHours(HOURS);
+    expandHours(tree);
+    expect(has(tree, 'storefront-visit-hours-mon')).toBe(true);
+    expandHours(tree);
+    expect(has(tree, 'storefront-visit-hours-mon')).toBe(false);
+  });
+
+  it('prints a split shift as both ranges, not just the first, once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
+    expect(textOf(tree, 'storefront-visit-hours-wed')).toContain('08:00 – 11:30, 14:00 – 21:00');
+  });
+
+  it('says Closed on a day with no ranges, once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
+    expect(textOf(tree, 'storefront-visit-hours-tue')).toContain('Closed');
+  });
+
+  it('marks the day the customer is actually standing in, once expanded', () => {
+    const tree = renderHours(HOURS);
+    expandHours(tree);
     const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
     expect(textOf(tree, `storefront-visit-hours-${today}`)).toContain('today');
+  });
+
+  it('collapses to "Today: Closed" on a day with no ranges', () => {
+    // Deterministic at ANY real clock, with no fake timer needed: this
+    // fixture configures only 'tue' (to an explicit closure), so
+    // `rangesFor` returns [] for whichever weekday the suite actually runs
+    // on -- the absent-key branch for six of them, the explicit `[]` for
+    // Tuesday itself -- and `formatDayHours([])` is "Closed" either way.
+    const tuesdayOnly = { tue: [] };
+    const text = textOf(renderHours(tuesdayOnly), 'storefront-visit-hours');
+    expect(text).toContain('Today:');
+    expect(text).toContain('Closed');
+  });
+});
+
+// THE DECISION PILL'S TEXT, under a CONTROLLED clock. `isOpenAt` (and so the
+// pill built on it) reads the device clock, so asserting its exact wording
+// against `new Date()` would make this suite pass at 10am and fail at 10pm --
+// precisely the trap this task's own brief warns against. `jest.useFakeTimers`
+// pins the instant every test in this block runs at, scoped to only this
+// block (`afterEach` restores real timers) so no other describe block in this
+// file is affected.
+describe('the decision pill, at a fixed instant', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function renderAt(hours: object, iso: string) {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(iso));
+    return render(<VisitPanel storefront={shop({ openingHours: hours })} areas={AREAS} colors={colors} />);
+  }
+
+  // Task 24, decision 3: the pill no longer names a closing time -- that fact
+  // now lives only in HoursCard's own 24-hour row, not repeated here in a
+  // second notation.
+  it('reads "Open now" while a range is open', () => {
+    // 2026-08-03 is the Monday HOURS already keys off (see MONDAY-anchored
+    // fixtures elsewhere in this suite); 10:00 sits inside its 08:00-21:00
+    // block.
+    const tree = renderAt(HOURS, '2026-08-03T10:00:00');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Open now');
+  });
+
+  it('reads "Closed · opens <time>" on a day with nothing left, but hours later this week', () => {
+    // Tuesday carries no ranges in HOURS; Wednesday opens at 08:00.
+    const tree = renderAt(HOURS, '2026-08-04T10:00:00');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Closed · opens tomorrow, 8am');
+  });
+
+  it('reads bare "Closed" when nothing reopens within a week', () => {
+    const neverReopens = { mon: [{ open: '08:00', close: '09:00' }] };
+    const tree = renderAt(neverReopens, '2026-08-03T20:00:00');
+    expect(textOf(tree, 'storefront-visit-open-now')).toBe('Closed');
+  });
+
+  // isConfigured false -- the shop never set hours at all -- must print no
+  // pill whatsoever, not a "Closed" that invents a claim the shop never made.
+  it('renders no pill at all for a shop that never set hours', () => {
+    const tree = renderAt({}, '2026-08-03T10:00:00');
+    expect(has(tree, 'storefront-visit-open-now')).toBe(false);
+  });
+
+  // THE PILL MUST HAVE A PLATE, ON EVERY PALETTE, IN BOTH STATES, AND OPEN
+  // MUST BE THE LOUDER ONE.
+  //
+  // This is the one thing about the pill a test in this repo CAN see: not its
+  // size or position -- nothing here lays out -- but the colour it resolves
+  // to, against the colour of the card it sits on. It is worth pinning because
+  // TWO defects have shipped here already:
+  //
+  //   1. the pill kept the `accent` fill it wore on HoursCard's light header,
+  //      and on the ink palette `accent` IS `ink`, so a browser showed the
+  //      OPEN pill as bare text on the ink card while the CLOSED one kept its
+  //      bright `soft` plate;
+  //   2. once that was fixed, OPEN wore `onDarkAccent` (walked only to WCAG
+  //      1.4.11's 3:1 non-text FLOOR against `ink`) and CLOSED wore `soft`
+  //      (16.72:1) -- a plate on both states, but the state a shop most wants
+  //      read was the FAINTER of the two by more than four times (Task 24,
+  //      decision 1).
+  //
+  // So this asserts the actual property decision 1 is about -- OPEN'S
+  // CONTRAST AGAINST THE CARD IS STRICTLY GREATER THAN CLOSED'S -- rather
+  // than pinning either fill to a literal hex. A ratio comparison is what
+  // fails if a future token swap re-inverts them; a hex-equality check would
+  // pass again the moment both sides changed to a different but still-wrong
+  // pair. `colors.ground`/`colors.onDarkAccent` are asserted directly too,
+  // since the brief also names those as the exact fills.
+  //
+  // Asserted across ALL seven palettes rather than the default one, because
+  // this is precisely a defect that hides in a single palette: six of them
+  // looked fine both times.
+  //
+  // The clock is set BEFORE `render`, and the panel is rendered ONCE PER
+  // INSTANT inside the loop -- the same shape the four `renderAt` tests above
+  // this one already use. `jest.setSystemTime` after `create()` does not
+  // trigger a re-render, so a single render reused across both isos (the
+  // earlier shape of this test) inspected the IDENTICAL tree twice: whichever
+  // state that tree happened to be in depended on the real wall clock at the
+  // moment the suite ran, not on either `iso` this test claims to cover. Under
+  // `TZ=Pacific/Kiritimati` the real clock landed on a Tuesday with
+  // `HOURS.tue: []` -- always closed -- so all seven palettes were quietly
+  // asserting against the CLOSED pill on every run, where `not.toBe(ink)` is
+  // satisfied by `soft` for free and proves nothing about the open state at
+  // all.
+  it.each(PALETTES.map((p) => p.key))('gives the open pill a plate distinct from the card on %s', (palette) => {
+    const paletted = paletteColors(palette);
+    const fillOf = (iso: string) => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(iso));
+      const tree = render(
+        <VisitPanel storefront={shop({ openingHours: HOURS })} areas={AREAS} colors={paletted} />,
+      );
+      const pill = tree.root.findAll((n) => n.props?.testID === 'storefront-visit-open-now')[0];
+      return StyleSheet.flatten(pill.props.style).backgroundColor;
+    };
+
+    // 2026-08-03T10:00:00 is the same Monday-inside-08:00-21:00 instant
+    // `renderAt`'s first test above uses -- open. 2026-08-04T10:00:00 is the
+    // Tuesday `HOURS.tue: []` closes outright -- closed.
+    const openFill = fillOf('2026-08-03T10:00:00');
+    const closedFill = fillOf('2026-08-04T10:00:00');
+    expect(openFill).toBe(paletted.ground);
+    expect(closedFill).toBe(paletted.onDarkAccent);
+    // THE ACTUAL PROPERTY DECISION 1 IS ABOUT: open reads louder than closed
+    // against the card, not merely "some colour or other".
+    expect(contrastRatio(openFill, paletted.ink)).toBeGreaterThan(contrastRatio(closedFill, paletted.ink));
   });
 });
