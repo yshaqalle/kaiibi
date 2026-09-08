@@ -226,6 +226,11 @@ describe('the generated FAQ', () => {
 });
 
 describe('the About panel', () => {
+  // 900, not the ambient jest window's own height (1334, `@react-native/
+  // jest-preset`'s default) -- explicit for the same reason `wide={false}` is
+  // below: a round number this file's own gallery tests can reason about
+  // directly (`photoHeightCapFor(900)` is exactly 360), rather than a value
+  // that would also change if that preset's own default ever moved.
   function renderAbout(
     overrides: Partial<PublicStorefront> = {}, cats = categories, areas = AREAS, prods = products,
   ) {
@@ -237,6 +242,7 @@ describe('the About panel', () => {
         areas={areas}
         colors={colors}
         wide={false}
+        windowHeight={900}
       />,
     );
   }
@@ -344,24 +350,26 @@ describe('the About panel', () => {
     expect(has(tree, 'storefront-about-photo-i1')).toBe(false);
   });
 
-  // TASK 25: THE PHOTOGRAPHS GET THE PAGE, THE PROSE KEEPS ITS MEASURE.
+  // TASK 26: THE GALLERY REJOINS THE PROSE MEASURE.
   //
-  // Nothing in this repo lays out, so a rendered WIDTH cannot be asserted --
-  // this is the style the components resolve to instead, and it is exactly
-  // what pins the decision: the gallery carries no bound of its own (so it
-  // fills whatever width `body`/`SHOP_MAX_WIDTH` give it in shop-chrome.tsx,
-  // the same width `ShopFooter` renders at), while everything actually READ
-  // -- the proof chips, the merged story card, the FAQ band -- keeps
-  // PROSE_MAX_WIDTH. `PROSE_MAX_WIDTH` is imported rather than hard-coded as
-  // 820, so this test moves with that constant instead of pinning a literal
-  // against itself.
+  // Task 25 left the gallery off this list on purpose, because a full-width
+  // cover-plus-thumbnail-strip photo has no reading measure to keep -- this
+  // is the test that used to pin THAT decision (`gallery.maxWidth` was
+  // asserted `toBeUndefined()`). Task 26 replaces that shape with a bounded,
+  // single-photo carousel (about-gallery.tsx): the user reported the cover
+  // "takes the entire page" on a laptop, measured at 1376x774 (86% of the
+  // viewport) at 1440x900 -- so the gallery now takes `PROSE_MAX_WIDTH` the
+  // same way every other block on this tab does, which is what actually
+  // fixes that measurement. `PROSE_MAX_WIDTH` is imported rather than
+  // hard-coded as 820, so this test moves with that constant instead of
+  // pinning a literal against itself.
   //
-  // NOT VACUOUS: confirmed by temporarily giving `styles.gallery` in
-  // about-panel.tsx a `maxWidth: PROSE_MAX_WIDTH` of its own and re-running
-  // this file -- the gallery assertion below failed (`toBeUndefined()` saw
-  // 820), then passed again once the line was reverted. See task-25-report.md
-  // for the exact output.
-  it('gives the gallery the full page width but keeps every read block at PROSE_MAX_WIDTH', () => {
+  // NOT VACUOUS: confirmed by temporarily dropping `styles.prose` back off
+  // the gallery's own style array in about-panel.tsx and re-running this
+  // file -- the gallery assertion below failed (`toBe(PROSE_MAX_WIDTH)` saw
+  // `undefined`), then passed again once the line was restored. See
+  // task-26-report.md for the exact output.
+  it('bounds the gallery to PROSE_MAX_WIDTH, the same measure every read block on this tab keeps', () => {
     const tree = renderAbout({
       images: [
         { id: 'i1', url: 'https://cdn.test/a.jpg' },
@@ -371,7 +379,7 @@ describe('the About panel', () => {
 
     const gallery = hostNode(tree, 'storefront-about-gallery');
     expect(gallery).toBeDefined();
-    expect(StyleSheet.flatten(gallery.props.style).maxWidth).toBeUndefined();
+    expect(StyleSheet.flatten(gallery.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
 
     const storyCard = hostNode(tree, 'storefront-about-story-card');
     expect(StyleSheet.flatten(storyCard.props.style).maxWidth).toBe(PROSE_MAX_WIDTH);
@@ -394,26 +402,28 @@ describe('the About panel', () => {
   // moving the box itself -- which is invisible to a `maxWidth`-only
   // assertion and only shows up once you measure pixels in a browser.
   //
-  // So this pins the other half of the invariant: all three bounded blocks
-  // must carry the SAME (zero) horizontal padding of their own, not just the
-  // same maxWidth. `panel` (about-panel.tsx) is the one and only container
-  // meant to supply that inset now.
+  // So this pins the other half of the invariant: all four bounded blocks
+  // (the gallery included, as of Task 26 -- see the test above) must carry
+  // the SAME (zero) horizontal padding of their own, not just the same
+  // maxWidth. `panel` (about-panel.tsx) is the one and only container meant
+  // to supply that inset now.
   //
   // NOT VACUOUS: confirmed by temporarily restoring the old
   // `paddingHorizontal: SPACE.page` gutter on the FAQ band and re-running
   // this file -- the assertion below failed (`toBeUndefined()` saw 16), then
   // passed again once the line was reverted. See task-25-report.md's
   // "Alignment fix" section for the exact output.
-  it('gives the proof chips, story card and FAQ band the same (zero) horizontal padding of their own', () => {
+  it('gives the gallery, proof chips, story card and FAQ band the same (zero) horizontal padding of their own', () => {
     const tree = renderAbout({
       images: [{ id: 'i1', url: 'https://cdn.test/a.jpg' }],
     });
 
+    const gallery = hostNode(tree, 'storefront-about-gallery');
     const storyCard = hostNode(tree, 'storefront-about-story-card');
     const proof = hostNode(tree, 'storefront-about-proof');
     const faq = hostNode(tree, 'storefront-about-faq');
 
-    for (const node of [storyCard, proof, faq]) {
+    for (const node of [gallery, storyCard, proof, faq]) {
       const flat = StyleSheet.flatten(node.props.style) as {
         paddingHorizontal?: unknown; paddingLeft?: unknown; paddingRight?: unknown;
       };

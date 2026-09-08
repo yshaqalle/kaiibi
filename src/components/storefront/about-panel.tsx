@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AboutGallery } from '@/components/storefront/about-gallery';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
   DISPLAY_FONT, LETTER, PROSE_MAX_WIDTH, RADIUS, SPACE, TOUCH_TARGET, TYPE,
@@ -154,7 +155,7 @@ function Accordion({ colors, questions }: { colors: PaletteColors; questions: Sh
 // (see `proofChips` below), so it is never destructured to a local name; an
 // unused local is what the old stats strip would have left behind here.
 export function AboutPanel({
-  storefront, products, areas, colors, wide,
+  storefront, products, areas, colors, wide, windowHeight,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
@@ -162,6 +163,20 @@ export function AboutPanel({
   areas: PublicDeliveryArea[];
   colors: PaletteColors;
   wide: boolean;
+  // Threaded down the SAME PATH `wide` already travels -- shop-chrome.tsx,
+  // fed by the theme file's own `useWindowDimensions()` call (theme-market.tsx,
+  // theme-window.tsx, theme-counter.tsx all destructure `height` off the
+  // identical call that already produces `width` for `wide`) -- rather than
+  // this panel subscribing to the window itself. `wide`'s own comment
+  // (ShopAnchor, theme-shared.tsx) says why a tile-level component never
+  // subscribes on its own; this panel is not a tile (there is exactly one
+  // About tab per page), but the theme ALREADY pays for this subscription to
+  // get `wide`, so threading `windowHeight` down the same prop chain is free
+  // -- a second, independent subscription here would just be two listeners
+  // answering the same question. Used only by `AboutGallery` below, for the
+  // carousel's height cap (`photoHeightCapFor`, product-sheet.tsx) -- no
+  // other block on this tab is sized off the window.
+  windowHeight: number;
 }) {
   const questions = shopQuestions(storefront, areas);
 
@@ -226,55 +241,51 @@ export function AboutPanel({
     <View testID="storefront-about-panel">
       <View style={styles.panel}>
         {/* THE GALLERY, moved to the top: a stranger trusts what they can see
-            before what they can read. It is a row of what the shop actually
-            uploaded -- never a grid with holes in it. The cover is always the
-            first photo, full width and 16:9; the rest are a THUMBNAIL STRIP
-            under it, which is what the design draws. A shop with one photo
-            gets the cover and no strip; a shop with none renders no cover, no
-            caption and no strip at all -- the tab simply starts at the proof
-            chips below.
+            before what they can read. A shop with none renders no gallery, no
+            caption at all -- the tab simply starts at the proof chips below.
 
-            NO PROSE BOUND HERE, DELIBERATELY (Task 25). PROSE_MAX_WIDTH exists
-            for a paragraph's line length, and a photograph has no line to keep
-            short -- so, unlike every block below it, this one carries no
-            `maxWidth` at all and simply fills `body` (shop-chrome.tsx), which
-            is the same width `ShopFooter` already renders at. That is also
-            why `SHOP_MAX_WIDTH` is never imported here: a gallery with no
-            bound of its own lands at the footer's width by construction, the
-            two agreeing without a second constant to keep in step. */}
+            TASK 26: A CAROUSEL, BOUNDED, NOT A COVER-PLUS-THUMBNAIL-STRIP
+            FULL-BLEED ROW. The user looked at the shipped tab on a laptop and
+            reported two things, both backed by measurements in
+            task-26-brief.md: the cover photo "takes the entire page" (1376 x
+            774 at 1440x900, 86% of the viewport, with the proof chips landing
+            below the fold) and the lone second photo "looks kind of off" --
+            a 168x76 box stranded in a 1376px-wide row. AboutGallery
+            (about-gallery.tsx) replaces both halves of that shape with one
+            photo on screen at a time, dots to move between them, at a height
+            capped by `photoHeightCapFor` (product-sheet.tsx) rather than a
+            photo drawn at its own full aspect ratio.
+
+            THIS ALSO REVERSES THE WIDTH HALF OF TASK 25'S DECISION,
+            DELIBERATELY AND AT THE USER'S DIRECTION: `styles.prose` now
+            bounds the gallery the same way it already bounds the proof
+            chips, the story card and the FAQ band below -- see `prose`'s own
+            comment for why all four now resolve identically. Task 25 gave
+            the gallery no bound of its own specifically because a cover-plus-
+            thumbnail-strip photo has no reading measure to keep; a bounded,
+            single-photo-at-a-time carousel is a different shape with a
+            different answer, not a return to Task 25's own defect (an
+            unbounded panel at chrome level narrowing every block inside it
+            twice over). Every block on this tab shares one width again,
+            which is also why the alignment invariant
+            storefront-shop-tabs.test.tsx already asserts for the other three
+            blocks still holds with the gallery folded into it. */}
         {shownImages.length > 0 ? (
-          <View style={styles.gallery} testID="storefront-about-gallery">
-            <View>
-              <Image
-                testID="storefront-about-cover"
-                source={{ uri: shownImages[0].url! }}
-                onError={() => dropImage(shownImages[0].id)}
-                style={[styles.galleryLead, { backgroundColor: colors.soft }]}
-                resizeMode="cover"
-              />
-              {caption ? (
-                <Text
-                  testID="storefront-about-caption"
-                  style={[styles.caption, { color: colors.muted }]}
-                  numberOfLines={1}
-                >
-                  {caption}
-                </Text>
-              ) : null}
-            </View>
-            {shownImages.length > 1 ? (
-              <View style={styles.galleryRest}>
-                {shownImages.slice(1).map((image) => (
-                  <Image
-                    key={image.id}
-                    testID={`storefront-about-photo-${image.id}`}
-                    source={{ uri: image.url! }}
-                    onError={() => dropImage(image.id)}
-                    style={[styles.galleryThumb, { backgroundColor: colors.soft }]}
-                    resizeMode="cover"
-                  />
-                ))}
-              </View>
+          <View style={[styles.gallery, styles.prose]} testID="storefront-about-gallery">
+            <AboutGallery
+              images={shownImages}
+              colors={colors}
+              windowHeight={windowHeight}
+              onImageError={dropImage}
+            />
+            {caption ? (
+              <Text
+                testID="storefront-about-caption"
+                style={[styles.caption, { color: colors.muted }]}
+                numberOfLines={1}
+              >
+                {caption}
+              </Text>
             ) : null}
           </View>
         ) : null}
@@ -399,18 +410,24 @@ const styles = StyleSheet.create({
   // `prose`) -- no block reproduces it with a gutter of its own, which is
   // exactly the bug the alignment fix removed.
   panel: { padding: SPACE.page, gap: SPACE.cardGap },
-  // THE BOUND MOVED HERE FROM shop-chrome.tsx (Task 25). Phase 4 put a
-  // gallery at the top of this tab, and a photograph has no reading measure
-  // to keep -- so the chrome no longer wraps this whole panel in one
-  // PROSE_MAX_WIDTH column (see that file's own comment on why). Every block
-  // that IS read -- the proof chips, the merged story card, the FAQ band --
-  // takes this style directly instead, so each narrows to the same measure
-  // the chrome used to give the panel as a whole. The gallery is the one
-  // block in this file that never takes it (see its own comment above), and
-  // `panel` above stays unbounded so the gallery can fill `body`
-  // (shop-chrome.tsx) right up to the width `ShopFooter` already renders at.
+  // THE BOUND MOVED HERE FROM shop-chrome.tsx (Task 25). The chrome no
+  // longer wraps this whole panel in one PROSE_MAX_WIDTH column (see that
+  // file's own comment on why) -- every block that IS read takes this style
+  // directly instead, so each narrows to the same measure the chrome used to
+  // give the panel as a whole. `panel` above stays unbounded so that each
+  // block below can make its OWN choice about how wide it runs, rather than
+  // the chrome making one choice for all of them.
   //
-  // ALL THREE bounded blocks must resolve this identically -- same maxWidth,
+  // FOUR BLOCKS NOW TAKE THIS, not three: Task 25 left the gallery off this
+  // list on purpose, because a cover-plus-thumbnail-strip photo has no
+  // reading measure to keep. Task 26 puts a bounded, single-photo carousel
+  // in its place instead (about-gallery.tsx) -- a photo that fills the whole
+  // laptop viewport was exactly the customer's own complaint (measured in
+  // task-26-brief.md: 1376x774 at 1440x900, 86% of the window) -- so the
+  // gallery now takes `prose` at its own call site the same way the proof
+  // chips, the story card and the FAQ band do here.
+  //
+  // ALL FOUR bounded blocks must resolve this identically -- same maxWidth,
   // same alignSelf, and (this is the part Task 25 got wrong for the FAQ) NO
   // paddingHorizontal of its own layered on top, because `panel` above is
   // already the one and only container supplying that inset. A block that
@@ -438,37 +455,16 @@ const styles = StyleSheet.create({
   },
   titleWide: { fontSize: 34, lineHeight: 39 },
   story: { fontSize: TYPE.body + 1, lineHeight: 22 },
+  // The carousel (about-gallery.tsx) draws every photo itself, at its own
+  // capped height -- this file's own contribution is just the gap between it
+  // and the caption strip below, the same role `storyCard`'s own `gap` plays
+  // for its children.
   gallery: { gap: SPACE.gap },
-  galleryLead: { width: '100%', aspectRatio: 16 / 9, borderRadius: RADIUS.inset },
-  // The strip: one line under the cover, never lettered over the photo -- see
-  // `caption`'s own comment above. `metaSmall` is this file's smallest legible
-  // step, the same size a pill label uses (scale.ts), which is exactly the
-  // register a location line under a photo asks for.
+  // The strip: one line under the carousel, never lettered over a photo --
+  // see `caption`'s own call site for why. `metaSmall` is this file's
+  // smallest legible step, the same size a pill label uses (scale.ts), which
+  // is exactly the register a location line under a photo asks for.
   caption: { fontSize: TYPE.metaSmall, marginTop: 6 },
-  // Wraps, so four or five photographs fill rows instead of shrinking to fit
-  // one. `flexBasis` rather than a fixed width: several per row on a phone,
-  // more on a laptop, with no breakpoint to keep in step.
-  galleryRest: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.gap },
-  // A FIXED HEIGHT, AND A CEILING ON THE WIDTH -- measured, not guessed.
-  //
-  // This was `flexGrow: 1, flexBasis: 140, aspectRatio: 1`, and the pair is a
-  // trap at low photo counts: `flexGrow` makes a LONE thumbnail take the whole
-  // column, and `aspectRatio: 1` then makes it that TALL. Measured in a browser
-  // on a shop with exactly two photos -- the common case, and the seeded one --
-  // it drew 326x326 at 390px and 788x788 at 1440px, a thumbnail nearly twice
-  // the height of the 16:9 cover above it, which pushed the proof chips to
-  // y=1345 and off the first screen on every laptop. The whole point of the
-  // re-weighting is that a stranger meets the photos and then the proof; a
-  // thumbnail that outgrows its own cover defeats it.
-  //
-  // No test in this repo can see this -- nothing lays out here -- so the height
-  // is stated rather than derived: a thumbnail is a fixed strip under the
-  // cover, the way both mockups draw it. `maxWidth` is what stops one photo
-  // spanning 788px of laptop; the row simply left-aligns when there are fewer
-  // thumbnails than fill it.
-  galleryThumb: {
-    flexGrow: 1, flexBasis: 104, maxWidth: 168, height: 76, borderRadius: RADIUS.inset,
-  },
 
   // THE PROOF CHIPS' ONE SHAPE, matching shop-directory-card.tsx's sell tags
   // exactly (radius 8, weight 700, size 10.5, `soft` fill, `muted` text) --

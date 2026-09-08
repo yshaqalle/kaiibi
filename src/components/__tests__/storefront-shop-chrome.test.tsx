@@ -160,10 +160,11 @@ describe('the About/Visit panel is full-bleed, and only the prose narrows', () =
   // TASK 25 REWRITES THIS TEST, RATHER THAN JUST RETIRING IT. Before Task 25,
   // the chrome wrapped BOTH panels in one `styles.prose` column, and this
   // test proved About sat inside it. Now About bounds its own blocks instead
-  // (about-panel.tsx's own `prose` style; the block-by-block proof --
-  // gallery unbounded, story card/proof chips/FAQ band each at
-  // PROSE_MAX_WIDTH -- lives in storefront-shop-tabs.test.tsx, which renders
-  // AboutPanel directly and so is the right place to assert it). What THIS
+  // (about-panel.tsx's own `prose` style; the block-by-block proof -- the
+  // gallery, story card, proof chips and FAQ band each at PROSE_MAX_WIDTH,
+  // the gallery joining that list in Task 26 -- lives in
+  // storefront-shop-tabs.test.tsx, which renders AboutPanel directly and so
+  // is the right place to assert it). What THIS
   // file can still prove, walking the chrome down to the panel's own root
   // testID, is the other half: the CHROME itself no longer supplies a
   // PROSE_MAX_WIDTH ancestor above the panel. If it still did, the panel

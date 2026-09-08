@@ -29,7 +29,7 @@ import type { PublicDeliveryArea, PublicStorefront, StorefrontCategory, Storefro
 // different page, not an overlay, and keeping a FlatList of 200 products
 // mounted behind them would cost the memory and gain nothing.
 export function ShopChrome({
-  storefront, products, categories, areas, colors, wide, tab, onSelectTab, children, bounded = false,
+  storefront, products, categories, areas, colors, wide, windowHeight, tab, onSelectTab, children, bounded = false,
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
@@ -37,6 +37,12 @@ export function ShopChrome({
   areas: PublicDeliveryArea[];
   colors: PaletteColors;
   wide: boolean;
+  // Threaded straight through to AboutPanel (Task 26), the same way `wide`
+  // already is -- see that file's own comment on why the About tab's photo
+  // carousel needs the window's HEIGHT and not just a wide/narrow boolean,
+  // and why that is still cheaper than a second subscription. VisitPanel has
+  // no photo carousel and never receives this.
+  windowHeight: number;
   tab: ShopTabKey;
   onSelectTab: (tab: ShopTabKey) => void;
   /** The theme's own browsing UI. Rendered only on the 'shop' tab. */
@@ -142,28 +148,27 @@ export function ShopChrome({
               column; a paragraph read at that width is unreadable.
 
               ONLY ONE OF THESE TWO PANELS BOUNDS ITSELF HERE, AND IT IS NOT
-              ABOUT (Task 25). This used to wrap BOTH panels in one
-              `styles.prose` column, back when neither panel's own content had
-              anything but text in it. Phase 4 put a photo gallery at the top
-              of About, and a photograph has no reading measure to keep -- so
-              About is now handed the full, unbounded width below and narrows
-              its OWN blocks instead: the proof chips, the merged story card
-              and the FAQ band each carry PROSE_MAX_WIDTH directly
-              (about-panel.tsx's own `prose` style), while its gallery carries
-              none and so fills this same unbounded space. Visit has no
-              photographs -- hours, delivery chips and contact are still all
-              prose, top to bottom -- so it keeps being bounded HERE, at the
-              chrome level, exactly as before.
+              ABOUT (Task 25, still true after Task 26). This used to wrap
+              BOTH panels in one `styles.prose` column, back when neither
+              panel's own content had anything but text in it. Phase 4 put a
+              photo gallery at the top of About, and About is handed the full,
+              unbounded width below and narrows its OWN blocks instead: the
+              gallery, the proof chips, the merged story card and the FAQ band
+              each carry PROSE_MAX_WIDTH directly (about-panel.tsx's own
+              `prose` style) -- Task 26 added the gallery to that list (it
+              used to carry no bound at all; see about-panel.tsx's own
+              comment on why a bounded, single-photo carousel is a different
+              shape from the full-bleed cover-plus-thumbnail-strip row it
+              replaced). Visit has no photographs -- hours, delivery chips and
+              contact are still all prose, top to bottom -- so it keeps being
+              bounded HERE, at the chrome level, exactly as before.
 
               The footer below is deliberately OUTSIDE either panel, at the
               SAME level as it is on the Shop tab (a plain trailing child of
               the padded body, not of a narrower prose wrapper) -- see this
               ScrollView's own comment above for why that is what keeps the
-              one footer one width. Because About's gallery now also takes
-              this same unbounded width with no bound of its own, it lands at
-              exactly the footer's width too, by construction rather than by
-              two constants (SHOP_MAX_WIDTH and whatever a gallery might have
-              hard-coded) kept in step by hand. */}
+              one footer one width, regardless of which blocks inside either
+              panel bound themselves narrower. */}
           {active === 'about' ? (
             <AboutPanel
               storefront={storefront}
@@ -172,6 +177,7 @@ export function ShopChrome({
               areas={areas}
               colors={colors}
               wide={wide}
+              windowHeight={windowHeight}
             />
           ) : (
             <View style={styles.prose}>

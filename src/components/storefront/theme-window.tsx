@@ -26,7 +26,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
   // Controlled by the route when there is one, local otherwise -- see
   // useShopTab. One line here instead of a useState in all three themes.
   const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
   // See theme-market.tsx: two measurements off one width, separate thresholds.
   const wide = isWideShop(width);
@@ -191,6 +191,7 @@ export function ThemeWindow({ storefront, products, colors, areas = [], categori
         areas={areas}
         colors={colors}
         wide={wide}
+        windowHeight={height}
         tab={activeTab}
         onSelectTab={selectTab}
       >

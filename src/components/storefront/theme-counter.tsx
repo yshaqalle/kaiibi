@@ -48,7 +48,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
   // Controlled by the route when there is one, local otherwise -- see
   // useShopTab. One line here instead of a useState in all three themes.
   const [activeTab, selectTab] = useShopTab(tab, onSelectTab);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const wide = isWideShop(width);
   // The cart is keyed by shop slug, not by theme (see theme-shared.tsx's
   // useStorefrontCart) -- a customer can still arrive here with items a
@@ -116,6 +116,7 @@ export function ThemeCounter({ storefront, products, colors, areas = [], categor
         areas={areas}
         colors={colors}
         wide={wide}
+        windowHeight={height}
         tab={activeTab}
         onSelectTab={selectTab}
         // Counter's own page (`scroll` below) never went full-bleed and

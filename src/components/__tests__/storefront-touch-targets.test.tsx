@@ -718,8 +718,18 @@ describe('the About and Visit tabs no describe block above ever selects', () => 
     // together produce all four -- so naming each toggle is what makes a
     // dropped question an assertion failure rather than a smaller number
     // nobody compared against anything.
+    // 'storefront-about-dot' is named here for the same reason the four FAQ
+    // ids are: Task 26's whole CRITICAL was a dot that failed the floor while
+    // sitting unswept (flyer-carousel.tsx's own history) -- this fixture's
+    // two gallery images (`im1`, `im2`, above) are what turns the new
+    // AboutGallery carousel's dots on at all (they render only at
+    // `count >= 2`, which this fixture already satisfies -- confirmed by
+    // running this file, not assumed), so a dot that stopped rendering must
+    // fail this assertion BY NAME rather than shrink a count nobody compares
+    // against anything.
     for (const requiredId of [
       'storefront-faq-pay', 'storefront-faq-delivery', 'storefront-faq-collect', 'storefront-faq-stock',
+      'storefront-about-dot',
     ]) {
       expect(controlIds).toContain(requiredId);
     }
