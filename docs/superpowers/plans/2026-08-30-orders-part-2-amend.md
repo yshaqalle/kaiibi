@@ -1,6 +1,12 @@
 # Orders Part 2 — `amend_order`
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+
+> **SHIPPED.** Every step below is done and merged; the ticks are the record, not a plan.
+> Part 2 is PR #114, Part 3 is #116, and both are live on production as of 2026-08-30.
+> What each one actually decided, and what it found on the way, is in
+> `docs/superpowers/HANDOFF-2026-08-30-orders-part-2-done.md` and
+> `HANDOFF-2026-08-30-orders-part-3-done.md`.
 
 **Goal:** A shop can change an order — reduce it to what is on the shelf, drop a line the customer no longer wants, fix a mistyped phone number — instead of its only move being to cancel the whole thing.
 
@@ -99,11 +105,11 @@ amend_order(
 ) returns public.orders
 ```
 
-- [ ] **Step 1: Confirm the permission decision before writing anything**
+- [x] **Step 1: Confirm the permission decision before writing anything**
 
 Read `src/lib/permissions.ts:52-98` and `has_shop_permission`'s usage in an existing RPC (e.g. `complete_sale`). Confirm `sales.edit` exists and is the right gate, or make the documented fallback choice. **Write the reasoning into the migration header** — the next reader must not have to re-derive it.
 
-- [ ] **Step 2: Write the failing checks**
+- [x] **Step 2: Write the failing checks**
 
 Create `supabase/tests/verify-order-amendments.sql`. It builds its own shop, product, storefront and order (there is no `seed.sql`), and every failure `raise exception`s rather than `raise notice`s. Put the verdict string in the **last** block. Cover at least:
 
@@ -122,13 +128,13 @@ Create `supabase/tests/verify-order-amendments.sql`. It builds its own shop, pro
 13. **An `order_amendments` row is written**, carrying the reason and a before/after that differ.
 14. **`authenticated` still cannot write `orders` or `order_items` directly** — the lockdown is intact.
 
-- [ ] **Step 3: Run them and watch them fail**
+- [x] **Step 3: Run them and watch them fail**
 ```bash
 npm run test:db 2>&1 | grep -iE "amend|FAILED:"
 ```
 Expected: `verify-order-amendments` named in the `FAILED:` list, because `amend_order` does not exist.
 
-- [ ] **Step 4: Write the migration**
+- [x] **Step 4: Write the migration**
 
 **Header must argue, not describe.** State: why an amend is an RPC and not a client write (the lockdown); why re-pricing is mandatory (constraint 2 above — cite `20260908000300:363` and `order_total_changed`); why the reason is required and enforced twice, naming `orders_cancellation_reason_required` as the precedent; why the permission chosen is the right one; and **why no parameter decides authorization**, citing `20261011000000`'s header.
 
@@ -161,14 +167,14 @@ revoke insert, update, delete on public.order_amendments from anon, authenticate
 
 Grants at the foot: revoke from `public`, grant to `authenticated`, **never `anon`** — a customer does not amend their own order.
 
-- [ ] **Step 5: Run the checks**
+- [x] **Step 5: Run the checks**
 ```bash
 npm run test:db 2>&1 | tail -5
 npx jest supabase/tests/accumulated-rpc-edits.test.ts
 ```
 Expected: zero `FAILED:`, and the pin test green.
 
-- [ ] **Step 6: Mutation pass**
+- [x] **Step 6: Mutation pass**
 
 | # | Mutation | Must redden |
 |---|---|---|
@@ -181,7 +187,7 @@ Expected: zero `FAILED:`, and the pin test green.
 
 Then **prove the file can fail at all**: mutate one check and confirm `verify-order-amendments` appears in the `FAILED:` list. A mutation that stays green is a finding to report.
 
-- [ ] **Step 7: Commit** with a message that leads with why re-pricing is mandatory.
+- [x] **Step 7: Commit** with a message that leads with why re-pricing is mandatory.
 
 ---
 
@@ -202,10 +208,10 @@ export async function amendOrder(
 ): Promise<ShopOrder>;
 ```
 
-- [ ] **Step 1: Write the failing tests** — the RPC is called with the right argument names; the returned row maps through the existing `mapOrderRow`; and **each typed error maps to a sentence a shopkeeper can act on**. Extend `orderErrorMessage` for `amendment_reason_required`, `order_not_amendable`, `order_has_no_items`, `order_product_deleted`. Follow how the existing order errors are mapped and tested.
-- [ ] **Step 2: Run, watch fail. Step 3: Implement. Step 4: `npx jest src/lib && npx tsc --noEmit`.**
-- [ ] **Step 5: Mutation pass** — swap two RPC argument names; drop one error mapping. Both must redden.
-- [ ] **Step 6: Commit.**
+- [x] **Step 1: Write the failing tests** — the RPC is called with the right argument names; the returned row maps through the existing `mapOrderRow`; and **each typed error maps to a sentence a shopkeeper can act on**. Extend `orderErrorMessage` for `amendment_reason_required`, `order_not_amendable`, `order_has_no_items`, `order_product_deleted`. Follow how the existing order errors are mapped and tested.
+- [x] **Step 2: Run, watch fail. Step 3: Implement. Step 4: `npx jest src/lib && npx tsc --noEmit`.**
+- [x] **Step 5: Mutation pass** — swap two RPC argument names; drop one error mapping. Both must redden.
+- [x] **Step 6: Commit.**
 
 ---
 
@@ -226,18 +232,18 @@ The amend form needs: per-line quantity control, a remove affordance, the two re
 
 **The delta panel is not decoration — it is the whole honesty of the feature.** Re-pricing is mandatory, so an amend can change what the customer owes without anyone asking them. Showing "was $128.00, now $110.00 — Basmati rice re-priced at today's $25.50" before saving is what turns a silent re-price into a sentence the shop can say on the phone.
 
-- [ ] **Step 1: Write the failing tests.** No `@testing-library`; use `react-test-renderer`, assert on props. Cover: the three buttons appear on a shortfall; **Save is disabled while the reason is blank**; the delta panel shows both old and new totals; the internal reason is not rendered anywhere a customer-facing string is built; and amend mode does not render for a `completed` or `cancelled` order.
-- [ ] **Step 2-4:** run, watch fail, implement, `npx jest src/components/orders && npx tsc --noEmit`.
-- [ ] **Step 5: Mutation pass** — allow saving with a blank reason; show the internal reason in the customer note field; render amend mode for a completed order; show the new total but not the old. Each must redden.
-- [ ] **Step 6: Commit.**
+- [x] **Step 1: Write the failing tests.** No `@testing-library`; use `react-test-renderer`, assert on props. Cover: the three buttons appear on a shortfall; **Save is disabled while the reason is blank**; the delta panel shows both old and new totals; the internal reason is not rendered anywhere a customer-facing string is built; and amend mode does not render for a `completed` or `cancelled` order.
+- [x] **Step 2-4:** run, watch fail, implement, `npx jest src/components/orders && npx tsc --noEmit`.
+- [x] **Step 5: Mutation pass** — allow saving with a blank reason; show the internal reason in the customer note field; render amend mode for a completed order; show the new total but not the old. Each must redden.
+- [x] **Step 6: Commit.**
 
 ---
 
 ## Verification of the whole part
 
-- [ ] `npm run test:db` — zero `FAILED:`.
-- [ ] `npm test && npx tsc --noEmit && npm run lint` — lint no worse than the baseline you measured at the start.
-- [ ] **On a device**, per `/testing-kaiibi`. **Sign in as `yusef@gmail.com` / `yusef1`** — that shop exists to be written to. Walk it:
+- [x] `npm run test:db` — zero `FAILED:`.
+- [x] `npm test && npx tsc --noEmit && npm run lint` — lint no worse than the baseline you measured at the start.
+- [x] **On a device**, per `/testing-kaiibi`. **Sign in as `yusef@gmail.com` / `yusef1`** — that shop exists to be written to. Walk it:
   1. Place a storefront order, oversell a product so a shortfall appears.
   2. Amend it down. Read the delta panel before saving; confirm the new total is what the row and the sheet then show.
   3. **Complete the amended order** and confirm it does not fail with `order_total_changed`. This is the one that matters.
