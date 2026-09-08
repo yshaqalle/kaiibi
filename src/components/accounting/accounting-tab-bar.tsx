@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { Colors } from '@/constants/theme';
 
 // Pinned to the light palette for now — no dark-mode switching yet, matching
@@ -21,8 +22,16 @@ export function AccountingTabBar<T extends string>({
   value: T;
   onChange: (key: T) => void;
 }) {
+  // Same wheel affordance TabPills carries, for the same reason: seven
+  // Accounting tabs overflow any laptop window, and a mouse could not reach the
+  // ones past the edge. Not shared with TabPills despite the near-identical
+  // markup -- these two have genuinely diverged in colour, and merging them is
+  // a bigger change than this one. See use-wheel-pan.ts.
+  const { ref: scrollRef, wheelPanProps } = useWheelPan([options.length]);
+
   return (
     <ScrollView
+      ref={scrollRef}
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
@@ -30,6 +39,7 @@ export function AccountingTabBar<T extends string>({
       // the pills float in the middle of the empty space.
       style={styles.scroll}
       role="tablist"
+      {...wheelPanProps}
     >
       {options.map((option) => {
         const active = option.key === value;

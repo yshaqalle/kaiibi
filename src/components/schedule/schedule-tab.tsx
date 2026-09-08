@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
@@ -52,6 +53,13 @@ function totalHours(shifts: Shift[]): string {
 }
 
 export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActionsSetter }) {
+  // The STORE CHIPS get the wheel; the shift board below deliberately does not.
+  // A one-line chip row can steal a vertical wheel tick harmlessly -- there is
+  // no page behind it to scroll past. The board is a tall region, and stealing
+  // the wheel over it would trap the page: you could not scroll past the board
+  // until you had panned it all the way right. Height is the dividing line, and
+  // that is why this is one hook call, not two. See use-wheel-pan.ts.
+  const { ref: storeScrollRef, wheelPanProps: storeWheelProps } = useWheelPan();
   const { shop, locations, activeLocation } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -317,7 +325,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
       {/* Only when there is a choice to make -- a single-store business has one
           answer and this row would say nothing. */}
       {multiStore && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.storeStrip}>
+        <ScrollView ref={storeScrollRef} horizontal showsHorizontalScrollIndicator={false} style={styles.storeStrip} {...storeWheelProps}>
           <Pressable onPress={() => setLocationId(null)} style={[styles.storeChip, locationId === null && styles.storeChipActive]}>
             <Text style={[styles.storeChipText, locationId === null && styles.storeChipTextActive]}>All stores</Text>
           </Pressable>

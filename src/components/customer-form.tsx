@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { createTag, listTags } from '@/lib/tags';
 import type { Customer, NewCustomerInput } from '@/types/models';
 
@@ -166,6 +167,8 @@ function TagsField({
   onNewTag?: (tag: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  // A chip row a mouse could not move -- see use-wheel-pan.ts.
+  const { ref: tagScrollRef, wheelPanProps: tagWheelProps } = useWheelPan();
   const selected = value.split(',').map((t) => t.trim()).filter(Boolean);
   const q = query.trim().toLowerCase();
   const filtered = q ? suggestions.filter((tag) => tag.toLowerCase().includes(q)) : suggestions;
@@ -184,7 +187,7 @@ function TagsField({
     <>
       <TextInput value={value} onChangeText={onChange} placeholder="e.g. loyal, wholesale" placeholderTextColor="#999999" style={styles.input} />
       <TextInput value={query} onChangeText={setQuery} placeholder="Search tags…" placeholderTextColor="#999999" style={styles.input} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      <ScrollView ref={tagScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} {...tagWheelProps}>
         {filtered.map((tag) => (
           <CategoryChip key={tag} label={tag} color={colors?.get(tag)} active={selected.includes(tag)} onPress={() => toggleTag(tag)} />
         ))}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/card';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { Colors } from '@/constants/theme';
 import { attentionCounts, type AttentionArea, type AttentionItem, type AttentionSeverity } from '@/lib/attention';
 
@@ -57,6 +58,11 @@ export function AttentionList({
   const counts = attentionCounts(items);
   const showFilters = items.length >= FILTER_THRESHOLD;
   const visible = filter === 'all' ? items : items.filter((item) => item.area === filter);
+  // ABOVE the early return, because a hook cannot be called conditionally. The
+  // row it wires is itself conditional (`showFilters`, and the whole card
+  // disappears on an empty list), so both conditions are deps: they decide
+  // whether the scrollable node exists for the listener to attach to.
+  const { ref: filterScrollRef, wheelPanProps } = useWheelPan([showFilters, items.length === 0]);
 
   if (items.length === 0) {
     return <Text style={styles.empty}>Nothing needs attention right now.</Text>;
@@ -66,11 +72,13 @@ export function AttentionList({
     <Card style={styles.card}>
       {showFilters && (
         <ScrollView
+          ref={filterScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filters}
           // Without this the row stretches to the tallest thing in the parent.
           style={styles.filtersOuter}
+          {...wheelPanProps}
         >
           <FilterChip label="All" count={counts.all} active={filter === 'all'} onPress={() => setFilter('all')} />
           {(Object.keys(AREA_LABEL) as AttentionArea[])

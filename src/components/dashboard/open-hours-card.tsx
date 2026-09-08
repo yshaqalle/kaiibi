@@ -4,6 +4,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
 import { BandFoot, BandSegment, BentoBand, ON_INK_MUTED } from '@/components/ui/bento-band';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { Colors } from '@/constants/theme';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { fromDateColumn } from '@/lib/period';
@@ -127,6 +128,10 @@ export function OpenHoursCard({
   const showingHours = granularity === 'hours';
   const showingWeeks = granularity === 'weeks';
   const points = showingHours ? hourPoints : showingWeeks ? weekPoints : dayPoints;
+  // The day strip is a one-line row of buckets that overflows a narrow card, and
+  // a mouse could not move it. Both conditions that mount it are deps. See
+  // use-wheel-pan.ts.
+  const { ref: stripScrollRef, wheelPanProps: stripWheelProps } = useWheelPan([showingHours, daily.length > 1]);
 
   return (
     <BentoBand
@@ -147,7 +152,7 @@ export function OpenHoursCard({
       }
     >
       {showingHours && daily.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        <ScrollView ref={stripScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip} {...stripWheelProps}>
           {daily.map((bucket) => {
             const date = dayDate(bucket.day);
             const shut = tradingHourBounds(openingHours, weekdayKeyFor(date)) === null;

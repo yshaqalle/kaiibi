@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { Colors } from '@/constants/theme';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -25,8 +26,16 @@ export function TabPills<T extends string>({
   value: T;
   onChange: (key: T) => void;
 }) {
+  // A mouse could not move this row. react-native-web's horizontal ScrollView
+  // answers touch and a dragged scrollbar but not a wheel, so on a desktop any
+  // pill past the right edge was unreachable -- and this row is exactly the one
+  // that overflows, being the reason seven tabs fit a phone at all. Wiring it
+  // here reaches all four screens that use it. See use-wheel-pan.ts.
+  const { ref: scrollRef, wheelPanProps } = useWheelPan([options.length]);
+
   return (
     <ScrollView
+      ref={scrollRef}
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
@@ -34,6 +43,7 @@ export function TabPills<T extends string>({
       // the pills float in the middle of the empty space.
       style={styles.scroll}
       role="tablist"
+      {...wheelPanProps}
     >
       {options.map((option) => {
         const active = option.key === value;

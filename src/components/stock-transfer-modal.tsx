@@ -3,6 +3,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { QuantityField } from '@/components/quantity-field';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { ScanSafeField } from '@/components/scan-safe-field';
@@ -77,6 +78,7 @@ export function StockTransferModal({
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const { ref: chipScrollRef, wheelPanProps: chipWheelProps } = useWheelPan([categories.length]);
   const [lines, setLines] = useState<Line[]>([]);
   // The basket as an event HANDLER sees it, which is not always what the last
   // render saw.
@@ -681,12 +683,18 @@ export function StockTransferModal({
                   ) : null}
                 </View>
                 <ScanFeedbackBanner feedback={scanFeedback} />
+                {/* Category chips inside a modal, on the same wheel-dead
+                    horizontal ScrollView the till's row was. See
+                    use-wheel-pan.ts. Gated on `categories.length`, which is what
+                    decides whether the scrollable node is mounted at all. */}
                 {categories.length > 0 && (
                   <ScrollView
+                    ref={chipScrollRef}
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     style={styles.chipScroll}
                     contentContainerStyle={styles.chips}
+                    {...chipWheelProps}
                   >
                     <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
                     {categories.map((item) => (

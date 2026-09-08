@@ -27,6 +27,7 @@ import { DetailColumns } from '@/components/ui/detail-columns';
 import { GlanceStrip } from '@/components/ui/glance-strip';
 import { ListCard } from '@/components/ui/list-card';
 import { TabPills } from '@/components/ui/tab-pills';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { WhatsAppButton } from '@/components/whatsapp-button';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
@@ -248,6 +249,10 @@ function CustomersTab({
   const [rowStats, setRowStats] = useState<Map<string, { totalSpentCents: number; visitCount: number }>>(new Map());
   const [search, setSearch] = useState('');
   const [segment, setSegment] = useState<CustomerSegment | 'all'>('all');
+  // The segment chips overflow a narrow window -- which is the reason this row
+  // scrolls rather than wraps -- and until now a mouse could not move it. See
+  // use-wheel-pan.ts.
+  const { ref: segmentScrollRef, wheelPanProps: segmentWheelProps } = useWheelPan();
   // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
   // edit here, and swapping the rendered rows for a placeholder on those
   // collapsed the scroll content to a few pixels -- the platform then clamps
@@ -433,7 +438,7 @@ function CustomersTab({
         {/* Keeps its horizontal scroll: on a narrow window five chips will not
             fit beside the field, and wrapping them would put the row's height
             back where it started. */}
-        <ScrollView horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
+        <ScrollView ref={segmentScrollRef} horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips} {...segmentWheelProps}>
           <CategoryChip variant="bento" label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
           {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
             <CategoryChip variant="bento" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />

@@ -7,6 +7,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { pressable } from '@/components/storefront/press-feedback';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { isConfigured } from '@/lib/store-hours';
 import { LETTER, RADIUS, SPACE, TYPE } from '@/components/storefront/scale';
 import type { PaletteColors } from '@/lib/storefront-catalog';
@@ -101,6 +102,10 @@ export function ShopTabRail({
   onSelect: (tab: ShopTabKey) => void;
 }) {
   const reducedMotion = useReducedMotion();
+  // Customer-facing, and a shop name is not length-limited -- which is the
+  // reason this rail scrolls rather than wraps (see the note below). A mouse
+  // could not move it. See use-wheel-pan.ts.
+  const { ref: railScrollRef, wheelPanProps: railWheelProps } = useWheelPan([tabs.length]);
 
   // THE GUARDRAIL, RESOLVED WITHOUT FAKING A RADIUS. `left`/`width` -- the
   // mockup's own `.segpill` CSS transition -- are neither transform nor
@@ -167,7 +172,7 @@ export function ShopTabRail({
           today, but a shop name is not length-limited and neither is a future
           fourth tab. A wrapping rail is a control of unpredictable height
           sitting above the goods. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+      <ScrollView ref={railScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} {...railWheelProps}>
         {/* THE SLIDING FILL. `pointerEvents="none"` so it never steals a tap
             meant for the transparent tab painted over it; `colors.ink`
             matches the flat fill this replaces exactly, so a device that

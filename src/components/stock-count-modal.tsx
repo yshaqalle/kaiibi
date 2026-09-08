@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
@@ -133,6 +134,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // page 3 of a set that now has 12 rows is never on screen.
   const [page, setPage] = useState(1);
   const [categories, setCategories] = useState<string[]>([]);
+  const { ref: chipScrollRef, wheelPanProps: chipWheelProps } = useWheelPan([categories.length]);
   // Keyed by PRODUCT ID, never by row index and never derived from what is on
   // screen. This is the whole of the paging guarantee: filtering, searching and
   // paging all change which rows render and none of them can touch this.
@@ -956,12 +958,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                   aria-label="Search products"
                   style={[styles.input, styles.inputSpaced]}
                 />
+                {/* Category chips inside a modal, on the same wheel-dead
+                    horizontal ScrollView the till's row was. See
+                    use-wheel-pan.ts. Gated on `categories.length`, which is what
+                    decides whether the scrollable node is mounted at all. */}
                 {categories.length > 0 && (
                   <ScrollView
+                    ref={chipScrollRef}
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     style={styles.chipScroll}
                     contentContainerStyle={styles.chips}
+                    {...chipWheelProps}
                   >
                     <CategoryChip
                       label="All"
