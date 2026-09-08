@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ManageModal } from '@/components/settings/manage-modal';
 import { Btn, PageHeader, Pill, Row, Section, Toggle } from '@/components/settings/settings-primitives';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { createCurrency, deleteCurrency, setCurrencyActive, updateCurrency } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { discountLabel } from '@/lib/promotions';
@@ -88,7 +89,17 @@ function TaxSubsection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<v
       </Row>
       {taxEnabled && (
         <Row label="Tax rate">
-          <TextInput value={taxRateInput} onChangeText={setTaxRateInput} placeholder="2.5" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.rateInput} />
+          {/* One field, one Save button beside it: Enter is the button. */}
+          <TextInput
+            value={taxRateInput}
+            onChangeText={setTaxRateInput}
+            placeholder="2.5"
+            placeholderTextColor="#999999"
+            keyboardType="decimal-pad"
+            returnKeyType="done"
+            onSubmitEditing={save}
+            style={styles.rateInput}
+          />
           <Text style={styles.percentSign}>%</Text>
         </Row>
       )}
@@ -176,13 +187,23 @@ function CurrenciesModal({
     }
   };
 
-  const submit = () => {
+  const currencyNameRef = useRef<TextInput>(null);
+  const symbolRef = useRef<TextInput>(null);
+  const rateRef = useRef<TextInput>(null);
+
+  // `run` has no busy flag of its own, so nothing here refused a second press
+  // before Enter could make one -- and adding a currency twice is a duplicate
+  // row a shopkeeper then has to find and delete.
+  const submit = useSingleFlight(async () => {
     const trimmedCode = code.trim().toUpperCase();
     const trimmedName = name.trim();
     const trimmedSymbol = symbol.trim();
     const rate = Number(rateInput);
     if (!trimmedName || !trimmedSymbol || !rate || rate <= 0) return;
-    run(async () => {
+    // AWAITED, where it was fire-and-forget before: `useSingleFlight` holds its
+    // latch for exactly as long as the function it wraps, so an unawaited `run`
+    // would release it on the next line and let a second Enter straight through.
+    await run(async () => {
       if (editingId) {
         await updateCurrency(editingId, { name: trimmedName, symbol: trimmedSymbol, rateToUsd: rate });
       } else {
@@ -192,7 +213,7 @@ function CurrenciesModal({
       await onChange();
       resetForm();
     });
-  };
+  });
 
   const toggleActive = (currency: Currency) =>
     run(async () => {
@@ -275,22 +296,25 @@ function CurrenciesModal({
                       <Text style={modalStyles.readOnlyFieldText}>{code}</Text>
                     </View>
                   ) : (
-                    <TextInput value={code} onChangeText={setCode} placeholder="SLSH" placeholderTextColor="#999999" autoCapitalize="characters" style={modalStyles.formInput} />
+                    <TextInput value={code} onChangeText={setCode} placeholder="SLSH" placeholderTextColor="#999999" autoCapitalize="characters" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => currencyNameRef.current?.focus()} style={modalStyles.formInput} />
                   )}
                 </View>
                 <View style={{ flex: 2 }}>
                   <Text style={modalStyles.fieldLabel}>NAME</Text>
-                  <TextInput value={name} onChangeText={setName} placeholder="Somaliland Shilling" placeholderTextColor="#999999" style={modalStyles.formInput} />
+                  <TextInput ref={currencyNameRef} value={name} onChangeText={setName} placeholder="Somaliland Shilling" placeholderTextColor="#999999" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => symbolRef.current?.focus()} style={modalStyles.formInput} />
                 </View>
               </View>
               <View style={modalStyles.formRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={modalStyles.fieldLabel}>SYMBOL</Text>
-                  <TextInput value={symbol} onChangeText={setSymbol} placeholder="Sl Sh" placeholderTextColor="#999999" style={modalStyles.formInput} />
+                  <TextInput ref={symbolRef} value={symbol} onChangeText={setSymbol} placeholder="Sl Sh" placeholderTextColor="#999999" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => rateRef.current?.focus()} style={modalStyles.formInput} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={modalStyles.fieldLabel}>RATE (PER $1)</Text>
-                  <TextInput value={rateInput} onChangeText={setRateInput} placeholder="115" placeholderTextColor="#999999" keyboardType="decimal-pad" style={modalStyles.formInput} />
+                  {/* Last of the four, so Enter adds the currency. `submit`
+                      already refuses an incomplete or non-positive rate, which
+                      is the same rule the Add button follows. */}
+                  <TextInput ref={rateRef} value={rateInput} onChangeText={setRateInput} placeholder="115" placeholderTextColor="#999999" keyboardType="decimal-pad" returnKeyType="done" onSubmitEditing={submit} style={modalStyles.formInput} />
                 </View>
               </View>
               <View style={modalStyles.promoFormActions}>

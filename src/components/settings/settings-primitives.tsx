@@ -188,6 +188,11 @@ export function EditableTextRow({
     <View style={styles.editingRow}>
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.editingInputRow}>
+        {/* Enter is the Done button beside it -- the row opens with the field
+            already focused, so the keyboard is the only thing in reach and the
+            button is the only thing to press. NOT on a multiline row: there
+            Enter has to mean a new line, which is why `onSubmitEditing` is
+            withheld rather than the handler branching inside. */}
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -196,6 +201,8 @@ export function EditableTextRow({
           multiline={multiline}
           keyboardType={keyboardType}
           autoFocus
+          returnKeyType={multiline ? undefined : 'done'}
+          onSubmitEditing={multiline ? undefined : () => setEditing(false)}
           style={[styles.input, multiline && styles.multilineInput]}
           textAlignVertical={multiline ? 'top' : undefined}
         />

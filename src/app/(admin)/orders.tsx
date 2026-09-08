@@ -620,6 +620,10 @@ function OrdersScreen() {
           onChangeText={setSearch}
           placeholder="Search order #, customer, phone or landmark"
           placeholderTextColor={theme.bentoMuted}
+          // The list filters as you type, so Enter has nothing of its own to
+          // do -- but naming the return key "Search" tells a phone keyboard
+          // what this field is, and the default blur closes it.
+          returnKeyType="search"
           style={styles.search}
           accessibilityLabel="Search orders"
         />

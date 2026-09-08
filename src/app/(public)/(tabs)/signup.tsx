@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { useLocale } from '@/hooks/use-locale';
 import { signUpAdmin } from '@/lib/auth';
 import { createShop } from '@/lib/shops';
@@ -25,6 +26,13 @@ export default function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffset = useRef(0);
+  // Enter walks the fields of a step and, on the last one, presses the button
+  // under them. Only the fields something FOCUSES need a ref; the last field of
+  // each step submits instead, and needs none.
+  const contactRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const areaRef = useRef<TextInput>(null);
 
   // Landscape tablets lose half their height to the keyboard, and with SDK 57
   // edge-to-edge the window never resizes on its own — without this the field
@@ -56,11 +64,11 @@ export default function SignUpScreen() {
         ? Boolean(shopName.trim())
         : true;
 
-  const next = async () => {
-    if (step !== totalSteps) {
-      setStep((value) => value + 1);
-      return;
-    }
+  // `useSingleFlight` because `submitting` alone cannot refuse a second Enter:
+  // it is state, and a held return key repeats faster than React re-renders, so
+  // both calls read the same stale `false` and two accounts get created. See
+  // use-single-flight.ts.
+  const createAccount = useSingleFlight(async () => {
     setSubmitting(true);
     setError(null);
     try {
@@ -73,6 +81,21 @@ export default function SignUpScreen() {
     } finally {
       setSubmitting(false);
     }
+  });
+
+  const next = () => {
+    // Enter reaches this as well as the button, and the return key is never
+    // disabled -- so the button's own rule has to be enforced here too, or a
+    // half-filled step advances.
+    if (!valid || submitting) return;
+    // Advancing a step needs no latch: it is synchronous, the screen changes
+    // under the finger immediately, and the step it lands on has its own
+    // emptiness to refuse a second press with.
+    if (step !== totalSteps) {
+      setStep((value) => value + 1);
+      return;
+    }
+    void createAccount();
   };
 
   return (
@@ -115,28 +138,41 @@ export default function SignUpScreen() {
           {step === 1 && (
             <>
               <Text style={styles.formHeading}>{t('signup.step1')}</Text>
-              <Field label={t('signup.yourName')} value={name} onChangeText={setName} placeholder={t('signup.yourNamePlaceholder')} />
               <Field
+                label={t('signup.yourName')}
+                value={name}
+                onChangeText={setName}
+                placeholder={t('signup.yourNamePlaceholder')}
+                onSubmitEditing={() => contactRef.current?.focus()}
+              />
+              <Field
+                ref={contactRef}
                 label={t('signup.phone')}
                 value={contact}
                 onChangeText={setContact}
                 placeholder={t('signup.phonePlaceholder')}
                 keyboardType="phone-pad"
+                onSubmitEditing={() => emailRef.current?.focus()}
               />
               <Field
+                ref={emailRef}
                 label={t('signup.email')}
                 value={email}
                 onChangeText={setEmail}
                 placeholder={t('signup.emailPlaceholder')}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                onSubmitEditing={() => passwordRef.current?.focus()}
               />
               <Field
+                ref={passwordRef}
                 label={t('signup.password')}
                 value={password}
                 onChangeText={setPassword}
                 placeholder={t('signup.passwordPlaceholder')}
                 secureTextEntry
+                onSubmitEditing={next}
+                last
               />
             </>
           )}
@@ -144,15 +180,36 @@ export default function SignUpScreen() {
           {step === 2 && (
             <>
               <Text style={styles.formHeading}>{t('signup.step2')}</Text>
-              <Field label={t('signup.shopName')} value={shopName} onChangeText={setShopName} placeholder={t('signup.shopNamePlaceholder')} />
+              <Field
+                label={t('signup.shopName')}
+                value={shopName}
+                onChangeText={setShopName}
+                placeholder={t('signup.shopNamePlaceholder')}
+                onSubmitEditing={next}
+                last
+              />
             </>
           )}
 
           {step === 3 && (
             <>
               <Text style={styles.formHeading}>{t('signup.step3')}</Text>
-              <Field label={t('signup.city')} value={location} onChangeText={setLocation} placeholder={t('signup.cityPlaceholder')} />
-              <Field label={t('signup.neighborhood')} value={area} onChangeText={setArea} placeholder={t('signup.neighborhoodPlaceholder')} />
+              <Field
+                label={t('signup.city')}
+                value={location}
+                onChangeText={setLocation}
+                placeholder={t('signup.cityPlaceholder')}
+                onSubmitEditing={() => areaRef.current?.focus()}
+              />
+              <Field
+                ref={areaRef}
+                label={t('signup.neighborhood')}
+                value={area}
+                onChangeText={setArea}
+                placeholder={t('signup.neighborhoodPlaceholder')}
+                onSubmitEditing={next}
+                last
+              />
             </>
           )}
 
@@ -189,15 +246,17 @@ export default function SignUpScreen() {
 // Extracted so the three steps read as a list of fields rather than a wall of
 // repeated label + TextInput pairs — the labels are now translated, which made
 // each one three lines instead of one.
-function Field({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType,
-  autoCapitalize,
-  secureTextEntry,
-}: {
+//
+// `forwardRef` so a field can hand focus to the one under it: the ref goes to
+// the TextInput inside, which is the thing that can take focus.
+//
+// `last` marks the field Enter SUBMITS from rather than moves on from, and it
+// drives both halves of that difference — the return key's label, and whether
+// the keyboard stays up. A field in the middle of a step keeps it up
+// (`submitBehavior="submit"`), because the next thing that happens is typing
+// into the field below; the last one lets it fall, because the next thing is a
+// screen change.
+const Field = forwardRef<TextInput, {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
@@ -205,11 +264,24 @@ function Field({
   keyboardType?: 'phone-pad' | 'email-address';
   autoCapitalize?: 'none';
   secureTextEntry?: boolean;
-}) {
+  onSubmitEditing?: () => void;
+  last?: boolean;
+}>(function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+  autoCapitalize,
+  secureTextEntry,
+  onSubmitEditing,
+  last,
+}, ref) {
   return (
     <>
       <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text>
       <TextInput
+        ref={ref}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -217,11 +289,14 @@ function Field({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         secureTextEntry={secureTextEntry}
+        onSubmitEditing={onSubmitEditing}
+        returnKeyType={last ? 'go' : 'next'}
+        submitBehavior={last ? 'blurAndSubmit' : 'submit'}
         style={styles.input}
       />
     </>
   );
-}
+});
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },

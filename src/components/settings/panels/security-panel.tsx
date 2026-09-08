@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { signOutEverywhere, updatePassword } from '@/lib/auth';
 import { markPasswordChanged } from '@/lib/profile';
 import type { Profile } from '@/types/models';
@@ -92,7 +93,13 @@ function ChangePasswordModal({
     onClose();
   };
 
-  const submit = async () => {
+  // Enter on the new password moves here rather than submitting a form whose
+  // second half is empty -- the same two-step the login screen does.
+  const confirmRef = useRef<TextInput>(null);
+
+  // Enter fires this as well as the button, and a held return key repeats
+  // faster than `saving` can re-render -- see use-single-flight.ts.
+  const submit = useSingleFlight(async () => {
     if (newPassword.length < 6) {
       setError('Password must be at least 6 characters.');
       return;
@@ -112,7 +119,7 @@ function ChangePasswordModal({
     } finally {
       setSaving(false);
     }
-  };
+  });
 
   return (
     <AppModal visible={visible} animationType="fade" transparent onRequestClose={close}>
@@ -140,15 +147,21 @@ function ChangePasswordModal({
                 secureTextEntry
                 placeholder="At least 6 characters"
                 placeholderTextColor="#999999"
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => confirmRef.current?.focus()}
                 style={modalStyles.input}
               />
               <Text style={modalStyles.fieldLabel}>CONFIRM NEW PASSWORD</Text>
               <TextInput
+                ref={confirmRef}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
                 placeholder="Re-enter password"
                 placeholderTextColor="#999999"
+                returnKeyType="go"
+                onSubmitEditing={submit}
                 style={modalStyles.input}
               />
               {error && <Text style={styles.error}>{error}</Text>}
