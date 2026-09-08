@@ -93,10 +93,17 @@ export function useWheelPan(deps: unknown[] = []) {
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
     const node = ref.current as unknown as {
+      scrollLeft?: number;
       addEventListener?: (type: 'wheel', cb: (event: WheelEvent) => void, options?: AddEventListenerOptions) => void;
       removeEventListener?: (type: 'wheel', cb: (event: WheelEvent) => void, options?: AddEventListenerOptions) => void;
     } | null;
     if (!node?.addEventListener) return undefined;
+    // Re-read the node's real offset as the listener attaches. `offsetXRef`
+    // outlives the node it describes: a row that unmounts scrolled and remounts
+    // at zero (a filter row behind a condition, a modal reopened) would
+    // otherwise leave a stale offset behind, and the first wheel tick would
+    // compute from it and jump. The node itself is the only honest source.
+    offsetXRef.current = node.scrollLeft ?? 0;
     const listener = (event: WheelEvent) => handleWheelRef.current(event);
     node.addEventListener('wheel', listener, { passive: false });
     return () => node.removeEventListener?.('wheel', listener, { passive: false });
