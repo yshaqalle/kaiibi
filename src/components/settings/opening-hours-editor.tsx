@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -60,22 +60,32 @@ function BlockRow({
   onChange: (next: TimeRange) => void;
   onRemove: () => void;
 }) {
+  const closeRef = useRef<TextInput>(null);
   return (
     <View>
       <View style={styles.blockRow}>
+        {/* Two halves of one time range, so Enter on the opening time goes to
+            the closing time -- the pair is always typed together. There is
+            nothing to submit from the closing one: these hours are saved by the
+            panel around them, not by this row. */}
         <TextInput
           value={range.open}
           onChangeText={(open) => onChange({ ...range, open })}
           placeholder="09:00"
           placeholderTextColor="#999999"
+          returnKeyType="next"
+          submitBehavior="submit"
+          onSubmitEditing={() => closeRef.current?.focus()}
           style={[styles.time, !isValidTime(range.open) && styles.timeInvalid]}
         />
         <Text style={styles.dash}>–</Text>
         <TextInput
+          ref={closeRef}
           value={range.close}
           onChangeText={(close) => onChange({ ...range, close })}
           placeholder="18:00"
           placeholderTextColor="#999999"
+          returnKeyType="done"
           style={[styles.time, !isValidTime(range.close) && styles.timeInvalid]}
         />
         <Pressable onPress={onRemove} hitSlop={8} style={styles.remove} accessibilityLabel="Remove these hours">

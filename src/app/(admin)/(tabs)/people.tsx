@@ -424,6 +424,9 @@ function CustomersTab({
             onChangeText={setSearch}
             placeholder="Search by name, phone, or tag"
             placeholderTextColor={theme.bentoMuted2}
+            // Filters as you type, so Enter has nothing of its own to do --
+            // this only names the return key for a phone keyboard.
+            returnKeyType="search"
             style={tabStyles.searchInput}
           />
         </View>
@@ -942,6 +945,7 @@ function TeamManagementTab({
           onChangeText={setSearch}
           placeholder="Search by name, role, or phone"
           placeholderTextColor={theme.bentoMuted2}
+          returnKeyType="search"
           style={tabStyles.searchInput}
         />
       </View>

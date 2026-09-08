@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { useAuth } from '@/hooks/use-auth';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { toCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
 import { createLocation, deleteLocation, setPrimaryLocation, updateLocation } from '@/lib/locations';
@@ -183,7 +184,19 @@ function LocationEditorModal({
   const canDeactivate = !location?.isPrimary;
   const canSave = Boolean(name.trim()) && !saving;
 
-  const save = async () => {
+  const codeRef = useRef<TextInput>(null);
+  const addressRef = useRef<TextInput>(null);
+  const neighborhoodRef = useRef<TextInput>(null);
+  const cityRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
+  const zaadRef = useRef<TextInput>(null);
+  const edahabRef = useRef<TextInput>(null);
+  const goalRef = useRef<TextInput>(null);
+
+  // `useSingleFlight` on top of `canSave` (which already carries `!saving`):
+  // Enter now reaches this from the last field, and a held return key repeats
+  // faster than state re-renders -- two presses would create two stores.
+  const save = useSingleFlight(async () => {
     if (!canSave) return;
     // Hours the rest of the app can't interpret must not reach the database:
     // a backwards range, or two blocks of a split day claiming the same minute.
@@ -228,7 +241,7 @@ function LocationEditorModal({
       setError(extractErrorMessage(err, 'Could not save this store.'));
       setSaving(false);
     }
-  };
+  });
 
   const remove = async () => {
     if (!onDelete) return;
@@ -259,12 +272,19 @@ function LocationEditorModal({
           </View>
 
           <ScrollView style={modalStyles.list}>
+            {/* Enter walks this form and, on the last field, presses Save.
+                `submitBehavior="submit"` on every field but the last keeps the
+                keyboard up between them; the default would drop it nine times
+                on the way down a form this long. */}
             <Text style={modalStyles.fieldLabel}>STORE NAME</Text>
             <TextInput
               value={name}
               onChangeText={setName}
               placeholder="e.g. Ka Iibi Airport Road"
               placeholderTextColor="#999999"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => codeRef.current?.focus()}
               style={modalStyles.input}
             />
             <Text style={modalStyles.fieldHint}>
@@ -273,11 +293,15 @@ function LocationEditorModal({
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>BRANCH CODE (OPTIONAL)</Text>
             <TextInput
+              ref={codeRef}
               value={code}
               onChangeText={setCode}
               placeholder="e.g. 002 or AR"
               placeholderTextColor="#999999"
               autoCapitalize="characters"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => addressRef.current?.focus()}
               style={modalStyles.input}
             />
             <Text style={modalStyles.fieldHint}>
@@ -286,47 +310,63 @@ function LocationEditorModal({
             </Text>
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>STREET ADDRESS</Text>
-            <TextInput value={address} onChangeText={setAddress} placeholder="Unit or building, street" placeholderTextColor="#999999" style={modalStyles.input} />
+            <TextInput ref={addressRef} value={address} onChangeText={setAddress} placeholder="Unit or building, street" placeholderTextColor="#999999" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => neighborhoodRef.current?.focus()} style={modalStyles.input} />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>NEIGHBORHOOD OR LANDMARK</Text>
             <TextInput
+              ref={neighborhoodRef}
               value={neighborhood}
               onChangeText={setNeighborhood}
               placeholder="e.g. Jigjiga Yar, near the main market"
               placeholderTextColor="#999999"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => cityRef.current?.focus()}
               style={modalStyles.input}
             />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>CITY</Text>
-            <TextInput value={city} onChangeText={setCity} placeholder="Hargeisa" placeholderTextColor="#999999" style={modalStyles.input} />
+            <TextInput ref={cityRef} value={city} onChangeText={setCity} placeholder="Hargeisa" placeholderTextColor="#999999" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => phoneRef.current?.focus()} style={modalStyles.input} />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>PHONE</Text>
             <TextInput
+              ref={phoneRef}
               value={contactPhone}
               onChangeText={setContactPhone}
               placeholder="Phone number for this store"
               placeholderTextColor="#999999"
               keyboardType="phone-pad"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => zaadRef.current?.focus()}
               style={modalStyles.input}
             />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>ZAAD MERCHANT ID</Text>
             <TextInput
+              ref={zaadRef}
               value={zaadMerchantId}
               onChangeText={setZaadMerchantId}
               placeholder="This store's ZAAD number"
               placeholderTextColor="#999999"
               autoCapitalize="none"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => edahabRef.current?.focus()}
               style={modalStyles.input}
             />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>E-DAHAB MERCHANT ID</Text>
             <TextInput
+              ref={edahabRef}
               value={edahabMerchantId}
               onChangeText={setEdahabMerchantId}
               placeholder="This store's e-Dahab number"
               placeholderTextColor="#999999"
               autoCapitalize="none"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => goalRef.current?.focus()}
               style={modalStyles.input}
             />
             <Text style={modalStyles.fieldHint}>
@@ -335,12 +375,17 @@ function LocationEditorModal({
             </Text>
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>MONTHLY REVENUE GOAL</Text>
+            {/* The last text field -- everything below is a switch -- so Enter
+                saves. `save` carries the button's own `canSave` rule. */}
             <TextInput
+              ref={goalRef}
               value={goalInput}
               onChangeText={setGoalInput}
               placeholder="e.g. 5000"
               placeholderTextColor="#999999"
               keyboardType="decimal-pad"
+              returnKeyType="done"
+              onSubmitEditing={save}
               style={modalStyles.input}
             />
             <Text style={modalStyles.fieldHint}>

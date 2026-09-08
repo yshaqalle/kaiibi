@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { signOut } from '@/lib/auth';
 import { getPlatformAccess } from '@/lib/platform';
 import { supabase } from '@/lib/supabase';
@@ -131,7 +132,11 @@ function MfaChallenge({ onVerified }: { onVerified: () => void }) {
     };
   }, []);
 
-  const verify = async () => {
+  // Enter reaches this as well as the button, and the return key is never
+  // disabled -- `useSingleFlight` refuses the second press synchronously, which
+  // `busy` (state) cannot do inside one repeat of a held key. Two challenges
+  // sent for one code is a failed sign-in, not a duplicate.
+  const verify = useSingleFlight(async () => {
     if (!factorId || code.trim().length < 6) return;
     setBusy(true);
     setError(null);
@@ -154,7 +159,7 @@ function MfaChallenge({ onVerified }: { onVerified: () => void }) {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   return (
     <View style={styles.centre}>
@@ -184,6 +189,12 @@ function MfaChallenge({ onVerified }: { onVerified: () => void }) {
         placeholderTextColor="#BBBBBB"
         keyboardType="number-pad"
         maxLength={6}
+        // The only field on the screen, above the only button. Typing the sixth
+        // digit and pressing Enter is what someone reading a code off a phone
+        // does; `verify` carries the button's own guard so a short code or a
+        // check already in flight does nothing, exactly as the button does.
+        returnKeyType="go"
+        onSubmitEditing={verify}
         style={styles.codeInput}
       />
       {error && <Text style={styles.error}>{error}</Text>}

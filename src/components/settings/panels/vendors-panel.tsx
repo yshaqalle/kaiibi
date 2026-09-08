@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
@@ -107,6 +107,12 @@ function VendorEditorModal({
 
   const canSave = Boolean(name.trim()) && !saving;
 
+  const contactRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const addressRef = useRef<TextInput>(null);
+  const notesRef = useRef<TextInput>(null);
+
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
@@ -155,37 +161,53 @@ function VendorEditorModal({
           </View>
 
           <ScrollView style={modalStyles.list}>
+            {/* Enter walks this form. Every field hands focus to the one under
+                it with `submitBehavior="submit"`, which keeps the keyboard up on
+                the way -- the default for a single-line field is to drop it, and
+                a keyboard that closes between six fields is worse than one that
+                never opened. The chain ENDS at Notes rather than saving from
+                Address: Notes is multiline, so Enter there has to mean a new
+                line, and skipping past a field the person is about to type in
+                would be the surprise. */}
             <Text style={modalStyles.fieldLabel}>NAME</Text>
             <TextInput
               value={name}
               onChangeText={setName}
               placeholder="e.g. Nairobi Beauty Distributors"
               placeholderTextColor="#999999"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => contactRef.current?.focus()}
               style={modalStyles.input}
             />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>CONTACT PERSON</Text>
-            <TextInput value={contactPerson} onChangeText={setContactPerson} placeholder="Who you deal with" placeholderTextColor="#999999" style={modalStyles.input} />
+            <TextInput ref={contactRef} value={contactPerson} onChangeText={setContactPerson} placeholder="Who you deal with" placeholderTextColor="#999999" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => phoneRef.current?.focus()} style={modalStyles.input} />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>PHONE</Text>
-            <TextInput value={phone} onChangeText={setPhone} placeholder="Phone number" placeholderTextColor="#999999" keyboardType="phone-pad" style={modalStyles.input} />
+            <TextInput ref={phoneRef} value={phone} onChangeText={setPhone} placeholder="Phone number" placeholderTextColor="#999999" keyboardType="phone-pad" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => emailRef.current?.focus()} style={modalStyles.input} />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>EMAIL</Text>
             <TextInput
+              ref={emailRef}
               value={email}
               onChangeText={setEmail}
               placeholder="Email address"
               placeholderTextColor="#999999"
               keyboardType="email-address"
               autoCapitalize="none"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => addressRef.current?.focus()}
               style={modalStyles.input}
             />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>ADDRESS</Text>
-            <TextInput value={address} onChangeText={setAddress} placeholder="Where they're based" placeholderTextColor="#999999" style={modalStyles.input} />
+            <TextInput ref={addressRef} value={address} onChangeText={setAddress} placeholder="Where they're based" placeholderTextColor="#999999" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => notesRef.current?.focus()} style={modalStyles.input} />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>NOTES</Text>
             <TextInput
+              ref={notesRef}
               value={notes}
               onChangeText={setNotes}
               placeholder="Payment terms, delivery days, anything worth remembering"

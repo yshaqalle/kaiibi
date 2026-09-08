@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { ALL_PERMISSIONS, expandPermissions, IMPLIED_PERMISSIONS, type Permission } from '@/lib/permissions';
 import { groupedPermissions } from '@/lib/permission-groups';
 import { createRole, deleteRole, updateRole } from '@/lib/staff';
@@ -145,7 +146,10 @@ function RoleEditorModal({
     });
   };
 
-  const save = async () => {
+  // `useSingleFlight` rather than a `saving` check: Enter reaches this and, on a
+  // held key, repeats faster than state can re-render -- which would save the
+  // role twice. See use-single-flight.ts.
+  const save = useSingleFlight(async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     setSaving(true);
@@ -160,7 +164,7 @@ function RoleEditorModal({
     } finally {
       setSaving(false);
     }
-  };
+  });
 
   const remove = async () => {
     if (!onDelete) return;
@@ -201,7 +205,19 @@ function RoleEditorModal({
           </View>
           <ScrollView style={modalStyles.list}>
             <Text style={modalStyles.fieldLabel}>ROLE NAME</Text>
-            <TextInput value={name} onChangeText={setName} placeholder="e.g. Cashier" placeholderTextColor="#999999" style={modalStyles.input} />
+            {/* The only text field in the modal -- everything under it is a
+                checkbox -- so Enter means "save this role", not "move on".
+                `save` already refuses an empty name, which is the same rule the
+                button follows. */}
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="e.g. Cashier"
+              placeholderTextColor="#999999"
+              returnKeyType="done"
+              onSubmitEditing={save}
+              style={modalStyles.input}
+            />
             <Text style={[modalStyles.fieldLabel, { marginTop: 16 }]}>PERMISSIONS</Text>
             {GROUPED_PERMISSIONS.map((group) => (
               <View key={group.label}>
