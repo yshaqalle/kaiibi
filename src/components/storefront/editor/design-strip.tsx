@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BentoCard } from '@/components/ui/bento-card';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { Colors } from '@/constants/theme';
 import {
   DEFAULT_THEME,
@@ -96,14 +97,20 @@ export function DesignStrip({
   onThemeChange: (key: StorefrontTheme) => void;
   onPaletteChange: (key: StorefrontPalette) => void;
 }) {
+  // Two strips, each its own scroller -- see use-wheel-pan.ts.
+  const { ref: layoutScrollRef, wheelPanProps: layoutWheelProps } = useWheelPan();
+  const { ref: paletteScrollRef, wheelPanProps: paletteWheelProps } = useWheelPan();
+
   return (
     <BentoCard title="Design">
       <Text style={styles.eyebrow}>Layout</Text>
       <ScrollView
+        ref={layoutScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.scroll}
         contentContainerStyle={styles.row}
+        {...layoutWheelProps}
       >
         {THEMES.map((t) => {
           const active = t.key === selectedTheme;
@@ -146,10 +153,12 @@ export function DesignStrip({
 
       <Text style={[styles.eyebrow, styles.paletteEyebrow]}>Colours</Text>
       <ScrollView
+        ref={paletteScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.scroll}
         contentContainerStyle={styles.row}
+        {...paletteWheelProps}
       >
         {PALETTES.map((p) => {
           const active = p.key === selectedPalette;

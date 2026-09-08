@@ -6,6 +6,7 @@ import { KaiibiMark } from '@/components/landing/landing-ui';
 import { LanguageSwitch } from '@/components/landing/language-switch';
 import { Marketing, MarketingRadius } from '@/constants/marketing-theme';
 import { useLocale } from '@/hooks/use-locale';
+import { useSingleFlight } from '@/hooks/use-single-flight';
 import { signIn } from '@/lib/auth';
 
 // On native this screen IS the landing page: `(tabs)/index.tsx` redirects `/`
@@ -56,10 +57,12 @@ export default function LoginScreen() {
     return () => sub.remove();
   }, []);
 
-  const submit = async () => {
-    // Enter can fire this while a request is already in flight -- the button
-    // is disabled during one, the keyboard's return key is not.
-    if (submitting) return;
+  // `submitting` is state, and state cannot refuse a second Enter that arrives
+  // before React re-renders -- a held return key repeats faster than that, so
+  // both calls read the same stale `false` and two sign-ins go out. This is the
+  // defect a test caught on the signup form (two accounts from one press);
+  // login has the same shape. See use-single-flight.ts.
+  const submit = useSingleFlight(async () => {
     setSubmitting(true);
     setError(null);
     try {
@@ -70,7 +73,7 @@ export default function LoginScreen() {
     } finally {
       setSubmitting(false);
     }
-  };
+  });
 
   return (
     <SafeAreaView style={styles.safeArea}>

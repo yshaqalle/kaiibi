@@ -23,6 +23,16 @@ import { nextWheelOffset, shouldConsumeWheel, wheelPanDelta } from '@/lib/mouse-
 //
 // Native is a no-op: there is no wheel, and the returned handlers only track
 // measurements nothing there reads.
+//
+// WHAT NOT TO WIRE, and the rule behind it. This belongs on a SHORT row -- a
+// line of chips, pills or tabs -- and not on a tall one. A one-line row can
+// steal a vertical wheel tick harmlessly: there is nothing behind it to reach.
+// A tall horizontally-scrolling region (a wide DataTable, the schedule board)
+// fills the pointer's whole path down the page, so stealing the wheel there
+// traps the page: a reader could not scroll past the region until they had
+// panned it all the way right. `shouldConsumeWheel` softens this -- it only
+// consumes while there IS travel left -- but on a wide table that travel is
+// long, and the page stays stuck for all of it. Height is the dividing line.
 export function useWheelPan(deps: unknown[] = []) {
   const ref = useRef<ScrollView>(null);
   const offsetXRef = useRef(0);
@@ -83,10 +93,17 @@ export function useWheelPan(deps: unknown[] = []) {
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
     const node = ref.current as unknown as {
+      scrollLeft?: number;
       addEventListener?: (type: 'wheel', cb: (event: WheelEvent) => void, options?: AddEventListenerOptions) => void;
       removeEventListener?: (type: 'wheel', cb: (event: WheelEvent) => void, options?: AddEventListenerOptions) => void;
     } | null;
     if (!node?.addEventListener) return undefined;
+    // Re-read the node's real offset as the listener attaches. `offsetXRef`
+    // outlives the node it describes: a row that unmounts scrolled and remounts
+    // at zero (a filter row behind a condition, a modal reopened) would
+    // otherwise leave a stale offset behind, and the first wheel tick would
+    // compute from it and jump. The node itself is the only honest source.
+    offsetXRef.current = node.scrollLeft ?? 0;
     const listener = (event: WheelEvent) => handleWheelRef.current(event);
     node.addEventListener('wheel', listener, { passive: false });
     return () => node.removeEventListener?.('wheel', listener, { passive: false });

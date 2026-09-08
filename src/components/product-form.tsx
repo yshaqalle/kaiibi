@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CameraPhotoButton } from '@/components/camera-photo-button';
 import { CategoryChip } from '@/components/category-chip';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
@@ -475,6 +476,8 @@ function SearchableChipField({
   placeholder: string;
 }) {
   const [query, setQuery] = useState('');
+  // A chip row a mouse could not move -- see use-wheel-pan.ts.
+  const { ref: chipScrollRef, wheelPanProps: chipWheelProps } = useWheelPan();
   const q = query.trim().toLowerCase();
   const filtered = q ? suggestions.filter((item) => item.toLowerCase().includes(q)) : suggestions;
   const exactMatch = suggestions.some((item) => item.toLowerCase() === q);
@@ -485,7 +488,7 @@ function SearchableChipField({
   return (
     <>
       <TextInput value={query} onChangeText={setQuery} placeholder={placeholder} placeholderTextColor="#999999" style={styles.input} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      <ScrollView ref={chipScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} {...chipWheelProps}>
         {filtered.map((item) => (
           <CategoryChip key={item} label={item} color={colors?.get(item)} active={value === item} onPress={() => toggle(item)} />
         ))}
@@ -515,6 +518,7 @@ function TagsField({
   onNewTag?: (tag: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const { ref: tagScrollRef, wheelPanProps: tagWheelProps } = useWheelPan();
   const selected = value.split(',').map((t) => t.trim()).filter(Boolean);
   const q = query.trim().toLowerCase();
   const filtered = q ? suggestions.filter((tag) => tag.toLowerCase().includes(q)) : suggestions;
@@ -533,7 +537,7 @@ function TagsField({
     <>
       <TextInput value={value} onChangeText={onChange} placeholder="e.g. bestseller, toner" placeholderTextColor="#999999" style={styles.input} />
       <TextInput value={query} onChangeText={setQuery} placeholder="Search tags…" placeholderTextColor="#999999" style={styles.input} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      <ScrollView ref={tagScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} {...tagWheelProps}>
         {filtered.map((tag) => (
           <CategoryChip key={tag} label={tag} color={colors?.get(tag)} active={selected.includes(tag)} onPress={() => toggleTag(tag)} />
         ))}

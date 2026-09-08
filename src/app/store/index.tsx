@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 
 import { pressable } from '@/components/storefront/press-feedback';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { DISPLAY_FONT, KAIIBI_MARK_ASPECT, LETTER, RADIUS, SPACE, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';
 import {
   DIRECTORY_GAP, DIRECTORY_MAX_WIDTH, FeaturedShopCard, ShopDirectoryCard,
@@ -91,6 +92,14 @@ export default function StoreDirectoryScreen() {
   // Off the CITY-filtered list, so the chips only ever offer trades actually
   // present in the city on screen.
   const categories = categoriesOf(byCity);
+
+  // The two chip rows a CUSTOMER hits -- the only wheel-dead rows in the app
+  // that a shopper rather than a shopkeeper reaches. Both are rendered only
+  // when there is more than one choice, so each row's own count is its dep:
+  // that is what decides whether the scrollable node exists at all. See
+  // use-wheel-pan.ts.
+  const { ref: cityScrollRef, wheelPanProps: cityWheelProps } = useWheelPan([cities.length]);
+  const { ref: categoryScrollRef, wheelPanProps: categoryWheelProps } = useWheelPan([categories.length]);
   const shown = searchShops(inCategory(byCity, category), query);
   // Off `shown`, not `shops`: a customer who has filtered to Borama or typed a
   // search should be shown the best of what they are looking at, not the best
@@ -238,7 +247,7 @@ export default function StoreDirectoryScreen() {
       {/* Only once there is a choice to make -- one city is a filter to
           everything, which is the rule CategoryBand already applies. */}
       {cities.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        <ScrollView ref={cityScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} {...cityWheelProps}>
           <CityChip
             label="All cities"
             active={city === null}
@@ -261,7 +270,7 @@ export default function StoreDirectoryScreen() {
       ) : null}
 
       {categories.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        <ScrollView ref={categoryScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} {...categoryWheelProps}>
           <CityChip label="Everything" active={category === null} neutralWhenActive onPress={() => setCategory(null)} />
           {categories.map((name) => (
             <CityChip
