@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { supportsHover } from '@/components/storefront/mouse-pan';
+import { supportsHover } from '@/lib/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { ProductActions } from '@/components/storefront/theme-shared';
 import { DISPLAY_FONT, LETTER, RADIUS, TABULAR, TOUCH_TARGET, TYPE } from '@/components/storefront/scale';

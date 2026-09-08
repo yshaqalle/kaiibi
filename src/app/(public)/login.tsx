@@ -38,6 +38,9 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  // Enter on the email field moves here rather than submitting a half-filled
+  // form -- the same two-step every browser login does.
+  const passwordRef = useRef<TextInput>(null);
 
   // The form is the last thing on the page, so when the keyboard opens —
   // landscape tablets lose half their height to it — scrolling to the end is
@@ -54,6 +57,9 @@ export default function LoginScreen() {
   }, []);
 
   const submit = async () => {
+    // Enter can fire this while a request is already in flight -- the button
+    // is disabled during one, the keyboard's return key is not.
+    if (submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -146,15 +152,26 @@ export default function LoginScreen() {
             placeholderTextColor="#999999"
             autoCapitalize="none"
             keyboardType="email-address"
+            returnKeyType="next"
+            // Hand focus to the password field without dismissing the keyboard
+            // on the way -- the default for a single-line input is to blur.
+            // react-native-web ignores this prop and blurs the email node
+            // anyway, which is harmless: focus is already on the password box
+            // by then, so blurring an unfocused node does nothing.
+            submitBehavior="submit"
+            onSubmitEditing={() => passwordRef.current?.focus()}
             style={styles.input}
           />
           <Text style={styles.fieldLabel}>{t('login.password').toUpperCase()}</Text>
           <TextInput
+            ref={passwordRef}
             value={password}
             onChangeText={setPassword}
             placeholder={t('login.passwordPlaceholder')}
             placeholderTextColor="#999999"
             secureTextEntry
+            returnKeyType="go"
+            onSubmitEditing={submit}
             style={styles.input}
           />
           {error && <Text style={styles.error}>{error}</Text>}

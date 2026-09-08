@@ -36,6 +36,7 @@ import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge
 import { usePosSessionField } from '@/hooks/use-pos-session';
 import { useRegisterSession } from '@/hooks/use-register-session';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { useWheelPan } from '@/hooks/use-wheel-pan';
 import { useKeypadProven } from '@/lib/keypad-proof';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
@@ -87,7 +88,11 @@ function PosScreen() {
   ];
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState<string | null>(null);
+  // MULTI-SELECT, with an empty list meaning "All". A counter sale is rarely
+  // one aisle: a cashier ringing up drinks and snacks together had to clear
+  // the filter and re-pick it between every other tap, so the chips toggle
+  // and the grid shows the union of whatever is on.
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   // These five track the in-progress sale, so they're backed by
   // usePosSessionField rather than plain useState — see use-pos-session.ts
   // for why (the admin tab shell remounts this screen on every tab switch).
@@ -309,8 +314,15 @@ function PosScreen() {
       (p.brand ?? '').toLowerCase().includes(q) ||
       (p.sku ?? '').toLowerCase().includes(q) ||
       (p.barcode ?? '').toLowerCase().includes(q);
-    return matches && (category === null || p.category === category);
+    // No chip on means no category filter at all -- not "nothing matches".
+    return matches && (selectedCategories.length === 0 || (p.category !== null && selectedCategories.includes(p.category)));
   });
+
+  // Tapping a chip that is already on turns it off; turning the last one off
+  // lands back on All, which is the same state the All chip sets directly.
+  const toggleCategory = (name: string) => {
+    setSelectedCategories((current) => (current.includes(name) ? current.filter((c) => c !== name) : [...current, name]));
+  };
 
   const addToCart = (product: Product) => {
     setCart((current) => {
@@ -921,6 +933,10 @@ function PosScreen() {
   // shoppers reach the cart without paging through every product first.
   const Split = compact ? ScrollView : View;
   const splitProps = compact ? { contentContainerStyle: styles.splitCompactContent } : {};
+  // A desktop till is driven by a mouse, and a mouse could not move this row:
+  // RN-web's horizontal ScrollView ignores the wheel, so every category past
+  // the right edge was unreachable. See use-wheel-pan.ts.
+  const { ref: categoryScrollRef, wheelPanProps: categoryWheelProps } = useWheelPan([compact]);
   const categoryListProps = compact
     ? { horizontal: true, showsHorizontalScrollIndicator: false, style: styles.categoryScrollCompact, contentContainerStyle: styles.categoryRowCompact }
     : { horizontal: true, showsHorizontalScrollIndicator: false, style: styles.categoryScroll, contentContainerStyle: styles.categoryRow };
@@ -995,10 +1011,20 @@ function PosScreen() {
           <Text style={styles.addFromScanText}>+ Add a product with barcode {unknownCode}</Text>
         </Pressable>
       )}
-      <ScrollView {...categoryListProps}>
-        <CategoryChip variant="bento" label="All" active={category === null} onPress={() => setCategory(null)} />
+      {/* `wheelPanProps` after `categoryListProps`: the row's own props carry
+          no handlers of these names, but the spread order is what guarantees
+          the wheel wiring survives a later edit that adds one. */}
+      <ScrollView ref={categoryScrollRef} {...categoryListProps} {...categoryWheelProps}>
+        <CategoryChip variant="bento" label="All" active={selectedCategories.length === 0} onPress={() => setSelectedCategories([])} />
         {categories.map((item) => (
-          <CategoryChip variant="bento" key={item} label={item} color={categoryColors.get(item)} active={category === item} onPress={() => setCategory(item)} />
+          <CategoryChip
+            variant="bento"
+            key={item}
+            label={item}
+            color={categoryColors.get(item)}
+            active={selectedCategories.includes(item)}
+            onPress={() => toggleCategory(item)}
+          />
         ))}
       </ScrollView>
       <GridList {...gridListProps}>

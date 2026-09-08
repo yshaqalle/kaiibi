@@ -1,4 +1,4 @@
-import { shouldConsumeWheel } from '@/components/storefront/mouse-pan';
+import { shouldConsumeWheel } from '@/lib/mouse-pan';
 
 // THE DEAD ZONE THIS PINS: category-band.tsx and flyer-carousel.tsx used to
 // call `event.preventDefault()` on every wheel tick before ever asking

@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import {
   clampOffset, nextWheelOffset, shouldConsumeWheel, supportsHover, wheelPanDelta,
-} from '@/components/storefront/mouse-pan';
+} from '@/lib/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
   LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, TILE_SCRIM, SPACE, TABULAR, TOUCH_TARGET, TYPE,

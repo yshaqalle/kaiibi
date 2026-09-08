@@ -4,14 +4,21 @@ import { Platform } from 'react-native';
 // natively drive" (Task 14's brief, first answered in flyer-carousel.tsx).
 // RN-web's horizontal ScrollView answers touch and a drag scrollbar but not a
 // mouse -- a vertical wheel over the band does nothing to it, and there is no
-// way to grab and pan it. Two components now need exactly this: the flyer
-// carousel (paged, snaps to a card) and the category band (free-scrolling,
-// no pages). What differs between them is the EFFECTFUL wiring -- a ref, a
-// non-passive `addEventListener('wheel', ...)`, pointer capture -- which
-// stays local to each component because "snap to the nearest card" and "just
-// clamp to the end of the row" are genuinely different policies. What is
-// identical is this arithmetic, so it lives once, here, and both components
-// import it rather than carrying a second copy that could drift.
+// way to grab and pan it. Three callers now need exactly this: the flyer
+// carousel (paged, snaps to a card), the storefront category band
+// (free-scrolling, no pages) and `useWheelPan` (hooks/use-wheel-pan.ts), the
+// wheel-only hook the till's own category row uses. What differs between them
+// is the EFFECTFUL wiring -- a ref, a non-passive
+// `addEventListener('wheel', ...)`, pointer capture -- which stays local to
+// each because "snap to the nearest card", "clamp to the end of the row and
+// also drag-to-grab" and "wheel, nothing else" are genuinely different
+// policies. What is identical is this arithmetic, so it lives once, here, and
+// all three import it rather than carrying copies that could drift.
+//
+// It sits in `lib/` rather than under `components/storefront/` -- where it was
+// first extracted -- because the till is not a storefront screen and an admin
+// tab reaching into the storefront's component folder for pure arithmetic is
+// the wrong direction of dependency.
 //
 // Kept pure and exported so a test can hold them directly: the reanimated
 // mock this suite lives with discards props, and a mouse cannot be driven
