@@ -6,7 +6,7 @@ import {
 
 import {
   clampOffset, nearestIndex, nextWheelOffset, shouldConsumeWheel, supportsHover, wheelPanDelta,
-} from '@/components/storefront/mouse-pan';
+} from '@/lib/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { photoHeightCapFor } from '@/components/storefront/product-sheet';
 import { RADIUS, TOUCH_TARGET } from '@/components/storefront/scale';

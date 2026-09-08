@@ -6,7 +6,7 @@ import {
 
 import {
   clampOffset, nearestIndex, nextWheelOffset, shouldConsumeWheel, supportsHover, wheelPanDelta,
-} from '@/components/storefront/mouse-pan';
+} from '@/lib/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import { TOUCH_TARGET } from '@/components/storefront/scale';
 import { openExternalUrl } from '@/lib/external-url';
@@ -107,7 +107,7 @@ export const AUTO_ADVANCE_INTERVAL_MS = 6000;
 // same wheel/drag/hover affordance and would otherwise have carried a second
 // copy). Re-exported here so nothing importing them from this file
 // (storefront-flyer-carousel.test.tsx) has to change.
-export { clampOffset, nearestIndex, nextWheelOffset, wheelPanDelta } from '@/components/storefront/mouse-pan';
+export { clampOffset, nearestIndex, nextWheelOffset, wheelPanDelta } from '@/lib/mouse-pan';
 
 export function FlyerCarousel({
   flyers, colors, shopName, whatsappE164, onSelectCategory, autoAdvance = false,

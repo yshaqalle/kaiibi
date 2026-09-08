@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import Animated, { FadeInUp, useReducedMotion } from 'react-native-reanimated';
 
-import { supportsHover } from '@/components/storefront/mouse-pan';
+import { supportsHover } from '@/lib/mouse-pan';
 import { pressable } from '@/components/storefront/press-feedback';
 import {
   DISPLAY_FONT, HERO_SCRIM, LETTER, ON_SCRIM_INK, ON_SCRIM_MUTED, RADIUS, SPACE, TOUCH_TARGET, TYPE,
