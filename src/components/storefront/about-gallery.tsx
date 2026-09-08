@@ -352,7 +352,19 @@ export function AboutGallery({ images, colors, windowHeight, onImageError }: Pro
             onPress={() => goTo(i)}
             style={pressable(styles.dotTarget)}
           >
-            <View style={[styles.dot, { backgroundColor: i === index ? colors.accent : colors.soft }]} />
+            {/* THE UNSELECTED DOT IS `edge`, NOT `soft` -- and that one token
+                is the whole difference between two dots and one.
+                flyer-carousel.tsx fills its unselected dots with `soft`, which
+                reads there because its dots sit ON a photo band. These sit on
+                the PAGE, and the page IS `soft`: measured in a browser, the
+                unselected dot came out #f4f4f5 on a #f4f4f5 ground, 1.00:1 --
+                a shop with two photographs showed exactly one dot and no sign
+                there was anywhere to go. `edge` is the token derived for
+                precisely this job: its own comment in storefront-catalog.ts
+                says it bounds a CONTROL and is stepped against `soft` to clear
+                WCAG 1.4.11's 3:1, which is the ratio a dot needs to be seen at
+                all. */}
+            <View style={[styles.dot, { backgroundColor: i === index ? colors.accent : colors.edge }]} />
           </Pressable>
         ))}
       </View>

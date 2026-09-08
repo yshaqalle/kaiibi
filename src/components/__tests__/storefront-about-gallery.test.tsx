@@ -4,7 +4,8 @@ import { act, create } from 'react-test-renderer';
 import { AboutGallery, gallerySlideHeightFor } from '@/components/storefront/about-gallery';
 import { photoHeightCapFor } from '@/components/storefront/product-sheet';
 import { TOUCH_TARGET } from '@/components/storefront/scale';
-import { paletteColors } from '@/lib/storefront-catalog';
+import { contrastRatio } from '@/lib/contrast';
+import { PALETTES, paletteColors } from '@/lib/storefront-catalog';
 import type { StorefrontImage } from '@/types/models';
 
 // about-gallery.tsx reaches product-sheet.tsx for `photoHeightCapFor`, which
@@ -271,5 +272,58 @@ describe('AboutGallery: the dot is a real 44px box, not a small dot with hitSlop
       expect(flat.width).toBe(TOUCH_TARGET);
       expect(flat.height).toBe(TOUCH_TARGET);
     }
+  });
+});
+
+// BOTH DOTS HAVE TO BE VISIBLE, AND ONE OF THEM WAS NOT.
+//
+// This shipped and was caught in a browser, not here: the unselected dot was
+// filled `soft`, copied from flyer-carousel.tsx along with the rest of the dot
+// shape. It reads there because those dots sit ON a photo band. These sit on
+// the PAGE -- and the page IS `soft`. Measured live on the ink palette, the
+// unselected dot was #f4f4f5 on a #f4f4f5 ground: 1.00:1. A shop with two
+// photographs rendered exactly one visible dot and no sign there was anywhere
+// to go, which is the whole affordance the carousel replaced the thumbnail
+// strip with.
+//
+// Asserted as a RATIO against the surface rather than as a hex, so it is the
+// property that is pinned and not today's token: any future fill that happens
+// to collapse into the page fails this, including one that is technically a
+// different colour. 3:1 is WCAG 1.4.11 for a non-text control, which is the
+// bar `edge` is derived to clear (storefront-catalog.ts).
+//
+// Across ALL SEVEN palettes, because this is exactly the defect that hides in
+// one: the selected dot looked right on every palette while the unselected one
+// was invisible on the default.
+describe('AboutGallery: both dots can actually be seen', () => {
+  it.each(PALETTES.map((p) => p.key))('separates selected and unselected dots from the page on %s', (palette) => {
+    const paletted = paletteColors(palette);
+    let tree!: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <AboutGallery
+          images={[image('i1'), image('i2')]}
+          colors={paletted}
+          windowHeight={900}
+          onImageError={jest.fn()}
+        />,
+      );
+    });
+
+    // The 7px mark inside each 44px target, in document order.
+    const marks = withTestId(tree, 'storefront-about-dot')
+      .map((dot) => (dot.children ?? [])[0] as HostNode)
+      .map((mark) => (StyleSheet.flatten(mark.props.style as never) as { backgroundColor?: string }).backgroundColor);
+
+    expect(marks).toHaveLength(2);
+    for (const fill of marks) {
+      expect(fill).toBeDefined();
+      // `soft` is the surface the gallery sits on -- the exact collapse that
+      // shipped. Anything at or under 3:1 against it cannot be seen.
+      expect(contrastRatio(fill!, paletted.soft)).toBeGreaterThanOrEqual(3);
+    }
+    // And the two must differ from each other, or a dot row says nothing about
+    // WHICH photo is showing even when both are visible.
+    expect(marks[0]).not.toBe(marks[1]);
   });
 });
