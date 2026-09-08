@@ -187,9 +187,21 @@ type HarnessProps = {
   slugState: SlugState;
   claimedSlug: string | null;
   suffixSuggestions: string[];
+  // Per-field save errors. Props of the harness, like slugState, so a test can
+  // make one appear the way the editor screen does rather than by remounting.
+  highlightsError: string | null;
+  instagramError: string | null;
 };
 
-function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
+function mountDrawer(
+  initial: Partial<HarnessProps> & {
+    slug?: string;
+    whatsappE164?: string | null;
+    heroImageUrl?: string | null;
+    onRetryHighlights?: () => void;
+    onRetryInstagram?: () => void;
+  } = {}
+) {
   const onChange = jest.fn();
   const onClaimSlug = jest.fn();
   let props: HarnessProps = {
@@ -197,10 +209,17 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
     slugState: initial.slugState ?? 'idle',
     claimedSlug: initial.claimedSlug ?? null,
     suffixSuggestions: initial.suffixSuggestions ?? [],
+    highlightsError: initial.highlightsError ?? null,
+    instagramError: initial.instagramError ?? null,
   };
 
   function Harness(p: HarnessProps) {
-    const [value, setValue] = useState<ContentDrawerValue>({ ...DEFAULT_VALUE, slug: initial.slug ?? '' });
+    const [value, setValue] = useState<ContentDrawerValue>({
+      ...DEFAULT_VALUE,
+      slug: initial.slug ?? '',
+      ...(initial.whatsappE164 !== undefined ? { whatsappE164: initial.whatsappE164 } : {}),
+      ...(initial.heroImageUrl !== undefined ? { heroImageUrl: initial.heroImageUrl } : {}),
+    });
     return (
       <ContentDrawer
         value={value}
@@ -213,6 +232,10 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
         shopName={p.shopName}
         claimedSlug={p.claimedSlug}
         suffixSuggestions={p.suffixSuggestions}
+        highlightsError={p.highlightsError}
+        instagramError={p.instagramError}
+        {...(initial.onRetryHighlights ? { onRetryHighlights: initial.onRetryHighlights } : {})}
+        {...(initial.onRetryInstagram ? { onRetryInstagram: initial.onRetryInstagram } : {})}
       />
     );
   }
@@ -226,6 +249,9 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
     onChange,
     onClaimSlug,
     texts: () => textsIn(tree.toJSON() as ReactTestRendererJSON).join(' '),
+    /** The same strings unjoined, in render order -- for "is it under the right
+     *  field", which is a question about position and not about presence. */
+    textList: () => textsIn(tree.toJSON() as ReactTestRendererJSON),
     find: (testID: string) => tree.root.findAll((n) => n.props?.testID === testID)[0],
     has: (testID: string) => tree.root.findAll((n) => n.props?.testID === testID).length > 0,
     valueOf: (testID: string) => api.find(testID)?.props.value as string | undefined,
@@ -239,6 +265,12 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
         api.find(testID).props.onPress();
       });
     },
+    /** The WhatsApp field commits on blur, so a draft is only real once blurred. */
+    blur: (testID: string) => {
+      act(() => {
+        api.find(testID).props.onBlur();
+      });
+    },
     update: (next: Partial<HarnessProps>) => {
       props = { ...props, ...next };
       act(() => {
@@ -247,7 +279,9 @@ function mountDrawer(initial: Partial<HarnessProps> & { slug?: string } = {}) {
     },
     /** Every Caveat currently on screen, as props -- tone and action included. */
     caveats: () =>
-      tree.root.findAllByType(Caveat).map((n) => n.props as { tone?: string; action?: unknown; children: string }),
+      tree.root.findAllByType(Caveat).map(
+        (n) => n.props as { tone?: string; action?: { label: string; onPress: () => void }; children: string }
+      ),
     /**
      * A fresh mount with the CURRENT props -- what a shopkeeper gets by
      * leaving the Storefront screen and coming back after renaming the shop
@@ -609,5 +643,143 @@ describe('a claimed address does not follow a rename', () => {
     d.update({ shopName: 'Burco Traders' });
 
     expect(shownAddress(d)).toBe(CLAIMED_ADDRESS);
+  });
+});
+
+// THE TWO SINGLETONS.
+//
+// Every COLLECTION in this drawer could already be emptied -- each gallery
+// thumbnail, and the flyers and delivery areas in their own cards. The two
+// single-valued fields, the opening photo and the WhatsApp number, could only
+// ever be REPLACED, so a shop that changed its mind about having either one had
+// no move at all short of uploading a photo it did not want or typing a number
+// it did not use.
+describe('taking a saved value back out', () => {
+  it('removes an opening photo rather than only replacing it', () => {
+    const d = mountDrawer({ heroImageUrl: 'https://example.test/shop.jpg' });
+    d.press('content-drawer-hero-remove');
+    expect(d.onChange).toHaveBeenCalledWith({ heroImageUrl: null });
+  });
+
+  it('removes a saved WhatsApp number', () => {
+    const d = mountDrawer({ whatsappE164: '+252634456789' });
+    d.press('content-drawer-phone-remove');
+    expect(d.onChange).toHaveBeenCalledWith({ whatsappE164: null });
+  });
+
+  it('offers neither Remove until there is something to remove', () => {
+    const d = mountDrawer({ whatsappE164: null, heroImageUrl: null });
+    expect(d.has('content-drawer-phone-remove')).toBe(false);
+    expect(d.has('content-drawer-hero-remove')).toBe(false);
+  });
+
+  // The consequence has to arrive BEFORE the press, which is what separates
+  // this remove from every other one in the editor: `no_whatsapp` is a publish
+  // blocker, so clearing the number changes what the shop can do next.
+  it('warns about the publish blocker while the number is still there', () => {
+    const d = mountDrawer({ whatsappE164: '+252634456789' });
+    expect(d.texts()).toMatch(/before you can publish/i);
+  });
+
+  // 'context', not 'wrong': nothing is broken while the number is still saved,
+  // and a 'wrong' caveat promises an action that clears it.
+  it('states that consequence as context rather than as an error', () => {
+    const d = mountDrawer({ whatsappE164: '+252634456789' });
+    const warning = d.caveats().find((c) => /before you can publish/i.test(c.children));
+    expect(warning?.tone).toBe('context');
+    expect(warning?.action).toBeUndefined();
+  });
+
+  it('says nothing about publishing when there is no number to remove', () => {
+    expect(mountDrawer({ whatsappE164: null }).texts()).not.toMatch(/before you can publish/i);
+  });
+
+  // How the Remove could undo itself: the field commits on blur, and pressing
+  // the button blurs the field on the way. Without clearing the draft, that
+  // blur writes back the very number the shop just asked to be rid of.
+  it('clears a half-typed replacement along with the number it was replacing', () => {
+    const d = mountDrawer({ whatsappE164: '+252634456789' });
+    d.type('content-drawer-phone-input', '0634000111');
+    d.blur('content-drawer-phone-input');
+    d.press('content-drawer-phone-remove');
+
+    expect(d.onChange.mock.calls.at(-1)?.[0]).toEqual({ whatsappE164: null });
+    expect(d.valueOf('content-drawer-phone-input')).toBe('');
+  });
+
+  // And the rejection notice goes with it, rather than being left behind
+  // complaining about a number that is no longer anywhere on the screen.
+  it('clears a rejected draft’s error when the number is removed', () => {
+    const d = mountDrawer({ whatsappE164: '+252634456789' });
+    d.type('content-drawer-phone-input', 'call me');
+    d.blur('content-drawer-phone-input');
+    expect(d.texts()).toMatch(/not a valid number/i);
+
+    d.press('content-drawer-phone-remove');
+    expect(d.texts()).not.toMatch(/not a valid number/i);
+  });
+});
+
+// The drawer used to take ONE error prop, fed `tradingSinceError ??
+// highlightsError` by the editor screen while the Instagram save's own catch
+// wrote to it as well. Three unrelated failures, one caveat, under a year field
+// that in two of the three cases had never been touched.
+describe('a failed save reports under its own field', () => {
+  const HANDLE_FAILED = 'Could not save your Instagram handle — check your connection and try again.';
+  const HIGHLIGHTS_FAILED = 'Could not save that — check your connection and try again.';
+
+  // Position, not presence: "under its own field" is the whole claim, and a
+  // test that only checked the string was on screen would have passed against
+  // the bug.
+  function orderIn(list: string[], label: string, fragment: string) {
+    return {
+      label: list.findIndex((t) => t === label),
+      error: list.findIndex((t) => t.includes(fragment)),
+    };
+  }
+
+  it('puts a failed handle under Instagram, below Trading since', () => {
+    const list = mountDrawer({ instagramError: HANDLE_FAILED }).textList();
+    const { label, error } = orderIn(list, 'Instagram', 'Could not save your Instagram handle');
+    const trading = list.findIndex((t) => t === 'Trading since');
+
+    expect(label).toBeGreaterThan(-1);
+    expect(error).toBeGreaterThan(label);
+    expect(trading).toBeLessThan(label);
+  });
+
+  it('puts a failed highlights write under Why shop here', () => {
+    const list = mountDrawer({ highlightsError: HIGHLIGHTS_FAILED }).textList();
+    const { label, error } = orderIn(list, 'Why shop here', 'Could not save that');
+    expect(label).toBeGreaterThan(-1);
+    expect(error).toBeGreaterThan(label);
+  });
+
+  // The half of the bug that is about words rather than wiring: the shared
+  // message could not name a field, because it did not know which one.
+  it('names the field it is talking about', () => {
+    expect(mountDrawer({ instagramError: HANDLE_FAILED }).texts()).toMatch(/instagram handle/i);
+  });
+
+  it('leaves the other fields silent', () => {
+    const d = mountDrawer({ instagramError: HANDLE_FAILED });
+    const errors = d.caveats().filter((c) => c.tone === 'wrong');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].children).toBe(HANDLE_FAILED);
+  });
+
+  // A `wrong` caveat must always ship the thing that removes it -- Caveat's own
+  // rule. The shared prop could not obey it: one caveat standing for three
+  // possible writes had no single write to re-run.
+  it('gives each error a retry that re-runs its own write', () => {
+    const onRetryInstagram = jest.fn();
+    const instagram = mountDrawer({ instagramError: HANDLE_FAILED, onRetryInstagram });
+    instagram.caveats().find((c) => c.children === HANDLE_FAILED)!.action!.onPress();
+    expect(onRetryInstagram).toHaveBeenCalled();
+
+    const onRetryHighlights = jest.fn();
+    const highlights = mountDrawer({ highlightsError: HIGHLIGHTS_FAILED, onRetryHighlights });
+    highlights.caveats().find((c) => c.children === HIGHLIGHTS_FAILED)!.action!.onPress();
+    expect(onRetryHighlights).toHaveBeenCalled();
   });
 });
