@@ -1,0 +1,369 @@
+<meta charset="utf-8" />
+<title>Colour for the Accounting hubs</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+        --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e; --profit:#008340; --loss:#d72b3e;
+        /* the four marks proposed here */
+        --core:#2f6bff;  --coreWash:#e6edff;  --coreInk:#1b47b8;
+        --stock:#00a396; --stockWash:#ddf0ec; --stockInk:#00635b;
+        --attn:#c8791a;  --attnWash:#f8efdc;  --attnInk:#8a5a05;
+        --stmt:#0b0b0d;  --stmtWash:#f6f6f7;  --stmtInk:#0b0b0d; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:74ch;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;white-space:nowrap;}
+  .swatch{display:inline-block;width:13px;height:13px;border-radius:4px;vertical-align:-2px;margin-right:7px;}
+  .pass{color:#0b7a44;font-weight:750;} .fail{color:#c22a3a;font-weight:750;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;background:var(--pg);padding:12px 0;z-index:5;border-bottom:1px solid var(--ln);}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:12px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 2px;color:var(--d-mut);}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;background:var(--d-sf);}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:8px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* hub cards — the shipped sheet, shared by both hubs */
+  .hubgrid{display:grid;gap:12px;margin-bottom:18px;} .w1280 .hubgrid{grid-template-columns:repeat(4,1fr);} .w380 .hubgrid{grid-template-columns:1fr;}
+  .hubcard{background:var(--d-sf);border-radius:26px;padding:18px;display:flex;flex-direction:column;}
+  .hubcard .ic{width:34px;height:34px;border-radius:10px;background:var(--d-soft);color:var(--d-ink2);
+    display:flex;align-items:center;justify-content:center;font-size:15px;margin-bottom:11px;}
+  .hubcard b{font-size:13.5px;font-weight:800;line-height:1.3;}
+  .hubcard span.d{font-size:11.5px;color:var(--d-mut);margin-top:4px;line-height:1.45;flex:1;}
+  .hubcard .act{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap;}
+  .hubcard .when{font-size:11px;color:var(--d-mut2);}
+  .hubcard .go{font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:999px;background:var(--d-soft);color:var(--d-ink2);}
+  .hubcard .wait{font-size:11.5px;font-weight:800;color:var(--d-mut2);}
+  .hubcard.soon{opacity:.5;}
+  .grpttl{font-size:12.5px;font-weight:800;margin:4px 0 10px;}
+  .grpttl .sub2{font-weight:500;color:var(--d-mut);font-size:11.5px;}
+
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#31507f;}
+
+  /* ---------- the four directions ---------- */
+  /* 0 — today. Nothing to do; the sheet above already is today. */
+
+  /* A — washed tile, grey button */
+  [data-dir="A"] .hubcard[data-band="core"]  .ic{background:var(--coreWash); color:var(--coreInk);}
+  [data-dir="A"] .hubcard[data-band="stock"] .ic{background:var(--stockWash);color:var(--stockInk);}
+  [data-dir="A"] .hubcard[data-band="attn"]  .ic{background:var(--attnWash); color:var(--attnInk);}
+  [data-dir="A"] .hubcard[data-band="stmt"]  .ic{background:var(--stmtWash); color:var(--stmtInk);}
+
+  /* B — solid tile, white glyph, grey button */
+  [data-dir="B"] .hubcard[data-band] .ic{color:#fff;}
+  [data-dir="B"] .hubcard[data-band="core"]  .ic{background:var(--core);}
+  [data-dir="B"] .hubcard[data-band="stock"] .ic{background:var(--stock);}
+  [data-dir="B"] .hubcard[data-band="attn"]  .ic{background:var(--attn);}
+  [data-dir="B"] .hubcard[data-band="stmt"]  .ic{background:var(--stmt);}
+
+  /* C — solid tile + one blue action, with creates carried solid */
+  [data-dir="C"] .hubcard[data-band] .ic{color:#fff;}
+  [data-dir="C"] .hubcard[data-band="core"]  .ic{background:var(--core);}
+  [data-dir="C"] .hubcard[data-band="stock"] .ic{background:var(--stock);}
+  [data-dir="C"] .hubcard[data-band="attn"]  .ic{background:var(--attn);}
+  [data-dir="C"] .hubcard[data-band="stmt"]  .ic{background:var(--stmt);}
+  [data-dir="C"] .hubcard .go{background:var(--coreWash);color:var(--coreInk);}
+  [data-dir="C"] .hubcard .go.new{background:var(--core);color:#fff;}
+
+  /* D — colour lives on the button only */
+  [data-dir="D"] .hubcard[data-band="core"]  .go{background:var(--coreWash); color:var(--coreInk);}
+  [data-dir="D"] .hubcard[data-band="stock"] .go{background:var(--stockWash);color:var(--stockInk);}
+  [data-dir="D"] .hubcard[data-band="attn"]  .go{background:var(--attnWash); color:var(--attnInk);}
+  [data-dir="D"] .hubcard[data-band="stmt"]  .go{background:var(--stmtWash); color:var(--stmtInk);}
+
+  a{color:var(--blue);}
+</style>
+
+<div class="wrap doc">
+  <p class="eyebrow">Design mockup · Accounting</p>
+  <h1>Colour for the two hubs</h1>
+  <p class="lede">Reports and The books render the <b>same card sheet</b> — a grey tile, a grey action pill,
+  and eleven of them stacked in bands. Nothing on either page tells you where you are without reading.
+  This proposes four marks, one per band, and four ways of spending them.</p>
+
+  <section>
+    <h2>The palette</h2>
+    <p class="h2sub">Four marks, not eleven. Every hue is one the theme has already solved and shipped —
+    three of the four categorical series plus the ink — so this adds two wash/ink pairs to
+    <code>theme.ts</code> and reuses the rest.</p>
+
+    <table class="dtbl">
+      <thead><tr><th>Mark</th><th>Carries</th><th>On which hub</th><th>Why that hue</th><th>Tokens</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="swatch" style="background:#2f6bff"></span>Blue</td>
+          <td>The hub's own core work</td>
+          <td>Sales · Ledger and journals</td>
+          <td>Already the app's data ink. Each hub's biggest band is the one you came for.</td>
+          <td><code>bentoSeries1</code> · <code>bentoAccentWash/Ink</code> <i>(exist)</i></td>
+        </tr>
+        <tr>
+          <td><span class="swatch" style="background:#00a396"></span>Teal</td>
+          <td>Things the shop holds</td>
+          <td>Inventory · Assets</td>
+          <td>Stock and fixed assets are the same idea at two speeds, so they take one mark.</td>
+          <td><code>bentoSeries2</code> · <b>new wash/ink</b></td>
+        </tr>
+        <tr>
+          <td><span class="swatch" style="background:#c8791a"></span>Amber</td>
+          <td>Has a clock on it</td>
+          <td>Customers and suppliers · Oversight</td>
+          <td>Aging, closing a period, the audit trail. Amber is already the app's third status:
+          needs noticing, not broken.</td>
+          <td><code>bentoSeries3</code> · <code>bentoRefundWash/Ink</code> <i>(exist)</i></td>
+        </tr>
+        <tr>
+          <td><span class="swatch" style="background:#0b0b0d"></span>Graphite</td>
+          <td>The formal statements</td>
+          <td>Financial statements <i>(both hubs)</i></td>
+          <td>The one band that appears on both, so it must read the same on both. Black rather
+          than a fifth hue — see below.</td>
+          <td><code>bentoInk</code> · <code>bentoSoft</code> <i>(exist)</i></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="note" style="margin-top:18px"><b>Why four and not five.</b> The first cut gave Financial
+    statements an indigo and Customers a pink. Both died on the colour-vision check: indigo against the
+    blue is ΔE&nbsp;<span class="fail">1.5</span> for a deutan viewer, and the teal and pink washes are
+    ΔE&nbsp;<span class="fail">0.9</span> — two bands that are simply the same colour for roughly one man
+    in twelve. The set above is the four the theme already validated, and every pair clears
+    ΔE&nbsp;<span class="pass">52+</span> under both deutan and protan simulation.</p>
+
+    <p class="note"><b>The hue is never the only cue.</b> A group heading sits directly above every band
+    and each card carries its own name, so the colour is wayfinding, not information — it is not doing the
+    job <code>bentoProfit</code>/<code>bentoLoss</code> do, and does not need their sign-or-glyph rule.</p>
+
+    <table class="dtbl">
+      <thead><tr><th>Check</th><th>Blue</th><th>Teal</th><th>Amber</th><th>Graphite</th><th>Floor</th></tr></thead>
+      <tbody>
+        <tr><td>White glyph on the solid tile</td>
+          <td class="pass">4.50</td><td class="pass">3.14</td><td class="pass">3.38</td><td class="pass">19.7</td><td>3.0</td></tr>
+        <tr><td>Ink on its own wash</td>
+          <td class="pass">6.79</td><td class="pass">6.05</td><td class="pass">5.18</td><td class="pass">18.2</td><td>4.5</td></tr>
+        <tr><td>Wash against the white card</td>
+          <td class="pass">1.17</td><td class="pass">1.18</td><td class="pass">1.14</td><td>1.08</td><td>visible</td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:10px">Ink-on-wash clears the <b>4.5</b> normal-text bar, not just
+    the 3.0 icon one — so the same pairs can carry the action pill's label, which directions C and D need.</p>
+  </section>
+
+  <section>
+    <h2>Four ways to spend it</h2>
+    <p class="h2sub">Same markup, same copy, same cards. Flip between them — the difference is entirely in
+    where the colour lands.</p>
+
+    <div class="switch" role="tablist">
+      <button role="tab" data-set="0" aria-selected="false">Today</button>
+      <button role="tab" data-set="A" aria-selected="false">A · Washed tiles</button>
+      <button role="tab" data-set="B" aria-selected="false">B · Solid tiles</button>
+      <button role="tab" data-set="C" aria-selected="true">C · Solid tiles, one blue action</button>
+      <button role="tab" data-set="D" aria-selected="false">D · Colour on the button only</button>
+    </div>
+
+    <p class="note" id="blurb" style="margin-bottom:18px"></p>
+
+    <div class="frameHead"><b>Accounting › Reports</b><i>Twelve cards, five bands</i></div>
+    <div class="scroller">
+      <div class="frame w1280" data-dir="C" id="f1">
+        <div class="head">
+          <div><p class="eyebrow">Accounting</p><h3>Reports</h3>
+            <p>Sales, stock and the statements — everything the shop can be asked about.</p></div>
+          <div style="display:flex;gap:8px"><span class="pill">1–14 Aug ▾</span><span class="pill">All stores ▾</span></div>
+        </div>
+        <div class="tabrow"><span class="on">Reports</span><span>The books</span><span>Expenses</span><span>Owed to you</span><span>Bills</span></div>
+
+        <div class="grpttl">Sales</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="core"><div class="ic">◔</div><b>Sales Reports</b><span class="d">Revenue by day, payment method and store.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="core"><div class="ic">▦</div><b>Item Performance</b><span class="d">Top and bottom sellers by units and margin.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="core"><div class="ic">☺</div><b>Sales by Employee</b><span class="d">Revenue and baskets per cashier.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="core"><div class="ic">◕</div><b>Sales by Category</b><span class="d">Revenue and margin by product category.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+        </div>
+
+        <div class="grpttl">Inventory</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="stock"><div class="ic">▣</div><b>Inventory Balance</b><span class="d">Stock on hand, and what it is worth at cost.</span><div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="stock"><div class="ic">⚠</div><b>Low Stock &amp; Reorder</b><span class="d">Items at or below their reorder point.</span><div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="stock"><div class="ic">⇄</div><b>Stock Movement</b><span class="d">Deliveries, transfers and stock-takes.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+        </div>
+
+        <div class="grpttl">Financial statements</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="stmt"><div class="ic">₤</div><b>Profit &amp; Loss</b><span class="d">Revenue, cost of sales and expenses, down to net profit. Opens the Income Statement in Accounting.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Open in Accounting</span></div></div>
+          <div class="hubcard" data-band="stmt"><div class="ic">▤</div><b>Balance Sheet</b><span class="d">What the shop owns, what it owes, and what's left over. Opens in Accounting.</span><div class="act"><span class="when">As at 14 Aug</span><span class="go">Open in Accounting</span></div></div>
+          <div class="hubcard" data-band="stmt"><div class="ic">≈</div><b>Cash Flow</b><span class="d">Where cash actually came from and went. Profit and cash are not the same thing.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Open in Accounting</span></div></div>
+          <div class="hubcard soon"><div class="ic">⚖</div><b>Inventory Valuation</b><span class="d">Stock is valued at a moving weighted average cost, so what it is worth is a figure on Inventory Balance.</span><div class="act"><span class="when">Weighted average</span><span class="wait">See Inventory Balance</span></div></div>
+        </div>
+
+        <div class="grpttl">Customers and suppliers</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="attn"><div class="ic">⧗</div><b>Aging Receivables</b><span class="d">How old the money owed to the shop is, in 30-day bands. Opens Owed to you.</span><div class="act"><span class="when">As of today</span><span class="go">Open in Owed to you</span></div></div>
+          <div class="hubcard" data-band="attn"><div class="ic">⧗</div><b>Aging Payables</b><span class="d">How old the money the shop owes is, in the same bands. Opens Bills.</span><div class="act"><span class="when">As of today</span><span class="go">Open in Bills</span></div></div>
+        </div>
+
+        <div class="grpttl">Until the ledger takes over</div>
+        <div class="hubgrid">
+          <div class="hubcard"><div class="ic">▤</div><b>P&amp;L, tax and labour</b><span class="d">The Reports tab this hub replaced. It reads sales and expenses directly, not the ledger.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Open</span></div></div>
+        </div>
+
+        <div class="cav context"><span>ⓘ</span><span>The three statements read the ledger rather than the sales tables, so they live on the Accounting tab — these cards open them there, for the same dates you picked here.</span></div>
+      </div>
+    </div>
+
+    <div class="frameHead" style="margin-top:34px"><b>Accounting › The books</b><i>Same four marks, one shared band</i></div>
+    <div class="scroller">
+      <div class="frame w1280" data-dir="C" id="f2">
+        <div class="head">
+          <div><p class="eyebrow">Accounting</p><h3>The books</h3>
+            <p>The books themselves — accounts, entries and the trail behind them.</p></div>
+          <div style="display:flex;gap:8px"><span class="pill">1–14 Aug ▾</span><span class="pill">All stores ▾</span></div>
+        </div>
+        <div class="tabrow"><span>Reports</span><span class="on">The books</span><span>Expenses</span><span>Owed to you</span><span>Bills</span></div>
+
+        <div class="grpttl">Ledger and journals</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="core"><div class="ic">☰</div><b>Chart of Accounts</b><span class="d">Assets, liabilities, equity, revenue and expense accounts.</span><div class="act"><span class="when">As of today</span><span class="go">View accounts</span></div></div>
+          <div class="hubcard" data-band="core"><div class="ic">✎</div><b>General Journal Entry</b><span class="d">Post a manual debit/credit entry to the ledger.</span><div class="act"><span class="when">Manual entry</span><span class="go new">+ New entry</span></div></div>
+          <div class="hubcard" data-band="core"><div class="ic">▤</div><b>Journals</b><span class="d">Every journal entry recorded, in order.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">View list</span></div></div>
+          <div class="hubcard" data-band="core"><div class="ic">⇄</div><b>Trial Balance</b><span class="d">Every account's debit and credit balance, side by side.</span><div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+        </div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="core"><div class="ic">↻</div><b>Post History</b><span class="d">Replay past sales, refunds, deliveries and bills into the ledger.</span><div class="act"><span class="when">412 unposted</span><span class="go new">+ Post history</span></div></div>
+        </div>
+
+        <div class="grpttl">Financial statements</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="stmt"><div class="ic">↗</div><b>Income Statement</b><span class="d">Revenue, cost of sales and expenses, down to net profit.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="stmt"><div class="ic">⚖</div><b>Balance Sheet</b><span class="d">What the shop owns, what it owes, and what's left over.</span><div class="act"><span class="when">As at 14 Aug</span><span class="go">Run report</span></div></div>
+          <div class="hubcard" data-band="stmt"><div class="ic">≈</div><b>Cash Flow</b><span class="d">Where cash actually came from and went. Profit and cash are not the same thing.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+        </div>
+
+        <div class="grpttl">Assets</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="stock"><div class="ic">▣</div><b>Fixed Assets</b><span class="d">Equipment and property, what it cost and what it is worth now.</span><div class="act"><span class="when">As of today</span><span class="go new">+ Add asset</span></div></div>
+        </div>
+
+        <div class="grpttl">Oversight</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="attn"><div class="ic">🔒</div><b>Close a Period</b><span class="d">Lock a month so its numbers stop moving. This runs itself — you are here to check it.</span><div class="act"><span class="when">Every month</span><span class="go new">+ Close a month</span></div></div>
+          <div class="hubcard" data-band="attn"><div class="ic">◷</div><b>Audit Log</b><span class="d">Who changed what, and when.</span><div class="act"><span class="when">All time</span><span class="go">View log</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frameHead" style="margin-top:34px"><b>On a phone</b><i>Where the tile is the only thing distinguishing two stacked cards</i></div>
+    <div class="scroller">
+      <div class="frame w380" data-dir="C" id="f3">
+        <div class="grpttl">Sales</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="core"><div class="ic">◔</div><b>Sales Reports</b><span class="d">Revenue by day, payment method and store.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Run report</span></div></div>
+        </div>
+        <div class="grpttl">Inventory</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="stock"><div class="ic">▣</div><b>Inventory Balance</b><span class="d">Stock on hand, and what it is worth at cost.</span><div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+        </div>
+        <div class="grpttl">Financial statements</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="stmt"><div class="ic">≈</div><b>Cash Flow</b><span class="d">Where cash actually came from and went.</span><div class="act"><span class="when">1–14 Aug</span><span class="go">Open in Accounting</span></div></div>
+        </div>
+        <div class="grpttl">Oversight</div>
+        <div class="hubgrid">
+          <div class="hubcard" data-band="attn"><div class="ic">🔒</div><b>Close a Period</b><span class="d">Lock a month so its numbers stop moving.</span><div class="act"><span class="when">Every month</span><span class="go new">+ Close a month</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The recommendation</h2>
+    <p class="h2sub">C, with one caveat.</p>
+    <p class="note"><b>C separates the two questions a card answers.</b> The tile says <i>what kind of thing
+    this is</i> and the pill says <i>this is the press</i> — so the pressable thing is one colour on every
+    card of both hubs, and scanning for a button never means scanning for four colours. It also gets the
+    only genuinely useful distinction on these pages for free: a solid blue pill for the four cards that
+    <b>create</b> something (+ New entry, + Post history, + Add asset, + Close a month) against a washed
+    pill for the ones that only open a screen. The books already draws that split — it ships a
+    <code>creates</code> flag and a solid <b>black</b> pill — but black is a third colour beside the grey
+    one and says nothing about the press. This keeps the distinction and makes it two weights of the one
+    blue, so the pill's hue means &ldquo;press me&rdquo; and its weight means &ldquo;this one writes&rdquo;.
+    Reports has no create cards at all, so every pill there is washed.</p>
+    <p class="note"><b>The caveat.</b> Solid tiles are the loudest option here, and the Reports hub shows
+    twelve at once. If that reads as a toybox on a real screen, A is the same scheme at a whisper — the
+    band mapping and the tokens are unchanged, only the tile fill drops from solid to wash — and it keeps
+    C's blue action pill if you want the two halves separately.</p>
+    <p class="note"><b>D is here to be rejected.</b> Colouring the button by band is the one arrangement
+    that actively misleads: it makes the pressable element change colour for reasons that have nothing to
+    do with what pressing it does, and it puts amber on a button that opens a list.</p>
+
+    <h2 style="margin-top:34px">What ships</h2>
+    <p class="h2sub">Five tokens, one shared helper, both hubs. <b>Shipped</b> on
+    <code>accounting-hub-colour</code> — the frames above are the design, and the built screens match them.</p>
+    <table class="dtbl">
+      <thead><tr><th>Step</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>theme.ts</code></td><td>Add the four <code>bentoBand*</code> marks and <code>bentoAccentSolid</code>, in both palettes. No wash pairs needed — C fills the tiles solid, so the teal wash direction A would have wanted was never added.</td></tr>
+        <tr><td>2</td><td>both hubs</td><td>Add a <code>band</code> field to <code>REPORT_VIEWS</code>, <code>LEDGER_VIEWS</code> and the three standalone cards, beside <code>group</code>. The band is a property of the card, not derived from the group string.</td></tr>
+        <tr><td>3</td><td>a shared module</td><td>One <code>BAND_MARKS</code> map. The two card sheets are already deliberate duplicates asserted against by <code>hub-card-proportions.test.tsx</code> — the colours must not become a third copy.</td></tr>
+        <tr><td>4</td><td>The books</td><td>Repoint the existing <code>creates</code> pill from <code>bentoInk</code> to the new <code>bentoAccentSolid</code>. The flag is already there and already honest — only the fill changes.</td></tr>
+        <tr><td>5</td><td>dimmed cards</td><td>Inventory Valuation keeps the grey tile. The hub's greying means "nothing to show", and a coloured dimmed tile makes that mean two things.</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+  var BLURBS = {
+    '0': 'Today. Eleven grey tiles and eleven grey pills — the bands are told apart only by their headings, and nothing distinguishes a card that runs a report from one that posts to the ledger.',
+    'A': 'A — the tile takes its band’s wash, the glyph its ink. The quietest option: the page still reads as a grey-and-white sheet, and the colour is a hint rather than a claim. The action pill is untouched.',
+    'B': 'B — the tile goes solid with a white glyph. Much stronger wayfinding, and the four marks are unmistakable at arm’s length. But nothing yet marks a create apart from a read.',
+    'C': 'C — solid tiles for the band, and every action pill in one blue: what a card is, and that a card is pressable, are two different questions and get two different signals. The four cards that create something take the blue solid.',
+    'D': 'D — colour on the button instead of the tile. Shown for completeness: the pressable element now changes colour by band, which is exactly the thing colour should not do here.'
+  };
+  var frames = ['f1','f2','f3'].map(function(id){ return document.getElementById(id); });
+  var blurb = document.getElementById('blurb');
+  function set(dir){
+    frames.forEach(function(f){ f.setAttribute('data-dir', dir); });
+    blurb.textContent = BLURBS[dir];
+    document.querySelectorAll('.switch button').forEach(function(b){
+      b.setAttribute('aria-selected', String(b.dataset.set === dir));
+    });
+  }
+  document.querySelectorAll('.switch button').forEach(function(b){
+    b.addEventListener('click', function(){ set(b.dataset.set); });
+  });
+  set('C');
+</script>

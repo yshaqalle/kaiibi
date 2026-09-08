@@ -152,6 +152,46 @@ export const Colors = {
     // lightness as the pair above.
     bentoAccentWash: '#e6edff',
     bentoAccentInk: '#1b47b8', // 6.79:1 on its wash
+    // The FILLED step of the accent pair, for a pill that does something rather
+    // than one that reports something. The hub cards use exactly this split:
+    // "Run report" and "View list" open a screen and wear the wash, while
+    // "+ New entry", "+ Post history", "+ Add asset" and "+ Close a month"
+    // write to the ledger and wear this. White on it is 4.50:1, so the label
+    // clears the normal-text bar rather than only the large-text one.
+    //
+    // Deliberately its own token and not `bentoBandCore` below, though the two
+    // hold the same blue today. One means "this is the press", the other means
+    // "this card is about sales" -- and the whole point of the hub scheme is
+    // that those are different questions. Re-hueing the Sales band must not
+    // silently re-hue every button that writes.
+    bentoAccentSolid: '#2f6bff',
+    // ---- Hub band marks ----
+    //
+    // The icon tile on a Reports or The-books hub card, filled solid with a
+    // white glyph. Four marks for nine bands, because a band is not the unit
+    // that matters -- what the reader is looking for is. Sales and Ledger are
+    // each hub's core work; Inventory and Assets are both things the shop
+    // holds; Customers-and-suppliers and Oversight both have a clock on them;
+    // and Financial statements appears on BOTH hubs, so it has to read the
+    // same on both.
+    //
+    // The first cut had five, with an indigo for the statements and a pink for
+    // customers. Both died on the CVD check: indigo against this blue is
+    // deutan dE 1.5, and the teal and pink washes dE 0.9 -- two bands that are
+    // the same colour for roughly one man in twelve. These four are the series
+    // hues, which the palette above already validated, plus the ink; every
+    // pair clears dE 52 under both deutan and protan simulation.
+    //
+    // Same VALUES as `bentoSeries1-3` and `bentoInk`, separate NAMES on the
+    // `chartAccent` precedent: a chart series and a UI tile are different jobs,
+    // and a re-tune of one must not drag the other with it. Nothing here is
+    // status -- a group heading sits above every band and each card carries its
+    // own name -- so these do not take the sign-or-glyph rule
+    // `bentoProfit`/`bentoLoss` carry.
+    bentoBandCore: '#2f6bff', // 4.50:1 white glyph
+    bentoBandStock: '#00a396', // 3.14:1 white glyph
+    bentoBandAttention: '#c8791a', // 3.38:1 white glyph
+    bentoBandStatement: '#0b0b0d', // 19.66:1 white glyph
     // A sale that came back. Amber for the same reason `bentoWarn` is amber:
     // this is the third status -- needs noticing, is not broken. Red would say
     // the sale is a loss, which it is not, and would sit next to a genuinely
@@ -254,6 +294,22 @@ export const Colors = {
     bentoDownInk: '#ff8a93',
     bentoAccentWash: '#1a2440',
     bentoAccentInk: '#8fb4ff',
+    // The blue is unchanged: 4.50:1 for its white label wherever it sits, and
+    // 3.97:1 against `bentoSurface`, so the filled pill still reads as filled.
+    bentoAccentSolid: '#2f6bff',
+    // The three hued marks carry over for the reason the series hues do -- they
+    // already pass on the dark surface (5.68:1 and 5.28:1 against it) and
+    // re-stepping would cost separation for nothing.
+    //
+    // The statement mark is the one that cannot: graphite on a #17171c card is
+    // an invisible tile. It goes UP rather than flipping to near-white, so that
+    // the white glyph stays white across all four and the rule "the tile is
+    // solid, the glyph is the card" survives the theme. 1.77:1 against the
+    // surface is a legible chip, and 10.07:1 carries the glyph.
+    bentoBandCore: '#2f6bff',
+    bentoBandStock: '#00a396',
+    bentoBandAttention: '#c8791a',
+    bentoBandStatement: '#41414c',
     // Same inversion the delta washes take: the wash goes dark, the ink goes
     // light, so the pill still reads as a pill without being the brightest
     // thing on the card. 8.20:1 on its wash.

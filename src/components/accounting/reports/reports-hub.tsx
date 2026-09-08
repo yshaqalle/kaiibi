@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 // It is here so that renaming a ledger view breaks the three cards below that
 // hand off to one, rather than shipping a card that opens the hub.
 import type { LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { bandGlyph, bandTile, type HubBand } from '@/components/accounting/hub-bands';
 import { Card } from '@/components/card';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Caveat } from '@/components/ui/caveat';
@@ -67,6 +68,8 @@ export const REPORT_VIEWS: {
   label: string;
   blurb: string;
   group: string;
+  /** Which of the four marks the icon tile wears. See hub-bands.ts. */
+  band: HubBand;
   icon: keyof typeof Ionicons.glyphMap;
   scope: string;
   action: string;
@@ -82,6 +85,7 @@ export const REPORT_VIEWS: {
     label: 'Sales Reports',
     blurb: 'Revenue by day, payment method and store.',
     group: 'Sales',
+    band: 'core',
     icon: 'pie-chart-outline',
     scope: '7 days',
     action: 'Run report',
@@ -95,6 +99,7 @@ export const REPORT_VIEWS: {
     label: 'Item Performance',
     blurb: 'Top and bottom sellers by units and margin.',
     group: 'Sales',
+    band: 'core',
     icon: 'grid-outline',
     scope: '7 days',
     action: 'Run report',
@@ -108,6 +113,7 @@ export const REPORT_VIEWS: {
     label: 'Sales by Employee',
     blurb: 'Revenue and baskets per cashier.',
     group: 'Sales',
+    band: 'core',
     icon: 'people-outline',
     scope: '7 days',
     action: 'Run report',
@@ -121,6 +127,7 @@ export const REPORT_VIEWS: {
     label: 'Sales by Category',
     blurb: 'Revenue and margin by product category.',
     group: 'Sales',
+    band: 'core',
     icon: 'layers-outline',
     scope: '7 days',
     action: 'Run report',
@@ -134,6 +141,7 @@ export const REPORT_VIEWS: {
     label: 'Inventory Balance',
     blurb: 'Stock on hand, and what it is worth at cost.',
     group: 'Inventory',
+    band: 'stock',
     icon: 'cube-outline',
     // Stock on hand is a position read at an instant. There is no such thing
     // as the stock a shop held over the last seven days, so this screen
@@ -150,6 +158,7 @@ export const REPORT_VIEWS: {
     label: 'Low Stock & Reorder',
     blurb: 'Items at or below their reorder point.',
     group: 'Inventory',
+    band: 'stock',
     icon: 'warning-outline',
     scope: 'As of today',
     action: 'Run report',
@@ -163,6 +172,7 @@ export const REPORT_VIEWS: {
     label: 'Stock Movement',
     blurb: 'Deliveries, transfers and stock-takes.',
     group: 'Inventory',
+    band: 'stock',
     icon: 'swap-horizontal-outline',
     scope: '7 days',
     action: 'Run report',
@@ -209,6 +219,8 @@ export const LEDGER_STATEMENT_CARDS: {
   label: string;
   blurb: string;
   group: string;
+  /** Which of the four marks the icon tile wears. See hub-bands.ts. */
+  band: HubBand;
   icon: keyof typeof Ionicons.glyphMap;
   scope: string;
   action: string;
@@ -225,6 +237,7 @@ export const LEDGER_STATEMENT_CARDS: {
     label: 'Profit & Loss',
     blurb: 'Revenue, cost of sales and expenses, down to net profit. Opens the Income Statement in Accounting.',
     group: 'Financial statements',
+    band: 'statement',
     icon: 'cash-outline',
     scope: 'The chosen range',
     // Says where the press lands BEFORE it lands. A card that silently moves
@@ -240,6 +253,7 @@ export const LEDGER_STATEMENT_CARDS: {
     label: 'Balance Sheet',
     blurb: "What the shop owns, what it owes, and what's left over. Opens in Accounting.",
     group: 'Financial statements',
+    band: 'statement',
     icon: 'business-outline',
     // A position read at an instant, and the instant is the range's END, not
     // today -- exactly as the ledger hub's own card says.
@@ -255,6 +269,7 @@ export const LEDGER_STATEMENT_CARDS: {
     label: 'Cash Flow',
     blurb: 'Where cash actually came from and went. Profit and cash are not the same thing. Opens in Accounting.',
     group: 'Financial statements',
+    band: 'statement',
     icon: 'water-outline',
     scope: 'The chosen range',
     action: 'Open in Accounting',
@@ -290,6 +305,10 @@ export const VALUATION_CARD = {
   blurb:
     'Stock is valued at a moving weighted average cost, not in layers — so what it is worth is a figure on Inventory Balance rather than a report of its own.',
   group: 'Financial statements',
+  // No mark, though it sits in the statements band. It is the hub's one dimmed
+  // card, and the dimming already means "nothing to show" -- a half-strength
+  // graphite tile would make one appearance carry two meanings.
+  band: null as HubBand,
   icon: 'scale-outline' as keyof typeof Ionicons.glyphMap,
   // Not "Not yet". The basis is decided and shipped; naming it is the useful
   // thing this card can say, and it stays true after Inventory Balance lands.
@@ -325,6 +344,8 @@ export const AGING_CARDS: {
   label: string;
   blurb: string;
   group: string;
+  /** Which of the four marks the icon tile wears. See hub-bands.ts. */
+  band: HubBand;
   icon: keyof typeof Ionicons.glyphMap;
   scope: string;
   action: string;
@@ -339,6 +360,7 @@ export const AGING_CARDS: {
     label: 'Aging Receivables',
     blurb: 'How old the money owed to the shop is, in 30-day bands. Opens Owed to you.',
     group: 'Customers and suppliers',
+    band: 'attention',
     icon: 'hourglass-outline',
     // Not the chosen range. A debt's age is measured from today whatever window
     // the picker is on, and a card promising a window the screen does not keep
@@ -356,6 +378,7 @@ export const AGING_CARDS: {
     label: 'Aging Payables',
     blurb: 'How old the money the shop owes is, in the same bands. Opens Bills.',
     group: 'Customers and suppliers',
+    band: 'attention',
     icon: 'hourglass-outline',
     scope: 'As of today',
     action: 'Open in Bills',
@@ -386,6 +409,7 @@ export const STATEMENTS_CARD = {
   label: 'P&L, tax and labour',
   blurb: 'The Reports tab this hub replaced. It reads sales and expenses directly, not the ledger.',
   group: 'Until the ledger takes over',
+  band: null,
   icon: 'document-text-outline' as keyof typeof Ionicons.glyphMap,
   scope: '7 days',
   action: 'Open',
@@ -423,6 +447,8 @@ type HubCard = {
   label: string;
   blurb: string;
   group: string;
+  /** Which of the four marks the icon tile wears. See hub-bands.ts. */
+  band: HubBand;
   icon: keyof typeof Ionicons.glyphMap;
   scope: string;
   action: string;
@@ -556,8 +582,8 @@ export function ReportsHub({
               const door = view.door;
               const card = (
                 <Card variant="bento" fill style={[styles.card, !view.available && styles.cardDimmed]}>
-                  <View style={styles.iconTile}>
-                    <Ionicons name={view.icon} size={17} color={theme.bentoInk2} />
+                  <View style={[styles.iconTile, bandTile(view.band)]}>
+                    <Ionicons name={view.icon} size={17} color={bandGlyph(view.band)} />
                   </View>
                   <Text style={styles.title}>{view.label}</Text>
                   <Text style={styles.blurb}>{view.blurb}</Text>
@@ -640,6 +666,9 @@ const styles = StyleSheet.create({
   // The design's `.hubcard.soon { opacity:.5 }`. Half-strength rather than a
   // different fill, so it reads as "not yet" rather than as a fifth card style.
   cardDimmed: { opacity: 0.5 },
+  // `backgroundColor` here is the UNBANDED fill, overridden per card by
+  // `bandTile`. Left in the sheet rather than dropped so a card that is given
+  // no band still gets a tile rather than a transparent hole.
   iconTile: {
     width: 36,
     height: 36,
@@ -663,8 +692,14 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   scope: { fontSize: 11.5, color: theme.bentoMuted2, flexShrink: 0 },
-  action: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: theme.bentoSoft },
-  actionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk2 },
+  // The accent wash, not `bentoSoft`, and it is the half of the scheme that
+  // does the work. The tile answers "what kind of thing is this" and changes
+  // colour by band; the pill answers "this is the press" and must therefore
+  // NOT -- one blue on every card of both hubs, so scanning for a button never
+  // means scanning for four colours. Nothing on this hub writes, so no card
+  // here takes the filled variant the ledger hub uses.
+  action: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: theme.bentoAccentWash },
+  actionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoAccentInk },
   // Same reason as `scope`: "See Inventory Balance" is a signpost, and a
   // signpost that reads "See Inventory Bala…" points nowhere.
   waitingOn: { fontSize: 12.5, fontWeight: '800', color: theme.bentoMuted2, flexShrink: 0 },

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { bandGlyph, bandTile, type HubBand } from '@/components/accounting/hub-bands';
 import { Card } from '@/components/card';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Colors } from '@/constants/theme';
@@ -74,6 +75,8 @@ export const LEDGER_VIEWS: {
   label: string;
   blurb: string;
   group: string | null;
+  /** Which of the four marks the icon tile wears. See hub-bands.ts. */
+  band: HubBand;
   icon: keyof typeof Ionicons.glyphMap;
   scope: string;
   action: string;
@@ -85,6 +88,8 @@ export const LEDGER_VIEWS: {
     label: 'Accounting',
     blurb: 'The books themselves — accounts, entries and the trail behind them.',
     group: null,
+    // Not a card. It is the hub's own title row, filtered out before render.
+    band: null,
     icon: 'book-outline',
     scope: '',
     action: '',
@@ -96,6 +101,7 @@ export const LEDGER_VIEWS: {
     label: 'Chart of Accounts',
     blurb: 'Assets, liabilities, equity, revenue and expense accounts.',
     group: 'Ledger and journals',
+    band: 'core',
     icon: 'list-outline',
     scope: 'As of today',
     action: 'View accounts',
@@ -107,6 +113,7 @@ export const LEDGER_VIEWS: {
     label: 'General Journal Entry',
     blurb: 'Post a manual debit/credit entry to the ledger.',
     group: 'Ledger and journals',
+    band: 'core',
     icon: 'create-outline',
     scope: 'Manual entry',
     action: '+ New entry',
@@ -118,6 +125,7 @@ export const LEDGER_VIEWS: {
     label: 'Journals',
     blurb: 'Every journal entry recorded, in order.',
     group: 'Ledger and journals',
+    band: 'core',
     icon: 'reader-outline',
     scope: '7 days',
     action: 'View list',
@@ -129,6 +137,7 @@ export const LEDGER_VIEWS: {
     label: 'Trial Balance',
     blurb: "Every account's debit and credit balance, side by side.",
     group: 'Ledger and journals',
+    band: 'core',
     icon: 'swap-horizontal-outline',
     scope: 'As of today',
     action: 'Run report',
@@ -140,6 +149,7 @@ export const LEDGER_VIEWS: {
     label: 'Post History',
     blurb: 'Replay past sales, refunds, deliveries and bills into the ledger.',
     group: 'Ledger and journals',
+    band: 'core',
     icon: 'refresh-outline',
     // The static fallback, shown while the live count is still null. Never a
     // guessed "0 unposted" -- a shop with two years of trading outside the
@@ -165,6 +175,7 @@ export const LEDGER_VIEWS: {
     label: 'Income Statement',
     blurb: 'Revenue, cost of sales and expenses, down to net profit.',
     group: 'Financial statements',
+    band: 'statement',
     icon: 'trending-up-outline',
     // "The chosen range", not "7 days". Seven days is only the range
     // selector's OPENING preset -- it also offers 30 days and a custom pair of
@@ -186,6 +197,7 @@ export const LEDGER_VIEWS: {
     label: 'Balance Sheet',
     blurb: "What the shop owns, what it owes, and what's left over.",
     group: 'Financial statements',
+    band: 'statement',
     icon: 'scale-outline',
     scope: 'As at the range end',
     action: 'Run report',
@@ -197,6 +209,7 @@ export const LEDGER_VIEWS: {
     label: 'Cash Flow',
     blurb: 'Where cash actually came from and went. Profit and cash are not the same thing.',
     group: 'Financial statements',
+    band: 'statement',
     icon: 'water-outline',
     scope: 'The chosen range',
     action: 'Run report',
@@ -213,6 +226,7 @@ export const LEDGER_VIEWS: {
     label: 'Fixed Assets',
     blurb: 'Equipment and property, what it cost and what it is worth now.',
     group: 'Assets',
+    band: 'stock',
     icon: 'cube-outline',
     // Not "the chosen range". The register is a position read at an instant --
     // there is no such thing as a book value for the last seven days -- and
@@ -239,6 +253,7 @@ export const LEDGER_VIEWS: {
     // closing is control of the books, not a way of writing to them, and every
     // close and re-open lands in the log next door.
     group: 'Oversight',
+    band: 'attention',
     icon: 'lock-closed-outline',
     // Not "the chosen range". This screen ignores the shell's date picker
     // entirely -- it lists every period a shop has, newest first -- and a card
@@ -257,6 +272,7 @@ export const LEDGER_VIEWS: {
     label: 'Audit Log',
     blurb: 'Who changed what, and when.',
     group: 'Oversight',
+    band: 'attention',
     icon: 'time-outline',
     scope: 'All time',
     action: 'View log',
@@ -361,8 +377,8 @@ export function LedgerHub({
               <BentoCell key={view.key} span={3}>
               <Pressable style={styles.cell} onPress={() => onOpen(view.key)} role="button">
                 <Card variant="bento" fill style={styles.card}>
-                  <View style={styles.iconTile}>
-                    <Ionicons name={view.icon} size={17} color={theme.bentoInk2} />
+                  <View style={[styles.iconTile, bandTile(view.band)]}>
+                    <Ionicons name={view.icon} size={17} color={bandGlyph(view.band)} />
                   </View>
                   <Text style={styles.title}>{view.label}</Text>
                   <Text style={styles.blurb}>{view.blurb}</Text>
@@ -438,6 +454,8 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
+    // The UNBANDED fill, overridden per card by `bandTile`. Left in the sheet
+    // so a card given no band still gets a tile rather than a transparent hole.
     backgroundColor: theme.bentoSoft,
     alignItems: 'center',
     justifyContent: 'center',
@@ -466,8 +484,17 @@ const styles = StyleSheet.create({
   // that has never backfilled is in a normal state rather than an alarming one,
   // so this is emphasis on a fact, not a warning.
   scopeWaiting: { color: theme.warning, fontWeight: '800' },
-  action: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: theme.bentoSoft },
-  actionSolid: { backgroundColor: theme.bentoInk },
-  actionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk2 },
+  // The accent wash, not `bentoSoft`, and it is the half of the scheme that
+  // does the work. The tile answers "what kind of thing is this" and changes
+  // colour by band; the pill answers "this is the press" and must therefore
+  // NOT -- one blue on every card of both hubs, so scanning for a button never
+  // means scanning for four colours.
+  action: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: theme.bentoAccentWash },
+  // The filled step of the SAME blue, not a different hue: a door that writes
+  // to the ledger is the same act as a door that opens a screen, done harder.
+  // Was `bentoInk`, which read as a third colour beside the grey pill and said
+  // nothing about the press. See `bentoAccentSolid` in theme.ts.
+  actionSolid: { backgroundColor: theme.bentoAccentSolid },
+  actionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoAccentInk },
   actionTextSolid: { color: theme.bentoSurface },
 });

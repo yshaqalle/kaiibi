@@ -59,8 +59,10 @@ describe('the hub card', () => {
       expect(tile).toBeTruthy();
       expect(flat(tile).height).toBe(36);
       expect(flat(tile).borderRadius).toBe(10);
-      // Still the bento fill, NOT the proposal's blue tint.
-      expect(flat(tile).backgroundColor).toBe(theme.bentoSoft);
+      // The band mark, filled solid. The first card of either hub is in its
+      // hub's core band, so both render the same blue here -- which is the
+      // point: a band reads the same on either tab.
+      expect(flat(tile).backgroundColor).toBe(theme.bentoBandCore);
 
       const texts = card.findAllByType('Text' as never).map(flat);
       const title = texts.find((s) => s.fontSize === 15);
@@ -90,8 +92,36 @@ describe('the hub card', () => {
       expect(pill.paddingVertical).toBe(7);
     }
     // Both fills still present: a report you read and a book you write to must
-    // not look like the same act.
-    expect(pills.some((p) => p.backgroundColor === theme.bentoInk)).toBe(true);
-    expect(pills.some((p) => p.backgroundColor === theme.bentoSoft)).toBe(true);
+    // not look like the same act. Two steps of ONE blue since the hub colour
+    // scheme landed -- the pill is the "this is the press" signal and may not
+    // change hue, only weight.
+    expect(pills.some((p) => p.backgroundColor === theme.bentoAccentSolid)).toBe(true);
+    expect(pills.some((p) => p.backgroundColor === theme.bentoAccentWash)).toBe(true);
+    // And no pill wears a band mark. The tile carries the band; a pill that did
+    // too would make the pressable thing change colour for reasons that have
+    // nothing to do with what pressing it does.
+    for (const mark of [theme.bentoBandStock, theme.bentoBandAttention, theme.bentoBandStatement]) {
+      expect(pills.some((p) => p.backgroundColor === mark)).toBe(false);
+    }
+  });
+
+  it('marks every band on both hubs, and leaves the dimmed card unmarked', () => {
+    const marks = [theme.bentoBandCore, theme.bentoBandStock, theme.bentoBandAttention, theme.bentoBandStatement];
+    const tiles = (tree: ReturnType<typeof create>) =>
+      tree.root.findAll((n) => typeof n.type === 'string' && flat(n).width === 36 && flat(n).height === 36).map(flat);
+
+    const { ledger, reports } = renderHubs();
+    // Reports carries all four marks; The books carries all four too, which is
+    // what makes the statements band read the same on either tab.
+    for (const [name, tree] of Object.entries({ ledger, reports })) {
+      const fills = new Set(tiles(tree).map((t) => t.backgroundColor));
+      for (const mark of marks) {
+        expect({ hub: name, mark, present: fills.has(mark) }).toEqual({ hub: name, mark, present: true });
+      }
+    }
+    // Inventory Valuation is the one dimmed card, and it keeps the plain tile:
+    // the hub's greying already means "nothing to show".
+    expect(tiles(reports).some((t) => t.backgroundColor === theme.bentoSoft)).toBe(true);
+    expect(tiles(ledger).some((t) => t.backgroundColor === theme.bentoSoft)).toBe(false);
   });
 });
