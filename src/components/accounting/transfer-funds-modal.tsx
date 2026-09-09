@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   postsLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: theme.bentoMuted },
   postsValue: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk, marginTop: 4, lineHeight: 18 },
 
-  button: { borderRadius: 999, paddingVertical: 14, alignItems: 'center', backgroundColor: theme.bentoInk, marginTop: 16 },
+  button: { borderRadius: 999, paddingVertical: 14, alignItems: 'center', backgroundColor: theme.bentoAccentSolid, marginTop: 16 },
   buttonOff: { opacity: 0.4 },
   buttonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   footnote: { fontSize: 11.5, color: theme.bentoMuted2, marginTop: 12, lineHeight: 16 },

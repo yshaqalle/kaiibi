@@ -336,7 +336,7 @@ function CustomersTab({
   useHeaderActions(
     setHeaderActions,
     <>
-      <ExportMenu rows={filtered} columns={CUSTOMER_EXPORT_COLUMNS} title="Customers" subtitle={`${filtered.length} customers`} filenamePrefix="customers" />
+      <ExportMenu variant="bento" rows={filtered} columns={CUSTOMER_EXPORT_COLUMNS} title="Customers" subtitle={`${filtered.length} customers`} filenamePrefix="customers" />
       {canEdit && (
         <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
           <Text style={tabStyles.actionButtonText}>Import</Text>
@@ -822,7 +822,7 @@ function TeamManagementTab({
   useHeaderActions(
     setHeaderActions,
     <>
-      {canManageRoster && <ExportMenu rows={filtered} columns={exportColumns} title="Team" subtitle={`${filtered.length} team members`} filenamePrefix="team" />}
+      {canManageRoster && <ExportMenu variant="bento" rows={filtered} columns={exportColumns} title="Team" subtitle={`${filtered.length} team members`} filenamePrefix="team" />}
       {canManageRoster && (
         <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
           <Text style={tabStyles.actionButtonText}>Import</Text>
@@ -1230,7 +1230,7 @@ const tabStyles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
-  actionButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  actionButtonSolid: { backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   actionButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
   actionButtonTextSolid: { color: theme.bentoSurface },
   actionButtonDisabled: { opacity: 0.5 },

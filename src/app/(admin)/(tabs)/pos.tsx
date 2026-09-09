@@ -1649,9 +1649,9 @@ const styles = StyleSheet.create({
   // control still in reach once the phone has pushed the search field below the
   // cart. Clear carries the same weight at the shop's request; what keeps it
   // from being a one-tap way to lose a basket is the confirm on `clearSale`.
-  scanCartButton: { backgroundColor: theme.bentoInk, borderWidth: 1, borderColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 16 },
+  scanCartButton: { backgroundColor: theme.bentoAccentSolid, borderWidth: 1, borderColor: theme.bentoAccentSolid, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 16 },
   scanCartButtonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
-  addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
+  addFromScan: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
   // The same 18 the head and the foot are inset by. Without it the money and

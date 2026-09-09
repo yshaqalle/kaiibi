@@ -457,7 +457,7 @@ const styles = StyleSheet.create({
     borderColor: theme.bentoLine,
     overflow: 'hidden',
   },
-  buttonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  buttonSolid: { backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   buttonLabel: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
   buttonSolidLabel: { fontSize: 12.5, fontWeight: '700', color: '#ffffff' },
 });

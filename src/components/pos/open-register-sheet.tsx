@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
   },
   primary: {
     marginTop: 4,
-    backgroundColor: theme.bentoInk,
+    backgroundColor: theme.bentoAccentSolid,
     borderRadius: 16,
     height: 54,
     alignItems: 'center',

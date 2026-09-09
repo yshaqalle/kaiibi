@@ -25,6 +25,27 @@ export type HubBand = 'core' | 'stock' | 'attention' | 'statement' | null;
  * glyph. See the `bentoBand*` block in theme.ts for why there are four of these
  * and not one per band, and for the CVD numbers behind the choice.
  *
+ * ---- The marks are a PER-SCREEN language, not a global semantic ----
+ *
+ * These four meanings are the ACCOUNTING HUBS' meanings. A second screen that
+ * bands its own groups draws from the same validated hue pool and gets its own
+ * meanings, which will not all line up: Settings, worked through in
+ * docs/design/hub-colour-rollout-mockup.html, keeps blue for Sales, teal for
+ * Catalog and graphite for Books, but needs amber for "the shop's own setup"
+ * rather than "has a clock on it", plus a fifth hue for Account.
+ *
+ * That is the rule, and it has to be stated rather than discovered: the hue
+ * pool is shared because it is CVD-validated as a set, and the MEANINGS are
+ * local to the screen the reader is looking at. Assuming otherwise is how amber
+ * comes to mean "overdue" on one tab and "shop setup" on the next with nothing
+ * on screen to tell them apart.
+ *
+ * Two things this is not. It is not status -- a group heading sits above every
+ * band and each card carries its own name, so no mark is the only carrier of
+ * anything, and none takes the sign-or-glyph rule `bentoProfit`/`bentoLoss`
+ * carry. And it is not the action colour: `bentoAccentSolid` says "press this"
+ * on every screen in the app, and that one IS global. See theme.ts.
+ *
  * ONE map, imported by both hubs. The two card StyleSheets are already
  * deliberate duplicates -- hub-card-proportions.test.tsx asserts against both
  * renders precisely because a change made to one and not the other is invisible

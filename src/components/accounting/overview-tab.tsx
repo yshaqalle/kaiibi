@@ -204,7 +204,7 @@ export function OverviewTab({
   // export is the summary. Someone wanting every line has Transactions.
   useHeaderActions(
     setHeaderActions,
-    <ExportMenu
+    <ExportMenu variant="bento"
       rows={daily}
       columns={OVERVIEW_EXPORT_COLUMNS}
       title="Accounting overview"

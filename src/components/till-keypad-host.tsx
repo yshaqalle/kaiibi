@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
   keyActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
   keyLabelActive: { color: theme.bentoSurface },
   wideKey: { flex: 2 },
-  doneKey: { flex: 2, backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  doneKey: { flex: 2, backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   doneLabel: { color: theme.bentoSurface },
   keyLabel: { fontSize: 16, fontWeight: '600', color: theme.bentoInk },
 });

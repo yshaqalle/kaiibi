@@ -27,6 +27,9 @@ import { saleProfit, saleRefundState, type SaleRefundState } from '@/lib/sales-r
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { Colors } from '@/constants/theme';
+
+const theme = Colors.light;
 
 // The former Sales screen, now Accounting's Transactions tab. Behaviour is
 // unchanged except that the date range comes from the Accounting shell (shared
@@ -244,7 +247,7 @@ export function TransactionsTab({
   useHeaderActions(
     setHeaderActions,
     <>
-      <ExportMenu rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
+      <ExportMenu variant="bento" rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
       {canEdit && (
         <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
           <Text style={styles.importButtonText}>Import</Text>
@@ -829,7 +832,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
 }
 
 const styles = StyleSheet.create({
-  importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  importButton: { backgroundColor: theme.bentoAccentSolid, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   // No bottom margin: the card around this owns its padding now, and keeping
   // one here left a dead band under the tiles.

@@ -40,6 +40,9 @@ import {
 } from '@/lib/invoices';
 import type { Invoice } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { Colors } from '@/constants/theme';
+
+const theme = Colors.light;
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -524,7 +527,7 @@ const styles = StyleSheet.create({
   tableBody: { paddingHorizontal: 10 },
   metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   subtitle: { fontSize: 11.5, color: '#999999', flexShrink: 1, lineHeight: 16, marginTop: 12 },
-  newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  newButton: { backgroundColor: theme.bentoAccentSolid, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
 
   list: { gap: 10 },

@@ -113,6 +113,6 @@ const styles = StyleSheet.create({
   utilKey: { backgroundColor: theme.bentoSoft },
   utilLabel: { fontSize: 12, fontWeight: '700', color: theme.bentoInk2 },
   spaceKey: { flex: 2.4 },
-  doneKey: { flex: 1.5, backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  doneKey: { flex: 1.5, backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   doneLabel: { fontSize: 12.5, fontWeight: '800', color: theme.bentoSurface },
 });

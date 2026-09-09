@@ -152,18 +152,37 @@ export const Colors = {
     // lightness as the pair above.
     bentoAccentWash: '#e6edff',
     bentoAccentInk: '#1b47b8', // 6.79:1 on its wash
-    // The FILLED step of the accent pair, for a pill that does something rather
-    // than one that reports something. The hub cards use exactly this split:
-    // "Run report" and "View list" open a screen and wear the wash, while
-    // "+ New entry", "+ Post history", "+ Add asset" and "+ Close a month"
-    // write to the ledger and wear this. White on it is 4.50:1, so the label
-    // clears the normal-text bar rather than only the large-text one.
+    // THE ACTION FILL. Every button in the app that commits something wears
+    // this: Charge, Checkout, Add from scan, Clock in, Post, Close the month,
+    // Done. White on it is 4.50:1, so the label clears the normal-text bar
+    // rather than only the large-text one.
+    //
+    // ---- The rule, because one colour was doing two jobs ----
+    //
+    // `bentoInk` used to fill both. It is still the SELECTED state -- the tab
+    // pill you are on, the active keypad key, the chosen debit/credit side, a
+    // checked box, the current sidebar row -- and it was also every primary
+    // button. So black meant "you are here" AND "press this", which are the two
+    // questions the hub cards separated on the tile and the pill.
+    //
+    // The test when adding a button: does pressing it COMMIT something, or does
+    // it SHOW a state? Commits take this. States stay `bentoInk`. A tooltip
+    // bubble, an avatar, a chart mark and a dark hero card are none of the
+    // above and also stay -- they are not pressable at all.
+    //
+    // `bentoAccentWash`/`Ink` above are the QUIET step of the same language, for
+    // a door that only opens a screen ("Run report", "View accounts"). Hue means
+    // pressable; weight means this one writes.
     //
     // Deliberately its own token and not `bentoBandCore` below, though the two
     // hold the same blue today. One means "this is the press", the other means
-    // "this card is about sales" -- and the whole point of the hub scheme is
-    // that those are different questions. Re-hueing the Sales band must not
-    // silently re-hue every button that writes.
+    // "this card is about sales". Re-hueing the Sales band must not silently
+    // re-hue every button in the app.
+    //
+    // NOT yet applied in marketing, the storefront editor or the platform
+    // console: those are three modules with their own visual language and they
+    // still press black. That is a staged rollout, not a decision to exempt
+    // them -- see docs/design/hub-colour-rollout-mockup.html.
     bentoAccentSolid: '#2f6bff',
     // ---- Hub band marks ----
     //
