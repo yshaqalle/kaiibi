@@ -1,0 +1,430 @@
+<meta charset="utf-8" />
+<title>Where the hub colour goes next</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+
+  /* The app's own tokens. `.doc` pins them so every frame below renders the
+     real light palette whatever theme the page itself is in — a screenshot of
+     a screen must not change colour with the reader's OS. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+        --core:#2f6bff; --stock:#00a396; --attn:#c8791a; --stmt:#0b0b0d; --slate:#4a6382;
+        --accWash:#e6edff; --accInk:#1b47b8; --accSolid:#2f6bff;
+        --profit:#008340; --loss:#d72b3e; --warnWash:#fdf1e3; --warnInk:#8a530f; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3.sub{font-size:15px;font-weight:800;margin:26px 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:76ch;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:76ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .verdict{border-left:3px solid var(--blue);padding:2px 0 2px 15px;margin:18px 0;font-size:14px;color:var(--ink2);max-width:76ch;}
+  .verdict b{color:var(--ink);}
+  .verdict.no{border-left-color:var(--loss);}
+  .verdict.yes{border-left-color:var(--profit);}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .swatch{display:inline-block;width:13px;height:13px;border-radius:4px;vertical-align:-2px;margin-right:7px;}
+  .pass{color:#0b7a44;font-weight:750;} .fail{color:#c22a3a;font-weight:750;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;background:var(--pg);padding:12px 0;z-index:5;border-bottom:1px solid var(--ln);}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .switch button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1240px;} .frame.w380{width:380px;} .frame.w620{width:620px;}
+  .pair{display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(300px,440px));justify-content:start;align-items:start;}
+
+  /* --- shared app furniture --- */
+  .grpttl{font-size:12.5px;font-weight:800;margin:4px 0 10px;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .tile{width:34px;height:34px;border-radius:10px;background:var(--d-soft);color:var(--d-ink2);
+    display:flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 auto;}
+  .tile.core{background:var(--core);color:#fff;} .tile.stock{background:var(--stock);color:#fff;}
+  .tile.attn{background:var(--attn);color:#fff;} .tile.stmt{background:var(--stmt);color:#fff;}
+  .tile.slate{background:var(--slate);color:#fff;}
+  .go{font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:999px;background:var(--d-soft);color:var(--d-ink2);white-space:nowrap;}
+  .go.wash{background:var(--accWash);color:var(--accInk);} .go.solid{background:var(--accSolid);color:#fff;}
+  .go.black{background:var(--d-ink);color:#fff;}
+  .badge{font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:999px;letter-spacing:.2px;white-space:nowrap;}
+  .badge.ok{background:#e7f5ed;color:#0b6b3c;} .badge.warn{background:var(--warnWash);color:var(--warnInk);}
+  .badge.bad{background:#fce9eb;color:#b0293a;} .badge.mut{background:var(--d-soft);color:var(--d-ink2);}
+
+  /* settings nav */
+  .nav{background:var(--d-sf);border-radius:20px;padding:10px 8px;}
+  .navgrp{font-size:10px;font-weight:700;color:#9CA3AF;letter-spacing:.09em;text-transform:uppercase;padding:14px 10px 5px;}
+  .navrow{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:12px;}
+  .navrow.on{background:var(--d-soft);}
+  .navrow .lbl{font-size:13px;font-weight:650;color:#374151;}
+  .navrow.on .lbl{color:#111;font-weight:800;}
+  .navrow .tile{width:28px;height:28px;border-radius:8px;font-size:13px;}
+  .navrow .tile.flat{background:transparent;color:#6B7280;}
+  .chev{margin-left:auto;color:#9CA3AF;font-size:13px;}
+
+  /* generic rows */
+  .rw{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--d-ln);}
+  .rw:last-child{border-bottom:none;}
+  .rw .bd{flex:1;min-width:0;} .rw .t1{font-size:13.5px;font-weight:700;} .rw .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .rw .amt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .dot{width:9px;height:9px;border-radius:3px;flex:0 0 auto;}
+  .stripe{width:3px;align-self:stretch;border-radius:2px;flex:0 0 auto;}
+
+  .kpis{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+
+  a{color:var(--blue);}
+  @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;} }
+</style>
+
+<div class="wrap doc">
+  <p class="eyebrow">Design exploration · after the Accounting hubs</p>
+  <h1>Where the hub colour goes next</h1>
+  <p class="lede">The hub scheme is two separable ideas, not one: a <b>band mark</b> that says what kind of
+  thing a card is, and <b>one blue</b> that says a thing is pressable. They generalise very differently.
+  The blue raises a question across the whole app that has to be answered either way. The marks fit
+  exactly one screen outside Accounting — and actively misfit three others.</p>
+
+  <div class="verdict"><b>What the survey found.</b> Icon tiles exist in <b>two files in the codebase</b>
+  — the two hubs. Every other screen is icon-light, so &ldquo;colour the tiles like the hubs&rdquo; has
+  almost nowhere to land. What the other screens do carry is <b>status</b>, and status already has a
+  solved palette. <code>Badge</code> and <code>CategoryChip</code> both already have <code>bento</code>
+  variants, so that red flag in the skill is stale — but only three of the four screens on its
+  &ldquo;not yet converted&rdquo; list are. <b>Settings is still cream</b>: zero bento tokens, all hex
+  literals. That turns out to decide the whole plan below.</div>
+
+  <div class="verdict yes"><b>Status: 1, 3 and 4 are built and verified</b> on branch
+  <code>accounting-hub-colour</code>. <b>2 is blocked</b> — see Settings. The screens pictured under
+  &ldquo;the fork&rdquo; are the shipped state; the Settings frames are still a proposal.</div>
+
+  <section>
+    <h2>First: the fork the hubs just created</h2>
+    <p class="h2sub">This one is not optional. Shipping a blue action pill on the hubs put a second
+    press-language into an app whose every other primary button is black.</p>
+
+    <table class="dtbl">
+      <thead><tr><th>Screen</th><th>The primary action</th><th>Wears</th></tr></thead>
+      <tbody>
+        <tr><td>POS</td><td>Checkout · Add from scan · Scan into cart</td><td><code>bentoInk</code> — black</td></tr>
+        <tr><td>Inventory</td><td>Add from scan · pill buttons</td><td><code>bentoInk</code> — black</td></tr>
+        <tr><td>People</td><td>Row actions</td><td><code>bentoInk</code> — black</td></tr>
+        <tr><td>Staff self-service</td><td>Clock in / out · Request</td><td><code>bentoInk</code> — black</td></tr>
+        <tr><td>Orders</td><td>Row action</td><td><code>bentoInk</code> — black</td></tr>
+        <tr><td>Accounting hubs <i>(as of this branch)</i></td><td>Run report · + New entry</td><td><b style="color:var(--blue)">blue wash / blue solid</b></td></tr>
+      </tbody>
+    </table>
+
+    <p class="note" style="margin-top:16px">Black is also doing <b>structural</b> work — the selected tab
+    pill, the active keypad key, the sidebar's current row. That is the real argument for moving the
+    action language off it: today one colour means both &ldquo;you are here&rdquo; and &ldquo;press
+    this&rdquo;, and those are the same two questions the hub scheme just separated on the cards.</p>
+
+    <div class="switch" role="tablist" aria-label="Press-language options">
+      <button role="tab" data-set="A" aria-selected="false">A · Black everywhere (revert the hubs)</button>
+      <button role="tab" data-set="B" aria-selected="true">B · Blue is the press, app-wide</button>
+      <button role="tab" data-set="C" aria-selected="false">C · Leave the hubs as an island</button>
+    </div>
+    <p class="note" id="blurb" style="margin-bottom:18px"></p>
+
+    <div class="pair">
+      <div>
+        <div class="frameHead"><b>POS — checkout</b><i>the app's loudest button</i></div>
+        <div class="frame w380">
+          <div class="cardx">
+            <div class="grpttl">Current sale</div>
+            <div class="rw"><div class="bd"><div class="t1">Anjeero × 3</div><div class="t2">$1.50 each</div></div><div class="amt">$4.50</div></div>
+            <div class="rw"><div class="bd"><div class="t1">Shaah</div><div class="t2">$0.75 each</div></div><div class="amt">$0.75</div></div>
+            <div class="rw"><div class="bd"><div class="t1" style="font-size:15px">Total</div></div><div class="amt" style="font-size:17px">$5.25</div></div>
+            <div style="margin-top:14px"><div class="btnCheckout" style="height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px">Charge $5.25</div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="frameHead"><b>The books — a door that writes</b><i>where the split was introduced</i></div>
+        <div class="frame w380">
+          <div class="cardx">
+            <div style="display:flex;gap:11px;align-items:flex-start"><div class="tile core">✎</div></div>
+            <div style="font-size:13.5px;font-weight:800;margin-top:11px">General Journal Entry</div>
+            <div style="font-size:11.5px;color:var(--d-mut);margin-top:4px">Post a manual debit/credit entry to the ledger.</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:8px">
+              <span style="font-size:11px;color:var(--d-mut2)">Manual entry</span>
+              <span class="go hubCreate">+ New entry</span>
+            </div>
+          </div>
+          <div class="cardx" style="margin-top:12px">
+            <div style="display:flex;gap:11px;align-items:flex-start"><div class="tile core">☰</div></div>
+            <div style="font-size:13.5px;font-weight:800;margin-top:11px">Chart of Accounts</div>
+            <div style="font-size:11.5px;color:var(--d-mut);margin-top:4px">Assets, liabilities, equity, revenue and expense accounts.</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:8px">
+              <span style="font-size:11px;color:var(--d-mut2)">32 accounts</span>
+              <span class="go hubRead">View accounts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict"><b>My read: B.</b> Not because blue is prettier, but because A and C both leave one
+    colour carrying two jobs. C is the cheapest and is a real answer if the appetite is low — but it means
+    accepting that Accounting presses blue and POS presses black, and nobody can tell you why. B is a
+    contained change: the black button styles are a countable list, and structural black stays exactly
+    where it is.</div>
+  </section>
+
+  <section>
+    <h2>Settings — the one screen the marks genuinely fit</h2>
+    <p class="h2sub">Eighteen rows, five groups, an Ionicon already on every one of them, rendered flat
+    grey. This is the shape the hub scheme was built for, and it is the only other place in the app that
+    has it. It is also the one thing here I did not build.</p>
+
+    <div class="verdict no"><b>Blocked, and worth being blocked.</b> Settings has not been converted to
+    bento — it reads <code>#F3F4F6</code>, <code>#6B7280</code>, <code>#111111</code> throughout, with
+    zero bento tokens. Dropping <code>bentoBandAccount</code> tiles into it is precisely the
+    &ldquo;half-applying tokens to an unconverted screen&rdquo; the design system tells you not to do,
+    and it is the same rule that kept the blue out of the modals. Settings needs converting first, which
+    per the system's own process starts with its own mockup. The frames below stay a proposal until
+    then.</div>
+
+    <div class="pair">
+      <div>
+        <div class="frameHead"><b>Today</b><i>#6B7280 on nothing</i></div>
+        <div class="frame w380">
+          <div class="nav">
+            <div class="navgrp">Account</div>
+            <div class="navrow"><div class="tile flat">☺</div><span class="lbl">Profile</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile flat">🔒</div><span class="lbl">Security</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile flat">▤</div><span class="lbl">Plan and billing</span><span class="chev">›</span></div>
+            <div class="navgrp">Business</div>
+            <div class="navrow"><div class="tile flat">▣</div><span class="lbl">Business</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile flat">⌂</div><span class="lbl">Store locations</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile flat">✓</div><span class="lbl">Roles</span><span class="chev">›</span></div>
+            <div class="navgrp">Catalog</div>
+            <div class="navrow"><div class="tile flat">◫</div><span class="lbl">Brands and categories</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile flat">▤</div><span class="lbl">Inventory alerts</span><span class="chev">›</span></div>
+            <div class="navgrp">Sales</div>
+            <div class="navrow"><div class="tile flat">₤</div><span class="lbl">Payments</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile flat">%</div><span class="lbl">Tax and currencies</span><span class="chev">›</span></div>
+            <div class="navgrp">Books</div>
+            <div class="navrow"><div class="tile flat">▦</div><span class="lbl">Closing the books</span><span class="chev">›</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="frameHead"><b>Banded</b><i>five marks, one per group</i></div>
+        <div class="frame w380">
+          <div class="nav">
+            <div class="navgrp">Account</div>
+            <div class="navrow"><div class="tile slate">☺</div><span class="lbl">Profile</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile slate">🔒</div><span class="lbl">Security</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile slate">▤</div><span class="lbl">Plan and billing</span><span class="chev">›</span></div>
+            <div class="navgrp">Business</div>
+            <div class="navrow"><div class="tile attn">▣</div><span class="lbl">Business</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile attn">⌂</div><span class="lbl">Store locations</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile attn">✓</div><span class="lbl">Roles</span><span class="chev">›</span></div>
+            <div class="navgrp">Catalog</div>
+            <div class="navrow"><div class="tile stock">◫</div><span class="lbl">Brands and categories</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile stock">▤</div><span class="lbl">Inventory alerts</span><span class="chev">›</span></div>
+            <div class="navgrp">Sales</div>
+            <div class="navrow"><div class="tile core">₤</div><span class="lbl">Payments</span><span class="chev">›</span></div>
+            <div class="navrow"><div class="tile core">%</div><span class="lbl">Tax and currencies</span><span class="chev">›</span></div>
+            <div class="navgrp">Books</div>
+            <div class="navrow"><div class="tile stmt">▦</div><span class="lbl">Closing the books</span><span class="chev">›</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="sub">Three of the five marks carry their hub meaning over unchanged</h3>
+    <table class="dtbl">
+      <thead><tr><th>Group</th><th>Mark</th><th>Same as the hubs?</th></tr></thead>
+      <tbody>
+        <tr><td>Sales</td><td><span class="swatch" style="background:#2f6bff"></span>Blue</td><td class="pass">Yes — the shop's core trading work</td></tr>
+        <tr><td>Catalog</td><td><span class="swatch" style="background:#00a396"></span>Teal</td><td class="pass">Yes — things the shop holds</td></tr>
+        <tr><td>Books</td><td><span class="swatch" style="background:#0b0b0d"></span>Graphite</td><td class="pass">Yes — the formal record</td></tr>
+        <tr><td>Business</td><td><span class="swatch" style="background:#c8791a"></span>Amber</td><td>No — here it means the shop's own setup, not &ldquo;has a clock on it&rdquo;</td></tr>
+        <tr><td>Account</td><td><span class="swatch" style="background:#4a6382"></span>Slate <i>(new)</i></td><td>No — the one group that is about the person, not the shop</td></tr>
+      </tbody>
+    </table>
+
+    <div class="verdict"><b>The finding that matters.</b> Two of five marks change meaning between screens.
+    So this is <b>not one global colour semantic</b> — it is a per-screen category language drawing on one
+    shared, CVD-validated hue pool. Pretending otherwise is how amber ends up meaning &ldquo;overdue&rdquo;
+    on one tab and &ldquo;shop setup&rdquo; on the next with nothing to tell them apart. Written down, it
+    is a rule somebody can follow; left implicit, it is a trap.</div>
+
+    <p class="note">Slate is the only new hue. It was picked by test, not taste: purple and pink both
+    collapse against the existing set for colour-blind viewers (worst-pair ΔE <span class="fail">10.7</span>
+    and <span class="fail">13.7</span>), crimson reads as an error state, and slate clears at
+    ΔE <span class="pass">23.7</span> with a 6.18:1 white glyph.</p>
+  </section>
+
+  <section>
+    <h2>Accounting's other tabs</h2>
+    <p class="h2sub">Overview, Transactions, Owed to you, Bills, Expenses, Payroll, Cash &amp; Budgets.
+    These are tables and figures, not catalogues of doors — so the marks mostly have nothing to mark.
+    One exception is worth building.</p>
+
+    <div class="pair">
+      <div>
+        <div class="frameHead"><b>Expenses — the split that already exists in the data</b><i>fits</i></div>
+        <div class="frame w380">
+          <div class="cardx">
+            <div class="grpttl">This period</div>
+            <div class="kpis">
+              <div class="kpi"><div class="l">Operating</div><div class="n">$1,840</div></div>
+              <div class="kpi"><div class="l">Stock &amp; draws</div><div class="n">$6,200</div></div>
+            </div>
+            <div style="margin-top:14px">
+              <div class="rw"><span class="stripe" style="background:var(--attn)"></span><div class="bd"><div class="t1">Rent</div><div class="t2">Operating · feeds net profit</div></div><div class="amt">$900</div></div>
+              <div class="rw"><span class="stripe" style="background:var(--attn)"></span><div class="bd"><div class="t1">Salaries and wages</div><div class="t2">Operating · feeds net profit</div></div><div class="amt">$740</div></div>
+              <div class="rw"><span class="stripe" style="background:var(--stock)"></span><div class="bd"><div class="t1">Inventory restock</div><div class="t2">Excluded · becomes cost of sales</div></div><div class="amt">$5,900</div></div>
+              <div class="rw"><span class="stripe" style="background:var(--stock)"></span><div class="bd"><div class="t1">Owner's draw</div><div class="t2">Excluded · not a business cost</div></div><div class="amt">$300</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:12px"><b>Built, but not as drawn.</b> The premise here was
+        wrong: the wide table <i>already</i> printed &ldquo;not an operating cost&rdquo;. Three real gaps
+        turned up underneath it, and those are what shipped instead of a stripe — no new colour was
+        needed. <b>(1)</b> The phone card view omitted the qualifier entirely, so on a phone there was no
+        way to tell which lines move net profit. <b>(2)</b> A ternary printed the provenance note
+        <i>or</i> the qualifier, so every bill-generated restock — the commonest row in the list — lost
+        it. <b>(3)</b> The tag was <code>#B5793A</code>, a cream literal reading
+        <span class="fail">3.65:1</span> on white, under the 4.5 bar at 10px; <code>bentoWarn</code>
+        fails too at 4.0, so it now takes the amber already solved dark enough to carry small text at
+        <span class="pass">5.92:1</span>. Provenance dropped to the label grey, because &ldquo;from a
+        bill&rdquo; asks nothing of the reader.</p>
+      </div>
+      <div>
+        <div class="frameHead"><b>Owed to you — already solved, leave it</b><i>does not fit</i></div>
+        <div class="frame w380">
+          <div class="cardx">
+            <div class="grpttl">Aging</div>
+            <div class="kpis">
+              <div class="kpi"><div class="l">0–30 days</div><div class="n">$420</div></div>
+              <div class="kpi"><div class="l">31–60</div><div class="n">$180</div></div>
+              <div class="kpi"><div class="l">90+ days</div><div class="n" style="color:var(--loss)">$310</div></div>
+            </div>
+            <div style="margin-top:14px">
+              <div class="rw"><div class="bd"><div class="t1">Hodan Ali</div><div class="t2">Invoice #1042 · 94 days</div></div><span class="badge bad">90+ days</span></div>
+              <div class="rw"><div class="bd"><div class="t1">Maxamed Xasan</div><div class="t2">Invoice #1061 · 38 days</div></div><span class="badge warn">31–60</span></div>
+              <div class="rw"><div class="bd"><div class="t1">Ayaan Farah</div><div class="t2">Invoice #1078 · 11 days</div></div><span class="badge ok">0–30</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:12px">Age is <b>status</b>, and status has its own palette with
+        its own rule — a colour here must be paired with the words that name the band, which these
+        badges already are. Putting a band mark on this tab would add a second colour language saying
+        nothing the badge does not.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>POS, Inventory and People — where the marks are the wrong tool</h2>
+    <p class="h2sub">Worth showing, because &ldquo;apply it everywhere&rdquo; is the obvious next move and
+    it is the one that would do damage. What these screens colour is state, and state is not category.</p>
+
+    <div class="pair">
+      <div>
+        <div class="frameHead"><b>Inventory — band marks applied</b><i style="color:var(--loss)">don't</i></div>
+        <div class="frame w380">
+          <div class="cardx">
+            <div class="rw"><div class="tile stock">▣</div><div class="bd"><div class="t1">Anjeero</div><div class="t2">3 left · reorder at 10</div></div></div>
+            <div class="rw"><div class="tile stock">▣</div><div class="bd"><div class="t1">Shaah</div><div class="t2">88 left</div></div></div>
+            <div class="rw"><div class="tile stock">▣</div><div class="bd"><div class="t1">Sugar 1kg</div><div class="t2">0 left · out of stock</div></div></div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:12px">Every row is the same category — they are all stock — so
+        the mark is on every row and distinguishes nothing. Worse, it puts a calm teal beside a product
+        that has run out.</p>
+      </div>
+      <div>
+        <div class="frameHead"><b>Inventory — state, as it already works</b><i style="color:var(--profit)">do</i></div>
+        <div class="frame w380">
+          <div class="cardx">
+            <div class="rw"><span class="stripe" style="background:var(--attn)"></span><div class="bd"><div class="t1">Anjeero</div><div class="t2">3 left · reorder at 10</div></div><span class="badge warn">Low</span></div>
+            <div class="rw"><span class="stripe" style="background:transparent"></span><div class="bd"><div class="t1">Shaah</div><div class="t2">88 left</div></div><span class="badge mut">In stock</span></div>
+            <div class="rw"><span class="stripe" style="background:var(--loss)"></span><div class="bd"><div class="t1">Sugar 1kg</div><div class="t2">0 left · out of stock</div></div><span class="badge bad">Out</span></div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:12px">The colour earns its place only where it varies, and it
+        carries a word every time. This is <code>bentoWarn</code> and <code>bentoLoss</code> doing the job
+        they were solved for — no new tokens, and no second meaning for teal.</p>
+      </div>
+    </div>
+
+    <table class="dtbl">
+      <thead><tr><th>Screen</th><th>What it colours</th><th>Band marks?</th></tr></thead>
+      <tbody>
+        <tr><td>POS</td><td>Product tiles (shopkeeper-chosen category colours), payment method, held sales</td><td class="fail">No — the category colours are the user's own data, not ours to overrule</td></tr>
+        <tr><td>Inventory</td><td>Stock state: in stock / low / out</td><td class="fail">No — status, already solved</td></tr>
+        <tr><td>People</td><td>Role, and Active / On-leave / At-risk</td><td class="fail">No — role is closer to identity than category, and the rest is status</td></tr>
+        <tr><td>Dashboard</td><td>Figures, deltas, charts</td><td class="fail">No — series and status palettes own this</td></tr>
+        <tr><td>Settings</td><td>Five groups of destinations</td><td class="pass">Yes — the only real fit</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>What I'd actually do</h2>
+    <table class="dtbl">
+      <thead><tr><th>#</th><th>Change</th><th>Size</th><th>Why now</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td><b>Done</b> — option B, on every bento screen</td><td>34 sites, 24 files</td><td>Blue now means &ldquo;press this&rdquo;; black keeps the selected tab, the active key, the chosen side, the checked box. Chips, tooltips, avatars, chart marks and dark hero cards were left alone.</td></tr>
+        <tr><td class="num">2</td><td><b>Blocked</b> — Settings is not on the bento palette</td><td>—</td><td>Would mean half-applying tokens to a cream screen. Needs Settings converted first, which starts with its own mockup.</td></tr>
+        <tr><td class="num">3</td><td><b>Done</b> — the rule is in <code>hub-bands.ts</code> and <code>theme.ts</code></td><td>Comments</td><td>Two of five marks change meaning between screens, and the commit-vs-state test for a new button is now written where somebody adding one will read it.</td></tr>
+        <tr><td class="num">4</td><td><b>Done</b> — three real gaps, no new colour</td><td>1 file</td><td>The premise was wrong and the fixes were better: a missing qualifier on phones, an either/or that dropped it on the commonest rows, and a 3.65:1 contrast failure on the line about your profit.</td></tr>
+        <tr><td class="num">5</td><td><b>Done by not doing</b> — POS, Inventory, People, Dashboard keep their status palette</td><td>—</td><td>Deliberately nothing. Their colour needs are status, and status is already solved.</td></tr>
+        <tr><td class="num">6</td><td><b>Found on the way</b> — <code>ExportMenu</code>'s bento variant was never wired</td><td>9 sites</td><td>Built, then used on only 2 of 10 call sites, so Inventory, People, Expenses, Transactions, Overview and Schedule all rendered a cream black button on a bento screen.</td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:16px"><b>Deliberately not touched.</b> Modals keep their black
+    buttons — theme.ts records modals as an undecided third surface, still on the cream treatment, and
+    that is roughly a hundred buttons whose palette question is not this one. Marketing, the storefront
+    editor and the platform console keep theirs too: three modules with their own visual language, and a
+    staged rollout rather than an exemption. Both boundaries are written into
+    <code>bentoAccentSolid</code>'s comment so the next reader knows they were chosen.</p>
+  </section>
+</div>
+
+<script>
+  var BLURBS = {
+    A: 'A — revert the hubs to the black pill. One press-language again, and the cheapest possible answer. Costs the read/write distinction its clarity: black solid vs grey wash is a weaker signal than two weights of one hue, and black still means "you are here" on the tab beside it.',
+    B: 'B — blue becomes the press across the app, and black keeps only its structural jobs (selected tab, active key, current row). One colour stops answering two questions. The biggest change of the three, and the only one that leaves a rule you can state in a sentence.',
+    C: 'C — accept the island. Accounting presses blue, everywhere else presses black. Nothing to build, and nothing to explain to whoever asks why.'
+  };
+  var $ = function(s, r){ return (r||document).querySelectorAll(s); };
+  function set(dir){
+    $('.btnCheckout').forEach(function(el){
+      el.className = 'btnCheckout ' + (dir === 'B' ? 'go solid' : 'go black');
+      el.style.cssText = 'height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px';
+    });
+    $('.hubCreate').forEach(function(el){ el.className = 'go hubCreate ' + (dir === 'A' ? 'black' : 'solid'); });
+    $('.hubRead').forEach(function(el){ el.className = 'go hubRead ' + (dir === 'A' ? '' : 'wash'); });
+    document.getElementById('blurb').textContent = BLURBS[dir];
+    $('.switch button').forEach(function(b){ b.setAttribute('aria-selected', String(b.dataset.set === dir)); });
+  }
+  $('.switch button').forEach(function(b){ b.addEventListener('click', function(){ set(b.dataset.set); }); });
+  set('B');
+</script>

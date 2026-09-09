@@ -782,7 +782,7 @@ const styles = StyleSheet.create({
   limitInput: { backgroundColor: '#F2F2F2', borderRadius: 8, height: 32, width: 84, paddingHorizontal: 8, color: '#111111', textAlign: 'right', fontWeight: '700' },
   overText: { fontSize: 11, color: '#C0392B', fontWeight: '700', marginTop: 6 },
 
-  newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  newButton: { backgroundColor: theme.bentoAccentSolid, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   // The quiet twin of `newButton`, for the action that RECORDS rather than
   // creates. Bento tokens: this button is new, and the rest of this file's

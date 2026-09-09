@@ -87,7 +87,7 @@ export function HeldOrdersMenu({
 }
 
 const styles = StyleSheet.create({
-  button: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 13 },
+  button: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 13 },
   buttonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   badge: { minWidth: 18, height: 18, borderRadius: 999, paddingHorizontal: 5, backgroundColor: theme.bentoAccentInk, alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: theme.bentoSurface, fontSize: 10, fontWeight: '800' },
@@ -104,6 +104,6 @@ const styles = StyleSheet.create({
   name: { color: theme.bentoInk, fontSize: 13, fontWeight: '700' },
   sub: { color: theme.bentoMuted, fontSize: 11 },
   total: { color: theme.bentoInk, fontSize: 13, fontWeight: '800' },
-  resume: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 },
+  resume: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 },
   resumeText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
 });

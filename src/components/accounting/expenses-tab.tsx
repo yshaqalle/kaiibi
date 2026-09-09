@@ -21,9 +21,12 @@ import {
   totalExpenseCents,
 } from '@/lib/expense-reporting';
 import { createExpense, deleteExpense, listExpensesInRange, updateExpense } from '@/lib/expenses';
+import { Colors } from '@/constants/theme';
 import { methodLabel } from '@/lib/payment-methods';
 import type { Expense, ExpenseCategory } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+
+const theme = Colors.light;
 
 const EXPENSE_EXPORT_COLUMNS: CsvColumn<Expense>[] = [
   { header: 'Date', value: (e) => e.occurredOn },
@@ -146,7 +149,7 @@ export function ExpensesTab({
   useHeaderActions(
     setHeaderActions,
     <>
-      <ExportMenu rows={filtered} columns={EXPENSE_EXPORT_COLUMNS} title="Expenses" subtitle={rangeLabel} filenamePrefix="expenses" />
+      <ExportMenu variant="bento" rows={filtered} columns={EXPENSE_EXPORT_COLUMNS} title="Expenses" subtitle={rangeLabel} filenamePrefix="expenses" />
       {canManage && (
         <Pressable onPress={() => setEditing('new')} style={styles.newButton}>
           <Text style={styles.newButtonText}>+ New expense</Text>
@@ -211,7 +214,14 @@ export function ExpensesTab({
                     {[expense.vendorName, expense.occurredOn, methodLabel(expense.paymentMethod)].filter(Boolean).join(' · ')}
                   </Text>
                   {expense.note ? <Text style={styles.cardNote} numberOfLines={1}>{expense.note}</Text> : null}
-                  {isGenerated(expense) ? <Text style={styles.tagText}>{generatedNote(expense)}</Text> : null}
+                  {isGenerated(expense) ? <Text style={styles.originText}>{generatedNote(expense)}</Text> : null}
+                  {/* The card used to omit this entirely, so on a phone there
+                      was no way to tell which of these lines actually moves net
+                      profit -- the one thing about this tab a shopkeeper gets
+                      wrong. It is the same qualifier the wide table prints. */}
+                  {!isOperatingExpense(expense.category) && (
+                    <Text style={styles.tagText}>not an operating cost</Text>
+                  )}
                 </View>
                 <Text style={styles.cardAmount}>{formatAccountingCents(expense.amountCents)}</Text>
               </View>
@@ -238,11 +248,15 @@ export function ExpensesTab({
               <Text style={[styles.cellText, styles.muted, colDate]} numberOfLines={1}>{expense.occurredOn}</Text>
               <View style={colCategory}>
                 <Text style={styles.cellText} numberOfLines={1}>{expenseCategoryLabel(expense.category)}</Text>
-                {isGenerated(expense) ? (
-                  <Text style={styles.tagText}>{generatedNote(expense)}</Text>
-                ) : (
-                  !isOperatingExpense(expense.category) && <Text style={styles.tagText}>not an operating cost</Text>
-                )}
+                {/* Both, not either. A bill-generated row can also be a
+                    non-operating one -- every Inventory restock booked from a
+                    supplier bill is exactly that -- and the ternary this
+                    replaced dropped the profit qualifier on precisely those
+                    rows, which are the commonest kind in the list. */}
+                {isGenerated(expense) ? <Text style={styles.originText}>{generatedNote(expense)}</Text> : null}
+                {!isOperatingExpense(expense.category) ? (
+                  <Text style={styles.tagText}>not an operating cost</Text>
+                ) : null}
               </View>
               <Text style={[styles.cellText, styles.muted, colVendor]} numberOfLines={1}>{expense.vendorName ?? '—'}</Text>
               <Text style={[styles.cellText, colMethod]} numberOfLines={1}>{methodLabel(expense.paymentMethod)}</Text>
@@ -283,7 +297,7 @@ export function ExpensesTab({
 }
 
 const styles = StyleSheet.create({
-  newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  newButton: { backgroundColor: theme.bentoAccentSolid, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
 
@@ -320,7 +334,17 @@ const styles = StyleSheet.create({
   muted: { color: '#999999' },
   price: { fontWeight: '800' },
   alignRight: { textAlign: 'right' },
-  tagText: { fontSize: 10, color: '#B5793A', fontWeight: '700', marginTop: 2 },
+  // Was #B5793A, a cream-palette literal on a bento screen that read 3.65:1 on
+  // white -- under the 4.5:1 normal-text bar at 10px, and this is the line that
+  // tells a shopkeeper a cost does not touch their profit. `bentoWarn` does not
+  // fix it either (4.0:1); this is the amber step that was already solved dark
+  // enough to carry small text, at 5.92:1.
+  tagText: { fontSize: 10, color: theme.bentoRefundInk, fontWeight: '700', marginTop: 2 },
+  // Provenance, not a qualifier: "from a bill" says where the row came from and
+  // asks nothing of the reader, so it takes the label grey rather than the
+  // amber. Splitting them also lets both render on one row without the line
+  // reading as two warnings.
+  originText: { fontSize: 10, color: theme.bentoMuted, fontWeight: '700', marginTop: 2 },
 
   cardList: { gap: 10 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#ECECEC', padding: 14 },

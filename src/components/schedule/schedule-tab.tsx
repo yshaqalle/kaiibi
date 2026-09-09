@@ -256,7 +256,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
       </>
     ) : (
       <>
-        <ExportMenu
+        <ExportMenu variant="bento"
           rows={visibleShifts}
           columns={exportColumns}
           title="Schedule"
@@ -505,7 +505,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
                 {`This week${locationId ? ` · ${storeName(locationId)}` : ''} — ${visibleShifts.length} shift${visibleShifts.length === 1 ? '' : 's'}`}
               </Text>
               <View style={styles.sheetExport}>
-                <ExportMenu
+                <ExportMenu variant="bento"
                   rows={visibleShifts}
                   columns={exportColumns}
                   title="Schedule"
@@ -586,7 +586,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 7,
   },
-  navButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  navButtonSolid: { backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   navText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
   navTextSolid: { color: theme.bentoSurface },
   weekLabel: { fontSize: 13, fontWeight: '700', color: theme.bentoInk, minWidth: 104, textAlign: 'center' },

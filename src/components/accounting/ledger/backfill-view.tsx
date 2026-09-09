@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
   buttons: { flexDirection: 'row', gap: 9, marginTop: 6 },
   button: { borderRadius: 999, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center' },
   buttonWide: { marginTop: 12 },
-  buttonGo: { backgroundColor: theme.bentoInk, flex: 1 },
+  buttonGo: { backgroundColor: theme.bentoAccentSolid, flex: 1 },
   buttonGoText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   buttonGhost: { backgroundColor: theme.bentoSoft },
   buttonGhostText: { color: theme.bentoInk2, fontSize: 13.5, fontWeight: '800' },

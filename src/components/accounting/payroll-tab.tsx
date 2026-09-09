@@ -27,6 +27,9 @@ import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { PayrollRun, StaffMember } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { Colors } from '@/constants/theme';
+
+const theme = Colors.light;
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -411,7 +414,7 @@ function PayrollHeaderActions({
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
   subtitle: { fontSize: 11.5, color: '#999999', flexShrink: 1, lineHeight: 16 },
-  newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  newButton: { backgroundColor: theme.bentoAccentSolid, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
 
   createCard: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 14, padding: 16, marginBottom: 16 },

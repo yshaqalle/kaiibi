@@ -195,6 +195,6 @@ const styles = StyleSheet.create({
   // The one amber line on the screen, and it is reassurance rather than alarm:
   // `bentoWarn` is the ramp's amber, the same one the warning tone is built on.
   reassure: { color: theme.bentoWarn, fontSize: 12, textAlign: 'center', maxWidth: 320, lineHeight: 18, marginTop: 2 },
-  button: { backgroundColor: theme.bentoInk, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 11, marginTop: 10 },
+  button: { backgroundColor: theme.bentoAccentSolid, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 11, marginTop: 10 },
   buttonText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
 });

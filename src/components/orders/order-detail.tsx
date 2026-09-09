@@ -1058,7 +1058,7 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#FFFFFF' },
 
   actionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 6 },
-  primaryButton: { backgroundColor: theme.bentoInk, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 13, alignItems: 'center', justifyContent: 'center' },
+  primaryButton: { backgroundColor: theme.bentoAccentSolid, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 13, alignItems: 'center', justifyContent: 'center' },
   primaryButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13.5 },
   secondaryButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   secondaryButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 13 },

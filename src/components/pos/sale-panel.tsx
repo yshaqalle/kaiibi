@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
   // Same pill as the count and the scan button beside it. It asks before it
   // empties anything (confirmDestructive in pos.tsx), which is what keeps a
   // control this prominent from being a one-tap way to lose a basket.
-  clear: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 13 },
+  clear: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 13 },
   clearText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   middle: { flex: 1 },
   middleContent: { paddingBottom: 4 },
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   // payment the cashier cannot see.
   foot: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 12 },
   primary: {
-    backgroundColor: theme.bentoInk, height: 50, borderRadius: 999,
+    backgroundColor: theme.bentoAccentSolid, height: 50, borderRadius: 999,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   primaryDisabled: { opacity: 0.35 },

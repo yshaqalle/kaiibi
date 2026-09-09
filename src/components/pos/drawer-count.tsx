@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.bentoInk,
   },
-  addNoteConfirm: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 },
+  addNoteConfirm: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 },
   addNoteConfirmText: { color: '#fff', fontSize: 12.5, fontWeight: '800' },
   addNote: {
     marginTop: 11,

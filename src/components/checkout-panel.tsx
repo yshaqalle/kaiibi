@@ -435,7 +435,7 @@ function PointsSection({
 const styles = StyleSheet.create({
   // The sale's primary action: 56px, full width, black. Nothing else on the
   // sheet competes with it.
-  checkout: { backgroundColor: theme.bentoInk, height: 56, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
+  checkout: { backgroundColor: theme.bentoAccentSolid, height: 56, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   checkoutDisabled: { backgroundColor: theme.bentoSoft },
   checkoutText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 16, letterSpacing: -0.2 },
   overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },

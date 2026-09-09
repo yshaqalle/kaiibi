@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   },
   balanceLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.7, textTransform: 'uppercase', color: theme.bentoMuted },
   balanceValue: { fontSize: 17, fontWeight: '800' },
-  post: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 13, alignItems: 'center', marginTop: 12 },
+  post: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingVertical: 13, alignItems: 'center', marginTop: 12 },
   postOff: { opacity: 0.4 },
   postText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
 });

@@ -742,7 +742,7 @@ const styles = StyleSheet.create({
   // (building-bento-screens.md).
   tableBody: { paddingHorizontal: 10 },
   search: { backgroundColor: theme.bentoSoft, borderRadius: 12, height: 42, paddingHorizontal: 13, color: theme.bentoInk, fontSize: 13 },
-  rowAction: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
+  rowAction: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
   rowActionBusy: { opacity: 0.5 },
   rowActionText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11.5 },
   // flex-end, not the View default (stretch) -- once the count and the flag

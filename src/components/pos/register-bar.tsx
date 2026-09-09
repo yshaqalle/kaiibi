@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
   // Only for the shut state, where the button is a direct child of the bar and
   // has to push itself right. The open state's `actions` row does that already.
   actionAlone: { marginLeft: 'auto' },
-  actionDark: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  actionDark: { backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   actionDarkText: { fontSize: 11.5, fontWeight: '700', color: '#fff' },
   // Above the button rather than below it: the bar sits at the top of the
   // screen, and a bubble under a button here would cover the sale.
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   gateBody: { fontSize: 13, color: theme.bentoMuted, textAlign: 'center', maxWidth: 340, lineHeight: 19 },
   gateButton: {
     marginTop: 18,
-    backgroundColor: theme.bentoInk,
+    backgroundColor: theme.bentoAccentSolid,
     borderRadius: 16,
     height: 50,
     alignSelf: 'stretch',

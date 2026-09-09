@@ -618,7 +618,7 @@ function InventoryScreen() {
             ) : (
               <>
                 <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
-                <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
+                <ExportMenu variant="bento" rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
                 {/* One pill, four jobs. Move stock and Import used to sit here
                     as peers of + Add product, which put three different verbs
                     in one uniform -- and is how a shop with a delivery to
@@ -984,7 +984,7 @@ function InventoryScreen() {
                 {`${filtered.length} product${filtered.length === 1 ? '' : 's'} — whatever the list is showing now`}
               </Text>
               <View style={styles.sheetControl}>
-                <ExportMenu
+                <ExportMenu variant="bento"
                   rows={filtered}
                   columns={PRODUCT_EXPORT_COLUMNS}
                   title="Inventory"
@@ -1160,7 +1160,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
-  pillButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  pillButtonSolid: { backgroundColor: theme.bentoAccentSolid, borderColor: theme.bentoAccentSolid },
   pillButtonDisabled: { opacity: 0.5 },
   pillButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
   pillButtonTextSolid: { color: theme.bentoSurface },
@@ -1171,7 +1171,7 @@ const styles = StyleSheet.create({
   // A row rather than a single button now: the offer and the way out of it are
   // two separate targets inside one pill, so pressing × cannot be read as
   // pressing Add.
-  addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, marginBottom: 14, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingRight: 5 },
+  addFromScan: { backgroundColor: theme.bentoAccentSolid, borderRadius: 999, marginBottom: 14, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingRight: 5 },
   addFromScanBody: { paddingLeft: 15, paddingRight: 6, paddingVertical: 11 },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   addFromScanDismiss: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

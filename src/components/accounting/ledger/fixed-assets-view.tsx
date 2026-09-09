@@ -765,7 +765,7 @@ const styles = StyleSheet.create({
 
   headActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   headButton: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.bentoSoft },
-  headButtonSolid: { backgroundColor: theme.bentoInk },
+  headButtonSolid: { backgroundColor: theme.bentoAccentSolid },
   headButtonText: { fontSize: 11.5, fontWeight: '800', color: theme.bentoInk2 },
   headButtonTextSolid: { color: theme.bentoSurface },
 
@@ -800,7 +800,7 @@ const styles = StyleSheet.create({
 
   buttons: { flexDirection: 'row', gap: 9, marginTop: 16 },
   button: { borderRadius: 999, paddingVertical: 13, paddingHorizontal: 18, alignItems: 'center' },
-  buttonGo: { backgroundColor: theme.bentoInk, flex: 1 },
+  buttonGo: { backgroundColor: theme.bentoAccentSolid, flex: 1 },
   buttonGoText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   buttonGhost: { backgroundColor: theme.bentoSoft },
   buttonGhostText: { color: theme.bentoInk2, fontSize: 13.5, fontWeight: '800' },
