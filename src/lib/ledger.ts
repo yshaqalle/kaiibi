@@ -42,21 +42,12 @@ export async function listAccounts(shopId: string): Promise<Account[]> {
   return (data ?? []).map(mapAccount);
 }
 
-export async function listJournalEntries(shopId: string, from: string, to: string): Promise<JournalEntry[]> {
-  const { data, error } = await supabase
-    .from('journal_entries')
-    .select(
-      'id, shop_id, entry_date, reference, description, source, status, location_id, reverses_entry_id, created_at,' +
-        'journal_lines (id, account_id, amount_cents, location_id, memo)'
-    )
-    .eq('shop_id', shopId)
-    .gte('entry_date', from)
-    .lte('entry_date', to)
-    .order('entry_date', { ascending: false })
-    .order('created_at', { ascending: false });
-  if (error) throw error;
+const ENTRY_SELECT =
+  'id, shop_id, entry_date, reference, description, source, status, location_id, reverses_entry_id, created_by, created_at,' +
+  'journal_lines (id, account_id, amount_cents, location_id, memo)';
 
-  return (data ?? []).map((row: any) => ({
+function mapEntry(row: any): JournalEntry {
+  return {
     id: row.id,
     shopId: row.shop_id,
     entryDate: row.entry_date,
@@ -66,9 +57,110 @@ export async function listJournalEntries(shopId: string, from: string, to: strin
     status: row.status,
     locationId: row.location_id ?? null,
     reversesEntryId: row.reverses_entry_id ?? null,
+    createdBy: row.created_by ?? null,
     createdAt: row.created_at,
     lines: (row.journal_lines ?? []).map(mapLine),
-  }));
+  };
+}
+
+// `by` picks which date the range is read against. 'dated' is the accounting
+// date and the default. 'written' is when the row was inserted -- the only way
+// to find a correction made today to something dated last month, which a
+// deletion's reversal is: it keeps the original's date, so a Journals range
+// starting after that date never lists it.
+export async function listJournalEntries(
+  shopId: string,
+  from: string,
+  to: string,
+  by: 'dated' | 'written' = 'dated'
+): Promise<JournalEntry[]> {
+  let query = supabase.from('journal_entries').select(ENTRY_SELECT).eq('shop_id', shopId);
+  if (by === 'dated') {
+    query = query.gte('entry_date', from).lte('entry_date', to).order('entry_date', { ascending: false });
+  } else {
+    // Local midnight to local end-of-day, as timestamps -- `from`/`to` are the
+    // reader's calendar days, not UTC ones.
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    query = query
+      .gte('created_at', new Date(fy, fm - 1, fd).toISOString())
+      .lt('created_at', new Date(ty, tm - 1, td + 1).toISOString());
+  }
+  const { data, error } = await query.order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapEntry);
+}
+
+export async function getJournalEntry(entryId: string): Promise<JournalEntry | null> {
+  const { data, error } = await supabase.from('journal_entries').select(ENTRY_SELECT).eq('id', entryId).maybeSingle();
+  if (error) throw error;
+  return data ? mapEntry(data) : null;
+}
+
+export type EntrySaleSummary = {
+  id: string;
+  customerName: string | null;
+  totalCents: number;
+  itemCount: number;
+  paymentMethod: string;
+  settledAt: string | null;
+  cashierName: string | null;
+};
+
+export type EntryExpenseSummary = {
+  id: string;
+  category: string;
+  vendorName: string | null;
+  note: string | null;
+  amountCents: number;
+};
+
+// What the sales and expenses behind a page of entries say about themselves,
+// fetched in one round trip each. A deleted source simply is not returned.
+export async function listEntrySources(
+  saleIds: string[],
+  expenseIds: string[]
+): Promise<{ sales: Map<string, EntrySaleSummary>; expenses: Map<string, EntryExpenseSummary> }> {
+  const [salesRes, expensesRes] = await Promise.all([
+    saleIds.length
+      ? supabase.from('sales').select('id, customer_name, total_cents, item_count, payment_method, settled_at, cashier_name').in('id', saleIds)
+      : Promise.resolve({ data: [], error: null }),
+    expenseIds.length
+      ? supabase.from('expenses').select('id, category, note, amount_cents, vendor:vendors(name)').in('id', expenseIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (salesRes.error) throw salesRes.error;
+  if (expensesRes.error) throw expensesRes.error;
+  return {
+    sales: new Map(
+      (salesRes.data ?? []).map((row: any) => [row.id, {
+        id: row.id,
+        customerName: row.customer_name ?? null,
+        totalCents: row.total_cents,
+        itemCount: row.item_count,
+        paymentMethod: row.payment_method,
+        settledAt: row.settled_at ?? null,
+        cashierName: row.cashier_name ?? null,
+      }])
+    ),
+    expenses: new Map(
+      (expensesRes.data ?? []).map((row: any) => [row.id, {
+        id: row.id,
+        category: row.category,
+        vendorName: row.vendor?.name ?? null,
+        note: row.note ?? null,
+        amountCents: row.amount_cents,
+      }])
+    ),
+  };
+}
+
+// user id → the name a person would recognise. Staff come from the roster; the
+// owner has no roster row, so the caller adds the signed-in user's own name.
+export async function listMemberNames(shopId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from('shop_members').select('user_id, full_name').eq('shop_id', shopId);
+  if (error) throw error;
+  return new Map((data ?? []).filter((row: any) => row.user_id && row.full_name).map((row: any) => [row.user_id, row.full_name]));
 }
 
 // Every posted line up to a date, for the trial balance. Reversals are included

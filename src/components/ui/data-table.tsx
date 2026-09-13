@@ -77,6 +77,7 @@ export function DataTable<T>({
   rows,
   keyExtractor,
   onRowPress,
+  selectedKey,
   emptyLabel,
   minWidth = 560,
   sort,
@@ -86,6 +87,8 @@ export function DataTable<T>({
   rows: T[];
   keyExtractor: (row: T) => string;
   onRowPress?: (row: T) => void;
+  /** The row whose detail is open beside the table, drawn as selected. */
+  selectedKey?: string | null;
   emptyLabel: string;
   /** Below this the table scrolls sideways rather than crushing its columns. */
   minWidth?: number;
@@ -105,7 +108,10 @@ export function DataTable<T>({
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-      <View style={{ minWidth }}>
+      {/* flexGrow: the content container is a row, so without it the table is
+          only as wide as its text and stops short of the card's edge whenever
+          the card is wider than that -- beside a detail pane, most visibly. */}
+      <View style={{ minWidth, flexGrow: 1 }}>
         <View style={styles.headerRow}>
           {columns.map((column) => {
             const active = column.sortable && sort?.key === column.key;
@@ -154,7 +160,7 @@ export function DataTable<T>({
             <Pressable
               key={keyExtractor(row)}
               onPress={() => onRowPress(row)}
-              style={({ hovered, pressed }) => [styles.row, (hovered || pressed) && styles.rowActive]}
+              style={({ hovered, pressed }) => [styles.row, (hovered || pressed || keyExtractor(row) === selectedKey) && styles.rowActive]}
             >
               {content}
             </Pressable>

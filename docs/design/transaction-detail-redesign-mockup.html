@@ -1,0 +1,330 @@
+<meta charset="utf-8" />
+<title>An Opened Sale, Redesigned</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#6c6c75;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --pg:#0d0d10; --pg2:#18181d; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8e8e98;
+      --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#18181d; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8e8e98;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts).
+     Every value below is the real bento token. */
+  .frame{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-mut3:#85848d; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --upwash:#d9efe4; --upink:#007a38;
+    --downwash:#fbeaec; --downink:#d12339;
+    --accentwash:#e6edff; --accentink:#1b47b8; --accent:#2f6bff;
+    --refwash:#f8efdc; --refink:#8a5a05;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 10px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:78ch;}
+  section{margin-top:52px;}
+  .note{font-size:14px;color:var(--ink2);max-width:74ch;margin:0;}
+  .note + .note{margin-top:10px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:22px 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums;}
+
+  .why{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:18px;}
+  .why div{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:12px 14px;font-size:13.5px;color:var(--ink2);}
+  .why b{display:block;color:var(--ink);font-size:14px;margin-bottom:2px;}
+
+  /* ── app ── */
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .th,.tr{display:grid;grid-template-columns:190px minmax(0,1fr) 170px 120px 110px 110px 24px;gap:12px;align-items:center;padding:12px 14px;}
+  .th{font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--d-mut2);border-bottom:1px solid var(--d-ln);}
+  .tr{border-bottom:1px solid var(--d-ln);font-size:13.5px;}
+  .tr .mut{color:var(--d-mut);}
+  .tr .num{font-weight:800;}
+  .tr.open{background:var(--d-soft);border-bottom:0;border-radius:16px 16px 0 0;}
+  .badge{font-size:11px;font-weight:800;border-radius:999px;padding:1px 8px;white-space:nowrap;margin-left:8px;}
+  .badge.disc{background:var(--accentwash);color:var(--accentink);}
+  .badge.ref{background:var(--refwash);color:var(--refink);}
+
+  .panel{background:var(--d-soft);border-radius:0 0 16px 16px;padding:4px 14px 16px;display:grid;gap:12px;}
+
+  .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;padding:4px 2px 2px;}
+  .who{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--d-sf);border-radius:999px;padding:5px 11px;font-size:12.5px;color:var(--d-ink2);}
+  .chip b{font-weight:800;color:var(--d-ink);}
+  .chip i{font-style:normal;color:var(--d-mut);}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .pill{border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:800;background:var(--accentwash);color:var(--accentink);white-space:nowrap;}
+  .pill.solid{background:var(--accent);color:#fff;}
+  .pill.danger{background:var(--downwash);color:var(--downink);}
+  .pill.quiet{background:var(--d-sf);color:var(--d-ink);}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+  .tile{background:var(--d-sf);border-radius:18px;padding:12px 14px;}
+  .tile .l{font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--d-mut2);}
+  .tile .v{font-size:24px;font-weight:800;letter-spacing:-.6px;margin-top:2px;line-height:1.15;}
+  .tile .h{font-size:12px;color:var(--d-mut);margin-top:2px;}
+  .tile .v.blue{color:var(--accentink);}
+  .tile .v.green{color:var(--profit);}
+  .tile .v.dim{color:var(--d-mut3);}
+
+  .grid3{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;}
+  .box{background:var(--d-sf);border-radius:18px;padding:14px 16px;}
+  .box h4{margin:0 0 8px;font-size:13px;font-weight:800;letter-spacing:-.1px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .box h4 small{font-size:11.5px;font-weight:600;color:var(--d-mut);}
+
+  .it{display:grid;grid-template-columns:30px minmax(0,1fr) 70px 82px 72px;gap:8px;padding:9px 0;border-top:1px solid var(--d-ln);align-items:start;font-size:13px;}
+  .it.head{border-top:0;padding-top:0;font-size:10px;font-weight:800;letter-spacing:.6px;color:var(--d-mut2);}
+  .it .q{font-weight:800;color:var(--d-mut);}
+  .it .n{font-weight:700;}
+  .it .n small{display:block;font-size:11.5px;font-weight:500;color:var(--d-mut);}
+  .it .r{text-align:right;}
+  .it .list{color:var(--d-mut);}
+  .it .off{color:var(--accentink);font-weight:700;}
+  .it .off small{display:block;font-size:11px;color:var(--d-mut);font-weight:600;}
+  .it .paid{font-weight:800;}
+  .it .none{color:var(--d-mut3);}
+  .rpill{font-size:10.5px;font-weight:800;border-radius:999px;padding:0 6px;background:var(--refwash);color:var(--refink);margin-left:6px;white-space:nowrap;}
+
+  .ln{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:13px;}
+  .ln .k{color:var(--d-ink2);}
+  .ln .k small{color:var(--d-mut);font-size:11.5px;margin-left:5px;}
+  .ln .v{font-weight:700;}
+  .ln.off .v{color:var(--accentink);}
+  .ln.rule{border-top:1px solid var(--d-ln);margin-top:3px;padding-top:8px;}
+  .ln.total{border-top:1.5px solid var(--d-ink);margin-top:4px;padding-top:8px;font-size:15px;}
+  .ln.total .k,.ln.total .v{font-weight:800;color:var(--d-ink);}
+  .ln.neg .v{color:var(--downink);}
+  .ln.good .v{color:var(--profit);}
+  .inc{font-size:11.5px;color:var(--d-mut);text-align:right;margin-top:-2px;}
+  .saved{margin-top:10px;background:var(--accentwash);color:var(--accentink);border-radius:10px;padding:7px 10px;font-size:12px;font-weight:700;}
+  .meter{height:6px;border-radius:3px;background:var(--d-soft);margin:8px 0 2px;overflow:hidden;}
+  .meter span{display:block;height:100%;background:var(--profit);border-radius:3px;}
+  .sub{font-size:11.5px;color:var(--d-mut);}
+
+  /* phone */
+  .phone{width:390px;background:var(--d-pg);border-radius:30px;padding:14px;}
+  .phone .tiles{grid-template-columns:1fr 1fr;}
+  .phone .tile .v{font-size:20px;}
+  .phone .stack{display:grid;gap:10px;}
+  .pit{padding:9px 0;border-top:1px solid var(--d-ln);font-size:13px;}
+  .pit:first-of-type{border-top:0;}
+  .pit .a{display:flex;justify-content:space-between;gap:8px;}
+  .pit .a b{font-weight:800;}
+  .pit .b{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--d-mut);}
+  .pit .b .off{color:var(--accentink);font-weight:700;}
+
+  .qs{display:grid;gap:10px;margin-top:16px;max-width:880px;}
+  .q{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:14px 16px;}
+  .q b{display:block;font-size:14.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q .rec{color:var(--blue);font-weight:700;}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Accounting · Transactions · design proposal</p>
+  <h1>An opened sale you can read at a glance</h1>
+  <p class="lede">Today every section is the same grey capital label over a label on the far left and a value on the far right, often 1,900px apart. Nothing stands out, so the eye has to hunt. This version puts the four numbers people check first in tiles, keeps each label close to its number, and uses the blue pill buttons from The books.</p>
+
+  <div class="why">
+    <div><b>Wide gaps</b>On a wide screen "Profit" and "$3.71" sit on opposite edges. Each card here is a third of the width, so they sit together.</div>
+    <div><b>Everything looks alike</b>Items, payment and profit all share one style. Here each is its own card, and the key figures get tiles.</div>
+    <div><b>A total that doesn't add up</b>$12.00 + $0.29 tax ≠ $12.00. The tax was <i>included</i> in the price, and the summary must say so rather than add it.</div>
+    <div><b>Grey buttons</b>Receipt, Edit and Refund become light blue pills, and Delete a red one. That's the rule from The books: blue means press this.</div>
+  </div>
+
+  <!-- ───────────────────────── 1 ───────────────────────── -->
+  <section>
+    <h2>1 · Your Sep 3 sale: no discount, tax included</h2>
+    <p class="h2sub">Sale 68d2dea8 · 2× test at $6.00 · cash · Yusef S. The tax tile and the money card both say the $0.29 was already inside the $12.00.</p>
+
+    <div class="scroller"><div class="frame" style="width:1300px;">
+      <div class="card" style="padding:10px">
+        <div class="th"><span>DATE ▾</span><span>ITEMS</span><span>CUSTOMER</span><span>PAYMENT</span><span>CASHIER</span><span>TOTAL</span><span></span></div>
+        <div class="tr"><span class="mut">9/5/2026, 3:46 PM</span><span>1× QA smoke widget</span><span class="mut">QA Amina Hersi</span><span>Unpaid</span><span class="mut">yusef</span><span class="num">$7.69</span><span class="mut">▾</span></div>
+        <div class="tr open"><span class="mut">9/3/2026, 5:36 AM</span><span>2× test</span><span class="mut">Yusef S</span><span>Cash</span><span class="mut">—</span><span class="num">$12.00</span><span class="mut">▴</span></div>
+        <div class="panel">
+          <div class="top">
+            <div class="who">
+              <span class="chip"><b>Yusef S</b><i>+1 612 642 1340</i></span>
+              <span class="chip"><i>Store</i> yusefshop</span>
+              <span class="chip"><i>Cashier</i> not recorded</span>
+            </div>
+            <div class="actions">
+              <span class="pill">🧾 Receipt</span><span class="pill">✎ Edit</span><span class="pill">↩ Refund</span><span class="pill danger">Delete</span>
+            </div>
+          </div>
+
+          <div class="tiles">
+            <div class="tile"><div class="l">PAID</div><div class="v">$12.00</div><div class="h">Cash · in full</div></div>
+            <div class="tile"><div class="l">TAKEN OFF</div><div class="v dim">$0.00</div><div class="h">no discount</div></div>
+            <div class="tile"><div class="l">TAX</div><div class="v">$0.29</div><div class="h">2.5% · included in the price</div></div>
+            <div class="tile"><div class="l">PROFIT</div><div class="v green">+$3.71</div><div class="h">32% margin</div></div>
+          </div>
+
+          <div class="grid3">
+            <div class="box">
+              <h4>Items <small>1 line · 2 units</small></h4>
+              <div class="it head"><span></span><span>ITEM</span><span class="r">LIST</span><span class="r">OFF</span><span class="r">PAID</span></div>
+              <div class="it"><span class="q">2×</span><span class="n">test<small>$6.00 each</small></span><span class="r list">$12.00</span><span class="r none">—</span><span class="r paid">$12.00</span></div>
+            </div>
+            <div class="box">
+              <h4>Money</h4>
+              <div class="ln"><span class="k">Items at list price</span><span class="v">$12.00</span></div>
+              <div class="ln total"><span class="k">Total</span><span class="v">$12.00</span></div>
+              <div class="inc">includes $0.29 tax (2.5%)</div>
+              <div class="ln rule"><span class="k">Cash</span><span class="v">$12.00</span></div>
+              <div class="sub">Paid in full</div>
+            </div>
+            <div class="box">
+              <h4>Profit</h4>
+              <div class="ln"><span class="k">Revenue <small>excl. tax</small></span><span class="v">$11.71</span></div>
+              <div class="ln neg"><span class="k">Cost of goods</span><span class="v">−$8.00</span></div>
+              <div class="ln total good"><span class="k">Profit</span><span class="v">+$3.71</span></div>
+              <div class="meter"><span style="width:32%"></span></div>
+              <div class="sub">32% of revenue kept as profit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ───────────────────────── 2 ───────────────────────── -->
+  <section>
+    <h2>2 · A busier sale: promotion, tax on top, a refund</h2>
+    <p class="h2sub">Sale 199b42ed · “Party and BS” 10% · ZAAD · one of five units returned. Refunds get their own place in the money card, and the paid tile says what the shop kept.</p>
+
+    <div class="scroller"><div class="frame" style="width:1300px;">
+      <div class="card" style="padding:10px">
+        <div class="tr open"><span class="mut">8/15/2026, 9:41 PM</span><span>2× QA scanwidget, 2× QA smoke widget, 1× item2<span class="badge disc">−$3.90 · 10%</span><span class="badge ref">↩ 1 of 5 back</span></span><span class="mut">—</span><span>ZAAD</span><span class="mut">yusef</span><span class="num">$35.96</span><span class="mut">▴</span></div>
+        <div class="panel">
+          <div class="top">
+            <div class="who">
+              <span class="chip"><i>Customer</i> walk-in</span>
+              <span class="chip"><i>Store</i> yusefshop</span>
+              <span class="chip"><i>Cashier</i> <b>yusef</b></span>
+            </div>
+            <div class="actions">
+              <span class="pill">🧾 Receipt</span><span class="pill">✎ Edit</span><span class="pill">↩ Refund</span><span class="pill danger">Delete</span>
+            </div>
+          </div>
+
+          <div class="tiles">
+            <div class="tile"><div class="l">PAID</div><div class="v">$35.96</div><div class="h">ZAAD · kept $26.74 after refund</div></div>
+            <div class="tile"><div class="l">TAKEN OFF</div><div class="v blue">−$3.90</div><div class="h">10% · Party and BS</div></div>
+            <div class="tile"><div class="l">TAX</div><div class="v">$0.88</div><div class="h">2.5% · added on top</div></div>
+            <div class="tile"><div class="l">PROFIT</div><div class="v green">+$8.09</div><div class="h">31% margin · after refund</div></div>
+          </div>
+
+          <div class="grid3">
+            <div class="box">
+              <h4>Items <small>3 lines · 5 units</small></h4>
+              <div class="it head"><span></span><span>ITEM</span><span class="r">LIST</span><span class="r">OFF</span><span class="r">PAID</span></div>
+              <div class="it"><span class="q">2×</span><span class="n">QA scanwidget <span class="rpill">1 back</span><small>$9.99 each · Party and BS</small></span><span class="r list">$19.98</span><span class="r off">−$2.00<small>10%</small></span><span class="r paid">$17.98</span></div>
+              <div class="it"><span class="q">2×</span><span class="n">QA smoke widget<small>$7.50 each · Party and BS</small></span><span class="r list">$15.00</span><span class="r off">−$1.50<small>10%</small></span><span class="r paid">$13.50</span></div>
+              <div class="it"><span class="q">1×</span><span class="n">item2<small>$4.00 each · Party and BS</small></span><span class="r list">$4.00</span><span class="r off">−$0.40<small>10%</small></span><span class="r paid">$3.60</span></div>
+            </div>
+            <div class="box">
+              <h4>Money</h4>
+              <div class="ln"><span class="k">Items at list price</span><span class="v">$38.98</span></div>
+              <div class="ln off"><span class="k">Item discounts<small>10% · 3 items</small></span><span class="v">−$3.90</span></div>
+              <div class="ln rule"><span class="k">Subtotal</span><span class="v">$35.08</span></div>
+              <div class="ln"><span class="k">Tax<small>2.5%</small></span><span class="v">$0.88</span></div>
+              <div class="ln total"><span class="k">Total</span><span class="v">$35.96</span></div>
+              <div class="ln rule"><span class="k">ZAAD</span><span class="v">$35.96</span></div>
+              <div class="ln neg"><span class="k">Refunded Aug 16<small>incl. $0.23 tax</small></span><span class="v">−$9.22</span></div>
+              <div class="ln total"><span class="k">Kept</span><span class="v">$26.74</span></div>
+              <div class="saved">Customer saved $3.90 · 10% off list</div>
+            </div>
+            <div class="box">
+              <h4>Profit <small>after refund</small></h4>
+              <div class="ln"><span class="k">Revenue <small>excl. tax</small></span><span class="v">$26.09</span></div>
+              <div class="ln neg"><span class="k">Cost of goods</span><span class="v">−$18.00</span></div>
+              <div class="ln total good"><span class="k">Profit</span><span class="v">+$8.09</span></div>
+              <div class="meter"><span style="width:31%"></span></div>
+              <div class="sub">31% of revenue kept as profit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ───────────────────────── 3 ───────────────────────── -->
+  <section>
+    <h2>3 · On a phone</h2>
+    <p class="h2sub">Tiles go two by two, the cards stack, and the action pills wrap under the chips. Each item takes two lines.</p>
+    <div class="frame" style="padding:0;border-radius:32px;display:inline-block">
+      <div class="phone">
+        <div class="stack">
+          <div class="card" style="padding:12px;border-radius:22px">
+            <div style="display:flex;justify-content:space-between;font-size:13.5px"><b>2× QA scanwidget, 2× QA sm…</b><b>$35.96</b></div>
+            <div class="sub">8/15/2026, 9:41 PM · ZAAD</div>
+            <div style="margin-top:6px"><span class="badge disc" style="margin-left:0">−$3.90 · 10%</span><span class="badge ref">↩ 1 of 5 back</span></div>
+          </div>
+          <div class="actions"><span class="pill">🧾 Receipt</span><span class="pill">✎ Edit</span><span class="pill">↩ Refund</span><span class="pill danger">Delete</span></div>
+          <div class="tiles">
+            <div class="tile"><div class="l">PAID</div><div class="v">$35.96</div><div class="h">kept $26.74</div></div>
+            <div class="tile"><div class="l">TAKEN OFF</div><div class="v blue">−$3.90</div><div class="h">10%</div></div>
+            <div class="tile"><div class="l">TAX</div><div class="v">$0.88</div><div class="h">2.5% on top</div></div>
+            <div class="tile"><div class="l">PROFIT</div><div class="v green">+$8.09</div><div class="h">31% margin</div></div>
+          </div>
+          <div class="box">
+            <h4>Items <small>5 units</small></h4>
+            <div class="pit"><div class="a"><span><b>2×</b> QA scanwidget <span class="rpill">1 back</span></span><b>$17.98</b></div><div class="b"><span>List $19.98 · Party and BS</span><span class="off">−$2.00 · 10%</span></div></div>
+            <div class="pit"><div class="a"><span><b>2×</b> QA smoke widget</span><b>$13.50</b></div><div class="b"><span>List $15.00 · Party and BS</span><span class="off">−$1.50 · 10%</span></div></div>
+            <div class="pit"><div class="a"><span><b>1×</b> item2</span><b>$3.60</b></div><div class="b"><span>List $4.00 · Party and BS</span><span class="off">−$0.40 · 10%</span></div></div>
+          </div>
+          <div class="box">
+            <h4>Money</h4>
+            <div class="ln"><span class="k">Items at list price</span><span class="v">$38.98</span></div>
+            <div class="ln off"><span class="k">Item discounts</span><span class="v">−$3.90</span></div>
+            <div class="ln"><span class="k">Tax<small>2.5%</small></span><span class="v">$0.88</span></div>
+            <div class="ln total"><span class="k">Total</span><span class="v">$35.96</span></div>
+            <div class="ln neg"><span class="k">Refunded</span><span class="v">−$9.22</span></div>
+            <div class="ln total"><span class="k">Kept</span><span class="v">$26.74</span></div>
+          </div>
+          <div class="sub" style="text-align:center">Profit card follows, as on wide screens</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── 4 ───────────────────────── -->
+  <section>
+    <h2>4 · The edit screen gets the same buttons</h2>
+    <p class="h2sub">Save changes commits, so it's the solid blue pill. Cancel stays quiet. Greyed-out Save keeps its reason line.</p>
+    <div class="frame" style="display:inline-block">
+      <div class="actions" style="align-items:center">
+        <span class="pill solid">Save changes</span><span class="pill quiet">Cancel</span>
+        <span class="sub" style="margin-left:8px">— today: black “Save changes”, grey “Cancel”</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── 5 ───────────────────────── -->
+  <section>
+    <h2>Decisions for you</h2>
+    <div class="qs">
+      <div class="q"><b>Actions at the top?</b><p><span class="rec">Recommended: yes.</span> Today Receipt, Edit and Refund sit under a long profit section, so you scroll past everything to reach them. At the top they're the first thing beside the customer.</p></div>
+      <div class="q"><b>Refund: light or solid blue?</b><p><span class="rec">Recommended: light,</span> like Receipt and Edit. It opens a sheet where the refund is confirmed, and that sheet's confirm button is the solid one. Delete is red so it never looks like the other three.</p></div>
+      <div class="q"><b>The profit bar</b><p>A thin green bar showing margin. It's small but helps compare sales as you open several. Easy to leave out.</p></div>
+      <div class="q"><b>Tax included vs added</b><p>Not stored on the sale. It's read from the numbers: subtotal + tax = total means added, subtotal = total means included. This also fixes today's summary, which shows $12.00 + $0.29 = $12.00.</p></div>
+    </div>
+  </section>
+</div>

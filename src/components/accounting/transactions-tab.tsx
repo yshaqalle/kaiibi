@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { pillStyles, SaleDetailPanel } from '@/components/accounting/sale-detail-panel';
 import { Badge } from '@/components/badge';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
@@ -24,7 +25,8 @@ import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { saleProfit, saleRefundState, type SaleRefundState } from '@/lib/sales-reporting';
-import { taxCentsFor } from '@/lib/tax';
+import { discountPercentLabel, saleDiscountSummary } from '@/lib/sale-discounts';
+import { editedLineDiscountCents, editedSaleTotals } from '@/lib/sale-edit';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { Colors } from '@/constants/theme';
@@ -53,7 +55,14 @@ const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
   { header: 'Customer Email', value: (s) => s.customerEmail ?? '' },
   { header: 'Payment Method', value: (s) => paymentLabel(s.paymentMethod) },
   { header: 'Cashier', value: (s) => s.cashierName ?? '' },
+  // "Discount" keeps meaning the whole-sale discount, as it always has; the
+  // columns around it add what the items had taken off, so a spreadsheet can
+  // total everything a sale gave away.
+  { header: 'List Subtotal', value: (s) => (discountsOf(s).listCents / 100).toFixed(2) },
+  { header: 'Item Discounts', value: (s) => (discountsOf(s).itemDiscountCents / 100).toFixed(2) },
   { header: 'Discount', value: (s) => (s.discountCents / 100).toFixed(2) },
+  { header: 'Total Off', value: (s) => (discountsOf(s).totalOffCents / 100).toFixed(2) },
+  { header: 'Off %', value: (s) => { const d = discountsOf(s); return d.listCents > 0 ? ((d.totalOffCents * 100) / d.listCents).toFixed(1) : '0.0'; } },
   { header: 'Tax', value: (s) => (s.taxCents / 100).toFixed(2) },
   { header: 'Total', value: (s) => (s.totalCents / 100).toFixed(2) },
 ];
@@ -75,6 +84,23 @@ function RefundBadge({ state }: { state: SaleRefundState }) {
 // pill at the same time as the refund only because the two shared one
 // overloaded Payment cell -- leaving this a bare glyph beside a pill would
 // read as the lesser fact, which it isn't.
+function discountsOf(sale: Sale) {
+  return saleDiscountSummary({
+    items: sale.items ?? [],
+    discountCents: sale.discountCents,
+    pointsRedeemedCents: sale.pointsRedeemedCents,
+    taxCents: sale.taxCents,
+    totalCents: sale.totalCents,
+  });
+}
+
+// Amount AND share: a bare "50%" hides that it was 50 cents off a dollar item.
+// Points are not counted -- see sale-discounts.ts.
+function DiscountBadge({ offCents, percent }: { offCents: number; percent: string | null }) {
+  if (offCents <= 0) return null;
+  return <Badge label={`−${formatCents(offCents)}${percent ? ` · ${percent}` : ''}`} tone="info" variant="bento" />;
+}
+
 function EditBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return <Badge label={count === 1 ? '✎ Edited' : `✎ Edited ${count}×`} tone="default" variant="bento" />;
@@ -434,6 +460,7 @@ function SaleRow({
   const itemsSummary = sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ') ?? '';
   const profit = saleProfit(sale);
   const refundState = saleRefundState(sale);
+  const discounts = discountsOf(sale);
 
   return (
     <View style={[styles.card, !compact && styles.cardTableRow]}>
@@ -446,6 +473,7 @@ function SaleRow({
                 {new Date(sale.createdAt).toLocaleString()} · {paymentLabel(sale.paymentMethod)}
                 {sale.customerName ? ` · ${sale.customerName}` : ''}
               </Text>
+              <DiscountBadge offCents={discounts.totalOffCents} percent={discounts.totalOffPercent} />
               <RefundBadge state={refundState} />
               <EditBadge count={editCount} />
             </View>
@@ -460,6 +488,7 @@ function SaleRow({
               {/* The name yields before the badge does: a truncated product is
                   still readable, a truncated badge is a mystery. */}
               <Text style={[styles.cellText, styles.itemsCellText]} numberOfLines={1}>{itemsSummary}</Text>
+              <DiscountBadge offCents={discounts.totalOffCents} percent={discounts.totalOffPercent} />
               <RefundBadge state={refundState} />
               <EditBadge count={editCount} />
             </View>
@@ -475,154 +504,60 @@ function SaleRow({
       )}
 
       {expanded && !editing && (
-        <View style={styles.detail}>
-          {(sale.customerName || sale.customerPhone || sale.customerEmail) && (
-            <>
-              <Text style={styles.detailLabel}>CUSTOMER</Text>
-              {sale.customerName && <Text style={styles.detailItemName}>{sale.customerName}</Text>}
-              {sale.customerPhone && <Text style={styles.saleMeta}>{sale.customerPhone}</Text>}
-              {sale.customerEmail && <Text style={styles.saleMeta}>{sale.customerEmail}</Text>}
-            </>
-          )}
-
-          <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
-          <View style={styles.itemsList}>
-            {sale.items?.map((item, index) => {
-              const refundedQty = refundedQtyFor(sale, item.id);
-              return (
-                <View key={item.id} style={[styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast]}>
-                  <Text style={styles.itemQty}>{item.quantity}×</Text>
-                  <Text style={styles.itemName}>{item.productName}{refundedQty > 0 ? ` (${refundedQty} refunded)` : ''}</Text>
-                  <Text style={styles.itemPrice}>{formatCents(item.lineTotalCents)}</Text>
-                </View>
-              );
-            })}
-          </View>
-
-          <Text style={[styles.detailLabel, { marginTop: 14 }]}>PAYMENT</Text>
-          {sale.payments?.map((payment) => (
-            <View key={payment.id} style={styles.detailRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.detailItemName}>{paymentLabel(payment.method)}{payment.customerName ? ` · ${payment.customerName}` : ''}</Text>
-                {payment.customerPhone && <Text style={styles.saleMeta}>{payment.customerPhone}</Text>}
-                {payment.tenderedCents !== null && (
-                  <Text style={styles.saleMeta}>Tendered {formatCents(payment.tenderedCents)} · Change {formatCents(payment.tenderedCents - payment.amountCents)}</Text>
+        <SaleDetailPanel
+          sale={sale}
+          compact={compact}
+          discounts={discounts}
+          profit={profit}
+          storeName={hasMultipleLocations(locations) ? locations.find((location) => location.id === sale.locationId)?.name ?? null : null}
+          actions={
+            confirmingDelete ? (
+              <>
+                <Text style={styles.confirmText}>Delete this sale? Stock will be restored.</Text>
+                <Pressable onPress={onDelete} role="button" style={[pillStyles.pill, pillStyles.danger]}><Text style={[pillStyles.pillText, pillStyles.dangerText]}>Confirm delete</Text></Pressable>
+                <Pressable onPress={onCancelDelete} role="button" style={[pillStyles.pill, pillStyles.quiet]}><Text style={[pillStyles.pillText, pillStyles.quietText]}>Cancel</Text></Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable onPress={() => setShowReceipt(true)} role="button" style={pillStyles.pill}><Text style={pillStyles.pillText}>🧾 Receipt</Text></Pressable>
+                {canEdit && (
+                  <Pressable onPress={onStartEdit} role="button" style={pillStyles.pill}><Text style={pillStyles.pillText}>✎ Edit</Text></Pressable>
                 )}
-              </View>
-              <Text style={styles.detailItemPrice}>{formatCents(payment.amountCents)}</Text>
-            </View>
-          ))}
-
-          {/* The row's own reconciliation: paid, less what went back, leaves
-              what the shop kept. Three lines that add up -- which is the thing
-              a bare "Revenue $0.00" could never show, and the reason the old
-              -$0.32 read as a bug rather than as tax counted twice.
-
-              The tax line is a sub-item of the refund, not a deduction of its
-              own: it is money already inside the figure above it, called out
-              because that is the part that cancels tax collected rather than
-              revenue. */}
-          {refundState.kind !== 'none' && (
-            <>
-              <Text style={[styles.detailLabel, { marginTop: 14 }]}>REFUNDED</Text>
-              {sale.refunds?.map((refund) => (
-                <View key={refund.id} style={styles.detailRow}>
-                  <Text style={styles.detailItemName}>{new Date(refund.createdAt).toLocaleString()}</Text>
-                  <Text style={styles.detailItemPrice}>−{formatCents(refund.totalCents)}</Text>
-                </View>
-              ))}
-              {profit.refundedTaxCents > 0 && (
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailItemName, styles.muted]}>of which sales tax</Text>
-                  <Text style={[styles.detailItemPrice, styles.muted]}>−{formatCents(profit.refundedTaxCents)}</Text>
-                </View>
-              )}
-              {/* Can go negative: a sale over-refunded under the pre-migration
-                  maths keeps its old refund rows, and refund_sale_items
-                  deliberately never claws that back. Coloured like the profit
-                  line below rather than left in plain ink, so the two negatives
-                  in one pane don't read as different kinds of number. */}
-              <View style={[styles.detailRow, styles.detailRowTotal]}>
-                <Text style={styles.profitLabel}>Kept</Text>
-                <Text style={[styles.profitValue, profit.keptCents < 0 && styles.profitNegative]}>
-                  {formatCents(profit.keptCents)}
-                </Text>
-              </View>
-            </>
-          )}
-
-          {/* What this sale actually made, on the same terms as the period
-              figures: tax excluded (not the shop's money) and refunds netted
-              out of both revenue and cost. */}
-          <Text style={[styles.detailLabel, { marginTop: 14 }]}>PROFIT</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailItemName}>Revenue{sale.taxCents > 0 ? ' (excl. tax)' : ''}</Text>
-            <Text style={styles.detailItemPrice}>{formatCents(profit.netRevenueCents)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailItemName}>Cost of goods</Text>
-            <Text style={styles.detailItemPrice}>{formatCents(profit.costCents)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.profitLabel}>Profit</Text>
-            <Text style={[styles.profitValue, profit.profitCents < 0 && styles.profitNegative]}>
-              {formatCents(profit.profitCents)}
-              {profit.marginPercent !== null ? ` · ${profit.marginPercent.toFixed(0)}% margin` : ''}
-            </Text>
-          </View>
-          {profit.uncostedItemCount > 0 && (
-            <Text style={styles.profitCaveat}>
-              {`${profit.uncostedItemCount} ${profit.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost price on file (${formatCents(profit.uncostedRevenueCents)}), so this is the most the sale could have made — set the cost in Inventory.`}
-            </Text>
-          )}
-
-          {editCount > 0 && (
-            <>
-              <Pressable onPress={() => setHistoryOpen((v) => !v)} style={{ marginTop: 14 }}>
-                <Text style={styles.historyToggle}>{historyOpen ? '▴' : '▾'} Edit history ({editCount})</Text>
-              </Pressable>
-              {historyOpen && (
-                <View style={styles.historyList}>
-                  {sale.edits?.map((edit) => (
-                    <View key={edit.id} style={styles.historyEntry}>
-                      <Text style={styles.historyDate}>Previous version — {new Date(edit.createdAt).toLocaleString()}</Text>
-                      {(edit.previousSnapshot.customerName || edit.previousSnapshot.customerPhone || edit.previousSnapshot.customerEmail) && (
-                        <Text style={styles.historyItem}>
-                          {[edit.previousSnapshot.customerName, edit.previousSnapshot.customerPhone, edit.previousSnapshot.customerEmail].filter(Boolean).join(' · ')}
-                        </Text>
-                      )}
-                      {edit.previousSnapshot.items.map((item: SaleItemSnapshot, index: number) => (
-                        <Text key={index} style={styles.historyItem}>{item.quantity}× {item.productName} — {formatCents(item.lineTotalCents)}</Text>
+                {canRefund && refundableCount > 0 && (
+                  <Pressable onPress={() => setShowRefund(true)} role="button" style={pillStyles.pill}><Text style={pillStyles.pillText}>↩ Refund</Text></Pressable>
+                )}
+                {canEdit && (
+                  <Pressable onPress={onConfirmDelete} role="button" style={[pillStyles.pill, pillStyles.danger]}><Text style={[pillStyles.pillText, pillStyles.dangerText]}>Delete</Text></Pressable>
+                )}
+              </>
+            )
+          }
+          footer={editCount > 0 ? (
+            <View>
+                  <Pressable onPress={() => setHistoryOpen((v) => !v)} style={{ marginTop: 14 }}>
+                    <Text style={styles.historyToggle}>{historyOpen ? '▴' : '▾'} Edit history ({editCount})</Text>
+                  </Pressable>
+                  {historyOpen && (
+                    <View style={styles.historyList}>
+                      {sale.edits?.map((edit) => (
+                        <View key={edit.id} style={styles.historyEntry}>
+                          <Text style={styles.historyDate}>Previous version — {new Date(edit.createdAt).toLocaleString()}</Text>
+                          {(edit.previousSnapshot.customerName || edit.previousSnapshot.customerPhone || edit.previousSnapshot.customerEmail) && (
+                            <Text style={styles.historyItem}>
+                              {[edit.previousSnapshot.customerName, edit.previousSnapshot.customerPhone, edit.previousSnapshot.customerEmail].filter(Boolean).join(' · ')}
+                            </Text>
+                          )}
+                          {edit.previousSnapshot.items.map((item: SaleItemSnapshot, index: number) => (
+                            <Text key={index} style={styles.historyItem}>{item.quantity}× {item.productName} — {formatCents(item.lineTotalCents)}</Text>
+                          ))}
+                          <Text style={styles.historyTotal}>Total: {formatCents(edit.previousSnapshot.totalCents)} · {paymentLabel(edit.previousSnapshot.paymentMethod)}</Text>
+                        </View>
                       ))}
-                      <Text style={styles.historyTotal}>Total: {formatCents(edit.previousSnapshot.totalCents)} · {paymentLabel(edit.previousSnapshot.paymentMethod)}</Text>
                     </View>
-                  ))}
-                </View>
-              )}
-            </>
-          )}
-
-          {confirmingDelete ? (
-            <View style={styles.confirmRow}>
-              <Text style={styles.confirmText}>Delete this sale? Stock will be restored.</Text>
-              <Pressable onPress={onDelete}><Text style={styles.confirmDanger}>Confirm</Text></Pressable>
-              <Pressable onPress={onCancelDelete}><Text style={styles.confirmCancel}>Cancel</Text></Pressable>
+                  )}
             </View>
-          ) : (
-            <View style={styles.actionRow}>
-              <Pressable onPress={() => setShowReceipt(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Receipt</Text></Pressable>
-              {canEdit && (
-                <>
-                  <Pressable onPress={onStartEdit} style={styles.actionButton}><Text style={styles.actionButtonText}>Edit</Text></Pressable>
-                  <Pressable onPress={onConfirmDelete} style={styles.actionButton}><Text style={styles.actionButtonTextDanger}>Delete</Text></Pressable>
-                </>
-              )}
-              {canRefund && refundableCount > 0 && (
-                <Pressable onPress={() => setShowRefund(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Refund</Text></Pressable>
-              )}
-            </View>
-          )}
-        </View>
+          ) : null}
+        />
       )}
 
       {expanded && editing && (
@@ -663,7 +598,7 @@ function SaleRow({
 // drops these silently zeroes the line's discount and detaches whatever
 // promotion produced it. Quantity/price are the only fields this editor
 // actually lets someone change.
-type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; discountCents: number; promotionId: string | null };
+type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; originalQuantity: number; discountCents: number; promotionId: string | null; promotionName: string | null };
 
 function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; products: Product[]; shop: Shop | null; onCancel: () => void; onSaved: () => void }) {
   const [items, setItems] = useState<EditableItem[]>(() =>
@@ -674,8 +609,10 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         productName: item.productName,
         unitPriceCents: item.unitPriceCents,
         quantity: item.quantity,
+        originalQuantity: item.quantity,
         discountCents: item.discountCents,
         promotionId: item.promotionId,
+        promotionName: item.promotionName,
       }))
   );
   // Settlements are excluded. edit_sale deletes and re-inserts only the till's own
@@ -709,9 +646,26 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const preTaxTotalCents = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-  const taxCents = shop?.taxEnabled ? taxCentsFor(preTaxTotalCents, shop.taxRatePercent) : 0;
-  const total = preTaxTotalCents + taxCents;
+  // edit_sale re-prices every line at the product's CURRENT price, so the
+  // editor does too -- showing the sale-time price would put a total on screen
+  // the server then refuses to match. Falls back to the sale-time price while
+  // the product list is still loading.
+  const lines = items.map((item) => {
+    const unitPriceCents = products.find((p) => p.id === item.productId)?.priceCents ?? item.unitPriceCents;
+    return {
+      ...item,
+      unitPriceCents,
+      discountCents: editedLineDiscountCents({ discountCents: item.discountCents, originalQuantity: item.originalQuantity, quantity: item.quantity, unitPriceCents }),
+    };
+  });
+  const totals = editedSaleTotals({
+    lines,
+    saleDiscountCents: sale.discountCents,
+    pointsRedeemedCents: sale.pointsRedeemedCents,
+    taxRatePercent: shop?.taxEnabled ? shop.taxRatePercent : null,
+  });
+  const taxCents = totals.taxCents;
+  const total = totals.totalCents;
 
   const setQuantity = (productId: string, quantity: number) => {
     setItems((current) => (quantity === 0 ? current.filter((i) => i.productId !== productId) : current.map((i) => (i.productId === productId ? { ...i, quantity } : i))));
@@ -723,7 +677,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       if (existing) return current.map((i) => (i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i));
       // A product added during the edit has no discount and no promotion
       // behind it -- it's new to this sale, not a preserved line.
-      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, discountCents: 0, promotionId: null }];
+      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, originalQuantity: 0, discountCents: 0, promotionId: null, promotionName: null }];
     });
     setAddSearch('');
   };
@@ -748,17 +702,27 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     items.length > 0 && !submitting &&
     (coveredCents === total || (carriesBalance && coveredCents < total));
 
+  // A greyed-out Save with no word on why reads as a broken button.
+  const saveBlockedReason =
+    items.length === 0 ? 'A sale needs at least one item.'
+    : coveredCents > total ? `Payments are ${formatCents(coveredCents - total)} more than the total — remove one and re-add it.`
+    : coveredCents < total && !carriesBalance
+      ? !selectedCustomer
+        ? `${formatCents(total - coveredCents)} is still unpaid — add a payment, or pick a customer to leave it as a balance.`
+        : `${formatCents(total - coveredCents)} is still unpaid — add a payment to cover it.`
+    : null;
+
   const save = async () => {
     if (!canSave) return;
     setSubmitting(true);
     setError(null);
     try {
-      await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountCents: i.discountCents, promotionId: i.promotionId })), payments, {
+      await editSale(sale.id, lines.map((i) => ({ productId: i.productId, quantity: i.quantity, discountCents: i.discountCents, promotionId: i.promotionId })), payments, {
         id: selectedCustomer?.id ?? null,
         name: selectedCustomer?.name ?? null,
         phone: selectedCustomer?.phone ?? null,
         email: selectedCustomer?.email ?? null,
-      }, 0, carriesBalance && coveredCents < total);
+      }, totals.saleDiscountCents, carriesBalance && coveredCents < total);
       onSaved();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -784,11 +748,20 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       )}
 
       <Text style={styles.detailLabel}>ITEMS</Text>
-      {items.map((item) => (
+      {lines.map((item) => (
         <View key={item.productId} style={styles.editItemRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.detailItemName}>{item.productName}</Text>
-            <Text style={styles.saleMeta}>{formatCents(item.unitPriceCents)} each</Text>
+            <Text style={styles.saleMeta}>
+              {formatCents(item.unitPriceCents)} each
+              {item.discountCents > 0 ? (
+                <Text style={styles.itemOff}>
+                  {` · −${formatCents(item.discountCents)}`}
+                  {discountPercentLabel(item.discountCents, item.unitPriceCents * item.quantity) ? ` · ${discountPercentLabel(item.discountCents, item.unitPriceCents * item.quantity)}` : ''}
+                  {` · ${item.promotionName ?? (sale.cashierName ? `Manual discount by ${sale.cashierName}` : 'Manual discount')}`}
+                </Text>
+              ) : null}
+            </Text>
           </View>
           <QuantityStepper quantity={item.quantity} onChange={(next) => setQuantity(item.productId, next)} />
         </View>
@@ -806,6 +779,12 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         </View>
       )}
 
+      {(totals.saleDiscountCents > 0 || sale.pointsRedeemedCents > 0) && (
+        <View style={styles.detailRow}>
+          <Text style={styles.saleMeta}>{totals.saleDiscountCents > 0 ? 'Sale discount' : 'Points redeemed'}{totals.saleDiscountCents > 0 && sale.pointsRedeemedCents > 0 ? ' + points' : ''}</Text>
+          <Text style={styles.detailItemPrice}>−{formatCents(totals.saleDiscountCents + sale.pointsRedeemedCents)}</Text>
+        </View>
+      )}
       {taxCents > 0 && (
         <View style={styles.detailRow}>
           <Text style={styles.saleMeta}>Tax ({shop?.taxRatePercent}%)</Text>
@@ -820,12 +799,14 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       <PaymentMethodPicker totalCents={total} payments={payments} onChange={setPayments} />
 
       {error && <Text style={styles.error}>{error}</Text>}
+      {saveBlockedReason && <Text style={styles.warningText}>{saveBlockedReason}</Text>}
 
       <View style={styles.actionRow}>
-        <Pressable onPress={save} disabled={!canSave} style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}>
-          <Text style={styles.saveButtonText}>{submitting ? 'Saving…' : 'Save changes'}</Text>
+        {/* Save commits, so it takes the solid blue; Cancel only closes. */}
+        <Pressable onPress={save} disabled={!canSave} role="button" style={[pillStyles.pill, pillStyles.solid, !canSave && pillStyles.disabled]}>
+          <Text style={[pillStyles.pillText, pillStyles.solidText, !canSave && pillStyles.disabledText]}>{submitting ? 'Saving…' : 'Save changes'}</Text>
         </Pressable>
-        <Pressable onPress={onCancel} style={styles.actionButton}><Text style={styles.actionButtonText}>Cancel</Text></Pressable>
+        <Pressable onPress={onCancel} role="button" style={[pillStyles.pill, pillStyles.quiet]}><Text style={[pillStyles.pillText, pillStyles.quietText]}>Cancel</Text></Pressable>
       </View>
     </View>
   );
@@ -885,25 +866,13 @@ const styles = StyleSheet.create({
   detail: { padding: 14, paddingTop: 0, borderTopWidth: 1, borderTopColor: '#ECECEC' },
   detailLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
   detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
-  // Matches `totalRow` above -- the same hairline this file already uses to
-  // close a block that sums.
-  detailRowTotal: { borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 6, paddingTop: 10 },
   detailItemName: { fontSize: 13, fontWeight: '700', color: '#111111', flex: 1 },
   detailItemPrice: { fontSize: 13, fontWeight: '700', color: '#111111' },
 
-  // The bottom line of the sale, so it reads heavier than the two figures it
-  // is derived from. Red only when the sale lost money.
-  profitLabel: { fontSize: 13, fontWeight: '800', color: '#111111', flex: 1 },
-  profitValue: { fontSize: 14, fontWeight: '800', color: '#111111' },
-  profitNegative: { color: '#C0392B' },
-  profitCaveat: { color: '#B5793A', fontSize: 11, fontWeight: '600', marginTop: 4, lineHeight: 15 },
 
-  itemsList: { backgroundColor: '#FAFAFA', borderRadius: 10, paddingHorizontal: 12 },
-  itemRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
-  itemRowLast: { borderBottomWidth: 0 },
-  itemQty: { fontSize: 13, fontWeight: '700', color: '#999999', marginRight: 6, lineHeight: 18 },
-  itemName: { fontSize: 13, fontWeight: '600', color: '#111111', flex: 1, marginRight: 12, lineHeight: 18 },
-  itemPrice: { fontSize: 13, fontWeight: '700', color: '#111111', lineHeight: 18 },
+  // The bento accent, as the list's discount tag: blue is "taken off" on this
+  // screen, never a status.
+  itemOff: { fontSize: 12.5, fontWeight: '700', color: theme.bentoAccentInk, lineHeight: 18 },
 
   historyToggle: { fontSize: 12, fontWeight: '700', color: '#999999' },
   historyList: { gap: 10, marginTop: 10 },
@@ -913,13 +882,7 @@ const styles = StyleSheet.create({
   historyTotal: { fontSize: 12, fontWeight: '700', color: '#111111', marginTop: 4 },
 
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 14, alignItems: 'center' },
-  actionButton: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#F2F2F2' },
-  actionButtonText: { fontSize: 12, fontWeight: '700', color: '#111111' },
-  actionButtonTextDanger: { fontSize: 12, fontWeight: '700', color: '#C0392B' },
-  confirmRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
   confirmText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#111111' },
-  confirmDanger: { fontSize: 12, fontWeight: '800', color: '#C0392B' },
-  confirmCancel: { fontSize: 12, fontWeight: '700', color: '#999999' },
 
   editItemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FAFAFA', borderRadius: 10, padding: 10, marginBottom: 6 },
   addSearchInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111', marginTop: 8 },
@@ -928,7 +891,4 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
   totalLabel: { color: '#111111', fontSize: 13, fontWeight: '800' },
   totalValue: { color: '#111111', fontSize: 20, fontWeight: '800' },
-  saveButton: { backgroundColor: '#111111', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10 },
-  saveButtonDisabled: { backgroundColor: '#CCCCCC' },
-  saveButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
 });

@@ -1238,6 +1238,10 @@ export type JournalEntry = {
   status: JournalEntryStatus;
   locationId: string | null;
   reversesEntryId: string | null;
+  // Who posted it -- the signed-in user whose action wrote the entry, even when
+  // the posting was automatic. Optional: callers that never select it leave it
+  // undefined.
+  createdBy?: string | null;
   createdAt: string;
   lines: JournalLine[];
 };
