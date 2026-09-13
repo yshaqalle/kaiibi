@@ -1,0 +1,381 @@
+<meta charset="utf-8" />
+<title>Opening a Journal Entry</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#6c6c75;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --pg:#0d0d10; --pg2:#18181d; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8e8e98;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#18181d; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8e8e98;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts).
+     Every value below is the real bento token. */
+  .frame{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentwash:#e6edff; --accentink:#1b47b8; --blue:#2f6bff;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 10px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:76ch;}
+  section{margin-top:52px;}
+  .note{font-size:14px;color:var(--ink2);max-width:74ch;margin:0;}
+  .note + .note{margin-top:10px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:22px 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w390{width:390px;}
+  .pair{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;}
+
+  /* ── app pieces ─────────────────────────────── */
+  .crumb{font-size:10.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--d-mut);}
+  .apptitle{font-size:26px;font-weight:800;letter-spacing:-1px;margin:2px 0 14px;}
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .card + .card{margin-top:14px;}
+  .cardTitle{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .cardTitle b{font-size:15px;font-weight:800;letter-spacing:-.2px;}
+  .scope{font-size:11px;font-weight:700;color:var(--d-mut);border:1px solid var(--d-ln);border-radius:999px;padding:3px 9px;}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:14px;align-items:start;}
+
+  table.dt{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
+  .dt th{font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--d-mut2);text-align:left;padding:6px 10px;border-bottom:1px solid var(--d-ln);}
+  .dt td{padding:10px;border-bottom:1px solid var(--d-ln);vertical-align:top;}
+  .dt tr:last-child td{border-bottom:0;}
+  .dt .num{text-align:right;white-space:nowrap;}
+  .dt .mut{color:var(--d-mut);font-size:13px;white-space:nowrap;}
+  .dt .t{font-weight:700;font-size:13.5px;}
+  .dt .m{font-size:12px;color:var(--d-mut);}
+  .dt tr.row{cursor:pointer;}
+  .dt tr.sel td{background:var(--d-soft);}
+  .dt tr.sel td:first-child{border-radius:12px 0 0 12px;} .dt tr.sel td:last-child{border-radius:0 12px 12px 0;}
+  .chev{color:var(--d-mut2);font-size:15px;padding-left:4px;}
+
+  .pill{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:2px 9px;vertical-align:1px;}
+  .pill.posted{background:#d9efe4;color:#007a38;}
+  .pill.reversed{background:#fbeaec;color:#c21f33;}
+  .pill.mirror{background:var(--d-soft);color:var(--d-ink2);border:1px solid var(--d-rule);}
+  .pill.auto{background:var(--accentwash);color:var(--accentink);}
+  .pill.hand{background:#f8efdc;color:#8a5a05;}
+
+  .dh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+  .ref{font-size:12px;font-weight:800;letter-spacing:.4px;color:var(--d-mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .dtitle{font-size:20px;font-weight:800;letter-spacing:-.5px;margin:2px 0 4px;line-height:1.2;}
+  .dsub{font-size:13px;color:var(--d-mut);}
+  .x{width:30px;height:30px;border-radius:15px;background:var(--d-soft);display:grid;place-items:center;color:var(--d-mut);font-weight:800;flex:none;}
+  .lab{font-size:10.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--d-mut2);margin:18px 0 8px;}
+
+  .source{background:var(--d-soft);border-radius:16px;padding:12px 14px;display:flex;gap:12px;align-items:center;}
+  .source .ic{width:34px;height:34px;border-radius:10px;background:var(--d-sf);display:grid;place-items:center;font-size:16px;flex:none;}
+  .source b{display:block;font-size:13.5px;}
+  .source span{font-size:12px;color:var(--d-mut);}
+  .link{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--blue);white-space:nowrap;}
+
+  .lines{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px;}
+  .lines th{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--d-mut2);text-align:left;padding:4px 6px;border-bottom:1px solid var(--d-rule);}
+  .lines th.num,.lines td.num{text-align:right;width:74px;}
+  .lines td{padding:8px 6px;border-bottom:1px solid var(--d-ln);vertical-align:top;}
+  .lines .acc{font-weight:700;} .lines .code{color:var(--d-mut2);font-weight:700;margin-right:4px;}
+  .lines .memo{display:block;font-size:11.5px;color:var(--d-mut);}
+  .lines tfoot td{border-bottom:0;border-top:1px solid var(--d-rule);font-weight:800;}
+  .ok{font-size:11.5px;font-weight:800;color:var(--profit);}
+  .dim{color:#b8b8c0;}
+
+  .plain{list-style:none;margin:0;padding:0;display:grid;gap:6px;}
+  .plain li{font-size:13px;color:var(--d-ink2);padding-left:18px;position:relative;}
+  .plain li::before{content:"";position:absolute;left:4px;top:8px;width:6px;height:6px;border-radius:3px;background:var(--d-rule);}
+
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:13px;}
+  .kv dt{color:var(--d-mut);} .kv dd{margin:0;color:var(--d-ink2);font-weight:600;}
+  .warnline{font-size:12px;color:var(--warn);font-weight:700;}
+
+  .diff{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .diff td{padding:7px 6px;border-bottom:1px solid var(--d-ln);vertical-align:top;}
+  .diff td:first-child{color:var(--d-mut);width:96px;}
+  .diff .was{color:var(--d-mut);text-decoration:line-through;text-decoration-color:#c9c9d1;}
+  .diff .now{font-weight:700;}
+  .btnrow{display:flex;gap:8px;margin-top:16px;}
+  .btn{font-size:12.5px;font-weight:800;border-radius:10px;padding:8px 12px;background:var(--d-soft);color:var(--d-ink);}
+  .btn.primary{background:var(--blue);color:#fff;}
+
+  /* phone sheet */
+  .phone{background:#6b6b74;border-radius:28px;padding:0;overflow:hidden;position:relative;height:760px;}
+  .phone .under{padding:18px;opacity:.35;background:var(--d-pg);height:100%;}
+  .sheet{position:absolute;left:0;right:0;bottom:0;top:70px;background:var(--d-sf);border-radius:26px 26px 0 0;padding:10px 16px 16px;overflow:hidden;}
+  .grab{width:40px;height:5px;border-radius:3px;background:var(--d-rule);margin:0 auto 12px;}
+
+  .qs{display:grid;gap:10px;margin-top:16px;max-width:880px;}
+  .q{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:14px 16px;}
+  .q b{display:block;font-size:14.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q .rec{color:var(--blue);font-weight:700;}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Accounting · Ledger · design proposal</p>
+  <h1>Opening a journal entry, and an audit log row</h1>
+  <p class="lede">Both lists become clickable. Journals opens the whole entry: what caused it, every line with its account, what it means in plain words, and who posted it. The audit log does the same for each change and stops listing each entry line as its own row.</p>
+  <p class="note">All figures are from the <b>yusef@gmail.com</b> shop (JE-2026-0063, JE-2026-0064), except the reversal pair in section 3, which uses the JE-2026-0078 amounts you pasted. The other list rows' amounts and customer names are placeholders.</p>
+
+  <!-- ─────────────────────────────── 1 ─────────────────────────────── -->
+  <section>
+    <h2>1 · Journals — click a row, the entry opens beside the list</h2>
+    <p class="h2sub">On a wide screen the list stays put and the detail docks on the right, so you can walk down the entries with the pane open. The row's UUID description is replaced by who and what: "Sale · QA Amina Hersi" rather than "Sale 6669e945-…".</p>
+
+    <div class="frameHead"><b>Web / tablet</b><i>1280 · Journals, JE-2026-0063 selected</i></div>
+    <div class="scroller"><div class="frame w1280">
+      <div class="crumb">Accounting › Ledger</div>
+      <div class="apptitle">Journals</div>
+      <div class="split">
+        <div class="card">
+          <div class="cardTitle"><b>Journal entries</b><span class="scope">Aug 30 – Sep 13</span></div>
+          <table class="dt">
+            <thead><tr><th style="width:110px">Ref</th><th style="width:70px">Date</th><th>Entry</th><th class="num">Amount</th><th style="width:20px"></th></tr></thead>
+            <tbody>
+              <tr class="row"><td class="mut">JE-2026-0064</td><td class="mut">Sep 8</td><td><div class="t">Expense · Inventory purchase</div><div class="m">2 lines · bill · yusef</div></td><td class="num t">$12.50</td><td class="chev">›</td></tr>
+              <tr class="row sel"><td class="mut">JE-2026-0063</td><td class="mut">Sep 5</td><td><div class="t">Sale · QA Amina Hersi</div><div class="m">5 lines · sale · yusef</div></td><td class="num t">$4.05</td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">JE-2026-0062</td><td class="mut">Sep 5</td><td><div class="t">Sale · QA Amina Hersi</div><div class="m">5 lines · sale · yusef</div></td><td class="num t">$15.38</td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">JE-2026-0061</td><td class="mut">Sep 3</td><td><div class="t">Sale · walk-in</div><div class="m">5 lines · sale · yusef</div></td><td class="num t">$24.00</td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">JE-2026-0060</td><td class="mut">Aug 30</td><td><div class="t">Sale · walk-in</div><div class="m">5 lines · sale · yusef</div></td><td class="num t">$12.00</td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">JE-2026-0059</td><td class="mut">Aug 30</td><td><div class="t">Delivery on order #2</div><div class="m">3 lines · sale · storefront</div></td><td class="num t">$4.00</td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">JE-2026-0058</td><td class="mut">Aug 30</td><td><div class="t">Sale · order #2</div><div class="m">5 lines · sale · storefront</div></td><td class="num t">$8.00</td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">JE-2026-0057</td><td class="mut">Aug 30</td><td><div class="t">Sale · walk-in</div><div class="m">5 lines · sale · yusef</div></td><td class="num t">$8.00</td><td class="chev">›</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- detail pane -->
+        <div class="card">
+          <div class="dh">
+            <div>
+              <div class="ref">JE-2026-0063 &nbsp;<span class="pill posted">✓ Posted</span></div>
+              <div class="dtitle">Sale to QA Amina Hersi</div>
+              <div class="dsub">Dated Sep 5, 2026 · Main store</div>
+            </div>
+            <div class="x">✕</div>
+          </div>
+
+          <div class="lab">What caused it</div>
+          <div class="source">
+            <div class="ic">🧾</div>
+            <div><b>Sale · 1 item · $2.05</b><span>Left on account · due Sep 5 · not yet paid</span></div>
+            <div class="link">Open sale ›</div>
+          </div>
+
+          <div class="lab">Lines</div>
+          <table class="lines">
+            <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+            <tbody>
+              <tr><td><span class="acc"><span class="code">1100</span>Accounts Receivable</span><span class="memo">Left on account</span></td><td class="num">$2.05</td><td class="num dim">—</td></tr>
+              <tr><td><span class="acc"><span class="code">4000</span>Sales Revenue</span><span class="memo">Sale at list</span></td><td class="num dim">—</td><td class="num">$2.00</td></tr>
+              <tr><td><span class="acc"><span class="code">2100</span>Sales Tax Payable</span><span class="memo">Sales tax · 2.5%</span></td><td class="num dim">—</td><td class="num">$0.05</td></tr>
+              <tr><td><span class="acc"><span class="code">5000</span>Cost of Goods Sold</span><span class="memo">Cost of goods sold</span></td><td class="num">$2.00</td><td class="num dim">—</td></tr>
+              <tr><td><span class="acc"><span class="code">1200</span>Inventory</span><span class="memo">Stock sold</span></td><td class="num dim">—</td><td class="num">$2.00</td></tr>
+            </tbody>
+            <tfoot><tr><td><span class="ok">✓ Balanced</span></td><td class="num">$4.05</td><td class="num">$4.05</td></tr></tfoot>
+          </table>
+
+          <div class="lab">In plain words</div>
+          <ul class="plain">
+            <li>QA Amina Hersi now owes you <b>$2.05</b>.</li>
+            <li>You earned <b>$2.00</b> of sales, and <b>$0.05</b> of it is tax you hold for the government.</li>
+            <li><b>$2.00</b> of stock left the shelf and became cost of sales, so this sale's profit is <b>$0.00</b>.</li>
+          </ul>
+
+          <div class="lab">How and who</div>
+          <dl class="kv">
+            <dt>Posted by</dt><dd><span class="pill auto">Automatic</span>&nbsp; the till, when <b>yusef</b> rang up the sale</dd>
+            <dt>Written</dt><dd>Sep 5, 2026 · 11:51 PM</dd>
+            <dt>Register</dt><dd>Main store · session opened Sep 5</dd>
+            <dt>Period</dt><dd>September 2026 · open</dd>
+          </dl>
+
+          <div class="btnrow"><span class="btn">See in audit log</span><span class="btn">Export entry</span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="frameHead"><b>Phone</b><i>390 · the same pane as a sheet</i></div>
+    <div class="pair">
+      <div class="frame w390" style="padding:0;border-radius:30px;">
+        <div class="phone">
+          <div class="under"><div class="crumb">Accounting › Ledger</div><div class="apptitle">Journals</div></div>
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="dh">
+              <div>
+                <div class="ref">JE-2026-0064 &nbsp;<span class="pill posted">✓ Posted</span></div>
+                <div class="dtitle">Inventory purchase</div>
+                <div class="dsub">Dated Sep 8, 2026 · all stores</div>
+              </div>
+              <div class="x">✕</div>
+            </div>
+            <div class="lab">What caused it</div>
+            <div class="source"><div class="ic">📦</div><div><b>Expense · $12.50</b><span>Inventory purchase</span></div><div class="link">Open ›</div></div>
+            <div class="lab">Lines</div>
+            <table class="lines">
+              <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+              <tbody>
+                <tr><td><span class="acc"><span class="code">1200</span>Inventory</span><span class="memo">inventory purchase</span></td><td class="num">$12.50</td><td class="num dim">—</td></tr>
+                <tr><td><span class="acc"><span class="code">1000</span>Cash on Hand</span><span class="memo">paid</span></td><td class="num dim">—</td><td class="num">$12.50</td></tr>
+              </tbody>
+              <tfoot><tr><td><span class="ok">✓ Balanced</span></td><td class="num">$12.50</td><td class="num">$12.50</td></tr></tfoot>
+            </table>
+            <div class="lab">In plain words</div>
+            <ul class="plain"><li><b>$12.50</b> of cash became stock on the shelf. No profit or loss yet; that comes when it sells.</li></ul>
+            <div class="lab">How and who</div>
+            <dl class="kv"><dt>Posted by</dt><dd><span class="pill auto">Automatic</span>&nbsp; when <b>yusef</b> logged the expense</dd><dt>Written</dt><dd>Sep 9 · 4:37 AM</dd></dl>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:280px;max-width:520px;">
+        <p class="note"><b>Same content, one column.</b> The sheet scrolls on its own; the list under it stays where you left it.</p>
+        <p class="note">The credit line's account and memo here are illustrative. The entry's second line wasn't in the sample I pulled, so the real one may be Bank or Accounts Payable.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 2 ─────────────────────────────── -->
+  <section>
+    <h2>2 · Audit log — one row per thing that happened, with a name</h2>
+    <p class="h2sub">Today a single sale writes six rows: "Created journal entry" and five "Created entry line", each by "A person". Your shop has 351 rows and 283 of them are lines. Proposal: fold the lines into their entry, show the person's name, and say how it was done.</p>
+
+    <div class="frameHead"><b>Web / tablet</b><i>1280 · Audit Log, one event open</i></div>
+    <div class="scroller"><div class="frame w1280">
+      <div class="crumb">Accounting › Oversight</div>
+      <div class="apptitle">Audit Log</div>
+      <div class="split">
+        <div class="card">
+          <div class="cardTitle"><b>Activity</b><span class="scope">Last 200</span></div>
+          <table class="dt">
+            <thead><tr><th style="width:130px">When</th><th>What</th><th style="width:150px">Who</th><th style="width:20px"></th></tr></thead>
+            <tbody>
+              <tr class="row"><td class="mut">Sep 9, 4:37 AM</td><td><div class="t">Posted JE-2026-0064</div><div class="m">Expense · 2 lines · $12.50</div></td><td><div class="t">yusef</div><div class="m">logging an expense</div></td><td class="chev">›</td></tr>
+              <tr class="row sel"><td class="mut">Sep 5, 11:51 PM</td><td><div class="t">Posted JE-2026-0063</div><div class="m">Sale · 5 lines · $4.05</div></td><td><div class="t">yusef</div><div class="m">at the till</div></td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">Sep 5, 11:46 PM</td><td><div class="t">Posted JE-2026-0062</div><div class="m">Sale · 5 lines · $15.38</div></td><td><div class="t">yusef</div><div class="m">at the till</div></td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">Sep 3, 1:36 PM</td><td><div class="t">Opened September 2026</div><div class="m">Period · first sale of the month</div></td><td><div class="t">yusef</div><div class="m">at the till</div></td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">Aug 26, 7:02 PM</td><td><div class="t">Added account 4300 Delivery Income</div><div class="m">Account · revenue</div></td><td><div class="t">System</div><div class="m">app update</div></td><td class="chev">›</td></tr>
+              <tr class="row"><td class="mut">Aug 25, 9:15 PM</td><td><div class="t">Posted JE-2026-0056</div><div class="m">Opening stock</div></td><td><div class="t">yusef</div><div class="m">backfill</div></td><td class="chev">›</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="dh">
+            <div>
+              <div class="ref">AUDIT EVENT</div>
+              <div class="dtitle">Posted JE-2026-0063</div>
+              <div class="dsub">Sep 5, 2026 · 11:51:11 PM</div>
+            </div>
+            <div class="x">✕</div>
+          </div>
+
+          <div class="lab">Who and how</div>
+          <dl class="kv">
+            <dt>Person</dt><dd><b>yusef</b> · Owner</dd>
+            <dt>How</dt><dd>Rang up a sale at the till. The sale posted this entry itself; nobody typed it.</dd>
+            <dt>Where</dt><dd>Main store</dd>
+          </dl>
+
+          <div class="lab">What was written</div>
+          <table class="diff">
+            <tbody>
+              <tr><td>Entry</td><td class="now">JE-2026-0063 · Sale to QA Amina Hersi</td></tr>
+              <tr><td>Dated</td><td class="now">Sep 5, 2026</td></tr>
+              <tr><td>Status</td><td class="now">Posted</td></tr>
+              <tr><td>Lines</td><td class="now">5 lines · $4.05 each side</td></tr>
+            </tbody>
+          </table>
+
+          <div class="lab">Recorded in the same moment</div>
+          <ul class="plain">
+            <li>5 entry lines (1100, 4000, 2100, 5000, 1200)</li>
+          </ul>
+
+          <div class="btnrow"><span class="btn primary">Open JE-2026-0063</span><span class="btn">Show raw record</span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="frameHead"><b>A change, not a creation</b><i>what "before → after" looks like when a row is updated</i></div>
+    <div class="scroller"><div class="frame" style="width:520px;">
+      <div class="card">
+        <div class="dh"><div><div class="ref">AUDIT EVENT</div><div class="dtitle">Reversed JE-2026-0078</div><div class="dsub">Sep 13, 2026 · 10:02 AM</div></div><div class="x">✕</div></div>
+        <div class="lab">Who and how</div>
+        <dl class="kv"><dt>Person</dt><dd><b>yusef</b> · Owner</dd><dt>How</dt><dd>Deleted sale a5187370 from Accounting → Transactions. Deleting a sale reverses its entry automatically.</dd></dl>
+        <div class="lab">What changed</div>
+        <table class="diff"><tbody>
+          <tr><td>Status</td><td><span class="was">Posted</span> → <span class="now">Reversed</span></td></tr>
+          <tr><td>Mirror entry</td><td><span class="was">none</span> → <span class="now">JE-2026-0078R</span></td></tr>
+        </tbody></table>
+        <div class="btnrow"><span class="btn primary">Open JE-2026-0078</span><span class="btn">Open JE-2026-0078R</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ─────────────────────────────── 3 ─────────────────────────────── -->
+  <section>
+    <h2>3 · A reversed entry and its mirror read as a pair</h2>
+    <p class="h2sub">This is also where the "deleted sale didn't show up" confusion gets fixed. A reversal keeps the original's date, so today's deletion of an old sale lands in an old month. The pane says both dates out loud.</p>
+
+    <div class="scroller"><div class="frame" style="width:520px;">
+      <div class="card">
+        <div class="dh">
+          <div>
+            <div class="ref">JE-2026-0078R &nbsp;<span class="pill mirror">↺ Reversal</span></div>
+            <div class="dtitle">Undoes JE-2026-0078</div>
+            <div class="dsub">Dated Sep 10, 2026 · Main store</div>
+          </div>
+          <div class="x">✕</div>
+        </div>
+        <div class="lab">What caused it</div>
+        <div class="source"><div class="ic">🗑</div><div><b>Sale a5187370 was deleted</b><span>The sale no longer exists; this entry takes its $148.20 back out of the books.</span></div></div>
+        <div class="lab">The pair</div>
+        <table class="lines">
+          <thead><tr><th>Entry</th><th class="num">Dated</th><th class="num">Size</th></tr></thead>
+          <tbody>
+            <tr><td><span class="acc">JE-2026-0078</span> <span class="pill reversed">✕ Reversed</span><span class="memo">Sale a5187370 · original</span></td><td class="num">Sep 10</td><td class="num">$148.20</td></tr>
+            <tr><td><span class="acc">JE-2026-0078R</span> <span class="pill mirror">↺ Reversal</span><span class="memo">every line flipped</span></td><td class="num">Sep 10</td><td class="num">$148.20</td></tr>
+          </tbody>
+          <tfoot><tr><td><span class="ok">✓ Net effect on the books: $0.00</span></td><td></td><td></td></tr></tfoot>
+        </table>
+        <div class="lab">How and who</div>
+        <dl class="kv">
+          <dt>Posted by</dt><dd><span class="pill auto">Automatic</span>&nbsp; when <b>yusef</b> deleted the sale</dd>
+          <dt>Dated</dt><dd>Sep 10 — the sale's own date</dd>
+          <dt>Written</dt><dd>Sep 13 · 10:02 AM</dd>
+        </dl>
+        <p class="warnline" style="margin:10px 0 0;">Written 3 days after its date. A Journals range that starts after Sep 10 won't list it.</p>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ─────────────────────────────── 4 ─────────────────────────────── -->
+  <section>
+    <h2>Decisions for you</h2>
+    <div class="qs">
+      <div class="q"><b>Fold entry lines into their entry in the audit log?</b><p><span class="rec">Recommended: yes.</span> 283 of 351 rows are lines, and they're never meaningful on their own. They stay reachable under "Show raw record".</p></div>
+      <div class="q"><b>Replace UUIDs in entry descriptions with names?</b><p><span class="rec">Recommended: yes, in the app only.</span> "Sale · QA Amina Hersi" is looked up when shown; the stored description is left alone, since posted entries can't be edited.</p></div>
+      <div class="q"><b>"In plain words" — keep it?</b><p>Generated from the account types (receivable, revenue, tax, stock, cost). It's the part aimed at someone who doesn't read debits and credits. Easy to leave out if it feels like too much.</p></div>
+      <div class="q"><b>Where a reversal made today shows up</b><p><span class="rec">Recommended:</span> keep its accounting date, but add a "Written in this range" toggle to Journals so today's deletions of older sales are one tap away.</p></div>
+      <div class="q"><b>Clicking an account (your earlier "click the ledgers")</b><p>Not in this mockup. The same pane, opened from Chart of Accounts or Trial Balance, would list every line that makes up that account's balance, each opening its entry. Say if you want it drawn next.</p></div>
+    </div>
+  </section>
+</div>
