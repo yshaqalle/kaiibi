@@ -24,6 +24,7 @@ import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { saleProfit, saleRefundState, type SaleRefundState } from '@/lib/sales-reporting';
+import { discountPercentLabel, lineDiscount, saleDiscountSummary } from '@/lib/sale-discounts';
 import { editedLineDiscountCents, editedSaleTotals } from '@/lib/sale-edit';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -53,7 +54,14 @@ const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
   { header: 'Customer Email', value: (s) => s.customerEmail ?? '' },
   { header: 'Payment Method', value: (s) => paymentLabel(s.paymentMethod) },
   { header: 'Cashier', value: (s) => s.cashierName ?? '' },
+  // "Discount" keeps meaning the whole-sale discount, as it always has; the
+  // columns around it add what the items had taken off, so a spreadsheet can
+  // total everything a sale gave away.
+  { header: 'List Subtotal', value: (s) => (discountsOf(s).listCents / 100).toFixed(2) },
+  { header: 'Item Discounts', value: (s) => (discountsOf(s).itemDiscountCents / 100).toFixed(2) },
   { header: 'Discount', value: (s) => (s.discountCents / 100).toFixed(2) },
+  { header: 'Total Off', value: (s) => (discountsOf(s).totalOffCents / 100).toFixed(2) },
+  { header: 'Off %', value: (s) => { const d = discountsOf(s); return d.listCents > 0 ? ((d.totalOffCents * 100) / d.listCents).toFixed(1) : '0.0'; } },
   { header: 'Tax', value: (s) => (s.taxCents / 100).toFixed(2) },
   { header: 'Total', value: (s) => (s.totalCents / 100).toFixed(2) },
 ];
@@ -75,6 +83,23 @@ function RefundBadge({ state }: { state: SaleRefundState }) {
 // pill at the same time as the refund only because the two shared one
 // overloaded Payment cell -- leaving this a bare glyph beside a pill would
 // read as the lesser fact, which it isn't.
+function discountsOf(sale: Sale) {
+  return saleDiscountSummary({
+    items: sale.items ?? [],
+    discountCents: sale.discountCents,
+    pointsRedeemedCents: sale.pointsRedeemedCents,
+    taxCents: sale.taxCents,
+    totalCents: sale.totalCents,
+  });
+}
+
+// Amount AND share: a bare "50%" hides that it was 50 cents off a dollar item.
+// Points are not counted -- see sale-discounts.ts.
+function DiscountBadge({ offCents, percent }: { offCents: number; percent: string | null }) {
+  if (offCents <= 0) return null;
+  return <Badge label={`−${formatCents(offCents)}${percent ? ` · ${percent}` : ''}`} tone="info" variant="bento" />;
+}
+
 function EditBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return <Badge label={count === 1 ? '✎ Edited' : `✎ Edited ${count}×`} tone="default" variant="bento" />;
@@ -434,6 +459,7 @@ function SaleRow({
   const itemsSummary = sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ') ?? '';
   const profit = saleProfit(sale);
   const refundState = saleRefundState(sale);
+  const discounts = discountsOf(sale);
 
   return (
     <View style={[styles.card, !compact && styles.cardTableRow]}>
@@ -446,6 +472,7 @@ function SaleRow({
                 {new Date(sale.createdAt).toLocaleString()} · {paymentLabel(sale.paymentMethod)}
                 {sale.customerName ? ` · ${sale.customerName}` : ''}
               </Text>
+              <DiscountBadge offCents={discounts.totalOffCents} percent={discounts.totalOffPercent} />
               <RefundBadge state={refundState} />
               <EditBadge count={editCount} />
             </View>
@@ -460,6 +487,7 @@ function SaleRow({
               {/* The name yields before the badge does: a truncated product is
                   still readable, a truncated badge is a mystery. */}
               <Text style={[styles.cellText, styles.itemsCellText]} numberOfLines={1}>{itemsSummary}</Text>
+              <DiscountBadge offCents={discounts.totalOffCents} percent={discounts.totalOffPercent} />
               <RefundBadge state={refundState} />
               <EditBadge count={editCount} />
             </View>
@@ -485,18 +513,130 @@ function SaleRow({
             </>
           )}
 
-          <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
-          <View style={styles.itemsList}>
-            {sale.items?.map((item, index) => {
-              const refundedQty = refundedQtyFor(sale, item.id);
-              return (
-                <View key={item.id} style={[styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast]}>
-                  <Text style={styles.itemQty}>{item.quantity}×</Text>
-                  <Text style={styles.itemName}>{item.productName}{refundedQty > 0 ? ` (${refundedQty} refunded)` : ''}</Text>
-                  <Text style={styles.itemPrice}>{formatCents(item.lineTotalCents)}</Text>
+          {/* Items beside the summary on a wide row, one above the other on a
+              phone -- the summary is read against the items, so side by side
+              is worth it wherever it fits. */}
+          <View style={!compact && styles.itemsAndSummary}>
+            <View style={!compact && styles.itemsSide}>
+              <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
+              <View style={styles.itemsList}>
+                {!compact && (
+                  <View style={[styles.itemRow, styles.itemHeadRow]}>
+                    <Text style={[styles.itemHead, { flex: 1 }]}>ITEM</Text>
+                    <Text style={[styles.itemHead, styles.itemMoneyCol]}>LIST</Text>
+                    <Text style={[styles.itemHead, styles.itemMoneyCol]}>OFF</Text>
+                    <Text style={[styles.itemHead, styles.itemMoneyCol]}>PAID</Text>
+                  </View>
+                )}
+                {sale.items?.map((item, index) => {
+                  const refundedQty = refundedQtyFor(sale, item.id);
+                  const line = lineDiscount(item, sale.cashierName);
+                  const name = `${item.productName}${refundedQty > 0 ? ` (${refundedQty} refunded)` : ''}`;
+                  const rowStyle = [styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast];
+                  if (compact) {
+                    return (
+                      <View key={item.id} style={[rowStyle, styles.itemRowStacked]}>
+                        <View style={styles.itemTop}>
+                          <Text style={styles.itemQty}>{item.quantity}×</Text>
+                          <Text style={styles.itemName}>{name}</Text>
+                          <Text style={styles.itemPrice}>{formatCents(line.paidCents)}</Text>
+                        </View>
+                        <View style={styles.itemTop}>
+                          <Text style={[styles.itemSub, { flex: 1 }]}>
+                            {line.offCents > 0 ? `List ${formatCents(line.listCents)} · ${line.reason}` : `${formatCents(item.unitPriceCents)} each`}
+                          </Text>
+                          {line.offCents > 0 && (
+                            <Text style={styles.itemOff}>−{formatCents(line.offCents)}{line.percent ? ` · ${line.percent}` : ''}</Text>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  }
+                  return (
+                    <View key={item.id} style={rowStyle}>
+                      <Text style={styles.itemQty}>{item.quantity}×</Text>
+                      <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text style={[styles.itemName, { marginRight: 0 }]}>{name}</Text>
+                        <Text style={styles.itemSub}>{formatCents(item.unitPriceCents)} each{line.reason ? ` · ${line.reason}` : ''}</Text>
+                      </View>
+                      <Text style={[styles.itemMoneyCol, styles.itemList]}>{formatCents(line.listCents)}</Text>
+                      <View style={styles.itemMoneyCol}>
+                        {line.offCents > 0 ? (
+                          <>
+                            <Text style={[styles.itemOff, styles.alignRight]}>−{formatCents(line.offCents)}</Text>
+                            {line.percent ? <Text style={[styles.itemSub, styles.alignRight]}>{line.percent}</Text> : null}
+                          </>
+                        ) : (
+                          <Text style={[styles.itemSub, styles.alignRight]}>—</Text>
+                        )}
+                      </View>
+                      <Text style={[styles.itemMoneyCol, styles.itemPrice]}>{formatCents(line.paidCents)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={!compact && styles.summarySide}>
+              <Text style={[styles.detailLabel, { marginTop: 14 }]}>SALE SUMMARY</Text>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryKey}>Items at list price</Text>
+                <Text style={styles.summaryValue}>{formatCents(discounts.listCents)}</Text>
+              </View>
+              {discounts.itemDiscountCents > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryKey}>
+                    Item discounts
+                    <Text style={styles.summaryHint}>
+                      {'  '}{[discounts.itemDiscountPercent, `${discounts.discountedItemCount} item${discounts.discountedItemCount === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+                    </Text>
+                  </Text>
+                  <Text style={[styles.summaryValue, styles.summaryOff]}>−{formatCents(discounts.itemDiscountCents)}</Text>
                 </View>
-              );
-            })}
+              )}
+              {discounts.saleDiscountCents > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryKey}>
+                    Sale discount
+                    <Text style={styles.summaryHint}>
+                      {'  '}{discounts.saleDiscountPercent ? `${discounts.saleDiscountPercent} of ${formatCents(discounts.listCents - discounts.itemDiscountCents)}` : ''}
+                    </Text>
+                  </Text>
+                  <Text style={[styles.summaryValue, styles.summaryOff]}>−{formatCents(discounts.saleDiscountCents)}</Text>
+                </View>
+              )}
+              {discounts.pointsRedeemedCents > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryKey}>Points redeemed</Text>
+                  <Text style={styles.summaryValue}>−{formatCents(discounts.pointsRedeemedCents)}</Text>
+                </View>
+              )}
+              {(discounts.totalOffCents > 0 || discounts.pointsRedeemedCents > 0) && (
+                <View style={[styles.summaryRow, styles.summaryRule]}>
+                  <Text style={styles.summaryKey}>Subtotal</Text>
+                  <Text style={styles.summaryValue}>{formatCents(discounts.subtotalCents)}</Text>
+                </View>
+              )}
+              {sale.taxCents > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryKey}>
+                    Tax{sale.taxRatePercent !== null ? <Text style={styles.summaryHint}>{'  '}{sale.taxRatePercent}%</Text> : null}
+                  </Text>
+                  <Text style={styles.summaryValue}>{formatCents(sale.taxCents)}</Text>
+                </View>
+              )}
+              <View style={[styles.summaryRow, styles.summaryTotal]}>
+                <Text style={styles.summaryTotalText}>Total</Text>
+                <Text style={styles.summaryTotalText}>{formatCents(sale.totalCents)}</Text>
+              </View>
+              {discounts.totalOffCents > 0 && (
+                <Text style={styles.savedText}>
+                  The customer saved <Text style={styles.summaryOff}>{formatCents(discounts.totalOffCents)}</Text>
+                  {discounts.totalOffPercent ? `, ${discounts.totalOffPercent} off the list price` : ''}
+                  {discounts.onlyPromotion ? `, all from the ${discounts.onlyPromotion} promotion.` : '.'}
+                </Text>
+              )}
+            </View>
           </View>
 
           <Text style={[styles.detailLabel, { marginTop: 14 }]}>PAYMENT</Text>
@@ -663,7 +803,7 @@ function SaleRow({
 // drops these silently zeroes the line's discount and detaches whatever
 // promotion produced it. Quantity/price are the only fields this editor
 // actually lets someone change.
-type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; originalQuantity: number; discountCents: number; promotionId: string | null };
+type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; originalQuantity: number; discountCents: number; promotionId: string | null; promotionName: string | null };
 
 function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; products: Product[]; shop: Shop | null; onCancel: () => void; onSaved: () => void }) {
   const [items, setItems] = useState<EditableItem[]>(() =>
@@ -677,6 +817,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         originalQuantity: item.quantity,
         discountCents: item.discountCents,
         promotionId: item.promotionId,
+        promotionName: item.promotionName,
       }))
   );
   // Settlements are excluded. edit_sale deletes and re-inserts only the till's own
@@ -741,7 +882,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       if (existing) return current.map((i) => (i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i));
       // A product added during the edit has no discount and no promotion
       // behind it -- it's new to this sale, not a preserved line.
-      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, originalQuantity: 0, discountCents: 0, promotionId: null }];
+      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, originalQuantity: 0, discountCents: 0, promotionId: null, promotionName: null }];
     });
     setAddSearch('');
   };
@@ -816,7 +957,16 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         <View key={item.productId} style={styles.editItemRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.detailItemName}>{item.productName}</Text>
-            <Text style={styles.saleMeta}>{formatCents(item.unitPriceCents)} each{item.discountCents > 0 ? ` · ${formatCents(item.discountCents)} off` : ''}</Text>
+            <Text style={styles.saleMeta}>
+              {formatCents(item.unitPriceCents)} each
+              {item.discountCents > 0 ? (
+                <Text style={styles.itemOff}>
+                  {` · −${formatCents(item.discountCents)}`}
+                  {discountPercentLabel(item.discountCents, item.unitPriceCents * item.quantity) ? ` · ${discountPercentLabel(item.discountCents, item.unitPriceCents * item.quantity)}` : ''}
+                  {` · ${item.promotionName ?? (sale.cashierName ? `Manual discount by ${sale.cashierName}` : 'Manual discount')}`}
+                </Text>
+              ) : null}
+            </Text>
           </View>
           <QuantityStepper quantity={item.quantity} onChange={(next) => setQuantity(item.productId, next)} />
         </View>
@@ -939,6 +1089,30 @@ const styles = StyleSheet.create({
   itemQty: { fontSize: 13, fontWeight: '700', color: '#999999', marginRight: 6, lineHeight: 18 },
   itemName: { fontSize: 13, fontWeight: '600', color: '#111111', flex: 1, marginRight: 12, lineHeight: 18 },
   itemPrice: { fontSize: 13, fontWeight: '700', color: '#111111', lineHeight: 18 },
+  itemsAndSummary: { flexDirection: 'row', gap: 26, alignItems: 'flex-start' },
+  itemsSide: { flex: 1.35, minWidth: 0 },
+  summarySide: { flex: 1, minWidth: 0 },
+  itemHeadRow: { paddingVertical: 7 },
+  itemHead: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#999999' },
+  itemMoneyCol: { width: 76, textAlign: 'right', alignItems: 'flex-end' },
+  // stretch: itemRow's flex-start would leave each line only as wide as its text.
+  itemRowStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 2 },
+  itemTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  itemSub: { fontSize: 11.5, color: '#777777', lineHeight: 16 },
+  itemList: { fontSize: 13, color: '#777777', lineHeight: 18 },
+  // The bento accent, as the list's discount tag: blue is "taken off" on this
+  // screen, never a status.
+  itemOff: { fontSize: 12.5, fontWeight: '700', color: theme.bentoAccentInk, lineHeight: 18 },
+  alignRight: { textAlign: 'right' },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 5 },
+  summaryKey: { fontSize: 13, color: '#333333', flexShrink: 1 },
+  summaryHint: { fontSize: 12, color: '#999999' },
+  summaryValue: { fontSize: 13, fontWeight: '700', color: '#111111' },
+  summaryOff: { color: theme.bentoAccentInk, fontWeight: '700' },
+  summaryRule: { borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 4, paddingTop: 8 },
+  summaryTotal: { borderTopWidth: 1, borderTopColor: '#111111', marginTop: 4, paddingTop: 8 },
+  summaryTotalText: { fontSize: 15, fontWeight: '800', color: '#111111' },
+  savedText: { marginTop: 10, fontSize: 12.5, color: '#333333', lineHeight: 18, backgroundColor: '#FAFAFA', borderRadius: 10, padding: 10 },
 
   historyToggle: { fontSize: 12, fontWeight: '700', color: '#999999' },
   historyList: { gap: 10, marginTop: 10 },

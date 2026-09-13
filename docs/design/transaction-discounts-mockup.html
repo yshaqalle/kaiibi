@@ -1,0 +1,278 @@
+<meta charset="utf-8" />
+<title>Discounts on a Sale</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#6c6c75;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --pg:#0d0d10; --pg2:#18181d; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8e8e98;
+      --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#18181d; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8e8e98;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts).
+     Every value below is the real bento token. */
+  .frame{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-mut3:#85848d; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --upwash:#d9efe4; --upink:#007a38;
+    --accentwash:#e6edff; --accentink:#1b47b8; --accent:#2f6bff;
+    --refwash:#f8efdc; --refink:#8a5a05;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 10px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:76ch;}
+  section{margin-top:52px;}
+  .note{font-size:14px;color:var(--ink2);max-width:74ch;margin:0;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:22px 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;font-variant-numeric:tabular-nums;}
+  .pair{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;}
+
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .cardTitle{font-size:15px;font-weight:800;letter-spacing:-.2px;margin-bottom:10px;}
+
+  /* list rows */
+  .th,.tr{display:grid;grid-template-columns:150px minmax(0,1fr) 120px 90px 80px 90px 20px;gap:12px;align-items:center;padding:10px 8px;}
+  .th{font-size:10.5px;font-weight:800;letter-spacing:.6px;color:var(--d-mut2);border-bottom:1px solid var(--d-ln);padding-top:4px;}
+  .tr{border-bottom:1px solid var(--d-ln);font-size:13px;}
+  .tr.open{background:var(--d-soft);border-radius:14px 14px 0 0;border-bottom:0;}
+  .tr .mut{color:var(--d-mut);}
+  .tr .items{display:flex;gap:8px;align-items:center;min-width:0;}
+  .tr .items span.txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .num{text-align:right;font-weight:800;}
+  .badge{flex:none;font-size:11px;font-weight:800;border-radius:999px;padding:1px 8px;white-space:nowrap;}
+  .badge.disc{background:var(--accentwash);color:var(--accentink);}
+  .badge.ref{background:var(--refwash);color:var(--refink);}
+  .new{outline:2px dashed #2f6bff;outline-offset:2px;border-radius:999px;}
+  .newbox{outline:2px dashed #2f6bff;outline-offset:4px;border-radius:12px;}
+
+  .detail{background:var(--d-soft);border-radius:0 0 14px 14px;padding:4px 18px 18px;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:26px;}
+  .lab{font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--d-mut2);margin:14px 0 8px;}
+
+  /* item lines */
+  .il{display:grid;grid-template-columns:28px minmax(0,1fr) 74px 84px 74px;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-rule);align-items:start;}
+  .il.head{font-size:10px;font-weight:800;letter-spacing:.6px;color:var(--d-mut2);padding-top:0;}
+  .il .q{color:var(--d-mut);font-weight:700;}
+  .il .n{font-weight:700;}
+  .il .why{display:block;font-size:11.5px;color:var(--d-mut);font-weight:500;}
+  .il .r{text-align:right;}
+  .il .list{color:var(--d-mut);}
+  .il .off{color:var(--accentink);font-weight:700;}
+  .il .off small{display:block;font-size:11px;font-weight:600;color:var(--d-mut);}
+  .il .paid{font-weight:800;}
+  .il .dim{color:var(--d-mut3);font-weight:500;}
+
+  /* summary */
+  .sr{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:13px;}
+  .sr .k{color:var(--d-ink2);}
+  .sr .k small{color:var(--d-mut);font-size:12px;margin-left:4px;}
+  .sr .v{font-weight:700;}
+  .sr.off .v{color:var(--accentink);}
+  .sr.sub{border-top:1px solid var(--d-rule);margin-top:4px;padding-top:9px;}
+  .sr.total{border-top:1px solid var(--d-ink);margin-top:4px;padding-top:9px;font-size:15px;}
+  .sr.total .k,.sr.total .v{font-weight:800;color:var(--d-ink);}
+  .saved{margin-top:12px;background:var(--d-sf);border-radius:12px;padding:10px 12px;font-size:12.5px;color:var(--d-ink2);}
+  .saved b{color:var(--accentink);}
+  .muted-block{opacity:.55;}
+
+  /* phone */
+  .phone{width:390px;background:var(--d-pg);border-radius:30px;padding:16px;}
+  .pcard{background:var(--d-sf);border-radius:22px;padding:14px;}
+  .prow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+  .prow .t{font-weight:700;font-size:13.5px;}
+  .prow .m{font-size:11.5px;color:var(--d-mut);}
+  .pitem{padding:9px 0;border-bottom:1px solid var(--d-ln);}
+  .pitem:last-child{border-bottom:0;}
+  .pitem .top{display:flex;justify-content:space-between;gap:10px;font-size:13px;}
+  .pitem .top b{font-weight:800;}
+  .pitem .sub{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:var(--d-mut);margin-top:1px;}
+  .pitem .sub .off{color:var(--accentink);font-weight:700;}
+
+  /* editor */
+  .ed{background:var(--d-sf);border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px;}
+  .ed + .ed{margin-top:8px;}
+  .ed .t{font-weight:700;font-size:13px;}
+  .ed .m{font-size:11.5px;color:var(--d-mut);}
+  .ed .m .off{color:var(--accentink);font-weight:700;}
+  .step{margin-left:auto;display:flex;align-items:center;gap:10px;font-weight:800;}
+  .step i{font-style:normal;width:24px;height:24px;border-radius:12px;background:var(--d-soft);display:grid;place-items:center;}
+
+  table.csv{border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;}
+  .csv th,.csv td{border:1px solid var(--d-rule);padding:5px 8px;text-align:left;white-space:nowrap;}
+  .csv th{background:var(--d-soft);font-weight:800;}
+  .csv th.add,.csv td.add{background:#eef3ff;}
+
+  .qs{display:grid;gap:10px;margin-top:16px;max-width:860px;}
+  .q{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:14px 16px;}
+  .q b{display:block;font-size:14.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q .rec{color:var(--blue);font-weight:700;}
+  .legend{display:flex;gap:10px;align-items:center;font-size:12.5px;color:var(--mut);margin-top:6px;}
+  .legend span{display:inline-block;width:26px;height:14px;outline:2px dashed #2f6bff;border-radius:6px;}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Accounting · Transactions · design proposal</p>
+  <h1>Showing what was taken off a sale</h1>
+  <p class="lede">Today an opened sale lists "2× QA scanwidget … $17.98" and nothing else. You can't tell a discount happened, how much it was, or what it was off. This adds the list price, the amount and % off, and the reason on every item. It also adds a summary for the whole sale.</p>
+  <p class="note">All three examples are real sales from <b>yusefshop</b>, and their figures add up to the stored totals.</p>
+  <div class="legend"><span></span> dashed outline = new on this screen</div>
+
+  <!-- ───────────────────────── 1 ───────────────────────── -->
+  <section>
+    <h2>1 · The list says a sale was discounted before you open it</h2>
+    <p class="h2sub">A blue tag beside the refund badge. It shows the total taken off and what share of the list price that was. Sales with no discount get no tag.</p>
+
+    <div class="scroller"><div class="frame" style="width:1040px;">
+      <div class="card">
+        <div class="cardTitle">Transactions</div>
+        <div class="th"><span>DATE</span><span>ITEMS</span><span>CUSTOMER</span><span>PAYMENT</span><span>CASHIER</span><span style="text-align:right">TOTAL</span><span></span></div>
+        <div class="tr"><span class="mut">8/15/2026, 9:41 PM</span><span class="items"><span class="txt">2× QA scanwidget, 2× QA smoke widget, 1× item2</span><span class="badge disc new">−$3.90 · 10%</span><span class="badge ref">↩ 1 of 5 back</span></span><span class="mut">—</span><span>ZAAD</span><span class="mut">yusef</span><span class="num">$35.96</span><span class="mut">▾</span></div>
+        <div class="tr"><span class="mut">8/12/2026, 2:10 PM</span><span class="items"><span class="txt">1× Dr Althea</span><span class="badge disc new">−$0.56 · 4%</span></span><span class="mut">Ali Warfa</span><span>Cash</span><span class="mut">Fasia</span><span class="num">$13.78</span><span class="mut">▾</span></div>
+        <div class="tr"><span class="mut">8/10/2026, 11:02 AM</span><span class="items"><span class="txt">1× Dr Althea</span></span><span class="mut">—</span><span>Cash</span><span class="mut">yusef</span><span class="num">$14.35</span><span class="mut">▾</span></div>
+        <div class="tr" style="border-bottom:0"><span class="mut">7/26/2026, 4:30 PM</span><span class="items"><span class="txt">2× test, 2× another item, 1× item2, 1× new items</span><span class="badge disc new">−$2.30 · 10%</span></span><span class="mut">Warts</span><span>ZAAD</span><span class="mut">—</span><span class="num">$21.22</span><span class="mut">▾</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ───────────────────────── 2 ───────────────────────── -->
+  <section>
+    <h2>2 · Opened: each item, then the sale as a whole</h2>
+    <p class="h2sub">Left: every item with its list price, what came off (amount and %) and why. Right: a summary that adds up from list price to the total paid, with each kind of discount on its own line. Payment, refunds and profit stay below, unchanged.</p>
+
+    <div class="frameHead"><b>A promotion on every item</b><i>sale 199b42ed · “Party and BS” 10% · ZAAD</i></div>
+    <div class="scroller"><div class="frame" style="width:1040px;">
+      <div class="card" style="padding:10px 10px 12px">
+        <div class="tr open"><span class="mut">8/15/2026, 9:41 PM</span><span class="items"><span class="txt">2× QA scanwidget, 2× QA smoke widget, 1× item2</span><span class="badge disc">−$3.90 · 10%</span></span><span class="mut">—</span><span>ZAAD</span><span class="mut">yusef</span><span class="num">$35.96</span><span class="mut">▴</span></div>
+        <div class="detail">
+          <div class="newbox">
+            <div class="lab">ITEMS</div>
+            <div class="il head"><span></span><span>ITEM</span><span class="r">LIST</span><span class="r">OFF</span><span class="r">PAID</span></div>
+            <div class="il"><span class="q">2×</span><span class="n">QA scanwidget<span class="why">$9.99 each · Party and BS</span></span><span class="r list">$19.98</span><span class="r off">−$2.00<small>10%</small></span><span class="r paid">$17.98</span></div>
+            <div class="il"><span class="q">2×</span><span class="n">QA smoke widget<span class="why">$7.50 each · Party and BS</span></span><span class="r list">$15.00</span><span class="r off">−$1.50<small>10%</small></span><span class="r paid">$13.50</span></div>
+            <div class="il" style="border-bottom:0"><span class="q">1×</span><span class="n">item2<span class="why">$4.00 each · Party and BS</span></span><span class="r list">$4.00</span><span class="r off">−$0.40<small>10%</small></span><span class="r paid">$3.60</span></div>
+          </div>
+          <div class="newbox">
+            <div class="lab">SALE SUMMARY</div>
+            <div class="sr"><span class="k">Items at list price</span><span class="v">$38.98</span></div>
+            <div class="sr off"><span class="k">Item discounts <small>10% · 3 items</small></span><span class="v">−$3.90</span></div>
+            <div class="sr sub"><span class="k">Subtotal</span><span class="v">$35.08</span></div>
+            <div class="sr"><span class="k">Tax <small>2.5%</small></span><span class="v">$0.88</span></div>
+            <div class="sr total"><span class="k">Total</span><span class="v">$35.96</span></div>
+            <div class="saved">The customer saved <b>$3.90</b>, 10% off the list price, all from the <b>Party and BS</b> promotion.</div>
+          </div>
+        </div>
+        <div class="muted-block" style="padding:10px 18px 0;font-size:12.5px;color:#5e5d65">PAYMENT · REFUNDED · PROFIT — unchanged, as today</div>
+      </div>
+    </div></div>
+
+    <div class="frameHead"><b>A discount taken off the whole sale</b><i>sale 1beb97f2 · $2.30 off $23.00 · no item discounts</i></div>
+    <div class="scroller"><div class="frame" style="width:1040px;">
+      <div class="card" style="padding:10px 10px 12px">
+        <div class="tr open"><span class="mut">7/26/2026, 4:30 PM</span><span class="items"><span class="txt">2× test, 2× another item, 1× item2, 1× new items</span><span class="badge disc">−$2.30 · 10%</span></span><span class="mut">Warts</span><span>ZAAD</span><span class="mut">—</span><span class="num">$21.22</span><span class="mut">▴</span></div>
+        <div class="detail">
+          <div class="newbox">
+            <div class="lab">ITEMS</div>
+            <div class="il head"><span></span><span>ITEM</span><span class="r">LIST</span><span class="r">OFF</span><span class="r">PAID</span></div>
+            <div class="il"><span class="q">2×</span><span class="n">test<span class="why">$6.00 each</span></span><span class="r list">$12.00</span><span class="r dim">—</span><span class="r paid">$12.00</span></div>
+            <div class="il"><span class="q">2×</span><span class="n">another item<span class="why">$2.00 each</span></span><span class="r list">$4.00</span><span class="r dim">—</span><span class="r paid">$4.00</span></div>
+            <div class="il"><span class="q">1×</span><span class="n">item2<span class="why">$4.00 each</span></span><span class="r list">$4.00</span><span class="r dim">—</span><span class="r paid">$4.00</span></div>
+            <div class="il" style="border-bottom:0"><span class="q">1×</span><span class="n">new items<span class="why">$3.00 each</span></span><span class="r list">$3.00</span><span class="r dim">—</span><span class="r paid">$3.00</span></div>
+          </div>
+          <div class="newbox">
+            <div class="lab">SALE SUMMARY</div>
+            <div class="sr"><span class="k">Items at list price</span><span class="v">$23.00</span></div>
+            <div class="sr off"><span class="k">Sale discount <small>10% of $23.00 · entered at the till</small></span><span class="v">−$2.30</span></div>
+            <div class="sr sub"><span class="k">Subtotal</span><span class="v">$20.70</span></div>
+            <div class="sr"><span class="k">Tax <small>2.5%</small></span><span class="v">$0.52</span></div>
+            <div class="sr total"><span class="k">Total</span><span class="v">$21.22</span></div>
+            <div class="saved">The customer saved <b>$2.30</b>, 10% off the list price.</div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note" style="margin-top:12px">When a sale has both kinds, both lines appear. The sale discount's % is worked out on what was left <i>after</i> the item discounts, which is the amount it was actually taken from. Redeemed loyalty points get their own "Points redeemed" line in the same place.</p>
+  </section>
+
+  <!-- ───────────────────────── 3 ───────────────────────── -->
+  <section>
+    <h2>3 · On a phone, and a hand-typed discount</h2>
+    <p class="h2sub">Five columns don't fit at 390px, so each item takes two lines: name and price paid on top, then list price and what came off underneath. Sale 7f906fcd had a discount typed in by the cashier rather than a promotion, and it says so.</p>
+    <div class="pair">
+      <div class="frame" style="padding:0;border-radius:32px;">
+        <div class="phone">
+          <div class="pcard">
+            <div class="prow"><div><div class="t">1× Dr Althea</div><div class="m">8/12/2026, 2:10 PM · Cash · Ali Warfa</div><span class="badge disc new" style="display:inline-block;margin-top:5px">−$0.56 · 4%</span></div><div class="t">$13.78</div></div>
+            <div class="newbox" style="margin-top:14px">
+              <div class="lab" style="margin-top:0">ITEMS</div>
+              <div class="pitem">
+                <div class="top"><span><b>1×</b> Dr Althea</span><b>$13.44</b></div>
+                <div class="sub"><span>List $14.00 · Manual discount by Fasia</span><span class="off">−$0.56 · 4%</span></div>
+              </div>
+              <div class="lab">SALE SUMMARY</div>
+              <div class="sr"><span class="k">Items at list price</span><span class="v">$14.00</span></div>
+              <div class="sr off"><span class="k">Item discounts <small>4%</small></span><span class="v">−$0.56</span></div>
+              <div class="sr sub"><span class="k">Subtotal</span><span class="v">$13.44</span></div>
+              <div class="sr"><span class="k">Tax <small>2.5%</small></span><span class="v">$0.34</span></div>
+              <div class="sr total"><span class="k">Total</span><span class="v">$13.78</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:260px;max-width:460px">
+        <p class="note"><b>"Manual discount by Fasia"</b> comes from the item having no promotion attached plus the sale's cashier. When there's no cashier on the sale it just says "Manual discount".</p>
+        <p class="note" style="margin-top:10px">Percentages show whole numbers when exact (10%) and one decimal otherwise (4.2%).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── 4 ───────────────────────── -->
+  <section>
+    <h2>4 · The edit screen and the CSV export say the same</h2>
+    <p class="h2sub">The edit screen already shows "$1.00 off" since today's fix; it gains the % and the reason. The export gains four columns, so a spreadsheet can total the discounts.</p>
+    <div class="pair">
+      <div class="frame" style="width:470px;">
+        <div class="lab" style="margin-top:0">ITEMS · editing sale 37462a2b</div>
+        <div class="ed"><div><div class="t">QA scanwidget</div><div class="m">$9.99 each · <span class="off new" style="padding:0 4px">−$1.00 · 10% · Party and BS</span></div></div><div class="step"><i>−</i>1<i>+</i></div></div>
+        <div class="ed"><div><div class="t">QA smoke widget</div><div class="m">$7.50 each · <span class="off new" style="padding:0 4px">−$0.75 · 10% · Party and BS</span></div></div><div class="step"><i>−</i>1<i>+</i></div></div>
+        <div class="sr" style="margin-top:10px"><span class="k">Tax <small>2.5%</small></span><span class="v">$0.39</span></div>
+        <div class="sr total"><span class="k">Total</span><span class="v">$16.13</span></div>
+      </div>
+      <div class="scroller" style="flex:1;min-width:300px"><div class="frame" style="width:max-content">
+        <table class="csv">
+          <tr><th>Date</th><th>Items</th><th class="add">List subtotal</th><th class="add">Item discounts</th><th>Discount</th><th class="add">Total off</th><th class="add">Off %</th><th>Tax</th><th>Total</th></tr>
+          <tr><td>8/15/2026</td><td>2x QA scanwidget; …</td><td class="add">38.98</td><td class="add">3.90</td><td>0.00</td><td class="add">3.90</td><td class="add">10.0</td><td>0.88</td><td>35.96</td></tr>
+          <tr><td>7/26/2026</td><td>2x test; …</td><td class="add">23.00</td><td class="add">0.00</td><td>2.30</td><td class="add">2.30</td><td class="add">10.0</td><td>0.52</td><td>21.22</td></tr>
+        </table>
+        <p class="note" style="font-size:12px;margin-top:8px">"Discount" is the existing column, still the whole-sale discount only.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── 5 ───────────────────────── -->
+  <section>
+    <h2>Decisions for you</h2>
+    <div class="qs">
+      <div class="q"><b>% of what?</b><p><span class="rec">Recommended: % of the list price.</span> An item's % is its discount over list price × quantity. The tag and the "customer saved" line use all discounts over the whole list price. The one exception is the sale discount line, which uses what was left after item discounts, because that's the amount it was taken off.</p></div>
+      <div class="q"><b>The tag in the list</b><p><span class="rec">Recommended: amount and %</span> ("−$3.90 · 10%"). The alternative is % only, which is shorter but hides that a 50% discount on a $1 item hardly matters.</p></div>
+      <div class="q"><b>Loyalty points</b><p>Points redeemed are money off too. <span class="rec">Recommended:</span> show them on their own summary line, but leave them out of the tag's %, since the customer paid for them with earlier purchases rather than getting a price cut.</p></div>
+      <div class="q"><b>Receipts</b><p>Not in this mockup. The printed and WhatsApp receipt could use the same item and summary lines; say if you want it drawn too.</p></div>
+    </div>
+  </section>
+</div>
