@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { pillStyles, SaleDetailPanel } from '@/components/accounting/sale-detail-panel';
 import { Badge } from '@/components/badge';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
@@ -24,7 +25,7 @@ import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { saleProfit, saleRefundState, type SaleRefundState } from '@/lib/sales-reporting';
-import { discountPercentLabel, lineDiscount, saleDiscountSummary } from '@/lib/sale-discounts';
+import { discountPercentLabel, saleDiscountSummary } from '@/lib/sale-discounts';
 import { editedLineDiscountCents, editedSaleTotals } from '@/lib/sale-edit';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -503,266 +504,60 @@ function SaleRow({
       )}
 
       {expanded && !editing && (
-        <View style={styles.detail}>
-          {(sale.customerName || sale.customerPhone || sale.customerEmail) && (
-            <>
-              <Text style={styles.detailLabel}>CUSTOMER</Text>
-              {sale.customerName && <Text style={styles.detailItemName}>{sale.customerName}</Text>}
-              {sale.customerPhone && <Text style={styles.saleMeta}>{sale.customerPhone}</Text>}
-              {sale.customerEmail && <Text style={styles.saleMeta}>{sale.customerEmail}</Text>}
-            </>
-          )}
-
-          {/* Items beside the summary on a wide row, one above the other on a
-              phone -- the summary is read against the items, so side by side
-              is worth it wherever it fits. */}
-          <View style={!compact && styles.itemsAndSummary}>
-            <View style={!compact && styles.itemsSide}>
-              <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
-              <View style={styles.itemsList}>
-                {!compact && (
-                  <View style={[styles.itemRow, styles.itemHeadRow]}>
-                    <Text style={[styles.itemHead, { flex: 1 }]}>ITEM</Text>
-                    <Text style={[styles.itemHead, styles.itemMoneyCol]}>LIST</Text>
-                    <Text style={[styles.itemHead, styles.itemMoneyCol]}>OFF</Text>
-                    <Text style={[styles.itemHead, styles.itemMoneyCol]}>PAID</Text>
-                  </View>
+        <SaleDetailPanel
+          sale={sale}
+          compact={compact}
+          discounts={discounts}
+          profit={profit}
+          storeName={hasMultipleLocations(locations) ? locations.find((location) => location.id === sale.locationId)?.name ?? null : null}
+          actions={
+            confirmingDelete ? (
+              <>
+                <Text style={styles.confirmText}>Delete this sale? Stock will be restored.</Text>
+                <Pressable onPress={onDelete} role="button" style={[pillStyles.pill, pillStyles.danger]}><Text style={[pillStyles.pillText, pillStyles.dangerText]}>Confirm delete</Text></Pressable>
+                <Pressable onPress={onCancelDelete} role="button" style={[pillStyles.pill, pillStyles.quiet]}><Text style={[pillStyles.pillText, pillStyles.quietText]}>Cancel</Text></Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable onPress={() => setShowReceipt(true)} role="button" style={pillStyles.pill}><Text style={pillStyles.pillText}>🧾 Receipt</Text></Pressable>
+                {canEdit && (
+                  <Pressable onPress={onStartEdit} role="button" style={pillStyles.pill}><Text style={pillStyles.pillText}>✎ Edit</Text></Pressable>
                 )}
-                {sale.items?.map((item, index) => {
-                  const refundedQty = refundedQtyFor(sale, item.id);
-                  const line = lineDiscount(item, sale.cashierName);
-                  const name = `${item.productName}${refundedQty > 0 ? ` (${refundedQty} refunded)` : ''}`;
-                  const rowStyle = [styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast];
-                  if (compact) {
-                    return (
-                      <View key={item.id} style={[rowStyle, styles.itemRowStacked]}>
-                        <View style={styles.itemTop}>
-                          <Text style={styles.itemQty}>{item.quantity}×</Text>
-                          <Text style={styles.itemName}>{name}</Text>
-                          <Text style={styles.itemPrice}>{formatCents(line.paidCents)}</Text>
-                        </View>
-                        <View style={styles.itemTop}>
-                          <Text style={[styles.itemSub, { flex: 1 }]}>
-                            {line.offCents > 0 ? `List ${formatCents(line.listCents)} · ${line.reason}` : `${formatCents(item.unitPriceCents)} each`}
-                          </Text>
-                          {line.offCents > 0 && (
-                            <Text style={styles.itemOff}>−{formatCents(line.offCents)}{line.percent ? ` · ${line.percent}` : ''}</Text>
+                {canRefund && refundableCount > 0 && (
+                  <Pressable onPress={() => setShowRefund(true)} role="button" style={pillStyles.pill}><Text style={pillStyles.pillText}>↩ Refund</Text></Pressable>
+                )}
+                {canEdit && (
+                  <Pressable onPress={onConfirmDelete} role="button" style={[pillStyles.pill, pillStyles.danger]}><Text style={[pillStyles.pillText, pillStyles.dangerText]}>Delete</Text></Pressable>
+                )}
+              </>
+            )
+          }
+          footer={editCount > 0 ? (
+            <View>
+                  <Pressable onPress={() => setHistoryOpen((v) => !v)} style={{ marginTop: 14 }}>
+                    <Text style={styles.historyToggle}>{historyOpen ? '▴' : '▾'} Edit history ({editCount})</Text>
+                  </Pressable>
+                  {historyOpen && (
+                    <View style={styles.historyList}>
+                      {sale.edits?.map((edit) => (
+                        <View key={edit.id} style={styles.historyEntry}>
+                          <Text style={styles.historyDate}>Previous version — {new Date(edit.createdAt).toLocaleString()}</Text>
+                          {(edit.previousSnapshot.customerName || edit.previousSnapshot.customerPhone || edit.previousSnapshot.customerEmail) && (
+                            <Text style={styles.historyItem}>
+                              {[edit.previousSnapshot.customerName, edit.previousSnapshot.customerPhone, edit.previousSnapshot.customerEmail].filter(Boolean).join(' · ')}
+                            </Text>
                           )}
+                          {edit.previousSnapshot.items.map((item: SaleItemSnapshot, index: number) => (
+                            <Text key={index} style={styles.historyItem}>{item.quantity}× {item.productName} — {formatCents(item.lineTotalCents)}</Text>
+                          ))}
+                          <Text style={styles.historyTotal}>Total: {formatCents(edit.previousSnapshot.totalCents)} · {paymentLabel(edit.previousSnapshot.paymentMethod)}</Text>
                         </View>
-                      </View>
-                    );
-                  }
-                  return (
-                    <View key={item.id} style={rowStyle}>
-                      <Text style={styles.itemQty}>{item.quantity}×</Text>
-                      <View style={{ flex: 1, marginRight: 12 }}>
-                        <Text style={[styles.itemName, { marginRight: 0 }]}>{name}</Text>
-                        <Text style={styles.itemSub}>{formatCents(item.unitPriceCents)} each{line.reason ? ` · ${line.reason}` : ''}</Text>
-                      </View>
-                      <Text style={[styles.itemMoneyCol, styles.itemList]}>{formatCents(line.listCents)}</Text>
-                      <View style={styles.itemMoneyCol}>
-                        {line.offCents > 0 ? (
-                          <>
-                            <Text style={[styles.itemOff, styles.alignRight]}>−{formatCents(line.offCents)}</Text>
-                            {line.percent ? <Text style={[styles.itemSub, styles.alignRight]}>{line.percent}</Text> : null}
-                          </>
-                        ) : (
-                          <Text style={[styles.itemSub, styles.alignRight]}>—</Text>
-                        )}
-                      </View>
-                      <Text style={[styles.itemMoneyCol, styles.itemPrice]}>{formatCents(line.paidCents)}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={!compact && styles.summarySide}>
-              <Text style={[styles.detailLabel, { marginTop: 14 }]}>SALE SUMMARY</Text>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryKey}>Items at list price</Text>
-                <Text style={styles.summaryValue}>{formatCents(discounts.listCents)}</Text>
-              </View>
-              {discounts.itemDiscountCents > 0 && (
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>
-                    Item discounts
-                    <Text style={styles.summaryHint}>
-                      {'  '}{[discounts.itemDiscountPercent, `${discounts.discountedItemCount} item${discounts.discountedItemCount === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
-                    </Text>
-                  </Text>
-                  <Text style={[styles.summaryValue, styles.summaryOff]}>−{formatCents(discounts.itemDiscountCents)}</Text>
-                </View>
-              )}
-              {discounts.saleDiscountCents > 0 && (
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>
-                    Sale discount
-                    <Text style={styles.summaryHint}>
-                      {'  '}{discounts.saleDiscountPercent ? `${discounts.saleDiscountPercent} of ${formatCents(discounts.listCents - discounts.itemDiscountCents)}` : ''}
-                    </Text>
-                  </Text>
-                  <Text style={[styles.summaryValue, styles.summaryOff]}>−{formatCents(discounts.saleDiscountCents)}</Text>
-                </View>
-              )}
-              {discounts.pointsRedeemedCents > 0 && (
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Points redeemed</Text>
-                  <Text style={styles.summaryValue}>−{formatCents(discounts.pointsRedeemedCents)}</Text>
-                </View>
-              )}
-              {(discounts.totalOffCents > 0 || discounts.pointsRedeemedCents > 0) && (
-                <View style={[styles.summaryRow, styles.summaryRule]}>
-                  <Text style={styles.summaryKey}>Subtotal</Text>
-                  <Text style={styles.summaryValue}>{formatCents(discounts.subtotalCents)}</Text>
-                </View>
-              )}
-              {sale.taxCents > 0 && (
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>
-                    Tax{sale.taxRatePercent !== null ? <Text style={styles.summaryHint}>{'  '}{sale.taxRatePercent}%</Text> : null}
-                  </Text>
-                  <Text style={styles.summaryValue}>{formatCents(sale.taxCents)}</Text>
-                </View>
-              )}
-              <View style={[styles.summaryRow, styles.summaryTotal]}>
-                <Text style={styles.summaryTotalText}>Total</Text>
-                <Text style={styles.summaryTotalText}>{formatCents(sale.totalCents)}</Text>
-              </View>
-              {discounts.totalOffCents > 0 && (
-                <Text style={styles.savedText}>
-                  The customer saved <Text style={styles.summaryOff}>{formatCents(discounts.totalOffCents)}</Text>
-                  {discounts.totalOffPercent ? `, ${discounts.totalOffPercent} off the list price` : ''}
-                  {discounts.onlyPromotion ? `, all from the ${discounts.onlyPromotion} promotion.` : '.'}
-                </Text>
-              )}
-            </View>
-          </View>
-
-          <Text style={[styles.detailLabel, { marginTop: 14 }]}>PAYMENT</Text>
-          {sale.payments?.map((payment) => (
-            <View key={payment.id} style={styles.detailRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.detailItemName}>{paymentLabel(payment.method)}{payment.customerName ? ` · ${payment.customerName}` : ''}</Text>
-                {payment.customerPhone && <Text style={styles.saleMeta}>{payment.customerPhone}</Text>}
-                {payment.tenderedCents !== null && (
-                  <Text style={styles.saleMeta}>Tendered {formatCents(payment.tenderedCents)} · Change {formatCents(payment.tenderedCents - payment.amountCents)}</Text>
-                )}
-              </View>
-              <Text style={styles.detailItemPrice}>{formatCents(payment.amountCents)}</Text>
-            </View>
-          ))}
-
-          {/* The row's own reconciliation: paid, less what went back, leaves
-              what the shop kept. Three lines that add up -- which is the thing
-              a bare "Revenue $0.00" could never show, and the reason the old
-              -$0.32 read as a bug rather than as tax counted twice.
-
-              The tax line is a sub-item of the refund, not a deduction of its
-              own: it is money already inside the figure above it, called out
-              because that is the part that cancels tax collected rather than
-              revenue. */}
-          {refundState.kind !== 'none' && (
-            <>
-              <Text style={[styles.detailLabel, { marginTop: 14 }]}>REFUNDED</Text>
-              {sale.refunds?.map((refund) => (
-                <View key={refund.id} style={styles.detailRow}>
-                  <Text style={styles.detailItemName}>{new Date(refund.createdAt).toLocaleString()}</Text>
-                  <Text style={styles.detailItemPrice}>−{formatCents(refund.totalCents)}</Text>
-                </View>
-              ))}
-              {profit.refundedTaxCents > 0 && (
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailItemName, styles.muted]}>of which sales tax</Text>
-                  <Text style={[styles.detailItemPrice, styles.muted]}>−{formatCents(profit.refundedTaxCents)}</Text>
-                </View>
-              )}
-              {/* Can go negative: a sale over-refunded under the pre-migration
-                  maths keeps its old refund rows, and refund_sale_items
-                  deliberately never claws that back. Coloured like the profit
-                  line below rather than left in plain ink, so the two negatives
-                  in one pane don't read as different kinds of number. */}
-              <View style={[styles.detailRow, styles.detailRowTotal]}>
-                <Text style={styles.profitLabel}>Kept</Text>
-                <Text style={[styles.profitValue, profit.keptCents < 0 && styles.profitNegative]}>
-                  {formatCents(profit.keptCents)}
-                </Text>
-              </View>
-            </>
-          )}
-
-          {/* What this sale actually made, on the same terms as the period
-              figures: tax excluded (not the shop's money) and refunds netted
-              out of both revenue and cost. */}
-          <Text style={[styles.detailLabel, { marginTop: 14 }]}>PROFIT</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailItemName}>Revenue{sale.taxCents > 0 ? ' (excl. tax)' : ''}</Text>
-            <Text style={styles.detailItemPrice}>{formatCents(profit.netRevenueCents)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailItemName}>Cost of goods</Text>
-            <Text style={styles.detailItemPrice}>{formatCents(profit.costCents)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.profitLabel}>Profit</Text>
-            <Text style={[styles.profitValue, profit.profitCents < 0 && styles.profitNegative]}>
-              {formatCents(profit.profitCents)}
-              {profit.marginPercent !== null ? ` · ${profit.marginPercent.toFixed(0)}% margin` : ''}
-            </Text>
-          </View>
-          {profit.uncostedItemCount > 0 && (
-            <Text style={styles.profitCaveat}>
-              {`${profit.uncostedItemCount} ${profit.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost price on file (${formatCents(profit.uncostedRevenueCents)}), so this is the most the sale could have made — set the cost in Inventory.`}
-            </Text>
-          )}
-
-          {editCount > 0 && (
-            <>
-              <Pressable onPress={() => setHistoryOpen((v) => !v)} style={{ marginTop: 14 }}>
-                <Text style={styles.historyToggle}>{historyOpen ? '▴' : '▾'} Edit history ({editCount})</Text>
-              </Pressable>
-              {historyOpen && (
-                <View style={styles.historyList}>
-                  {sale.edits?.map((edit) => (
-                    <View key={edit.id} style={styles.historyEntry}>
-                      <Text style={styles.historyDate}>Previous version — {new Date(edit.createdAt).toLocaleString()}</Text>
-                      {(edit.previousSnapshot.customerName || edit.previousSnapshot.customerPhone || edit.previousSnapshot.customerEmail) && (
-                        <Text style={styles.historyItem}>
-                          {[edit.previousSnapshot.customerName, edit.previousSnapshot.customerPhone, edit.previousSnapshot.customerEmail].filter(Boolean).join(' · ')}
-                        </Text>
-                      )}
-                      {edit.previousSnapshot.items.map((item: SaleItemSnapshot, index: number) => (
-                        <Text key={index} style={styles.historyItem}>{item.quantity}× {item.productName} — {formatCents(item.lineTotalCents)}</Text>
                       ))}
-                      <Text style={styles.historyTotal}>Total: {formatCents(edit.previousSnapshot.totalCents)} · {paymentLabel(edit.previousSnapshot.paymentMethod)}</Text>
                     </View>
-                  ))}
-                </View>
-              )}
-            </>
-          )}
-
-          {confirmingDelete ? (
-            <View style={styles.confirmRow}>
-              <Text style={styles.confirmText}>Delete this sale? Stock will be restored.</Text>
-              <Pressable onPress={onDelete}><Text style={styles.confirmDanger}>Confirm</Text></Pressable>
-              <Pressable onPress={onCancelDelete}><Text style={styles.confirmCancel}>Cancel</Text></Pressable>
+                  )}
             </View>
-          ) : (
-            <View style={styles.actionRow}>
-              <Pressable onPress={() => setShowReceipt(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Receipt</Text></Pressable>
-              {canEdit && (
-                <>
-                  <Pressable onPress={onStartEdit} style={styles.actionButton}><Text style={styles.actionButtonText}>Edit</Text></Pressable>
-                  <Pressable onPress={onConfirmDelete} style={styles.actionButton}><Text style={styles.actionButtonTextDanger}>Delete</Text></Pressable>
-                </>
-              )}
-              {canRefund && refundableCount > 0 && (
-                <Pressable onPress={() => setShowRefund(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Refund</Text></Pressable>
-              )}
-            </View>
-          )}
-        </View>
+          ) : null}
+        />
       )}
 
       {expanded && editing && (
@@ -1007,10 +802,11 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       {saveBlockedReason && <Text style={styles.warningText}>{saveBlockedReason}</Text>}
 
       <View style={styles.actionRow}>
-        <Pressable onPress={save} disabled={!canSave} style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}>
-          <Text style={styles.saveButtonText}>{submitting ? 'Saving…' : 'Save changes'}</Text>
+        {/* Save commits, so it takes the solid blue; Cancel only closes. */}
+        <Pressable onPress={save} disabled={!canSave} role="button" style={[pillStyles.pill, pillStyles.solid, !canSave && pillStyles.disabled]}>
+          <Text style={[pillStyles.pillText, pillStyles.solidText, !canSave && pillStyles.disabledText]}>{submitting ? 'Saving…' : 'Save changes'}</Text>
         </Pressable>
-        <Pressable onPress={onCancel} style={styles.actionButton}><Text style={styles.actionButtonText}>Cancel</Text></Pressable>
+        <Pressable onPress={onCancel} role="button" style={[pillStyles.pill, pillStyles.quiet]}><Text style={[pillStyles.pillText, pillStyles.quietText]}>Cancel</Text></Pressable>
       </View>
     </View>
   );
@@ -1070,49 +866,13 @@ const styles = StyleSheet.create({
   detail: { padding: 14, paddingTop: 0, borderTopWidth: 1, borderTopColor: '#ECECEC' },
   detailLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
   detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
-  // Matches `totalRow` above -- the same hairline this file already uses to
-  // close a block that sums.
-  detailRowTotal: { borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 6, paddingTop: 10 },
   detailItemName: { fontSize: 13, fontWeight: '700', color: '#111111', flex: 1 },
   detailItemPrice: { fontSize: 13, fontWeight: '700', color: '#111111' },
 
-  // The bottom line of the sale, so it reads heavier than the two figures it
-  // is derived from. Red only when the sale lost money.
-  profitLabel: { fontSize: 13, fontWeight: '800', color: '#111111', flex: 1 },
-  profitValue: { fontSize: 14, fontWeight: '800', color: '#111111' },
-  profitNegative: { color: '#C0392B' },
-  profitCaveat: { color: '#B5793A', fontSize: 11, fontWeight: '600', marginTop: 4, lineHeight: 15 },
 
-  itemsList: { backgroundColor: '#FAFAFA', borderRadius: 10, paddingHorizontal: 12 },
-  itemRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
-  itemRowLast: { borderBottomWidth: 0 },
-  itemQty: { fontSize: 13, fontWeight: '700', color: '#999999', marginRight: 6, lineHeight: 18 },
-  itemName: { fontSize: 13, fontWeight: '600', color: '#111111', flex: 1, marginRight: 12, lineHeight: 18 },
-  itemPrice: { fontSize: 13, fontWeight: '700', color: '#111111', lineHeight: 18 },
-  itemsAndSummary: { flexDirection: 'row', gap: 26, alignItems: 'flex-start' },
-  itemsSide: { flex: 1.35, minWidth: 0 },
-  summarySide: { flex: 1, minWidth: 0 },
-  itemHeadRow: { paddingVertical: 7 },
-  itemHead: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#999999' },
-  itemMoneyCol: { width: 76, textAlign: 'right', alignItems: 'flex-end' },
-  // stretch: itemRow's flex-start would leave each line only as wide as its text.
-  itemRowStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 2 },
-  itemTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  itemSub: { fontSize: 11.5, color: '#777777', lineHeight: 16 },
-  itemList: { fontSize: 13, color: '#777777', lineHeight: 18 },
   // The bento accent, as the list's discount tag: blue is "taken off" on this
   // screen, never a status.
   itemOff: { fontSize: 12.5, fontWeight: '700', color: theme.bentoAccentInk, lineHeight: 18 },
-  alignRight: { textAlign: 'right' },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 5 },
-  summaryKey: { fontSize: 13, color: '#333333', flexShrink: 1 },
-  summaryHint: { fontSize: 12, color: '#999999' },
-  summaryValue: { fontSize: 13, fontWeight: '700', color: '#111111' },
-  summaryOff: { color: theme.bentoAccentInk, fontWeight: '700' },
-  summaryRule: { borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 4, paddingTop: 8 },
-  summaryTotal: { borderTopWidth: 1, borderTopColor: '#111111', marginTop: 4, paddingTop: 8 },
-  summaryTotalText: { fontSize: 15, fontWeight: '800', color: '#111111' },
-  savedText: { marginTop: 10, fontSize: 12.5, color: '#333333', lineHeight: 18, backgroundColor: '#FAFAFA', borderRadius: 10, padding: 10 },
 
   historyToggle: { fontSize: 12, fontWeight: '700', color: '#999999' },
   historyList: { gap: 10, marginTop: 10 },
@@ -1122,13 +882,7 @@ const styles = StyleSheet.create({
   historyTotal: { fontSize: 12, fontWeight: '700', color: '#111111', marginTop: 4 },
 
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 14, alignItems: 'center' },
-  actionButton: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#F2F2F2' },
-  actionButtonText: { fontSize: 12, fontWeight: '700', color: '#111111' },
-  actionButtonTextDanger: { fontSize: 12, fontWeight: '700', color: '#C0392B' },
-  confirmRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
   confirmText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#111111' },
-  confirmDanger: { fontSize: 12, fontWeight: '800', color: '#C0392B' },
-  confirmCancel: { fontSize: 12, fontWeight: '700', color: '#999999' },
 
   editItemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FAFAFA', borderRadius: 10, padding: 10, marginBottom: 6 },
   addSearchInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111', marginTop: 8 },
@@ -1137,7 +891,4 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
   totalLabel: { color: '#111111', fontSize: 13, fontWeight: '800' },
   totalValue: { color: '#111111', fontSize: 20, fontWeight: '800' },
-  saveButton: { backgroundColor: '#111111', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10 },
-  saveButtonDisabled: { backgroundColor: '#CCCCCC' },
-  saveButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
 });

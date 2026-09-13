@@ -108,6 +108,14 @@ describe('saleDiscountSummary', () => {
     expect(summary.onlyPromotion).toBeNull();
   });
 
+  it('knows tax added on top from tax already inside the price', () => {
+    const base = { items: [line({ unitPriceCents: 600, quantity: 2 })], discountCents: 0, pointsRedeemedCents: 0, taxCents: 29 };
+    // Sale 68d2dea8: $12.00 total with $0.29 of tax inside it.
+    expect(saleDiscountSummary({ ...base, totalCents: 1200 }).taxIncluded).toBe(true);
+    expect(saleDiscountSummary({ ...base, totalCents: 1229 }).taxIncluded).toBe(false);
+    expect(saleDiscountSummary({ ...base, taxCents: 0, totalCents: 1200 }).taxIncluded).toBe(false);
+  });
+
   it('shows points in the summary but keeps them out of what was taken off', () => {
     const summary = saleDiscountSummary({
       items: [line({ unitPriceCents: 1000 })],

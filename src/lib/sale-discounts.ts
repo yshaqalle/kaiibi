@@ -65,6 +65,11 @@ export type SaleDiscountSummary = {
   // The one promotion that accounts for EVERYTHING taken off, or null -- a
   // typed-in discount or a whole-sale discount beside it means it did not.
   onlyPromotion: string | null;
+  // True when the tax is INSIDE the total rather than added to it -- a
+  // storefront order completed at its quoted, tax-inclusive price
+  // (20260929000100). The sale stores no flag for this, so it is read off the
+  // arithmetic: the items already come to the total on their own.
+  taxIncluded: boolean;
 };
 
 export function saleDiscountSummary(sale: {
@@ -97,5 +102,6 @@ export function saleDiscountSummary(sale: {
     totalOffPercent: discountPercentLabel(totalOffCents, listCents),
     promotionNames,
     onlyPromotion: allPromoted && promotionNames.length === 1 ? promotionNames[0] : null,
+    taxIncluded: sale.taxCents > 0 && listCents - totalOffCents - pointsRedeemedCents === sale.totalCents,
   };
 }
