@@ -24,7 +24,7 @@ import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { saleProfit, saleRefundState, type SaleRefundState } from '@/lib/sales-reporting';
-import { taxCentsFor } from '@/lib/tax';
+import { editedLineDiscountCents, editedSaleTotals } from '@/lib/sale-edit';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { Colors } from '@/constants/theme';
@@ -663,7 +663,7 @@ function SaleRow({
 // drops these silently zeroes the line's discount and detaches whatever
 // promotion produced it. Quantity/price are the only fields this editor
 // actually lets someone change.
-type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; discountCents: number; promotionId: string | null };
+type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; originalQuantity: number; discountCents: number; promotionId: string | null };
 
 function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; products: Product[]; shop: Shop | null; onCancel: () => void; onSaved: () => void }) {
   const [items, setItems] = useState<EditableItem[]>(() =>
@@ -674,6 +674,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         productName: item.productName,
         unitPriceCents: item.unitPriceCents,
         quantity: item.quantity,
+        originalQuantity: item.quantity,
         discountCents: item.discountCents,
         promotionId: item.promotionId,
       }))
@@ -709,9 +710,26 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const preTaxTotalCents = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-  const taxCents = shop?.taxEnabled ? taxCentsFor(preTaxTotalCents, shop.taxRatePercent) : 0;
-  const total = preTaxTotalCents + taxCents;
+  // edit_sale re-prices every line at the product's CURRENT price, so the
+  // editor does too -- showing the sale-time price would put a total on screen
+  // the server then refuses to match. Falls back to the sale-time price while
+  // the product list is still loading.
+  const lines = items.map((item) => {
+    const unitPriceCents = products.find((p) => p.id === item.productId)?.priceCents ?? item.unitPriceCents;
+    return {
+      ...item,
+      unitPriceCents,
+      discountCents: editedLineDiscountCents({ discountCents: item.discountCents, originalQuantity: item.originalQuantity, quantity: item.quantity, unitPriceCents }),
+    };
+  });
+  const totals = editedSaleTotals({
+    lines,
+    saleDiscountCents: sale.discountCents,
+    pointsRedeemedCents: sale.pointsRedeemedCents,
+    taxRatePercent: shop?.taxEnabled ? shop.taxRatePercent : null,
+  });
+  const taxCents = totals.taxCents;
+  const total = totals.totalCents;
 
   const setQuantity = (productId: string, quantity: number) => {
     setItems((current) => (quantity === 0 ? current.filter((i) => i.productId !== productId) : current.map((i) => (i.productId === productId ? { ...i, quantity } : i))));
@@ -723,7 +741,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       if (existing) return current.map((i) => (i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i));
       // A product added during the edit has no discount and no promotion
       // behind it -- it's new to this sale, not a preserved line.
-      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, discountCents: 0, promotionId: null }];
+      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, originalQuantity: 0, discountCents: 0, promotionId: null }];
     });
     setAddSearch('');
   };
@@ -748,17 +766,27 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     items.length > 0 && !submitting &&
     (coveredCents === total || (carriesBalance && coveredCents < total));
 
+  // A greyed-out Save with no word on why reads as a broken button.
+  const saveBlockedReason =
+    items.length === 0 ? 'A sale needs at least one item.'
+    : coveredCents > total ? `Payments are ${formatCents(coveredCents - total)} more than the total — remove one and re-add it.`
+    : coveredCents < total && !carriesBalance
+      ? !selectedCustomer
+        ? `${formatCents(total - coveredCents)} is still unpaid — add a payment, or pick a customer to leave it as a balance.`
+        : `${formatCents(total - coveredCents)} is still unpaid — add a payment to cover it.`
+    : null;
+
   const save = async () => {
     if (!canSave) return;
     setSubmitting(true);
     setError(null);
     try {
-      await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountCents: i.discountCents, promotionId: i.promotionId })), payments, {
+      await editSale(sale.id, lines.map((i) => ({ productId: i.productId, quantity: i.quantity, discountCents: i.discountCents, promotionId: i.promotionId })), payments, {
         id: selectedCustomer?.id ?? null,
         name: selectedCustomer?.name ?? null,
         phone: selectedCustomer?.phone ?? null,
         email: selectedCustomer?.email ?? null,
-      }, 0, carriesBalance && coveredCents < total);
+      }, totals.saleDiscountCents, carriesBalance && coveredCents < total);
       onSaved();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -784,11 +812,11 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       )}
 
       <Text style={styles.detailLabel}>ITEMS</Text>
-      {items.map((item) => (
+      {lines.map((item) => (
         <View key={item.productId} style={styles.editItemRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.detailItemName}>{item.productName}</Text>
-            <Text style={styles.saleMeta}>{formatCents(item.unitPriceCents)} each</Text>
+            <Text style={styles.saleMeta}>{formatCents(item.unitPriceCents)} each{item.discountCents > 0 ? ` · ${formatCents(item.discountCents)} off` : ''}</Text>
           </View>
           <QuantityStepper quantity={item.quantity} onChange={(next) => setQuantity(item.productId, next)} />
         </View>
@@ -806,6 +834,12 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         </View>
       )}
 
+      {(totals.saleDiscountCents > 0 || sale.pointsRedeemedCents > 0) && (
+        <View style={styles.detailRow}>
+          <Text style={styles.saleMeta}>{totals.saleDiscountCents > 0 ? 'Sale discount' : 'Points redeemed'}{totals.saleDiscountCents > 0 && sale.pointsRedeemedCents > 0 ? ' + points' : ''}</Text>
+          <Text style={styles.detailItemPrice}>−{formatCents(totals.saleDiscountCents + sale.pointsRedeemedCents)}</Text>
+        </View>
+      )}
       {taxCents > 0 && (
         <View style={styles.detailRow}>
           <Text style={styles.saleMeta}>Tax ({shop?.taxRatePercent}%)</Text>
@@ -820,6 +854,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       <PaymentMethodPicker totalCents={total} payments={payments} onChange={setPayments} />
 
       {error && <Text style={styles.error}>{error}</Text>}
+      {saveBlockedReason && <Text style={styles.warningText}>{saveBlockedReason}</Text>}
 
       <View style={styles.actionRow}>
         <Pressable onPress={save} disabled={!canSave} style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}>
